@@ -1308,10 +1308,12 @@ model Entrega {
   avisoChegandoAt   DateTime?
   recebidoNaHora    Boolean?
   receiptMethod     String?  // pix | dinheiro | fiado | null
-  // CADERNETA 7 DIAS (05/08) — a PÁGINA da caderneta onde a venda foi anotada
-  // (1=seg..7=dom). É organização, nunca dinheiro: deliveredAt segue o dia real.
-  // Null = venda fora da caderneta (o dia real em SP decide a página no resumo).
-  cadernetaDiaSemana Int?
+  // A PÁGINA do fechamento onde a venda foi anotada (1=seg..7=dom). É
+  // organização, nunca dinheiro: deliveredAt segue o dia real. Null = venda sem
+  // página (o dia real em SP decide a página no resumo).
+  // O @map preserva a coluna de 05/08: o nome morre no código, o dado fica onde
+  // está — renomear coluna de tabela viva é migration destrutiva por estética.
+  fechamentoDiaSemana Int? @map("cadernetaDiaSemana")
   idempotencyKey    String?
   // Chave da ocorrência recorrente, separada da idempotência offline usada na
   // confirmação. Uma não pode ocupar nem apagar o contrato da outra.
@@ -1368,7 +1370,7 @@ model Entrega {
   @@index([companyId, customerProfileId, scheduledAt])
   @@index([companyId, entregadorId, status, scheduledAt])
   // CADERNETA 7 DIAS — varredura da janela por página (etiqueta + data).
-  @@index([companyId, cadernetaDiaSemana, deliveredAt])
+  @@index([companyId, fechamentoDiaSemana, deliveredAt])
   @@index([companyId, planoEntregaId, scheduledAt])
   @@index([companyId, rotaModeloId, scheduledAt])
 }

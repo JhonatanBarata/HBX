@@ -67,7 +67,7 @@ const BASE: Record<LogisticaNivel, LogisticaNivelDefinition> = {
   BASIC: {
     nivel: 'BASIC',
     titulo: 'Rota Basic',
-    slogan: 'Caderneta eletrônica que te coloca na localização',
+    slogan: 'Anota o dia inteiro e te leva até a porta',
     precoMensal: 99,
     franquiaParadasMes: 300,
   },

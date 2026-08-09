@@ -4,17 +4,17 @@ import { LogisticaFechamentoDiaService } from './logistica-fechamento-dia.servic
 import { isoWeekdayForDate, saoPauloDateKey } from './logistica-occurrence.service';
 import { saoPauloMidnight } from './logistica-agenda-cursor.util';
 
-// MODO CADERNETA — testes de mesa do serviço (mocks pobres, padrão dos vizinhos):
-// o que importa provar aqui é a COSTURA (gate do modo, idempotência do clique,
+// FECHAMENTO DO DIA — testes de mesa do serviço (mocks pobres, padrão dos
+// vizinhos): o que importa provar aqui é a COSTURA (idempotência do clique,
 // 'deveu' → fiado explícito, medidor conta pino provado, fechamento por forma).
-// CADERNETA 7 DIAS (05/08): etiqueta da página, janela de 7 dias, ouro nº1
-// (auto-dia pela porta canônica), sumiu, aprendiz semanal, finalizar e convite.
+// AS 7 PÁGINAS (05/08): etiqueta da página, janela de 7 dias, ouro nº1 (auto-dia
+// pela porta canônica), sumiu, aprendiz semanal, fechar o dia e convite.
 
 type Fn = (...args: any[]) => any;
 
 function prismaMock(overrides: Record<string, Record<string, Fn>> = {}) {
   const base: any = {
-    logisticaConfig: { findUnique: async () => ({ modoCaderneta: true, moduloFinanceiroAtivo: true }) },
+    logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: true }) },
     logisticaPlanoEntrega: { findMany: async () => [], count: async () => 0 },
     customerProfile: {
       findMany: async () => [],
@@ -29,7 +29,7 @@ function prismaMock(overrides: Record<string, Record<string, Fn>> = {}) {
     financeiroCharge: { findMany: async () => [], updateMany: async () => ({ count: 0 }) },
     clienteHistorico: { deleteMany: async () => ({ count: 0 }) },
     deletionRecord: { create: async () => ({}) },
-    // CADERNETA 7 DIAS — as Rotas salvas do aprendiz e o nome do convite.
+    // As Rotas salvas do aprendiz e o nome do convite.
     logisticaRotaModelo: { findFirst: async () => null, create: async () => ({}), update: async () => ({}) },
     user: { findFirst: async () => ({ name: 'Tester' }) },
     $transaction: async (fn: any) => fn(base),
@@ -67,7 +67,7 @@ function vendaDeMesa(id: string, cliente: string, dateKey: string, extra: Record
     valor: 10,
     receiptMethod: 'pix',
     deliveredAt: new Date(`${dateKey}T12:00:00-03:00`),
-    cadernetaDiaSemana: null,
+    fechamentoDiaSemana: null,
     customerProfile: { name: cliente },
     itens: [],
     ...extra,
@@ -96,12 +96,20 @@ const DTO_BASE = {
   idempotencyKey: 'key-abc',
 } as any;
 
-test('vender: modo desligado → recusa com mensagem humana', async () => {
+// 🔴 VACINA DO DEFEITO DE 09/08 — a venda por toque NÃO depende de modo nenhum.
+// Estes dois testes cobravam o contrário (chave `false` → recusa), e por isso o
+// gate morto passou 2 dias verde enquanto o botão não funcionava pra ninguém: a
+// régua cobrava a PAREDE em vez da porta. Config SEM chave alguma (nem modo, nem
+// financeiro) tem que VENDER.
+test('vender: sem modo nenhum na config, a venda acontece (a chave morta não barra)', async () => {
+  const calls: string[] = [];
   const svc = new LogisticaFechamentoDiaService(
-    prismaMock({ logisticaConfig: { findUnique: async () => ({ modoCaderneta: false }) } }) as any,
-    logisticaMock() as any,
+    prismaMock({ logisticaConfig: { findUnique: async () => ({}) } }) as any,
+    logisticaMock(calls) as any,
   );
-  await assert.rejects(() => svc.vender(5, DTO_BASE), /caderneta está desligado/);
+  const r = await svc.vender(5, { ...DTO_BASE, metodo: undefined });
+  assert.equal(r.ok, true);
+  assert.ok(calls.some((c) => c.startsWith('create:')), 'a entrega tem que nascer');
 });
 
 test("vender: 'pagou' sem método → recusa antes de criar qualquer coisa", async () => {
@@ -178,7 +186,7 @@ test('vender: itens extras viram novosItens do confirmar (multi-produto)', async
 
 // ── PREÇO POR CLIENTE (05/08) ────────────────────────────────────────────────
 // 🔴 A VACINA DO CASO REAL (cia 41, 05/08): Larissa tem R$11 combinado no
-// ClienteProduto e a caderneta registrou R$13 — o preço de CATÁLOGO do produto.
+// ClienteProduto e a venda registrou R$13 — o preço de CATÁLOGO do produto.
 // O combinado estava no banco desde 24/07 e nenhum caminho da venda o lia.
 test('vender: o preço COMBINADO com o cliente vence o catálogo (caso Larissa: 11, não 13)', async () => {
   const calls: string[] = [];
@@ -405,7 +413,6 @@ test('resumo: dia vazio nunca é "pronto" (0 de 0 não libera GPS)', async () =>
   const svc = new LogisticaFechamentoDiaService(prismaMock() as any, logisticaMock() as any);
   const r = await svc.resumo(5, '2026-08-05');
   assert.equal(r.dia.pronto, false);
-  assert.equal(r.ativo, true);
 });
 
 test("vender: financeiro OFF → 'pagou' SEM método passa (folha de 1 botão) e confirma sem receiptMethod", async () => {
@@ -419,7 +426,7 @@ test("vender: financeiro OFF → 'pagou' SEM método passa (folha de 1 botão) e
   } as any;
   const svc = new LogisticaFechamentoDiaService(
     prismaMock({
-      logisticaConfig: { findUnique: async () => ({ modoCaderneta: true, moduloFinanceiroAtivo: false }) },
+      logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: false }) },
     }) as any,
     logistica,
   );
@@ -431,7 +438,7 @@ test("vender: financeiro OFF → 'pagou' SEM método passa (folha de 1 botão) e
 test('resumo: financeiro OFF → fechamento null (número de dinheiro não se inventa)', async () => {
   const svc = new LogisticaFechamentoDiaService(
     prismaMock({
-      logisticaConfig: { findUnique: async () => ({ modoCaderneta: true, moduloFinanceiroAtivo: false }) },
+      logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: false }) },
     }) as any,
     logisticaMock() as any,
   );
@@ -439,7 +446,7 @@ test('resumo: financeiro OFF → fechamento null (número de dinheiro não se in
   assert.equal(r.fechamento, null);
 });
 
-// ═══ CADERNETA 7 DIAS (05/08) ════════════════════════════════════════════════
+// ═══ AS 7 PÁGINAS DO FECHAMENTO (05/08) ══════════════════════════════════════
 // 2026-08-05 é QUARTA (dia 3); a janela da página vai de 30/07 (qui) a 05/08.
 
 const perfilVivoMock = {
@@ -452,7 +459,7 @@ const perfilVivoMock = {
 test('resumo/página: etiqueta vence a data, sem etiqueta cai no dia real; fechamento e data são DA página', async () => {
   const rows = [
     vendaDeMesa('e1', 'a', '2026-08-01'), // sábado real, sem etiqueta → página 6
-    vendaDeMesa('e2', 'b', '2026-08-05', { cadernetaDiaSemana: 6 }), // quarta ETIQUETADA sábado
+    vendaDeMesa('e2', 'b', '2026-08-05', { fechamentoDiaSemana: 6 }), // quarta ETIQUETADA sábado
     vendaDeMesa('e3', 'c', '2026-08-04'), // terça → página 2, fora da página 6
   ];
   const svc = new LogisticaFechamentoDiaService(
@@ -470,7 +477,7 @@ test('resumo/página: etiqueta vence a data, sem etiqueta cai no dia real; fecha
   assert.equal(r.historicoDias[0].dateKey, '2026-08-04');
 });
 
-test('resumo/aprendiz: semana FECHADA vira "Caderneta de <dia>" (dedupe, ordem de registro) e o convite sai com o nome', async () => {
+test('resumo/aprendiz: semana FECHADA vira "Rota de <dia>" (dedupe, ordem de registro) e o convite sai com o nome', async () => {
   // Semana fechada = seg 27/07 → dom 02/08. Duas vendas no sábado 01/08 (uma
   // repetida do mesmo cliente) + uma na sexta 31/07.
   const rows = [
@@ -493,8 +500,8 @@ test('resumo/aprendiz: semana FECHADA vira "Caderneta de <dia>" (dedupe, ordem d
   assert.deepEqual(r.conviteGps, { elegivel: true, nome: 'André' });
   const sabado = criados.find((c) => c.diaSemana === 6);
   const sexta = criados.find((c) => c.diaSemana === 5);
-  assert.ok(sabado && sexta, 'uma caderneta por dia com venda');
-  assert.equal(sabado.nome, 'Caderneta de Sábado');
+  assert.ok(sabado && sexta, 'uma rota salva por dia com venda');
+  assert.equal(sabado.nome, 'Rota de Sábado');
   // Ordem de registro, cliente repetido entra 1× (b vendeu antes da repetição do a).
   assert.deepEqual(sabado.paradasJson, [
     { customerProfileId: 'b', localId: null },
@@ -547,8 +554,8 @@ test('resumo/sumiu: cliente do dia que comprava e faltou 2 semanas ganha o aviso
 
 test('resumo/sugestão: vendido 2+ datas na página, com OUTRO dia cadastrado → chip "+ dia" (nunca sobrescrever calado)', async () => {
   const rows = [
-    vendaDeMesa('g1', 'y', '2026-07-25', { cadernetaDiaSemana: 6 }),
-    vendaDeMesa('g2', 'y', '2026-08-01', { cadernetaDiaSemana: 6 }),
+    vendaDeMesa('g1', 'y', '2026-07-25', { fechamentoDiaSemana: 6 }),
+    vendaDeMesa('g2', 'y', '2026-08-01', { fechamentoDiaSemana: 6 }),
   ];
   const svc = new LogisticaFechamentoDiaService(
     prismaMock({
@@ -603,7 +610,7 @@ test('vender: a etiqueta da página viaja explícita (registrar numa página fol
     logisticaMock() as any,
   );
   await svc.vender(5, { ...DTO_BASE, diaSemana: 6 });
-  assert.equal(etiquetas[0].cadernetaDiaSemana, 6);
+  assert.equal(etiquetas[0].fechamentoDiaSemana, 6);
 });
 
 test('vender: sem etiqueta do APK, a página é o dia real de HOJE em SP (APK velho)', async () => {
@@ -620,7 +627,7 @@ test('vender: sem etiqueta do APK, a página é o dia real de HOJE em SP (APK ve
     logisticaMock() as any,
   );
   await svc.vender(5, DTO_BASE);
-  assert.equal(etiquetas[0].cadernetaDiaSemana, isoWeekdayForDate(saoPauloDateKey(new Date())!));
+  assert.equal(etiquetas[0].fechamentoDiaSemana, isoWeekdayForDate(saoPauloDateKey(new Date())!));
 });
 
 function recorrenciaAgendaMocks() {
@@ -694,7 +701,7 @@ test('ouro nº1: cliente que JÁ tem dia cadastrado NUNCA é reescrito calado', 
   assert.deepEqual(chamadas, []);
 });
 
-test('finalizar: dia diferente de hoje RE-ETIQUETA a sessão de hoje e salva a Caderneta do dia escolhido', async () => {
+test('finalizar: dia diferente de hoje RE-ETIQUETA a sessão de hoje e salva a Rota do dia escolhido', async () => {
   const hoje = saoPauloDateKey(new Date())!;
   const diaHoje = isoWeekdayForDate(hoje);
   const alvo = (diaHoje % 7) + 1;
@@ -705,7 +712,7 @@ test('finalizar: dia diferente de hoje RE-ETIQUETA a sessão de hoje e salva a C
   entrega.updateMany = async (args: any) => {
     retags.push(args);
     // O mock reflete o retag (o serviço relê a página DEPOIS de re-etiquetar).
-    rows.forEach((r) => { r.cadernetaDiaSemana = args.data.cadernetaDiaSemana; });
+    rows.forEach((r) => { r.fechamentoDiaSemana = args.data.fechamentoDiaSemana; });
     return { count: rows.length };
   };
   const svc = new LogisticaFechamentoDiaService(
@@ -720,12 +727,12 @@ test('finalizar: dia diferente de hoje RE-ETIQUETA a sessão de hoje e salva a C
   assert.equal(r.dia, alvo);
   assert.equal(r.clientes, 1);
   assert.equal(retags.length, 1);
-  assert.equal(retags[0].data.cadernetaDiaSemana, alvo);
+  assert.equal(retags[0].data.fechamentoDiaSemana, alvo);
   // Só a sessão de HOJE se move (etiqueta de hoje ou vazia) — dia editado no
   // histórico fica onde está.
-  assert.deepEqual(retags[0].where.OR, [{ cadernetaDiaSemana: diaHoje }, { cadernetaDiaSemana: null }]);
+  assert.deepEqual(retags[0].where.OR, [{ fechamentoDiaSemana: diaHoje }, { fechamentoDiaSemana: null }]);
   assert.equal(criados[0].diaSemana, alvo);
-  assert.match(criados[0].nome, /^Caderneta de /);
+  assert.match(criados[0].nome, /^Rota de /);
   assert.deepEqual(criados[0].paradasJson, [{ customerProfileId: 'a', localId: null }]);
 });
 
@@ -737,10 +744,23 @@ test('finalizar: dia sem nada registrado → recusa com mensagem humana', async 
   await assert.rejects(() => svc.finalizar(5, 3), /Nada registrado/);
 });
 
-test('finalizar: modo desligado → recusa', async () => {
+// 🔴 A VACINA DO "CLICO EM FINALIZAR E NÃO FAZ NADA" (dono, 09/08). Config
+// VAZIA — sem chave de modo nenhuma, que é o estado real de toda empresa desde
+// que os Ajustes pararam de oferecer o toggle: o dia TEM que fechar.
+test('finalizar: config sem chave de modo fecha o dia (a chave morta não barra)', async () => {
+  const hoje = saoPauloDateKey(new Date())!;
+  const criados: any[] = [];
   const svc = new LogisticaFechamentoDiaService(
-    prismaMock({ logisticaConfig: { findUnique: async () => ({ modoCaderneta: false }) } }) as any,
+    prismaMock({
+      logisticaConfig: { findUnique: async () => ({}) },
+      entrega: entregaMockPorJanela([vendaDeMesa('f1', 'a', hoje)]),
+      customerProfile: perfilVivoMock,
+      logisticaRotaModelo: { findFirst: async () => null, create: async (args: any) => { criados.push(args.data); return {}; }, update: async () => ({}) },
+    }) as any,
     logisticaMock() as any,
   );
-  await assert.rejects(() => svc.finalizar(5, 3), /desligado/);
+  const r = await svc.finalizar(5, isoWeekdayForDate(hoje));
+  assert.equal(r.ok, true);
+  assert.equal(r.clientes, 1);
+  assert.equal(criados.length, 1, 'a rota do dia tem que ser salva');
 });

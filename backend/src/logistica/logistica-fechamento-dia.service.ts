@@ -158,8 +158,8 @@ function somarDiasKey(dateKey: string, dias: number): string {
  * A página de uma venda: a etiqueta quando existe; sem etiqueta (legado/rota),
  * o dia REAL do deliveredAt em SP. Sem data nenhuma → null (fica fora de tudo).
  */
-function paginaDaVenda(e: { cadernetaDiaSemana?: number | null; deliveredAt?: Date | null }): number | null {
-  const etiqueta = diaSemanaValido(e.cadernetaDiaSemana);
+function paginaDaVenda(e: { fechamentoDiaSemana?: number | null; deliveredAt?: Date | null }): number | null {
+  const etiqueta = diaSemanaValido(e.fechamentoDiaSemana);
   if (etiqueta) return etiqueta;
   const key = saoPauloDateKey(e.deliveredAt ?? null);
   return key ? isoWeekdayForDate(key) : null;
@@ -332,7 +332,7 @@ export class LogisticaFechamentoDiaService {
           valor: true,
           receiptMethod: true,
           deliveredAt: true,
-          cadernetaDiaSemana: true,
+          fechamentoDiaSemana: true,
           // O principal ESCALAR (multi-produto: 1º produto na Entrega, extras
           // em EntregaItem — o merge abaixo devolve o principal à lista).
           productId: true,
@@ -353,7 +353,7 @@ export class LogisticaFechamentoDiaService {
       }),
       this.prisma.entrega.findMany({
         where: { companyId, status: 'entregue', deliveredAt: { gte: inicioHistorico, lt: fim } },
-        select: { customerProfileId: true, deliveredAt: true, cadernetaDiaSemana: true },
+        select: { customerProfileId: true, deliveredAt: true, fechamentoDiaSemana: true },
       }),
       this.prisma.logisticaPlanoEntrega.findMany({
         where: {
@@ -512,12 +512,12 @@ export class LogisticaFechamentoDiaService {
         status: 'entregue',
         deliveredAt: { gte: inicioSemanaPassada, lt: inicioSemanaAtual },
       },
-      select: { customerProfileId: true, localId: true, deliveredAt: true, cadernetaDiaSemana: true },
+      select: { customerProfileId: true, localId: true, deliveredAt: true, fechamentoDiaSemana: true },
       orderBy: [{ deliveredAt: 'asc' }],
     });
     if (!vendasSemana.length) return { elegivel: false, nome: null };
 
-    await this.gerarCadernetasSalvas(companyId, inicioSemanaAtual, vendasSemana);
+    await this.gerarRotasSalvas(companyId, inicioSemanaAtual, vendasSemana);
 
     let nome: string | null = null;
     if (userId) {
@@ -577,42 +577,53 @@ export class LogisticaFechamentoDiaService {
     }
 
     for (const [dia, paradas] of porDia) {
-      await this.salvarCadernetaDia(companyId, dia, paradas);
+      await this.salvarRotaDoDia(companyId, dia, paradas);
     }
   }
 
   /**
-   * Upsert de UMA "Caderneta de <dia>" nas Rotas salvas (tipo LIVRE — o tipo que
+   * Upsert de UMA "Rota de <dia>" nas Rotas salvas (tipo LIVRE — o tipo que
    * a lista do APK mostra). Sem mudança o update roda mesmo assim: o @updatedAt
    * é o carimbo "semana feita" do aprendiz — sem ele a semana recontaria a cada
    * resumo. Mudou → versao sobe (o guia tem versão, como toda rota salva).
+   *
+   * Acha pelo nome novo OU pelo antigo, e a linha antiga é RENOMEADA no mesmo
+   * update — a rota dele continua a mesma (id, versão, histórico), só troca a
+   * palavra na lista.
    */
-  private async salvarCadernetaDia(
+  private async salvarRotaDoDia(
     companyId: number,
     dia: number,
     paradas: Array<{ customerProfileId: string; localId: string | null }>,
   ): Promise<void> {
-    const nome = NOME_CADERNETA_DIA[dia];
+    const nome = NOME_ROTA_DIA[dia];
     const existente = await this.prisma.logisticaRotaModelo.findFirst({
-      where: { companyId, tipo: 'LIVRE', nome: { equals: nome, mode: 'insensitive' } },
-      select: { id: true, paradasJson: true },
+      where: {
+        companyId,
+        tipo: 'LIVRE',
+        OR: [
+          { nome: { equals: nome, mode: 'insensitive' } },
+          { nome: { equals: NOME_ANTIGO_DIA[dia], mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true, nome: true, paradasJson: true },
     });
     if (!existente) {
       await this.prisma.logisticaRotaModelo.create({
         data: { companyId, nome, diaSemana: dia, paradasJson: paradas as any },
       });
-      this.logger.log(`[caderneta] salvou "${nome}" company=${companyId} paradas=${paradas.length}`);
+      this.logger.log(`[fechamento] salvou "${nome}" company=${companyId} paradas=${paradas.length}`);
       return;
     }
     const igual = JSON.stringify(existente.paradasJson ?? []) === JSON.stringify(paradas);
     await this.prisma.logisticaRotaModelo.update({
       where: { id: existente.id },
       data: igual
-        ? { diaSemana: dia }
-        : { diaSemana: dia, paradasJson: paradas as any, versao: { increment: 1 } },
+        ? { nome, diaSemana: dia }
+        : { nome, diaSemana: dia, paradasJson: paradas as any, versao: { increment: 1 } },
     });
     if (!igual) {
-      this.logger.log(`[caderneta] atualizou "${nome}" company=${companyId} paradas=${paradas.length}`);
+      this.logger.log(`[fechamento] atualizou "${nome}" company=${companyId} paradas=${paradas.length}`);
     }
   }
 
@@ -649,9 +660,9 @@ export class LogisticaFechamentoDiaService {
           companyId,
           status: 'entregue',
           deliveredAt: { gte: inicioHoje, lt: fimHoje },
-          OR: [{ cadernetaDiaSemana: diaHoje }, { cadernetaDiaSemana: null }],
+          OR: [{ fechamentoDiaSemana: diaHoje }, { fechamentoDiaSemana: null }],
         },
-        data: { cadernetaDiaSemana: diaAlvo },
+        data: { fechamentoDiaSemana: diaAlvo },
       });
     }
 
@@ -659,7 +670,7 @@ export class LogisticaFechamentoDiaService {
     const inicioJanela = saoPauloMidnight(somarDiasKey(hojeKey, -6));
     const vendas = await this.prisma.entrega.findMany({
       where: { companyId, status: 'entregue', deliveredAt: { gte: inicioJanela, lt: fimHoje } },
-      select: { customerProfileId: true, localId: true, deliveredAt: true, cadernetaDiaSemana: true },
+      select: { customerProfileId: true, localId: true, deliveredAt: true, fechamentoDiaSemana: true },
       orderBy: [{ deliveredAt: 'asc' }],
     });
     const daPagina = vendas.filter((v) => paginaDaVenda(v) === diaAlvo);
@@ -686,7 +697,7 @@ export class LogisticaFechamentoDiaService {
     }
     if (!paradas.length) throw new BadRequestException('Nada registrado neste dia ainda.');
 
-    await this.salvarCadernetaDia(companyId, diaAlvo, paradas);
+    await this.salvarRotaDoDia(companyId, diaAlvo, paradas);
     return { ok: true, dia: diaAlvo, clientes: paradas.length };
   }
 
@@ -826,7 +837,7 @@ export class LogisticaFechamentoDiaService {
     try {
       await this.prisma.entrega.update({
         where: { id: criada.id },
-        data: { cadernetaDiaSemana: paginaDia },
+        data: { fechamentoDiaSemana: paginaDia },
       });
     } catch (e: any) {
       this.logger.warn(`[caderneta] etiqueta dia venda=${criada.id} falhou: ${String(e?.message || e)}`);
@@ -1020,7 +1031,7 @@ export class LogisticaFechamentoDiaService {
         companyId,
         customerProfileId: clienteId,
         status: 'entregue',
-        cadernetaDiaSemana: dia,
+        fechamentoDiaSemana: dia,
         deliveredAt: { gte: desde },
       },
       select: { deliveredAt: true },

@@ -624,11 +624,6 @@ export class UpdateLogisticaConfigDto {
   @IsBoolean()
   passeioEquipe?: boolean;
 
-  // MODO CADERNETA (PR04082026) — operacional, padrão do cobrancaSimples.
-  @IsOptional()
-  @IsBoolean()
-  modoCaderneta?: boolean;
-
   @IsOptional()
   @IsBoolean()
   moduloFinanceiroAtivo?: boolean;
@@ -725,7 +720,7 @@ export class UpdateLogisticaConfigDto {
   // ── PROSPECTOR CNPJ (PR07082026 F0, 07/08) ─────────────────────────────────
   // MESMO shape do trio avisoChegando (toggle + template + condição). Todos
   // OPERACIONAIS: @Admin() do PATCH basta, não exigem billing owner (padrão do
-  // passeioEquipe/modoCaderneta). Gravar é livre; efeito só com a flag global
+  // passeioEquipe). Gravar é livre; efeito só com a flag global
   // HBX_PROSPECTOR_ENABLED ligada (default OFF, dormente).
   //
   // 🔴 `prospectorAutomacaoAtiva`/`prospectorAutomacaoMaxDia` NÃO MORAM AQUI —
@@ -764,7 +759,7 @@ export class UpdateLogisticaConfigDto {
   prospectorEquipe?: boolean;
 
   // ── ITEM 9 DO DONO (07/08) — desligar módulos do app PELO DESKTOP ──────────
-  // CSV das chaves desativadas: caderneta,clientes,produtos,chat,ajustes.
+  // CSV das chaves desativadas: fechamento,clientes,produtos,chat,ajustes.
   // Validação de conteúdo (allowlist, dedupe+sort, vazio→null) no serviço —
   // mesmo desenho do diasTrabalho. 🔴 "rota" é descartada e nunca gravada.
   @IsOptional()
@@ -1317,7 +1312,7 @@ export class VenderItemDto {
   // PREÇO COMBINADO COM ESTE CLIENTE (05/08) — só chega quando o dono TOCOU no
   // valor na folha da venda. Mesma abertura consciente do
   // ConfirmarEntregaItemDto.valorUnit (quem negocia na porta é quem vende), com
-  // UMA diferença deliberada: na caderneta o preço editado FICA
+  // UMA diferença deliberada: na venda por toque o preço editado FICA
   // (ClienteProduto.precoAcordado), porque foi isso que o dono pediu — "ficar o
   // preço fixo até a próxima". Ausente = o servidor resolve sozinho
   // (precoAcordado > catálogo > precoPadrao) e NADA no cadastro é reescrito.
@@ -1328,7 +1323,7 @@ export class VenderItemDto {
   valorUnit?: number;
 }
 
-/** Apagar a venda errada da caderneta (segurar pressionado na linha do dia). */
+/** Apagar a venda errada do dia (segurar pressionado na linha do dia). */
 export class ApagarVendaDto {
   @IsString()
   @MaxLength(60)
@@ -1407,8 +1402,8 @@ export class VenderDto {
   idempotencyKey!: string;
 }
 
-// FINALIZAR O DIA da caderneta (05/08): "qual dia podemos registrar?" — o dia
-// escolhido registra a página e salva a "Caderneta de <dia>" nas Rotas salvas.
+// FECHAR O DIA (05/08): "qual dia podemos registrar?" — o dia escolhido
+// registra a página e salva a "Rota de <dia>" nas Rotas salvas.
 export class FinalizarDiaDto {
   @IsInt()
   @Min(1)

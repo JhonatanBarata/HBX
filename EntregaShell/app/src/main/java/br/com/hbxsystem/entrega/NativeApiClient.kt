@@ -311,9 +311,13 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         method == "GET" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "historico" -> true
         // ROTA PRONTA (29/07) — indicações de rota vivas da pessoa logada (popup Aceitar/Negar).
         method == "GET" && segments == listOf("logistica", "rota-indicadas", "pendentes") -> true
-        // 🔴 MODO CADERNETA (04/08) — medidor do mapa do dia + fechamento (a data
-        // vai na query, não no path). Sem esta linha o app barra a chamada AQUI,
-        // dentro do aparelho, e a tela do dia nasceria zerada com o servidor OK.
+        // 🔴 FECHAMENTO DO DIA (04/08) — medidor do dia + o caixa por forma (a
+        // data vai na query, não no path). Sem esta linha o app barra a chamada
+        // AQUI, dentro do aparelho, e a tela do dia nasceria zerada com o
+        // servidor OK. O endereço `caderneta` é a PORTA VELHA: ela fica até todo
+        // aparelho instalado ter atualizado (o mesmo par de portas do
+        // LogisticaFechamentoDiaController).
+        method == "GET" && segments == listOf("logistica", "fechamento", "resumo") -> true
         method == "GET" && segments == listOf("logistica", "caderneta", "resumo") -> true
         // 🔴 RECADOS (03/08) — o PORTÃO: o que já chegou e ainda trava o Confirmar.
         // Faltava esta linha (e as duas do POST logo abaixo): o app 141 chamava
@@ -374,19 +378,17 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "recados", "recebidos"),
             listOf("logistica", "recados", "visto"),
             listOf("logistica", "recados", "responder"),
-            // 🔴 MODO CADERNETA (04/08) — a VENDA por toque no cliente (sem rota
-            // e sem débito). Regra da casa: endpoint novo no app.js = allowlist
-            // aqui + rebuild do APK, os TRÊS ou nada.
+            // 🔴 FECHAMENTO DO DIA (04/08) — a VENDA por toque no cliente (sem
+            // rota e sem débito), apagar a venda errada (segurar pressionado na
+            // linha do dia) e fechar o dia. Regra da casa: endpoint novo no app
+            // = allowlist aqui + rebuild do APK, os TRÊS ou nada.
+            listOf("logistica", "fechamento", "vender"),
+            listOf("logistica", "fechamento", "apagar-venda"),
+            listOf("logistica", "fechamento", "finalizar"),
+            // A PORTA VELHA (até todo aparelho instalado atualizar) — ver o
+            // comentário do par de rotas em LogisticaFechamentoDiaController.
             listOf("logistica", "caderneta", "vender"),
-            // 05/08 — apagar a venda errada (segurar pressionado na linha do
-            // dia). Sem esta linha o gesto morreria DENTRO do aparelho com
-            // "Esta operação não pertence ao logistica", e o dono continuaria
-            // sem conseguir excluir — que é exatamente o defeito que ele relatou.
             listOf("logistica", "caderneta", "apagar-venda"),
-            // CADERNETA 7 DIAS (05/08) — Finalizar o dia ("qual dia podemos
-            // registrar?"): registra o dia da semana e salva a Caderneta nas
-            // Rotas salvas. Mesma regra dos vizinhos: sem esta linha o botão
-            // morre dentro do aparelho.
             listOf("logistica", "caderneta", "finalizar"),
             // 🔴 VER TELA (05/08) — um QUADRO do espelho do próprio app, mandado
             // só enquanto o painel do master mantém a janela de 60s aberta. Sem

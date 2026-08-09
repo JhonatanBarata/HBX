@@ -149,19 +149,29 @@ class NativeApiClientPathPolicyTest {
     }
 
     /**
-     * MODO CADERNETA (04/08) e VER TELA (05/08) — o mesmo teste que gritou pelo
-     * recado, agora pelos dois caminhos novos. Sem a linha da allowlist, o
+     * FECHAMENTO DO DIA (04/08) e VER TELA (05/08) — o mesmo teste que gritou
+     * pelo recado, agora pelos dois caminhos novos. Sem a linha da allowlist, o
      * painel do master ficaria "Aguardando o aparelho…" com o servidor 100% ok,
      * e a venda por toque morreria dentro do celular.
+     *
+     * 🔴 OS DOIS ENDEREÇOS SÃO COBRADOS AQUI (09/08). `fechamento/*` é o vivo;
+     * `caderneta/*` é a porta velha do aparelho que ainda não atualizou. Testar
+     * só o novo deixaria a remoção acidental da porta velha passar verde e
+     * derrubar a venda de quem está na rua com o APK antigo.
      */
     @Test
-    fun logisticaAllowsCadernetaAndEspelho() {
+    fun logisticaAllowsFechamentoAndEspelho() {
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/fechamento/resumo"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/fechamento/vender"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/fechamento/apagar-venda"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/fechamento/finalizar"))
+        assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/fechamento/finalizar"))
+        assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/fechamento/apagar-venda"))
+        // A PORTA VELHA continua atendendo o APK instalado.
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/caderneta/resumo"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/caderneta/vender"))
-        // 05/08 — apagar a venda errada pelo toque-longo na linha do dia.
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/caderneta/apagar-venda"))
         assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/caderneta/apagar-venda"))
-        // CADERNETA 7 DIAS (05/08) — Finalizar o dia ("qual dia podemos registrar?").
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/caderneta/finalizar"))
         assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/caderneta/finalizar"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/espelho/quadro"))

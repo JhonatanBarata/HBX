@@ -232,8 +232,6 @@ export class LogisticaConfigService {
     // MODO PASSEIO (29/07) — liberação pra equipe. Operacional (mesmo padrão do
     // cobrancaSimples): @Admin() do controller já basta, não exige billing owner.
     if (input.passeioEquipe !== undefined) data.passeioEquipe = !!input.passeioEquipe;
-    // MODO CADERNETA (PR04082026) — operacional, mesmo padrão do cobrancaSimples.
-    if (input.modoCaderneta !== undefined) data.modoCaderneta = !!input.modoCaderneta;
     if (input.velocidadeMediaKmH !== undefined) data.velocidadeMediaKmH = clampInt(input.velocidadeMediaKmH, 1, 200, 25);
     if (input.tempoParadaMin !== undefined) data.tempoParadaMin = clampInt(input.tempoParadaMin, 0, 240, 5);
     // SENTINELA (03/08) — as réguas do vigia. Piso 0 é DESLIGAR aquela pergunta
@@ -327,7 +325,7 @@ export class LogisticaConfigService {
     }
     // PROSPECTOR CNPJ (07/08) — MESMO shape do trio avisoChegando acima (toggle +
     // template + condição). OPERACIONAL: @Admin() do controller basta, não exige
-    // billing owner (mesmo padrão de passeioEquipe/modoCaderneta) — quem escolhe
+    // billing owner (mesmo padrão de passeioEquipe) — quem escolhe
     // é o admin da operação, e o que gasta crédito (abrir lead) tem gate próprio
     // no ato. Gravar é livre; EFEITO só existe com HBX_PROSPECTOR_ENABLED global.
     if (input.prospectorAtivo !== undefined) data.prospectorAtivo = !!input.prospectorAtivo;
@@ -788,9 +786,6 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     // MODO PASSEIO (29/07) — OPERACIONAL (todo ator lê): o APK decide se mostra
     // a entrada do modo pro papel comum. É TOGGLE, nunca valor (LEI DO VENDEDOR).
     passeioEquipe: !!c.passeioEquipe,
-    // MODO CADERNETA (PR04082026) — operacional: o APK troca a tela Rota pelo
-    // dia-caderneta quando ligado. Toggle, nunca valor.
-    modoCaderneta: !!c.modoCaderneta,
     // PR18072026 W-A — módulo Financeiro liga/desliga (3 níveis) + painel
     // Avançado. moduloFinanceiroAtivo e os 5 toggles abaixo são OPERACIONAIS
     // (lidos por QUALQUER ator): o app do entregador precisa saber o nível da
@@ -994,7 +989,7 @@ export interface UpdateLogisticaConfigInput {
   // F4 (07/08) — texto cadastrado da cobrança (comercial, billing owner).
   cobrancaWhatsTemplate?: string | null;
   // PROSPECTOR CNPJ (07/08) — operacionais (não exigem billing owner, mesmo
-  // padrão de passeioEquipe/modoCaderneta). A AUTOMAÇÃO não mora aqui.
+  // padrão de passeioEquipe). A AUTOMAÇÃO não mora aqui.
   prospectorAtivo?: boolean;
   prospectorTemplate?: string | null;
   prospectorRaioM?: number;
@@ -1014,8 +1009,6 @@ export interface UpdateLogisticaConfigInput {
   cobrancaSimples?: boolean;
   // MODO PASSEIO (29/07) — liberação do modo pra equipe (operacional).
   passeioEquipe?: boolean;
-  // MODO CADERNETA (PR04082026) — operacional.
-  modoCaderneta?: boolean;
   // PR18072026 W-A — módulo Financeiro (3 níveis) + painel Avançado. Todos
   // operacionais: não exigem billing owner (mesmo padrão do cobrancaSimples).
   aceitaNaHora?: boolean;
@@ -1076,8 +1069,6 @@ export interface LogisticaConfigDTO {
   cobrancaSimples: boolean;
   // MODO PASSEIO (29/07) — liberação pra equipe (operacional, todo ator lê).
   passeioEquipe: boolean;
-  // MODO CADERNETA (PR04082026) — operacional, todo ator lê.
-  modoCaderneta: boolean;
   // PR18072026 W-A — módulo Financeiro (3 níveis) + painel Avançado. Todos
   // OPERACIONAIS (lidos por QUALQUER ator, mesmo padrão do cobrancaSimples):
   // o app do entregador usa pra decidir o nível da folha de chegada e quais

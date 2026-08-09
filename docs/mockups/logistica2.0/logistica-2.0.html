@@ -2475,7 +2475,7 @@ function hdr(o={}){
 
    ITEM 9 DO DONO (07/08): *"deixar os módulos do motorista na mão do ADMIN
    (não dentro do app, no desktop)... desativar qualquer módulo q ele quiser
-   (caderneta, clientes, produtos, chat, ajustes) MENOS ROTA"*.
+   (fechamento, clientes, produtos, chat, ajustes) MENOS ROTA"*.
 
    🔴 ROTA NUNCA SOME. O servidor já barra (mandar "rota" grava null), e esta
    linha é o cinto por cima do suspensório: app de entrega sem a rota não é
@@ -2493,9 +2493,9 @@ function hdr(o={}){
    MOSTRAR TUDO.
    ========================================================================== */
 /* 🔴 BARRA DE 3 (decisão do dono, 07/08): Chat na esquerda, Rota no centro,
-   Ajustes na direita — padrão de app de motorista. Caderneta, Clientes e
+   Ajustes na direita — padrão de app de motorista. Fechamento, Clientes e
    Produtos NÃO morreram: Clientes/Produtos moram em Ajustes › Cadastro e a
-   caderneta abre pelo caixa da Rota (e por Ajustes). O CSV do admin continua
+   fechamento abre pelo caixa da Rota (e por Ajustes). O CSV do admin continua
    valendo pra essas entradas via `podarDesligados`/`ir`. */
 const NAV_ITENS=[['chat','Chat','chat'],['rota','Rota','map'],['ajustes','Ajustes','gear']];
 /** O CSV que o admin gravou no desktop, virado em lista. Vazio = tudo ligado. */
@@ -2517,7 +2517,7 @@ function nav(ativo){
   ).join('')}</nav>`;
 }
 
-/* Os atalhos espalhados pelas telas (o "Abrir caderneta" do pé da rota, por
+/* Os atalhos espalhados pelas telas (o "Fechamento do dia" do pé da rota, por
    exemplo) apontam pro módulo por `data-ir`. Se o admin desligou o módulo,
    esse botão vira porta pra parede — o `ir` recusa e o motorista toca duas,
    três vezes achando que o app travou. Some com ele na pintura, por REGRA:
@@ -2788,7 +2788,7 @@ const DADOS={
      "Você chegou".
 
      🔴 ERA A MENTIRA QUE SOBROU DA VARREDURA (§4.6.5). Enquanto `rota`,
-     `clientes`, `ajustes`, `recarga`, `caderneta` e `semana` já nasciam
+     `clientes`, `ajustes`, `recarga`, `fechamento` e `semana` já nasciam
      limpas, esta tela seguia dizendo "Parada 3 de 8 · Mercado São Judas",
      "240 m · Vire à direita" e "12:26 chegada" — na ÚNICA tela em que o
      motorista está DIRIGINDO. Nome de cliente que não existe, com uma seta
@@ -2869,14 +2869,14 @@ const DADOS={
     produto:'Água Mineral HBX',
     tags:[['20L x1','blue'],['Vasilhame',''],['Chip dia','lime']],
     contaItem:'R$ 21,00', contaChegada:'R$ 21,00', lancamento:'R$ 21,00',
-    recebido:'R$ 21,00', paraCaderneta:'R$ 21,00', forma:'dinheiro',
+    recebido:'R$ 21,00', paraMarcado:'R$ 21,00', forma:'dinheiro',
   },
-  /* L5 — O FECHAMENTO DO DIA. Literais do template da caderneta, MOVIDOS.
+  /* L5 — O FECHAMENTO DO DIA. Literais do template do fechamento, MOVIDOS.
      `selo` é o cartão do canto ("Tudo certo!"); as formas são o caixa do dia. */
-  caderneta:{
+  fechamento:{
     entregues:'6', selo:'Tudo certo!',
     formas:[['cash','var(--lime)','Dinheiro','R$ 132,00'],['pix','var(--blue-l)','Pix','R$ 52,00'],
-            ['card','var(--purple)','Cartão','R$ 84,00'],['note','var(--amber)','Caderneta','R$ 68,00']],
+            ['card','var(--purple)','Cartão','R$ 84,00'],['note','var(--amber)','Marcado','R$ 68,00']],
     formaTotal:'R$ 336,00',
     clientes:'14', produtos:'20', marcado:'R$ 336,00',
   },
@@ -3024,8 +3024,8 @@ const DADOS={
      responsável financeiro o bloco comercial vem AUSENTE, e é essa ausência que
      o app lê (o mesmo `isAdmin()` do app que já roda).
      "Avisar chegada" mora AQUI desde 07/08 (ordem do dono: sai da raiz dos
-     Ajustes, entra no Avançado). "Modo caderneta" morreu na mesma ordem — o
-     modo foi removido; a caderneta é a tela de anotações, e só. */
+     Ajustes, entra no Avançado). O "modo caderneta" morreu na mesma ordem — e
+     em 09/08 a palavra saiu do produto inteiro: é o FECHAMENTO DO DIA. */
   avancado:{
     admin:1, financeiro:1, cobrancaSimples:0, precoPorCliente:1,
     naHora:1, mensal:1, fiado:1,
@@ -3089,7 +3089,7 @@ const DADOS={
      DADO: recebido · emAberto · formas · marcou · devedores · semanaRecebido ·
            semanaMarcado · semanaPendencia.
      COPY: os rótulos, que vivem DENTRO do condicional de cada slot (mesmo
-           pacto do fechamento da caderneta) — e o "Dinheiro/Pix/Cartão" de
+           pacto do fechamento do dia) — e o "Dinheiro/Pix/Cartão" de
            cada linha de `formas`, que viaja NO dado justamente porque a forma
            que não teve dinheiro não entra na lista (Lei do IF).
 
@@ -3295,7 +3295,7 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
      existem depois de montar. A contagem some inteira e o `vazioTitulo` assume,
      que é a frase que esta barra já usava pra dia sem rota.
      Por que a régua mora AQUI e não no dado: `kpiParadas` é lido por mais
-     quatro telas (lista, foto, caderneta, semana), onde ele é o total do DIA e
+     quatro telas (lista, foto, fechamento, semana), onde ele é o total do DIA e
      tem que continuar aparecendo. Esvaziar o campo apagaria o número lá também
      — a régua é desta barra, então o dono dela é esta linha. */
   const temRota=e==='pronta'||emCurso;
@@ -3396,14 +3396,14 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
         ? (DADOS.rota.creditosDebita?`Iniciar debita ${DADOS.rota.creditosDebita}`:'não consegui o custo agora')
         : 'monte a rota pra saber'}</span></div>`:''}
   <div class="stops" data-gestos="rota">${listaParadas(emCurso)}</div>
-  <div class="sum" data-ir="caderneta">
+  <div class="sum" data-ir="fechamento">
     <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>${DADOS.rota.somaProdutos}</b><small>produtos</small></span></span>
     <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${DADOS.rota.somaMarcado}</b><small>marcado</small></span></span>
     <span class="c"><span style="color:var(--lime)">${ic('check',17)}</span><span><b>${emCurso?DADOS.rota.kpiEntregues:DADOS.rota.kpiEntreguesParado}</b><small>entregas</small></span></span>
     <span class="go">${ic('chev',15)}</span>
   </div>
   ${emCurso?''   /* o Finalizar é o satélite do dock: no polegar, sem rolar a lista inteira */
-           :`<button class="act full" style="margin-top:8px;justify-content:center" data-ir="caderneta">${ic('note',17)}<b>Abrir caderneta</b></button>`}
+           :`<button class="act full" style="margin-top:8px;justify-content:center" data-ir="fechamento">${ic('note',17)}<b>Fechamento do dia</b></button>`}
   `, transmux(DADOS.rota.montando?'montando':(e==='semsinal'?'pronta':e)));
 }};
 
@@ -3439,7 +3439,7 @@ ${hdr({})}
   </div>
   <div class="acts">
     <button class="act go wide" data-ir="venda">${ic('play',21)}<span><b>Iniciar próxima parada</b><small>João da Silva</small></span></button>
-    <button class="act" data-ir="caderneta">${ic('note',19)}<b>Abrir caderneta</b></button>
+    <button class="act" data-ir="fechamento">${ic('note',19)}<b>Fechamento do dia</b></button>
   </div>
 </div>
 ${nav('rota')}`;}};
@@ -3801,7 +3801,7 @@ ${hdr({})}
         <span><span class="box-s">Conta da chegada</span><b style="display:block;font-size:15px;color:var(--lime);margin-top:2px">${d.contaChegada}</b></span>
         <span style="color:var(--lime)">${ic('check',19)}</span></div>
       <div class="box" style="display:flex;align-items:center;justify-content:space-between;margin:0">
-        <span><span class="box-s">Lançamento na caderneta</span><b style="display:block;font-size:15px;color:var(--lime);margin-top:2px">${d.lancamento}</b></span>
+        <span><span class="box-s">Ficou marcado</span><b style="display:block;font-size:15px;color:var(--lime);margin-top:2px">${d.lancamento}</b></span>
         <span style="color:var(--blue-l)">${ic('note',19)}</span></div>
     </div>
     <div class="box">
@@ -3810,7 +3810,7 @@ ${hdr({})}
         <button class="pay${d.forma==='dinheiro'?' sel':''}" data-acao="forma" data-forma="dinheiro"><span style="color:var(--lime)">${ic('cash',21)}</span><b>Dinheiro</b>${d.forma==='dinheiro'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
         <button class="pay blue${d.forma==='pix'?' sel':''}" data-acao="forma" data-forma="pix"><span style="color:var(--blue-l)">${ic('pix',21)}</span><b>Pix</b>${d.forma==='pix'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
         <button class="pay${d.forma==='cartao'?' sel':''}" data-acao="forma" data-forma="cartao"><span style="color:var(--ink-2)">${ic('card',21)}</span><b>Cartão</b>${d.forma==='cartao'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
-        <button class="pay${d.forma==='fiado'?' sel':''}" data-acao="forma" data-forma="fiado"><span style="color:var(--ink-2)">${ic('note',21)}</span><b>Caderneta</b>${d.forma==='fiado'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+        <button class="pay${d.forma==='fiado'?' sel':''}" data-acao="forma" data-forma="fiado"><span style="color:var(--ink-2)">${ic('note',21)}</span><b>Marcou</b>${d.forma==='fiado'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
       </div>
     </div>
     <div class="box">
@@ -3818,7 +3818,7 @@ ${hdr({})}
         <span class="box-t">Resumo do recebimento</span>
         <button class="ghost">${ic('edit',13)} Editar valores</button></div>
       <div class="rowline"><span>Recebido hoje</span><b>${d.recebido}</b></div>
-      <div class="rowline"><span>Vai para caderneta</span><b>${d.paraCaderneta}</b></div>
+      <div class="rowline"><span>Vai ficar marcado</span><b>${d.paraMarcado}</b></div>
     </div>
     <div class="foot2">
       <button class="act go" style="justify-content:center" data-acao="confirmar-venda">${ic('check',19)}<b>Confirmar venda</b></button>
@@ -3828,8 +3828,8 @@ ${hdr({})}
 </div>
 ${nav('rota')}`;}};
 
-/* 5 — CADERNETA + FECHAMENTO ---------------------------------------------
-   🔴 A CADERNETA É O FECHAMENTO DO DIA, E SÓ (dono, 09/08: "a caderneta devia
+/* 5 — O FECHAMENTO DO DIA -------------------------------------------------
+   🔴 É O FECHAMENTO DO DIA, E SÓ (dono, 09/08: "a caderneta devia ser o
    ser o finalizar, fechamento do dia — você entra e tem 150 clientes ali").
    A lista de paradas que morava aqui era o roster INTEIRO do dia — assunto da
    Rota, repetido numa tela de dinheiro: com agenda grande viravam 150 cartões
@@ -3837,7 +3837,7 @@ ${nav('rota')}`;}};
    corpo é um só e a `semana` o desenha desbotado no fundo. O selo só aparece
    com fato ("N vendas"): sem venda, pill com um check sozinho era veredito
    sem fonte. */
-function cadernetaCorpo(){const d=DADOS.caderneta;return `
+function fechamentoCorpo(){const d=DADOS.fechamento;return `
   <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 10px">
     <span style="display:flex;align-items:center;gap:10px">
       <span class="round" style="border-color:var(--line-2)">${ic('lock',18)}</span>
@@ -3848,16 +3848,15 @@ function cadernetaCorpo(){const d=DADOS.caderneta;return `
     ${d.formas.map(f=>`<div class="form-c"><span style="color:${f[1]}">${ic(f[0],19)}</span><small>${f[2]}</small><b>${f[3]}</b></div>`).join('')}
     ${d.formaTotal?`<div class="form-c total"><small style="margin-top:0">Total</small><b>${d.formaTotal}</b></div>`:''}
   </div>`:''}
-  ${(d.entregues||d.clientes||d.produtos||d.marcado)?`<div class="sum">
+  ${(d.entregues||d.clientes||d.produtos)?`<div class="sum">
     ${d.entregues?`<span class="c"><span style="color:var(--lime)">${ic('check',17)}</span><span><b>${d.entregues}</b><small>entregues</small></span></span>`:''}
     ${d.clientes?`<span class="c"><span style="color:var(--ink-2)">${ic('users',17)}</span><span><b>${d.clientes}</b><small>clientes</small></span></span>`:''}
     ${d.produtos?`<span class="c"><span style="color:var(--ink-2)">${ic('box',17)}</span><span><b>${d.produtos}</b><small>produtos</small></span></span>`:''}
-    ${d.marcado?`<span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${d.marcado}</b><small>marcado</small></span></span>`:''}
   </div>`:''}`;}
-T.caderneta={nome:'Caderneta · fechamento',grupo:'Caderneta',render(){return `${status}
+T.fechamento={nome:'Fechamento do dia',grupo:'Fechamento',render(){return `${status}
 ${hdr({voltar:'rota'})}
 <div class="body">
-  ${cadernetaCorpo()}
+  ${fechamentoCorpo()}
   <div class="acts">
     <button class="act go" style="justify-content:center" data-acao="fechar-dia">${ic('check',19)}<b>Fechar o dia</b></button>
     <button class="act" style="justify-content:center" data-ir="semana">${ic('chart',17)}<b>Ver detalhes</b></button>
@@ -3866,7 +3865,7 @@ ${hdr({voltar:'rota'})}
 ${nav('rota')}`;}};
 
 /* 6 — HISTÓRICO DA SEMANA ------------------------------------------------- */
-T.semana={nome:'Histórico da semana',grupo:'Caderneta',render(){
+T.semana={nome:'Histórico da semana',grupo:'Fechamento',render(){
   // Slot sem fonte não vira "R$ 0,00": ele SOME. A linha encolhe e continua
   // verdadeira — é a diferença entre "não tenho esse número" e "esse número é
   // zero", e numa tela de dinheiro as duas coisas nunca podem se parecer.
@@ -3880,16 +3879,16 @@ T.semana={nome:'Histórico da semana',grupo:'Caderneta',render(){
 ${hdr({})}
 <div class="body" style="opacity:.4;pointer-events:none">
   <!-- O fundo é a tela de trás DESBOTADA, não um enfeite: fundo também é tela,
-       e a tela de trás é a caderneta — o MESMO corpo, apagado. Com a lista de
+       e a tela de trás é o fechamento — o MESMO corpo, apagado. Com a lista de
        paradas aqui, o dono lia um roster de 150 por cima do dinheiro dele. -->
-  ${cadernetaCorpo()}
+  ${fechamentoCorpo()}
 </div>
 <div class="scrim"></div>
 <div class="sheet" style="max-height:80%">
   <span class="handle"></span>
   <div style="display:flex;align-items:center;justify-content:center;position:relative;margin-bottom:12px">
     <h2 style="margin:0;font-size:20px;font-weight:500">Histórico da semana</h2>
-    <button class="round sm" style="position:absolute;right:0" data-voltar="1" data-ir="caderneta">${ic('close',15)}</button></div>
+    <button class="round sm" style="position:absolute;right:0" data-voltar="1" data-ir="fechamento">${ic('close',15)}</button></div>
   ${DADOS.semana.dias.map(l=>dia(l[0],l[1],l[2],l[3],l[4],l[5])).join('')}
   ${DADOS.semana.marcado?`<div class="box" style="margin-top:9px">
     <div class="box-t" style="margin-bottom:7px">Resumo da semana</div>
@@ -4894,7 +4893,7 @@ T.ajustes={nome:'Ajustes',grupo:'Cadastro',render(){const a=DADOS.ajustes;
   const chave=(icone,titulo,sub,on,acao)=>`<button class="linha-cfg"${acao?` data-acao="${acao}"`:''}><span class="ico">${ic(icone,16)}</span>
     <span><strong>${titulo}</strong>${sub?`<span>${sub}</span>`:''}</span>
     <span class="chave ${on?'on':''}"><i></i></span></button>`;
-  /* Linha que ABRE um módulo (barra de 3, 07/08): Clientes/Produtos/Caderneta
+  /* Linha que ABRE um módulo (barra de 3, 07/08): Clientes/Produtos/Fechamento
      agora entram por aqui. `data-ir` de propósito — é a mesma marca que o
      `podarDesligados` varre quando o admin desliga o módulo no desktop. */
   const linhaIr=(icone,titulo,ir)=>`<button class="linha-cfg" data-ir="${ir}"><span class="ico">${ic(icone,16)}</span>
@@ -4928,9 +4927,9 @@ ${hdr({semChat:1})}
     ${linhaIr('users','Clientes','clientes')}
     ${linhaIr('box','Produtos','produtos')}
   </div>
-  <div class="grupo">Caderneta</div>
+  <div class="grupo">Fechamento</div>
   <div class="cartao-lista">
-    ${linhaIr('note','Abrir caderneta','caderneta')}
+    ${linhaIr('note','Fechamento do dia','fechamento')}
   </div>
   ${/* 🔴 O CATÁLOGO NASCE DO MOTOR, NUNCA DE UMA LISTA ESCRITA À MÃO AQUI. Se
         a régua de "este capítulo existe pra esta empresa" morasse na tela, ela
@@ -4982,10 +4981,10 @@ ${nav('ajustes')}`;}};
    MONTAGEM
    ========================================================================== */
 const ORDEM=['entrada','rota','rotalista','rotafoto','mapa','mapachegou','mapalista','gerenciador','montagem','conferencia',
-             'venda','folha','folhanao','rapida','salvas','caderneta','semana','clientes','novocliente','ficha','produtos',
+             'venda','folha','folhanao','rapida','salvas','fechamento','semana','clientes','novocliente','ficha','produtos',
              'fichaproduto','chat','ajustes','recarga','financeiro','avancado','sons','historico','consumo',
              'passeio','leitura','portoes'];
-const GRUPOS=['Sistema','Rota','Caderneta','Cadastro','Ajustes'];
+const GRUPOS=['Sistema','Rota','Fechamento','Cadastro','Ajustes'];
 let atual='entrada';
 
 /* Quanto tempo a camada que SAI ainda precisa ficar viva, por transição.
@@ -5514,7 +5513,7 @@ const PORTOES={
     acoes:[['Fechar',''],['Recarregar','principal']]},
 
   update:{tom:'info',ico:'download',titulo:'Versão nova disponível',
-    sub:'beta1.3.3 · 2,3 MB. Corrige o aviso de chegada e a caderneta de sábado.',
+    sub:'beta1.3.3 · 2,3 MB. Corrige o aviso de chegada e o fechamento de sábado.',
     acoes:[['Agora não',''],['Atualizar','azul']]},
 
   updateObrig:{tom:'trava',ico:'download',titulo:'Atualização obrigatória',
@@ -6061,7 +6060,7 @@ const CAPITULOS={
     {tela:'rota',alvo:'[data-nav="ajustes"]',tipo:'fazer',
      titulo:'Os três módulos',texto:'Chat, Rota e Ajustes. Toque em Ajustes.'},
     {tela:'ajustes',alvo:'[data-ir="clientes"]',tipo:'fazer',
-     titulo:'Cadastro fica aqui',texto:'Clientes, produtos e caderneta moram nos Ajustes.'},
+     titulo:'Cadastro fica aqui',texto:'Clientes, produtos e fechamento moram nos Ajustes.'},
     {tela:'clientes',alvo:'.cli',
      titulo:'A ficha do cliente',texto:'Toque num cliente pra ver endereço, preço e o que ele deve.'},
   ]},
@@ -6076,7 +6075,7 @@ const CAPITULOS={
      Copy nova não se inventa: a que está lá já foi lida e aprovada. */
   avulsa:{titulo:'Parada avulsa — o "+"',ico:'plus',aula:'rapida',tela:'rapida'},
   entregar:{titulo:'Entregar e receber',ico:'check',aula:'folha',tela:'folha'},
-  caderneta:{titulo:'Caderneta e fechamento',ico:'note',aula:'caderneta',tela:'caderneta',
+  fechamento:{titulo:'Fechamento do dia',ico:'note',aula:'fechamento',tela:'fechamento',
     se:d=>!!d.financeiro},
   chat:{titulo:'Recados da Central',ico:'chat',aula:'chat',tela:'chat',se:d=>!!d.chat},
   creditos:{titulo:'Créditos e recarga',ico:'card',aula:'consumo',tela:'consumo',se:d=>!!d.admin},
@@ -6118,7 +6117,7 @@ const CAPITULOS={
 /** A fila do obrigatório, na ordem em que o motorista precisa aprender. */
 const OBRIGATORIO=['montar','clientes','cadastro'];
 /** A ordem do catálogo de Ajustes › "Aprenda a usar". */
-const CATALOGO=['montar','avulsa','entregar','caderneta','chat','prospector','creditos'];
+const CATALOGO=['montar','avulsa','entregar','fechamento','chat','prospector','creditos'];
 
 /* O aparelho lembra o capítulo VISTO e ONDE parou — retomar de onde parou é
    conveniência de leitura, então é do aparelho. O "obrigatório visto" NÃO mora

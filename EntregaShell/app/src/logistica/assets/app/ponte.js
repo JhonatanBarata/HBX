@@ -112,7 +112,7 @@
     // O degrau do meio (dono, 07/08: "primeiro fecha por partes... aí volta").
     // A tela que se entra por dentro carrega a própria volta no cabeçalho ou no
     // × da folha — o Voltar do Android CASA com ele: Financeiro→Ajustes,
-    // Semana→Caderneta, Ficha→Clientes.
+    // Semana→Fechamento, Ficha→Clientes.
     //
     // 🔴 QUEM RESPONDE É `[data-voltar]`, NUNCA "o primeiro `data-ir`".
     // `.hdr [data-ir]` pegava o PRIMEIRO link do cabeçalho — e o cabeçalho só
@@ -671,7 +671,7 @@
       window.API.get('/credits/me'),
       // ⚠️ é `date`, não `data` (conferido no controller): o nome errado não dá
       // erro nenhum — o servidor ignora e responde o dia DELE, em UTC.
-      window.API.get(`/logistica/caderneta/resumo?date=${encodeURIComponent(dia)}`),
+      window.API.get(`/logistica/fechamento/resumo?date=${encodeURIComponent(dia)}`),
       // 🔴 "Iniciar debita N" no cabeçalho vinha do MOCK e de mais lugar nenhum
       // — o app prometia 12 créditos porque era o número do desenho. É a MESMA
       // porta que o portão do Iniciar usa pra cobrar, então o cabeçalho passa a
@@ -740,7 +740,7 @@
          mapa dizia "52 paradas · 0 entregues" no estado `montar` — a AGENDA
          vestida de rota — e a 1ª cura foi mandar o campo VAZIO daqui. Errado, e
          medido: `kpiParadas` é lido por mais quatro telas (lista, foto,
-         caderneta, semana), onde ele é o total do dia e É pra aparecer; esvaziar
+         fechamento, semana), onde ele é o total do dia e É pra aparecer; esvaziar
          na fonte deixava o rótulo "paradas" sem número em todas elas.
          A régua de "sem rota montada não se conta parada" ficou onde ela nasce:
          na barra do `T.rota`, que já tem o estado da rota na mão. Régua de uma
@@ -748,7 +748,7 @@
       kpiParadas: String(itens.length),
       kpiEntregues: String(entregues),
       kpiEntreguesParado: String(entregues),
-      // saldo/dinheiro/pix = o CAIXA do dia (fechamento da caderneta), em
+      // saldo/dinheiro/pix = o CAIXA do dia (fechamento do dia), em
       // centavos na origem. Financeiro OFF ⇒ campo vazio (é resposta, não
       // falha). ⚠️ Já a fonte FORA DO AR mantém o que estava: apagar o caixa
       // por causa de rede ruim é pior que mostrar o número de um minuto atrás.
@@ -777,10 +777,10 @@
     // relê de `ProspectoRota`): é isto que faz elas sobreviverem a fechar o app.
     aplicarProspector(r);
 
-    // L5 — a caderneta e a semana bebem do MESMO resumo que já veio acima.
+    // L5 — o fechamento e a semana bebem do MESMO resumo que já veio acima.
     // Só quando ele REALMENTE respondeu: resumo que falhou não pode zerar o
     // caixa do dia (mesma lei do fio de recados, ver L8).
-    if (caixaR.status === 'fulfilled') encherCaderneta(caixa, itens, entregues);
+    if (caixaR.status === 'fulfilled') encherFechamento(caixa, itens, entregues);
 
     // 🔴 A MONTAGEM SE ENCHE AQUI, não só no toque de "Montar rota". Quem chega
     // nela por outro caminho via a lista do MOCK — João da Silva, R$ 336,00 —
@@ -838,7 +838,7 @@
          🔴 Medido no g15 com o túnel derrubado: eu tinha zerado só `saldo`, e a
          tela mostrou "Dinheiro R$ 132,00 · Pix R$ 52,00" — os números do mock,
          com cara de caixa do dia. É que a ponte só escreve esses dois quando o
-         `caderneta/resumo` responde (`...(caixaR.status === 'fulfilled' ...)`),
+         `fechamento/resumo` responde (`...(caixaR.status === 'fulfilled' ...)`),
          e o que ela não escreve FICA. Campo de dinheiro que sobrou do exemplo é
          a pior mentira desta tela.
          A régua: o que é DADO zera; o que é COPY (`vazioTitulo`, `vazioSub`)
@@ -858,7 +858,7 @@
          com a lista vazia o pé nem é desenhado.
 
          🔴 ESTA CHAVE ESTAVA ESCRITA DUAS VEZES NESTE MESMO OBJETO (09/08). A
-         segunda — lá embaixo, entre o `financeiro` e a `caderneta`, acrescentada
+         segunda — lá embaixo, entre o `financeiro` e o `fechamento`, acrescentada
          depois pro caso do `/logistica/rota` no chão — repetia cinco campos e
          SOBRESCREVIA este bloco inteiro: em objeto literal quem vence é a
          última. Os cinco repetidos tinham valor idêntico (por isso as 6 paradas
@@ -959,14 +959,14 @@
       // navegava mesmo assim. Fundida na chave lá de cima, que já zerava os
       // mesmos cinco campos com os mesmos valores; o porquê está escrito lá.)
       /* 🔴 O CAIXA DO DIA — 11 campos de dinheiro presos a UMA chamada.
-         `encherCaderneta` só roda se o `caderneta/resumo` responder; as duas
+         `encherFechamento` só roda se o `fechamento/resumo` responder; as duas
          seções são 100% DADO e nenhuma nascia limpa. Com a chamada no chão a
-         Caderneta (que é ABA da barra de baixo, alcançável a qualquer momento)
+         Fechamento (alcançável a qualquer momento pelo caixa da Rota)
          mostrava o fechamento do desenho: Dinheiro R$ 132,00 · Pix R$ 52,00 ·
-         Cartão R$ 84,00 · Caderneta R$ 68,00, total R$ 336,00 — e o selo
+         Cartão R$ 84,00 · Marcado R$ 68,00, total R$ 336,00 — e o selo
          "Tudo certo!", um veredito que o app não tem como emitir. A Semana
          mostrava 6 dias inventados e R$ 2.648,00. */
-      caderneta: { entregues: '', selo: '', formas: [], formaTotal: '', clientes: '', produtos: '', marcado: '' },
+      fechamento: { entregues: '', selo: '', formas: [], formaTotal: '', clientes: '', produtos: '' },
       semana: { dias: [], marcado: '', recebido: '', pendencia: '' },
       /* 🔴 AS EMPRESAS DO CORREDOR SÃO A MENTIRA MAIS CARA DESTA TELA. O
          desenho traz "Mercado São Judas", "Padaria Avenida" e "Restaurante
@@ -986,7 +986,7 @@
       mapa: { empresas: [] },
       /* 🔴 O CROMO DO GPS — a última mentira da varredura, e a pior de todas
          pelo LUGAR: é a tela em que o motorista está DIRIGINDO. Enquanto rota,
-         clientes, ajustes, recarga, caderneta e semana já nasciam limpas, esta
+         clientes, ajustes, recarga, fechamento e semana já nasciam limpas, esta
          seguia dizendo "Parada 3 de 8 · Mercado São Judas" (cliente que não
          existe), "240 m · Vire à direita" (curva que ninguém escolheu, com a
          seta apontando) e "12:26 chegada · 45 min restante · 8,2 km". Todos
@@ -1197,7 +1197,7 @@
      O DIA DA ROTA A MONTAR (dono, 07/08): "não estamos conseguindo se
      adiantar, ou voltar um dia". O trilho é o MESMO do desktop
      (`/logistica/admin-route/prepare`): o dia operacional continua HOJE —
-     caderneta, cobrança e carimbo coerentes — e só os CLIENTES vêm do dia
+     fechamento, cobrança e carimbo coerentes — e só os CLIENTES vêm do dia
      escolhido. 0 = hoje (fluxo de sempre). Chip só aparece pra admin.
      -------------------------------------------------------------------- */
   let montarDia = 0;
@@ -4376,7 +4376,7 @@
   observador.observe(document.getElementById('app') || document.body, { childList: true, subtree: true });
 
   /* ------------------------------------------------------------------------
-     L10 — ROTAS SALVAS (é aqui que a "Caderneta de <dia>" do L5 vai parar).
+     L10 — ROTAS SALVAS (é aqui que a "Rota de <dia>" do L5 vai parar).
 
      Só LISTA e ABRIR: criar, duplicar, editar e indicar modelo saíram no corte
      de 06/08 — é trabalho de escritório e o desktop já faz. Por isso o par
@@ -4424,7 +4424,7 @@
         return [
           esc(m.nome),
           // A porta não devolve data de criação; o que ela tem é o DIA da
-          // semana do modelo — que é justamente o que identifica a caderneta.
+          // semana do modelo — que é justamente o que identifica a rota do dia.
           m.diaSemana ? DIAS_SEMANA[Number(m.diaSemana)] || '' : '',
           String(paradas),
           '',            // produtos: sem fonte
@@ -4744,7 +4744,7 @@
      AJUSTES · FINANCEIRO — a carteira do dono, e a última tela cravada.
 
      DUAS portas, porque são duas perguntas diferentes:
-       · `caderneta/resumo` → o CAIXA DE HOJE (quanto entrou, por qual forma) E
+       · `fechamento/resumo` → o CAIXA DE HOJE (quanto entrou, por qual forma) E
          o mapa `devedores` (id do cliente → centavos em aberto);
        · `nucleo/clientes`  → o NOME de quem está nesse mapa.
 
@@ -4771,7 +4771,7 @@
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     const dia = diaOperacional();
     const [caixaR, rosterR] = await Promise.allSettled([
-      window.API.get(`/logistica/caderneta/resumo?date=${encodeURIComponent(dia)}`),
+      window.API.get(`/logistica/fechamento/resumo?date=${encodeURIComponent(dia)}`),
       window.API.get('/nucleo/clientes?page=1&pageSize=100'),
     ]);
     if (caixaR.status !== 'fulfilled' && rosterR.status !== 'fulfilled') return fonteCaiu('financeiro');
@@ -4881,7 +4881,7 @@
       catch (e) { return avisoErro(e); }
       await carregarAjustes();
       // A rota lê as MESMAS chaves pra decidir qual folha abre na porta: sem
-      // isto, virar "modo caderneta" só valeria na próxima abertura do app.
+      // isto, uma troca de modo só valeria na próxima abertura do app.
       await carregarRota();
     });
   }
@@ -6788,10 +6788,10 @@
   }
 
   /* ------------------------------------------------------------------------
-     L5 — O FECHAMENTO DO DIA (caderneta) E A SEMANA.
+     L5 — O FECHAMENTO DO DIA E A SEMANA.
 
-     Tudo sai de UMA porta (`/logistica/caderneta/resumo`), que já era pedida
-     pra encher o caixa do topo da Rota — a caderneta não custa requisição nova.
+     Tudo sai de UMA porta (`/logistica/fechamento/resumo`), que já era pedida
+     pra encher o caixa do topo da Rota — o fechamento não custa requisição nova.
      🔴 SEM FONTE, VAZIO: o resumo não traz "produtos por dia" nem o recebido
      de cada dia da semana (só o total). Esses dois slots do desenho ficam SEM
      NÚMERO em vez de com zero — zero é uma afirmação, e nesta tela ela seria
@@ -6806,7 +6806,7 @@
     return js === 0 ? 7 : js;
   };
 
-  function encherCaderneta(caixa, itens, entregues) {
+  function encherFechamento(caixa, itens, entregues) {
     if (typeof window.usarDados !== 'function') return;
     const f = (caixa && caixa.fechamento) || null;
     const formas = (f && f.formas) || null;
@@ -6817,7 +6817,7 @@
     const clientes = pagina && Array.isArray(pagina.vendas)
       ? new Set(pagina.vendas.map((v) => String(v.clienteId || ''))).size
       : null;
-    window.usarDados('caderneta', {
+    window.usarDados('fechamento', {
       entregues: String(entregues),
       // O selo do canto diz um FATO (quantas vendas), nunca um veredito: o app
       // não tem como saber que está "tudo certo". Sem venda, sem selo.
@@ -6828,11 +6828,11 @@
         ['cash', 'var(--lime)', 'Dinheiro', centavosSeTiver(formas.dinheiroCents)],
         ['pix', 'var(--blue-l)', 'Pix', centavosSeTiver(formas.pixCents)],
         ['card', 'var(--purple)', 'Cartão', centavosSeTiver(formas.cartaoCents)],
-        ['note', 'var(--amber)', 'Caderneta', centavosSeTiver(formas.fiadoCents)],
+        ['note', 'var(--amber)', 'Marcado', centavosSeTiver(formas.fiadoCents)],
       ].filter((x) => x[3]) : [],
       formaTotal: f ? centavosSeTiver(f.totalCents) : '',
       clientes: seTiver(clientes),
-      // 🔴 PRODUTOS E MARCADO SÃO DA CADERNETA, NÃO DA ROTA. Estavam lendo
+      // 🔴 PRODUTOS SÃO DO FECHAMENTO, NÃO DA ROTA. Estavam lendo
       // `DADOS.rota.*` — e aí uma venda de 2 galões aparecia como "0 produtos"
       // porque a ROTA de hoje estava vazia. São duas contas diferentes com o
       // mesmo nome; a desta tela é a das VENDAS da página.
@@ -6840,9 +6840,11 @@
         ? seTiver(pagina.vendas.reduce((s, v) => s
             + (Array.isArray(v.itens) ? v.itens.reduce((n, it) => n + (Number(it.qtd) || 0), 0) : 0), 0))
         : '',
-      // "marcado" na língua da caderneta é o que ficou FIADO — o que o cliente
-      // levou e não pagou. Sem financeiro não existe conta, e o slot fica vazio.
-      marcado: formas ? centavosSeTiver(formas.fiadoCents) : '',
+      // 🔴 O "marcado" NÃO VIAJA MAIS (09/08). Ele é o `fiadoCents` — exatamente
+      // o mesmo número que a grade de formas já mostra como "Marcado". Estava
+      // escrito duas vezes na MESMA tela, e dado em 2 cards é bug de produto: a
+      // grade é o lugar dele, ao lado de Dinheiro/Pix/Cartão, porque "marcou" é
+      // uma forma de desfecho como as outras.
     });
 
     const dias = Array.isArray(caixa && caixa.historicoDias) ? caixa.historicoDias : [];
@@ -6862,7 +6864,7 @@
     });
   }
 
-  /** Fechar o dia: registra a caderneta de hoje e salva nas Rotas salvas. */
+  /** Fechar o dia: registra o dia de hoje e salva nas Rotas salvas. */
   async function fecharDia() {
     if (typeof window.portao !== 'function') return;
     const dia = diaDaSemana();
@@ -6874,10 +6876,10 @@
     const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;
     botao.addEventListener('click', () => comTrava(async () => {
-      try { await window.API.post('/logistica/caderneta/finalizar', { dia }); }
+      try { await window.API.post('/logistica/fechamento/finalizar', { dia }); }
       catch (e) { return avisoErro(e); }
       await carregarRota();
-      window.ir('caderneta');
+      window.ir('fechamento');
     }), { once: true });
   }
 
@@ -6991,12 +6993,12 @@
       }),
       contaItem: hojeVal != null ? dinheiro(hojeVal) : '',
       contaChegada: hojeVal != null ? dinheiro(hojeVal) : '',
-      // "Lançamento na caderneta" só é verdade quando a forma escolhida é FIADO
-      // — em dinheiro/pix/cartão nada vai pra caderneta. Número que muda de
+      // "Ficou marcado" só é verdade quando a forma escolhida é FIADO
+      // — em dinheiro/pix/cartão nada fica marcado. Número que muda de
       // significado conforme o botão é número que mente.
       lancamento: forma === 'fiado' && hojeVal != null ? dinheiro(hojeVal) : dinheiro(0),
       recebido: forma && forma !== 'fiado' && hojeVal != null ? dinheiro(hojeVal) : dinheiro(0),
-      paraCaderneta: anterior != null ? dinheiro(anterior + (forma === 'fiado' ? (hojeVal || 0) : 0)) : '',
+      paraMarcado: anterior != null ? dinheiro(anterior + (forma === 'fiado' ? (hojeVal || 0) : 0)) : '',
       forma,
     });
   }
@@ -7141,8 +7143,8 @@
     'ir-recarga': () => window.ir('recarga'),
     'ir-financeiro': () => window.ir('financeiro'),
     'ir-avancado': () => window.ir('avancado'),
-    // 'chave-caderneta' morreu em 07/08 junto com a chave: o MODO caderneta
-    // foi removido do produto; a caderneta é a tela de anotações, e só.
+    // 'chave-caderneta' morreu em 07/08 junto com a chave; em 09/08 a palavra
+    // saiu do produto inteiro — a tela é o FECHAMENTO DO DIA.
     /* 🔴 TRÊS CAMPOS DO SERVIDOR DISPUTAVAM O RÓTULO "AVISAR CHEGADA". Medido,
        e a diferença é de FUNÇÃO, não de nome:
        · `raioChegadaM` (60 m) — no app que já roda é o raio do geofence NATIVO

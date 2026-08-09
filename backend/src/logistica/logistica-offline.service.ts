@@ -388,7 +388,7 @@ function finiteNumber(value: unknown): number | undefined {
 }
 
 // 🔴 'cartao' FALTAVA AQUI (achado no g15, 06/08). Ele entrou no ConfirmarEntregaDto
-// e no normalizeReceipt junto com o Modo Caderneta (04/08, maquininha na rua), mas
+// e no normalizeReceipt junto com a venda por toque (04/08, maquininha na rua), mas
 // esta lista branca ficou pra trás — e ela é a porta de TODA confirmação que passa
 // pela fila offline, que é o caminho normal quando a rota tem autorização offline.
 // Efeito medido: a entrega era confirmada, o dinheiro entrava, e o método sumia
