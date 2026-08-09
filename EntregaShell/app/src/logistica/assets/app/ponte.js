@@ -4852,25 +4852,29 @@
        imprevisível; este ponto é o único em que as duas já chegaram. Config que
        nunca chega = tour que não abre nesta sessão, e está certo: o
        `carregarBarra` tenta de novo a cada minuto. */
-    /* ⛔ FREIO LIGADO EM 09/08 02:0x — O TUTORIAL OBRIGATÓRIO TRAVA O APP.
-       MEDIDO no g15 com o APK 205, do jeito que o cliente faz: abre o app →
-       cartão "O app mudou" → toca "Vamos lá" → e o aparelho fica MUDO. Nem o
-       botão de montar, nem a aba Ajustes, nem a de Chat respondem. E não há
-       furo, nem balão, nem escurecido na tela: a lição monta a camada que come
-       o dedo e NÃO DESENHA NADA. Reiniciar não salva — sem `tutorialVistoEm`
-       gravado, o obrigatório dispara em todo boot e prende de novo.
-       App travado sem sinal nenhum é o pior desfecho possível: o motorista não
-       tem o que tocar e nem sabe por quê. Enquanto a causa não está achada, o
-       gatilho automático fica DESLIGADO — é o freio, não o remendo do sintoma.
-       O tutorial NÃO foi apagado: o motor, os capítulos e a porta dos Ajustes
-       ("Aprenda a usar") continuam inteiros e funcionam a pedido, com X. O que
-       sai é só o disparo sozinho, que é o que prende.
-       PARA RELIGAR: achar por que o passo 1 (`tela:'rota'`, alvo do botão de
-       montar, `tipo:'fazer'`) monta o véu sem furo e sem balão — a suspeita é
-       o ramo de jornada `if(p.tela&&p.tela!==atual) return ir(p.tela)` girando
-       contra a tela em que já se está — provar no aparelho, e trocar esta
-       linha de volta. */
-    void abrirObrigatorio;
+    /* 🔴 O FREIO DE 09/08 02:0x SAIU — A CAUSA ERA O `mock.js` PELA METADE.
+       O freio foi posto por um motivo REAL e bem medido no g15 (APK 205): abria
+       o app, tocava "Vamos lá" e o aparelho ficava mudo — véu comendo o dedo,
+       sem furo, sem balão, sem nada desenhado. Diagnóstico da época: o ramo de
+       jornada do motor. Não era.
+
+       O `casca-injetar` rodou ENTRE duas edições do motor e gerou um `mock.js`
+       que CHAMAVA `acharAlvo()` sem DEFINIR a função (medido: 1 chamada, 0
+       definições). É a Lei nº1 do injetor — estado assado pela metade. O APK 205
+       nasceu desse arquivo, então o primeiro passo estourava `ReferenceError`
+       exatamente DEPOIS de montar o véu e ANTES de desenhar furo e balão: o
+       sintoma descrito, nos mínimos detalhes.
+
+       Reinjetado, medido no g15 com o APK instalado (`function acharAlvo` = 1):
+       a lâmpada desenha véu+furo+balão; o capítulo "Montar e iniciar a rota"
+       sai dos Ajustes, navega sozinho pra Rota (o tal ramo de jornada, que a
+       suspeita acusava) e crava o furo no botão certo; toque FORA não faz nada
+       e não fecha; toque DENTRO abre a Montagem de verdade e anda pro passo 2,
+       com o furo saltando pros chips de dia. Prints no relatório da sessão.
+
+       LEI QUE FICA: quando o app quebra logo depois de uma injeção, o primeiro
+       suspeito é o ARQUIVO GERADO, não a lógica recém-escrita. */
+    abrirObrigatorio();
   }
 
   /** a PORTA — o único lugar do app que abre o tutorial obrigatório */
