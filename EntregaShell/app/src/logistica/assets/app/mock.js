@@ -3218,7 +3218,16 @@ function portao(chave){
   camada.querySelector('.portao-wrap')?.remove();
   const w=document.createElement('div');
   w.className='portao-wrap';
-  w.innerHTML=`<div class="portao ${p.tom}">
+  /* 🔴 DESTRUTIVO NÃO É O BOTÃO VERDE — NEM AQUI DENTRO (dono, lei do dock;
+     medido em 09/08). O rodapé já obedecia: "Cancelar rota" é satélite vermelho.
+     Mas o PORTÃO que ele abre pintava o "Cancelar rota" de VERDE, porque todo
+     `principal` é verde nesta folha — o mesmo verde do "Iniciar" que estava ali
+     três segundos antes, no mesmo lugar da tela. No teste ao vivo eu cancelei a
+     rota do dono TRÊS vezes sem querer por causa disso, e o log do servidor
+     provou (`rota encerrada` × 3). `perigo` troca só a COR do principal: a
+     CLASSE continua `principal` porque a ponte pendura o listener nela
+     (`naCamada('.portao-wrap .principal')`) — mudar o nome mataria o "sim". */
+  w.innerHTML=`<div class="portao ${p.tom}${p.perigo?' perigo':''}">
     <span class="ico">${ic(p.ico,22)}</span>
     <h3>${p.titulo}</h3><span class="sub">${p.sub}</span>
     ${p.corpo?`<div class="corpo">${p.corpo}</div>`:''}

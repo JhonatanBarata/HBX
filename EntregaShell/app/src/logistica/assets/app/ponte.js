@@ -2003,10 +2003,16 @@
   /** cancelar: encerra a rota; entrega aberta volta pra agenda, nunca some. */
   async function cancelarRota() {
     if (typeof window.portao !== 'function') return;
+    /* 🔴 `perigo` PINTA O "SIM" DE VERMELHO (09/08). O rodapé já tratava cancelar
+       como destrutivo — satélite vermelho —, mas o portão que ele abre vestia o
+       "Cancelar rota" do MESMO verde do "Iniciar", no MESMO lugar da tela. No
+       teste ao vivo isso me fez encerrar a rota do dono três vezes sem querer
+       (provado no log do servidor), e foi o que escondeu o estado `rodando`:
+       rota encerrada volta pro rodapé de "pronta", calada. */
     window.portao({
       tom: 'alerta', ico: 'close', titulo: 'Cancelar a rota de hoje?',
       sub: 'As entregas em aberto voltam pra agenda.',
-      acoes: [['Não', ''], ['Cancelar rota', 'principal']], classe: 'duas',
+      acoes: [['Não', ''], ['Cancelar rota', 'principal']], classe: 'duas', perigo: true,
     });
     const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;

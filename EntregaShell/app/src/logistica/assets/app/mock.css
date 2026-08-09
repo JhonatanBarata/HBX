@@ -674,6 +674,9 @@ button,input{font:inherit;color:inherit}
 .portao .acoes button{height:42px;border-radius:12px;border:.7px solid var(--line-2);background:transparent;
   color:var(--ink);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
 .portao .acoes .principal{background:linear-gradient(180deg,var(--go-1),var(--go-2));border:0;color:var(--go-ink)}
+/* O "sim" que DESTRÓI usa a tinta do perigo — mesma peça do aviso de erro
+   (`--danger-btn`), nada de cor nova. Ver o comentário do `portao()`. */
+.portao.perigo .acoes .principal{background:var(--danger-btn);border:0;color:var(--white)}
 .portao .acoes .perigo{color:var(--red);border-color:var(--red-line)}
 .portao .acoes .azul{background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));border:0;color:var(--white)}
 /* linha de problema: o nome, o que falta, e a seta que leva ao conserto */

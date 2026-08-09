@@ -701,6 +701,9 @@ button,input{font:inherit;color:inherit}
 .portao .acoes button{height:42px;border-radius:12px;border:.7px solid var(--line-2);background:transparent;
   color:var(--ink);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
 .portao .acoes .principal{background:linear-gradient(180deg,var(--go-1),var(--go-2));border:0;color:var(--go-ink)}
+/* O "sim" que DESTRÓI usa a tinta do perigo — mesma peça do aviso de erro
+   (`--danger-btn`), nada de cor nova. Ver o comentário do `portao()`. */
+.portao.perigo .acoes .principal{background:var(--danger-btn);border:0;color:var(--white)}
 .portao .acoes .perigo{color:var(--red);border-color:var(--red-line)}
 .portao .acoes .azul{background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));border:0;color:var(--white)}
 /* linha de problema: o nome, o que falta, e a seta que leva ao conserto */
@@ -5523,7 +5526,16 @@ function portao(chave){
   camada.querySelector('.portao-wrap')?.remove();
   const w=document.createElement('div');
   w.className='portao-wrap';
-  w.innerHTML=`<div class="portao ${p.tom}">
+  /* 🔴 DESTRUTIVO NÃO É O BOTÃO VERDE — NEM AQUI DENTRO (dono, lei do dock;
+     medido em 09/08). O rodapé já obedecia: "Cancelar rota" é satélite vermelho.
+     Mas o PORTÃO que ele abre pintava o "Cancelar rota" de VERDE, porque todo
+     `principal` é verde nesta folha — o mesmo verde do "Iniciar" que estava ali
+     três segundos antes, no mesmo lugar da tela. No teste ao vivo eu cancelei a
+     rota do dono TRÊS vezes sem querer por causa disso, e o log do servidor
+     provou (`rota encerrada` × 3). `perigo` troca só a COR do principal: a
+     CLASSE continua `principal` porque a ponte pendura o listener nela
+     (`naCamada('.portao-wrap .principal')`) — mudar o nome mataria o "sim". */
+  w.innerHTML=`<div class="portao ${p.tom}${p.perigo?' perigo':''}">
     <span class="ico">${ic(p.ico,22)}</span>
     <h3>${p.titulo}</h3><span class="sub">${p.sub}</span>
     ${p.corpo?`<div class="corpo">${p.corpo}</div>`:''}
