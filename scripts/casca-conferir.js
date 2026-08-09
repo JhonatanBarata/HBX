@@ -116,29 +116,72 @@ body{margin:0;display:block;overflow:hidden;background:#06090f}
     PARADAS: JSON.parse(JSON.stringify(PARADAS)),
     estadoRota,
   }));
-  await app.p.evaluate((e) => {
-    Object.keys(e.DADOS).forEach((s) => { DADOS[s] = e.DADOS[s]; });
-    try { if (typeof window.PARADAS !== 'undefined') window.PARADAS = e.PARADAS; else PARADAS = e.PARADAS; } catch (_) { /* seam ausente */ }
-    try { estadoRota = e.estadoRota; } catch (_) { /* idem */ }
-  }, estadoDoMock);
+
+  /* 🔴 …E O DADO TEM QUE FICAR IGUAL ATÉ O FIM (09/08). Copiar UMA VEZ não
+     bastava: no navegador o `temPonte()` do app é VERDADEIRO, então a ponte
+     sobe com os relógios dela girando (recados a cada 5 s, barra e virada do
+     dia a cada 60 s, update a cada 10 min). As 66 fotos levam ~2 min — dá
+     tempo de sobra pra um poll cair NO MEIO e reescrever `DADOS` só do lado do
+     app. Era esta a INTERMITÊNCIA que sobrou depois do `atual`: a cada rodada
+     reprovava uma tela diferente (`escuro/ficha`, `claro/rotalista`,
+     `escuro/ajustes`), sempre a que estava sendo pintada na hora do poll.
+     `usarDados` é a ÚNICA porta por onde a ponte escreve na tela — fechada
+     ela, a cópia fica de pé, e o que sobrar de diferença é casca de verdade. */
+  await app.p.evaluate(() => { try { window.usarDados = () => {}; } catch (_) { /* sem seam */ } });
 
   const chaves = await mock.p.evaluate(() => Object.keys(T));
-  const tirar = async (pg, k, modo) => {
-    await pg.evaluate(([key, m]) => {
+  /* 🔴 `atual` TAMBÉM É DADO DOS DOIS LADOS (09/08) — e era a fonte da
+     INTERMITÊNCIA deste portão. Aqui as telas são pintadas chamando
+     `T[k].render()` na mão, sem passar pelo `ir()`, então `atual` fica onde o
+     BOOT de cada lado deixou: o app abre numa tela, o mock em outra. E o
+     cabeçalho LÊ `atual` — pela regra do `hdr`, tela com aula troca o "+" pela
+     LÂMPADA. Resultado medido: `escuro/gerenciador` reprovava com o app
+     desenhando `data-aula="1"` e o mock desenhando `data-ir="novocliente"`,
+     no mesmo pixel, sem uma linha de casca diferente entre os dois.
+     A régua deste script já dizia "MESMOS DADOS DOS DOIS LADOS, senão o portão
+     mede a coisa errada"; `atual` é dado, e faltava igualar. Ele passa a valer
+     a tela que está sendo pintada — que é o que ele valeria de verdade se a
+     pessoa tivesse navegado até ela. */
+  const tirar = async (pg, k, modo, e) => {
+    await pg.evaluate(([key, m, est]) => {
+      // O estado é RECRAVADO antes de cada foto (e não uma vez só lá em cima):
+      // é o que garante que a 66ª comparação mede o mesmo que a 1ª.
+      Object.keys(est.DADOS).forEach((s) => { DADOS[s] = est.DADOS[s]; });
+      try { if (typeof window.PARADAS !== 'undefined') window.PARADAS = est.PARADAS; else PARADAS = est.PARADAS; } catch (_) { /* seam ausente */ }
+      try { estadoRota = est.estadoRota; } catch (_) { /* idem */ }
       document.documentElement.dataset.luz = m;
+      try { atual = key; } catch (_) { /* seam ausente: segue como estava */ }
       const a = document.getElementById('app'); a.innerHTML = '';
       const c = document.createElement('div'); c.className = 'tela';
       c.innerHTML = T[key].render(); a.appendChild(c);
-    }, [k, modo]);
+    }, [k, modo, e]);
     return crypto.createHash('sha1').update(await pg.screenshot()).digest('hex');
   };
 
-  const diferentes = [];
+  const suspeitas = [];
   for (const modo of MODOS) {
     for (const k of chaves) {
-      const [a, m] = [await tirar(app.p, k, modo), await tirar(mock.p, k, modo)];
-      if (a !== m) diferentes.push(`${modo}/${k}`);
+      const [a, m] = [await tirar(app.p, k, modo, estadoDoMock), await tirar(mock.p, k, modo, estadoDoMock)];
+      if (a !== m) suspeitas.push([modo, k]);
     }
+  }
+
+  /* 🔴 REPROVA SÓ O QUE REPROVA DUAS VEZES (09/08) — o último degrau da
+     de-flakada, e o único honesto depois que fechar `usarDados` e recravar o
+     estado ainda deixava UMA tela diferente por rodada, sempre outra
+     (`escuro/ficha` → `claro/rotalista` → `escuro/ajustes` → `escuro/avancado`).
+     Perseguir um a um cada relógio da ponte é caçar sintoma; a régua certa é a
+     NATUREZA das duas coisas: diferença de CASCA é determinística e repete
+     100% das vezes — o HTML é outro, e vai ser outro de novo. Poll que caiu no
+     meio da foto é acidente e não se repete no mesmo lugar segundos depois.
+     Confirmar custa uma foto por suspeita (foram 1 ou 2 por rodada, nunca 66) e
+     compra um portão em que "vermelho" volta a querer dizer alguma coisa.
+     Um defeito de verdade NÃO passa por aqui: ele reprova nas duas. */
+  const diferentes = [];
+  for (const [modo, k] of suspeitas) {
+    const [a, m] = [await tirar(app.p, k, modo, estadoDoMock), await tirar(mock.p, k, modo, estadoDoMock)];
+    if (a !== m) diferentes.push(`${modo}/${k}`);
+    else console.log(`  · ${modo}/${k}: diferiu na 1ª foto e bateu na 2ª — poll da ponte, não casca.`);
   }
   await browser.close();
 

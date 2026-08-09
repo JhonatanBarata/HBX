@@ -618,6 +618,11 @@
     window.usarDados('mapa', { empresas });
   }
 
+  /* Qual DIA está desenhado na tela agora. É a metade que faltava pra fechar a
+     virada da meia-noite: sem guardar isto, ninguém tem como perceber que a
+     tela envelheceu. Ver `viradaDoDia`. */
+  let diaNaTela = null;
+
   async function carregarRota() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     const dia = diaOperacional();
@@ -634,6 +639,9 @@
       try { if (estadoRota === 'carregando') { estadoRota = 'vazia'; pintar(false); } } catch (_) { /* sem seam */ }
       return;
     }
+    // Só depois que o servidor RESPONDEU: rede caída não pode carimbar o dia,
+    // senão o vigia da virada acharia que já cuidou de um dia que nunca chegou.
+    diaNaTela = dia;
 
     // Crédito e caixa do dia vêm de OUTRAS portas — pedidos em paralelo, e
     // cada um que falhar deixa o SEU campo vazio, sem derrubar a tela.
@@ -1049,6 +1057,31 @@
   });
   window.addEventListener('focus', carregarBarra);
   setInterval(carregarBarra, 60000);
+
+  /* 🔴 A MEIA-NOITE DEIXAVA A TELA NUM DIA E OS BOTÕES NOUTRO — e foi ISTO que o
+     dono levou na cara em 09/08 às 00:37: a tela dizia "52 paradas" com o
+     Iniciar verde, e o servidor respondia *"Nenhuma entrega aberta neste dia.
+     Monte a rota antes de iniciar."* Os DOIS estavam certos. A tela era de
+     ONTEM — carregada antes da meia-noite e nunca mais relida; o `hojeISO()` de
+     todo botão já era HOJE, e hoje ainda não tinha entrega nenhuma. O banco de
+     produção fecha o caso: as 52 de 08/08 foram canceladas e as 52 de 09/08
+     nasceram às 03:40:25 UTC — três minutos DEPOIS do erro.
+
+     Nada recarregava sozinho: `carregarRota` roda no boot e nos toques, e mais
+     nada. Só que app de entrega fica horas aberto num apoio — atravessar a
+     meia-noite é o caso NORMAL dele, não a exceção.
+
+     A garantia é o RELÓGIO, mesmo padrão da `carregarBarra` logo acima. Neste
+     app `focus`/`visibilitychange` comprovadamente não disparam (custou uma
+     leva inteira de "checagem só no boot frio"), então eles entram como
+     ATALHO — quem garante é o tique. Custa uma comparação de string por minuto
+     e só vai à rede quando a data VIROU de verdade. */
+  const viradaDoDia = () => { if (diaNaTela && diaNaTela !== diaOperacional()) carregarRota(); };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') viradaDoDia();
+  });
+  window.addEventListener('focus', viradaDoDia);
+  setInterval(viradaDoDia, 60000);
 
   const cargaInicial = () => {
     apagarDemonstracao(); carregarBarra(); carregarRota(); carregarRecados(); checkAppUpdate();
@@ -3812,9 +3845,17 @@
   if (typeof window.ir === 'function') {
     const irDoMock = window.ir;
     window.ir = function (tela) {
+      // DE ONDE ELE VEIO, lido ANTES da troca: é o que a parada avulsa usa pro
+      // Voltar apontar pra tela certa (mesma lei do `ficha.volta`). Depois do
+      // `irDoMock` o `atual` já é o destino, e a origem estaria perdida.
+      const veioDe = telaAtual();
       const r = irDoMock.apply(this, arguments);
       if (tela === 'clientes') carregarClientes();
       if (tela === 'produtos') carregarProdutos();
+      // A parada avulsa NASCE EM BRANCO, sempre — mesma lei do cadastro: campo
+      // que guarda o endereço da vez passada é a receita de adicionar duas
+      // vezes a mesma porta.
+      if (tela === 'rapida') rapidaEmBranco(veioDe);
       // A montagem é a tela de MONTAR: abrir já traz os chips (quem é admin) e
       // a lista do dia escolhido. Sem isto ela abriria com a lista da última
       // vez — e o motorista montaria a rota de ontem sem saber.
@@ -5468,6 +5509,450 @@
     });
   }
 
+  /* ==========================================================================
+     PARADA AVULSA — o "+" da Montagem e da Rota (09/08, cobrança do dono:
+     "cadê o + que eu adicionava uma rota avulsa, e tinha opções?").
+
+     Ela existia no app antigo com o nome "Rota rápida" e foi apagada em 07/08
+     pela regra do satélite morto, porque o MIOLO nunca tinha sido reescrito
+     aqui — sobrou o ícone. Isto é o miolo. O motor no servidor ficou INTEIRO,
+     e por isso esta seção não estreia endpoint nenhum:
+
+       achar a porta   → /logistica/geo/link · /geo/cep · /geo/busca · /geo/reverse
+       quem mora nela  → /nucleo/contas/por-endereco
+       a conta         → POST /nucleo/contas (PATCH quando é stub de endereço)
+       a entrega       → POST /logistica/entregas com `paraMinhaRota`
+       o encaixe       → POST /logistica/rota/planejar com `ordemManual`
+
+     💰 A parada é ABSORVIDA pela rota: quem cobra crédito é o Iniciar, e
+     re-planejar o mesmo dia não debita de novo (claim único por
+     empresa+motorista+data+bloco). Adicionar parada não gasta.
+     ========================================================================== */
+  let rapida = null;                 // o rascunho da tela; null = ninguém abriu
+
+  const PAR_COORD = /(-?\d{1,2}[.,]\d{3,8})\s*,\s*(-?\d{1,3}[.,]\d{3,8})/;
+  const digitos = (v) => String(v || '').replace(/\D/g, '');
+  const pontoOk = (lat, lng) => {
+    const a = Number(lat); const b = Number(lng);
+    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180
+      && !(a === 0 && b === 0);
+  };
+  /** "13500-000 1067" → {cep:'13500000', numero:'1067'}. Sem CEP no texto, null. */
+  function lerCepENumero(texto) {
+    const t = String(texto || '');
+    const cep = /(\d{5})-?(\d{3})/.exec(t);
+    if (!cep) return null;
+    const depois = t.slice(cep.index + cep[0].length);
+    const num = /(\d{1,6})/.exec(depois) || /(\d{1,6})\s*[,-]?\s*$/.exec(t.slice(0, cep.index));
+    return { cep: `${cep[1]}${cep[2]}`, numero: num ? num[1] : '' };
+  }
+  /* Conta SEM papel nenhum = stub de endereço (é assim que a parada "Direção"
+     nasce). Quem cadastra por cima ASSUME o stub em vez de abrir linha nova. */
+  const contaEhStub = (c) => !!c && !c.isCliente && !c.isLead && !c.isFornecedor;
+  const nomeDaConta = (c) => (!c ? ''
+    : String(c.nome || '').trim() || [c.endereco, c.numero].filter(Boolean).join(', ') || 'Cadastro sem nome');
+  /* 🔴 CADASTRO NÃO ACEITA LIXO (dono, 28/07: "se a pessoa clicou em CADASTRO
+     tem q cadastrar certinho, e comece a barrar lixo pra dentro do sistema").
+     "1", "...", "-" não são nome. Em Direção o nome segue opcional — ali o
+     pedido foi "só traçar rota mesmo, sem produto, sem valor nem nada". */
+  function nomeDeCadastroValido(nome) {
+    const limpo = String(nome || '').trim();
+    if (limpo.length < 2) return false;
+    return (limpo.match(/[a-zà-ÿ]/gi) || []).length >= 2;
+  }
+  /** as paradas do dia que ainda não foram resolvidas, na ordem do servidor */
+  function paradasAbertas() {
+    const abertas = [];
+    ENTREGAS.forEach((e, id) => {
+      const it = e && e.item;
+      const st = String((it && it.status) || '');
+      if (st !== 'entregue' && st !== 'cancelada') abertas.push({ id: String(id), item: it });
+    });
+    return abertas;
+  }
+  /* Parada ABERTA da mesma conta hoje. Entregue não conta: voltar no mesmo
+     cliente depois de entregar é operação real ("esqueci o galão"). */
+  const paradaAbertaDaConta = (contaId) => (!contaId ? null
+    : paradasAbertas().find((p) => String((p.item && p.item.cliente && p.item.cliente.id) || '') === String(contaId)) || null);
+
+  /* 🔴 DIREÇÃO × CADASTRO — e aqui o app novo CORRIGE o antigo. Lá, QUALQUER
+     ponto resolvido virava `origem:'mapa'`, e `rapidaModo` devolvia 'direcao'
+     pra todos eles: quem procurava um endereço ESCRITO e tocava em "Cadastro"
+     não cadastrava nada — o botão existia e não fazia. A régua certa não é de
+     onde veio o ponto, é se existe ENDEREÇO CONFERIDO pra guardar:
+       · link do Maps / coordenada colada → é um PINO cru, sem endereço que a
+         base possa confiar: só Direção (`soDirecao`), e a fileira nem aparece;
+       · endereço escrito ou CEP+número → veio do geocodificador com rua,
+         bairro e cidade: Cadastro é escolha legítima. */
+  const modoDaRapida = (r) => (!r ? 'direcao'
+    : (r.origem === 'ponto' ? 'direcao' : (r.modo === 'cadastro' ? 'cadastro' : 'direcao')));
+
+  const tituloDaPorta = (res, numero) => {
+    const n = digitos(numero) || String((res && res.numero) || '');
+    return [String((res && res.endereco) || '').trim(), n].filter(Boolean).join(', ')
+      || String((res && res.cidade) || '').trim() || 'Endereço marcado';
+  };
+  const detalheDaPorta = (res) => [
+    String((res && res.bairro) || '').trim(),
+    [String((res && res.cidade) || '').trim(), String((res && res.uf) || '').trim()].filter(Boolean).join(' — '),
+  ].filter(Boolean).join(' · ');
+
+  /** a tela nasce EM BRANCO — mesma lei do `novoEmBranco` do cadastro */
+  function rapidaEmBranco(veioDe) {
+    // Porta de entrada MARCADA, nunca deduzida (mesma lei do `ficha.volta`): quem
+    // entrou pela Rota tem que voltar pra Rota, senão o Voltar do Android mente.
+    const volta = veioDe === 'rotalista' || veioDe === 'rota' ? veioDe : 'montagem';
+    rapida = {
+      volta,
+      origem: '',            // '' | 'ponto' | 'busca' | 'cep'
+      resolvido: null, opcoes: [], duplicado: null,
+      cep: '', numero: '', nome: '',
+      modo: 'direcao', posicao: 'perto',
+      aviso: '', buscando: false, salvando: false,
+    };
+    if (typeof window.usarDados !== 'function') return;
+    window.usarDados('rapida', {
+      volta, busca: '', buscando: 0, salvando: 0, opcoes: [], achado: null,
+      aviso: '', modo: 'direcao', soDirecao: 0, nome: '', pedeNome: 0,
+      temRota: paradasAbertas().length ? 1 : 0, posicao: 'perto',
+    });
+  }
+
+  /* Publica o rascunho na tela. O que o dedo DIGITOU volta junto (`busca`,
+     `nome`), pela mesma razão do `novoRascunho`: `usarDados` remonta a camada,
+     e sem devolver os campos o motorista veria sumir o que acabou de escrever. */
+  function publicarRapida() {
+    const r = rapida;
+    if (!r || typeof window.usarDados !== 'function') return;
+    const res = r.resolvido;
+    const modo = modoDaRapida(r);
+    const vaiBatizar = !r.duplicado || contaEhStub(r.duplicado);
+    window.usarDados('rapida', {
+      volta: r.volta,
+      busca: esc(campo('rapida-busca')),
+      buscando: r.buscando ? 1 : 0,
+      salvando: r.salvando ? 1 : 0,
+      // lista e porta escolhida nunca convivem — quem escolheu, escolheu.
+      opcoes: res ? [] : r.opcoes.map((o) => ({
+        titulo: esc(o.nome || o.endereco || 'Endereço'),
+        detalhe: esc(o.detalhe || detalheDaPorta(o)),
+        dist: pontoOk(o.lat, o.lng) && ultimaPos
+          ? emMetros(metrosEntre(ultimaPos, { lat: Number(o.lat), lng: Number(o.lng) })) : '',
+      })),
+      achado: res ? {
+        titulo: esc(tituloDaPorta(res, r.numero)),
+        detalhe: esc(detalheDaPorta(res)),
+        quem: r.duplicado ? esc(nomeDaConta(r.duplicado)) : '',
+      } : null,
+      aviso: esc(r.aviso || ''),
+      modo,
+      soDirecao: r.origem === 'ponto' ? 1 : 0,
+      nome: esc(campo('rapida-nome') || r.nome || ''),
+      pedeNome: modo === 'cadastro' && vaiBatizar ? 1 : 0,
+      temRota: paradasAbertas().length ? 1 : 0,
+      posicao: r.posicao,
+    });
+  }
+
+  /* Um ponto vira porta: o reverse dá rua/bairro/CEP de graça. Ele é ENFEITE —
+     falhar não trava nada, porque o pino sozinho já basta pra parada existir. */
+  async function rapidaFixarPonto(lat, lng, rotulo, origem) {
+    const r = rapida;
+    if (!r) return;
+    r.origem = origem; r.opcoes = [];
+    if (rotulo && !String(r.nome || '').trim()) r.nome = String(rotulo).slice(0, 120);
+    r.resolvido = { fonte: origem, endereco: rotulo || '', bairro: '', cidade: '', uf: '', cep: '', numero: '', lat, lng };
+    let rev = null;
+    try { rev = await window.API.get(`/logistica/geo/reverse?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`); }
+    catch (_) { rev = null; }
+    if (rapida !== r || !rev) return;
+    r.resolvido = {
+      fonte: origem, endereco: rev.endereco || rotulo || '', bairro: rev.bairro || '',
+      cidade: rev.cidade || '', uf: rev.uf || '', cep: rev.cep || '', numero: rev.numero || '', lat, lng,
+    };
+    if (rev.cep) r.cep = rev.cep;
+    if (rev.numero) r.numero = rev.numero;
+  }
+
+  /* 🔴 UM CAMPO SÓ, QUATRO CAMINHOS. É o conserto de 31/07 do app antigo ("criar
+     uma rota simples já existe, mas tá ruim"): pedir CEP **e** número, os dois
+     obrigatórios, não servia pra ir na casa de um amigo que mandou a
+     localização pelo WhatsApp. Aqui o mesmo campo engole os quatro jeitos de
+     dizer "é aqui" — link/coordenada, CEP com número, CEP sozinho e endereço
+     escrito — e é o texto que decide qual porta do servidor atender. */
+  async function rapidaBuscar() {
+    const r = rapida;
+    if (!r || r.buscando || r.salvando) return;
+    const texto = campo('rapida-busca').trim();
+    if (!texto) {
+      r.aviso = 'Escreva o endereço, o CEP com número, ou cole a localização.';
+      r.resolvido = null;
+      return publicarRapida();
+    }
+    r.buscando = true; r.aviso = ''; r.duplicado = null; r.opcoes = []; r.resolvido = null;
+    publicarRapida();
+    try {
+      const cn = lerCepENumero(texto);
+      if (/https?:\/\//i.test(texto) || PAR_COORD.test(texto)) {
+        // Só o SERVIDOR abre link curto do Maps: redirecionamento é rede, e o
+        // WebView não segue esse salto sozinho.
+        const lido = await window.API.get(`/logistica/geo/link?u=${encodeURIComponent(texto)}`);
+        if (lido && pontoOk(lido.lat, lido.lng)) {
+          await rapidaFixarPonto(Number(lido.lat), Number(lido.lng), String(lido.rotulo || ''), 'ponto');
+        } else {
+          r.aviso = 'Não consegui ler essa localização. Tente o endereço escrito.';
+        }
+      } else if (cn && cn.numero) {
+        const res = await window.API.get(`/logistica/geo/cep?cep=${encodeURIComponent(cn.cep)}&numero=${encodeURIComponent(cn.numero)}`);
+        if (res && (res.fonte === 'cnefe' || res.fonte === 'geocode' || res.endereco || res.cidade)) {
+          r.origem = 'cep'; r.cep = cn.cep; r.numero = cn.numero; r.resolvido = res;
+        } else {
+          r.aviso = 'Não encontrei este endereço. Confira o CEP e o número.';
+        }
+      } else if (cn) {
+        /* 🔴 CEP SEM NÚMERO NÃO É ERRO (01/08). Metade do país é S/N — posto,
+           chácara, praça, comércio, estrada — e exigir número travava o
+           motorista na rua, parado num lugar que número não tem. O servidor
+           devolve o ponto do TRECHO; a tela avisa que é aproximado e quem
+           confirma é a pessoa. */
+        const res = await window.API.get(`/logistica/geo/cep?cep=${encodeURIComponent(cn.cep)}`);
+        if (res && pontoOk(res.lat, res.lng)) {
+          r.origem = 'cep'; r.cep = cn.cep; r.numero = ''; r.resolvido = res;
+          r.aviso = 'Sem número: o ponto é o da rua. Confira antes de adicionar.';
+        } else if (res && (res.endereco || res.cidade)) {
+          r.aviso = `${res.endereco || 'Esta rua'} — não achei o ponto exato. Informe o número, se houver.`;
+        } else {
+          r.aviso = 'Não encontrei este CEP. Confira, ou escreva o endereço.';
+        }
+      } else {
+        // Endereço escrito: o servidor devolve candidatas e QUEM ESCOLHE É ELE.
+        const perto = ultimaPos && pontoOk(ultimaPos.lat, ultimaPos.lng)
+          ? `&lat=${encodeURIComponent(ultimaPos.lat)}&lng=${encodeURIComponent(ultimaPos.lng)}` : '';
+        const payload = await window.API.get(`/logistica/geo/busca?q=${encodeURIComponent(texto)}${perto}`);
+        const itens = (payload && Array.isArray(payload.items) ? payload.items : [])
+          .filter((it) => pontoOk(it.lat, it.lng)).slice(0, 4);
+        if (itens.length === 1) await rapidaFixarPonto(Number(itens[0].lat), Number(itens[0].lng), String(itens[0].nome || ''), 'busca');
+        else if (itens.length) r.opcoes = itens;
+        else r.aviso = 'Não encontrei esse endereço.';
+      }
+    } catch (e) {
+      r.resolvido = null;
+      r.aviso = humano(e);
+    }
+    if (rapida !== r) return;                 // a tela trocou no meio da rede
+    r.buscando = false;
+    publicarRapida();
+    if (r.resolvido) await rapidaCheckarPorta();
+  }
+
+  /** a candidata que o dedo escolheu vira A porta */
+  async function rapidaEscolher(indice) {
+    const r = rapida;
+    const o = r && Array.isArray(r.opcoes) ? r.opcoes[Number(indice)] : null;
+    if (!o || r.buscando || r.salvando) return;
+    r.buscando = true; publicarRapida();
+    await rapidaFixarPonto(Number(o.lat), Number(o.lng), String(o.nome || ''), 'busca');
+    if (rapida !== r) return;
+    r.buscando = false;
+    publicarRapida();
+    if (r.resolvido) await rapidaCheckarPorta();
+  }
+
+  /* 🔴 QUEM JÁ MORA NESTA PORTA? (dono, 28/07: "nem compara se já existe o
+     endereço?"). A régua de "mesma porta" é do BACKEND e é fail-closed: na
+     dúvida ele responde vazio. Best-effort — consulta que falha não trava o
+     fluxo, só deixa de avisar. Sem número não dá pra perguntar: "Rua 3a" sem
+     número casaria com a rua inteira. */
+  async function rapidaCheckarPorta() {
+    const r = rapida;
+    const res = r && r.resolvido;
+    if (!r || !res) return;
+    const numero = digitos(r.numero) || digitos(res.numero);
+    if (!numero) { r.duplicado = null; return publicarRapida(); }
+    const cep = digitos(r.cep) || digitos(res.cep);
+    const q = [`numero=${encodeURIComponent(numero)}`];
+    if (cep.length === 8) q.push(`cep=${encodeURIComponent(cep)}`);
+    if (res.endereco) q.push(`endereco=${encodeURIComponent(res.endereco)}`);
+    if (res.bairro) q.push(`bairro=${encodeURIComponent(res.bairro)}`);
+    if (res.cidade) q.push(`cidade=${encodeURIComponent(res.cidade)}`);
+    if (res.uf) q.push(`uf=${encodeURIComponent(res.uf)}`);
+    let achada = null;
+    try {
+      const resp = await window.API.get(`/nucleo/contas/por-endereco?${q.join('&')}`);
+      achada = resp && Array.isArray(resp.contas) ? resp.contas[0] : null;
+    } catch (_) { achada = null; }
+    if (rapida !== r) return;
+    r.duplicado = achada || null;
+    publicarRapida();
+  }
+
+  /* ------------------------------------------------------------------------
+     🔴 O ENCAIXE (dono, 28/07): "se tiver perto, ele entra na logística — entre
+     1 e 10, se está mais perto do 5, vira o 6 e ficam 11".
+
+     Custo de inserção clássico: em cada perna (anterior → próxima) mede quanto
+     CUSTA passar pelo ponto novo no meio — d(ant,novo) + d(novo,prox) −
+     d(ant,prox) — e ganha a perna mais barata. Pelas RUAS quando o OSRM
+     responde (a mesma matriz do planejador), linha reta quando não: sem rede a
+     parada entra num lugar razoável em vez de não entrar.
+
+     Parada ÚNICA também planeja. Sair antes do `/rota/planejar` por "não tem
+     perna pra medir" deixava a parada sem `rotaOrdem` — e sem ordem o estado do
+     dia volta pra "montar", então o botão travava em "Montar rota" e o Iniciar
+     só aparecia depois do 2º endereço.
+     ------------------------------------------------------------------------ */
+  async function matrizViaria(pontos) {
+    if (!Array.isArray(pontos) || pontos.length < 2) return null;
+    const coords = pontos.map((p) => `${Number(p.lng)},${Number(p.lat)}`).join(';');
+    try {
+      const payload = await window.API.get(`/logistica/osrm/table?coords=${encodeURIComponent(coords)}`);
+      const m = payload && payload.durations;
+      if (payload.code !== 'Ok' || !Array.isArray(m) || m.length !== pontos.length) return null;
+      return m;
+    } catch (_) { return null; }
+  }
+
+  async function encaixarAvulsa(novoId, posicao) {
+    const abertas = paradasAbertas();
+    const novo = abertas.find((p) => p.id === String(novoId));
+    if (!novo) return { aplicado: false, anterior: null };
+    const base = abertas.filter((p) => p.id !== String(novoId));
+    const ids = base.map((p) => p.id);
+    const pontoDe = (p) => {
+      const c = (p && p.item && p.item.cliente) || {};
+      return pontoOk(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : null;
+    };
+    const pNovo = pontoDe(novo);
+    let indice = ids.length;
+    if (posicao === 'primeira') indice = 0;
+    else if (pNovo && base.length) {
+      const pOrigem = ultimaPos && pontoOk(ultimaPos.lat, ultimaPos.lng)
+        ? { lat: ultimaPos.lat, lng: ultimaPos.lng } : null;
+      // nós[0] = de onde eu saio (pode não existir), depois as paradas na
+      // ordem, e o ponto novo no fim.
+      const nos = [pOrigem, ...base.map(pontoDe), pNovo];
+      const validos = nos.map((p, i) => (p ? i : -1)).filter((i) => i >= 0);
+      const matriz = await matrizViaria(validos.map((i) => nos[i]));
+      const naMatriz = new Map(validos.map((no, k) => [no, k]));
+      const d = (a, b) => {
+        if (a == null || b == null || !nos[a] || !nos[b]) return Infinity;
+        if (matriz && naMatriz.has(a) && naMatriz.has(b)) {
+          const v = matriz[naMatriz.get(a)][naMatriz.get(b)];
+          if (Number.isFinite(v)) return v;
+        }
+        return metrosEntre(nos[a], nos[b]);
+      };
+      const iNovo = nos.length - 1;
+      let melhor = Infinity;
+      for (let k = 0; k <= base.length; k++) {
+        const ant = k === 0 ? (pOrigem ? 0 : null) : k;
+        const prox = k < base.length ? k + 1 : null;
+        const entrada = ant == null ? 0 : d(ant, iNovo);
+        const saida = prox == null ? 0 : d(iNovo, prox);
+        const antiga = ant == null || prox == null ? 0 : d(ant, prox);
+        const custo = entrada + saida - antiga;
+        if (Number.isFinite(custo) && custo < melhor) { melhor = custo; indice = k; }
+      }
+    }
+    const ordem = [...ids.slice(0, indice), String(novoId), ...ids.slice(indice)];
+    await window.API.post('/logistica/rota/planejar', {
+      date: hojeISO(), deliveryIds: ordem, ordemManual: ordem, ...origemGps(),
+    });
+    const anterior = indice > 0 ? base[indice - 1] : null;
+    const nomeAnterior = anterior && anterior.item && anterior.item.cliente && anterior.item.cliente.nome;
+    return { aplicado: true, anterior: nomeAnterior || null };
+  }
+
+  async function rapidaConfirmar() {
+    const r = rapida;
+    if (!r || r.salvando || r.buscando || !r.resolvido) return;
+    const res = r.resolvido;
+    const modo = modoDaRapida(r);
+    const dup = r.duplicado;
+    const nomeDigitado = (campo('rapida-nome') || String(r.nome || '')).trim();
+    /* 🔴 TRÊS FREIOS ANTES DE ESCREVER QUALQUER COISA NA BASE:
+       1. a mesma porta não entra 2× na rota do dia;
+       2. Cadastro sem nome de gente não passa (Direção passa, é só direção);
+       3. endereço que já tem conta REUSA a conta — nada de linha nova. */
+    if (dup && paradaAbertaDaConta(dup.id)) {
+      r.aviso = `${nomeDaConta(dup)} já está na rota de hoje.`;
+      return publicarRapida();
+    }
+    const vaiBatizar = !dup || contaEhStub(dup);
+    const pedeNome = modo === 'cadastro' && vaiBatizar;
+    if (pedeNome && !nomeDeCadastroValido(nomeDigitado)) {
+      r.aviso = 'Escreva o nome do cliente.';
+      return publicarRapida();
+    }
+    r.salvando = true; r.aviso = ''; publicarRapida();
+    try {
+      const numero = digitos(r.numero) || String(res.numero || '');
+      const nome = nomeDigitado || [res.endereco, numero].filter(Boolean).join(', ') || 'Parada avulsa';
+      let contaId = dup ? String(dup.id) : '';
+      if (dup && pedeNome) {
+        // Stub de endereço vira CADASTRO de verdade: MESMA conta, agora com nome
+        // e papel de cliente. Cadastro que JÁ tem nome nunca é renomeado daqui —
+        // quem edita ficha de cliente é a ficha.
+        await window.API.patch(`/nucleo/contas/${encodeURIComponent(dup.id)}`, { nome, isCliente: true });
+      }
+      if (!contaId) {
+        const corpo = {
+          /* 🔴 DIREÇÃO NÃO VIRA CLIENTE. A conta existe só pra segurar o
+             endereço da parada (a entrega precisa de uma), mas fica FORA do
+             Cadastro — a lista de Clientes filtra `isCliente`, a rota não. Sem
+             isto, cada parada avulsa virava um "cliente" chamado
+             "Rua 14 JP, 1682" na base do dono. */
+          nome, tipo: 'pf', isCliente: modo === 'cadastro', isLead: false,
+          endereco: res.endereco, numero, bairro: res.bairro, cidade: res.cidade, uf: res.uf,
+          cep: digitos(r.cep) || res.cep,
+        };
+        /* O pino viaja quando ELE é a intenção (link colado, candidata escolhida
+           na lista). Em CEP+número não: ali o servidor resolve pela base CNEFE,
+           que é a fonte certa e grava a `geoFonte` certa junto. */
+        if (r.origem !== 'cep' && pontoOk(res.lat, res.lng)) {
+          corpo.lat = Number(res.lat); corpo.lng = Number(res.lng);
+        }
+        Object.keys(corpo).forEach((k) => {
+          if (corpo[k] === undefined || corpo[k] === null || corpo[k] === '') delete corpo[k];
+        });
+        const criado = await window.API.post('/nucleo/contas', corpo);
+        contaId = criado && (criado.contaId || criado.customerProfileId || criado.id);
+      }
+      if (!contaId) throw new Error('Não consegui criar o cadastro desta porta.');
+      /* 🔴 `paraMinhaRota` FAZ A ENTREGA NASCER COM MOTORISTA. Sem ele ela nasce
+         órfã e o Iniciar responde "Atribua as entregas a exatamente um
+         motorista" pro dia INTEIRO — uma parada avulsa envenenava o dia. */
+      const entrega = await window.API.post('/logistica/entregas', {
+        customerProfileId: String(contaId),
+        quantidade: 1,
+        scheduledAt: `${hojeISO()}T12:00:00.000Z`,
+        paraMinhaRota: true,
+      });
+      const posicao = r.posicao;
+      const volta = r.volta;
+      rapida = null;
+      // A rota tem que ser relida ANTES do encaixe: é dela que sai a lista de
+      // abertas em que a parada nova vai entrar.
+      await carregarRota();
+      let encaixe = { aplicado: false, anterior: null };
+      const novoId = entrega && entrega.id ? String(entrega.id) : '';
+      if (novoId) encaixe = await encaixarAvulsa(novoId, posicao);
+      await carregarRota();
+      if (volta === 'montagem') await encherMontagem();
+      window.ir(volta);
+      window.portao({
+        tom: 'ok', ico: 'check', titulo: 'Parada adicionada',
+        sub: !encaixe.aplicado ? 'Ela entrou na rota de hoje.'
+          : encaixe.anterior ? `Entra depois de ${encaixe.anterior}.`
+            : 'Entra como primeira parada.',
+        acoes: [['Fechar', 'principal', true]],
+      });
+    } catch (e) {
+      if (rapida === r) { r.salvando = false; publicarRapida(); }
+      avisoErro(e);
+    }
+  }
+
   /** Salvar: manda SÓ o que mudou, e cada porta é a sua. */
   async function salvarCliente() {
     if (!ficha) return;
@@ -5959,6 +6444,9 @@
     'usar-meu-local': usarMeuLocal,
     'salvar-novo-cliente': salvarNovoCliente,
     'criar-cliente-assim': () => comTrava(() => criarCliente(null)),
+    // o "+" da Montagem e da Rota: a parada avulsa
+    'rapida-buscar': () => comTrava(rapidaBuscar),
+    'rapida-confirmar': () => comTrava(rapidaConfirmar),
     'entendi-recado': entendiRecado,
     // "Tentar de novo" do aviso de fonte fora do ar: volta pro esqueleto e
     // pede de novo. Sem devolver o esqueleto o toque não teria resposta
@@ -6084,6 +6572,19 @@
       return carregarAjustes();
     }
     if (chave === 'modo-rota') return escolherModo(alvo.dataset.modo);
+    // As três da parada avulsa que carregam ARGUMENTO no próprio botão.
+    if (chave === 'rapida-opcao') return rapidaEscolher(alvo.dataset.i);
+    if (chave === 'rapida-modo') {
+      if (!rapida) return;
+      rapida.modo = alvo.dataset.modo === 'cadastro' ? 'cadastro' : 'direcao';
+      rapida.aviso = '';
+      return publicarRapida();
+    }
+    if (chave === 'rapida-posicao') {
+      if (!rapida) return;
+      rapida.posicao = alvo.dataset.posicao === 'primeira' ? 'primeira' : 'perto';
+      return publicarRapida();
+    }
     if (chave === 'montar-dia') {
       const n = Number(alvo.dataset.dia) || 0;
       // 2º toque no mesmo chip volta pra Hoje — chip que só liga prende o

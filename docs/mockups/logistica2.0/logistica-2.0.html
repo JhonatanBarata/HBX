@@ -2442,7 +2442,15 @@ function podarDesligados(tela){
    indicada morreu no corte de 06/08 — 4 usos na história, 2.981 polls),
    "Rota rápida" e "Adicionar" (a rota rápida do app antigo — geo/busca, CEP,
    link, conta, encaixe — é frente própria; a tela T.rapida fica de referência
-   até ela nascer LIGADA). Quando a frente vier, o satélite volta COM ação. */
+   até ela nascer LIGADA). Quando a frente vier, o satélite volta COM ação.
+
+   🔴 09/08 — A FRENTE VEIO, E A PORTA NÃO VOLTOU PRA CÁ. Dois motivos duros:
+   (1) os dois slots de satélite já têm dono em todo estado que importa
+   (`pronta` = Cancelar + Montagem; `rodando` = Cancelar + Finalizar), e
+   despejar um deles pra caber o "+" trocaria um botão vivo por outro;
+   (2) o dono foi procurar o "+" na MONTAGEM, não aqui — "estou em montagem de
+   rota... cadê o +?". Porta boa é a que fica onde a mão vai. Ela mora no dock
+   da Montagem e na barra da Rota·lista; ver `T.rapida`. */
 const ROTA_ESTADOS={
   montar:   {main:{acao:'montar', glifo:'route', rotulo:'Montar rota'}},
   /* Com a rota pronta o satélite da direita é a PORTA DE VOLTA pra montagem:
@@ -2780,6 +2788,33 @@ const DADOS={
      tela do app que começa em branco por natureza. `local` é o recado do GPS —
      vazio = ninguém apertou "Usar meu local" ainda. */
   novocliente:{ nome:'', telefone:'', cep:'', rua:'', numero:'', bairro:'', local:'', localOk:0, salvando:0 },
+  /* 🔴 PARADA AVULSA — o "+" que voltou (dono, 09/08: "cadê o + que eu
+     adicionava uma rota avulsa, e tinha opções?").
+
+     Ele existia no app antigo com o nome "Rota rápida" e foi APAGADO em 07/08
+     pela regra do satélite morto ("remove o ícone ou acha o caminho"): na
+     virada pro app novo o MIOLO dele nunca tinha sido reescrito, então o botão
+     não levava a lugar nenhum. A promessa escrita na época — "quando a frente
+     vier, o botão volta COM ação" — é esta tela. O motor no servidor nunca foi
+     tocado: `/logistica/geo/*`, `/nucleo/contas`, `/logistica/entregas` com
+     `paraMinhaRota` e o `ordemManual` do `/rota/planejar` seguem de pé.
+
+     Nasce EM BRANCO como o `novocliente`, e pelo mesmo motivo: são as duas
+     telas do app que começam vazias por natureza. Tudo aqui tem porta na
+     ponte — o que ela não souber responder não é desenhado (Lei do IF). */
+  rapida:{
+    volta:'montagem',    // a porta de entrada: Montagem ou Rota (ver `ficha.volta`)
+    busca:'',            // o que o dedo escreveu — devolvido a cada repinte
+    buscando:0, salvando:0,
+    opcoes:[],           // [{titulo, detalhe, dist}] — as portas parecidas
+    achado:null,         // {titulo, detalhe, quem} — a porta escolhida
+    aviso:'',            // faixa âmbar: sem número, não achei, já está na rota
+    modo:'direcao',      // 'direcao' | 'cadastro'
+    soDirecao:0,         // link/coordenada colada: não há cadastro a fazer
+    nome:'', pedeNome:0,
+    temRota:0,           // rota de pé ⇒ a pergunta "onde ela entra" existe
+    posicao:'perto',     // 'perto' | 'primeira'
+  },
   ficha:{
     ini:'LY', nome:'Larissa Ypê', resumo:'cliente desde 03/2025 · 42 entregas',
     /* 🔴 A FICHA VOLTA PRA ONDE ELA FOI ABERTA. O Voltar era `clientes`,
@@ -3174,7 +3209,15 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
        pra tela de DIRIGIR (3D, tela cheia, sem barra): quem só queria olhar o
        dia caía dentro do GPS. Com o mapa 2D sendo a tela principal, o par certo
        é o de ida e volta — Lista ↔ Mapa. Quem começa a dirigir é o transmux. -->
+  <!-- 🔴 A SEGUNDA PORTA DO "+" (09/08). Com a rota RODANDO a Montagem fica
+       inalcançável — o satélite da direita ali é "Finalizar", não "Montagem" —
+       e é justamente dirigindo que aparece a parada avulsa de verdade: o
+       cliente liga, o dono manda um endereço no WhatsApp. Sem esta porta, quem
+       está na rua teria que cancelar a rota pra adicionar uma parada nela.
+       Aqui o encaixe é o que interessa: "No caminho" põe a parada onde ela
+       custa menos, em vez de jogar pro fim do dia. -->
   <div class="bar"><span class="t">${ic('list',17)} Sua rota de hoje</span>
+    <button class="ghost" data-ir="rapida" aria-label="Adicionar parada avulsa">${ic('plus',15)} Parada</button>
     <button class="ghost" data-ir="rota">${ic('map',15)} Ver mapa</button></div>
   ${emCurso?`<div class="dia-bar"><small>${DADOS.rota.diaFeitas} de ${DADOS.rota.diaTotal}</small><span class="trilho"><i style="width:${DADOS.rota.diaPct}"></i></span><b>${DADOS.rota.diaMarcado}</b><small>marcado</small></div>`:''}
   ${emCurso?`<div class="filtro">
@@ -3195,6 +3238,7 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
            :`<button class="act full" style="margin-top:8px;justify-content:center" data-ir="caderneta">${ic('note',17)}<b>Abrir caderneta</b></button>`}
   `, transmux(DADOS.rota.montando?'montando':(e==='semsinal'?'pronta':e)));
 }};
+
 
 /* versão antiga da tela (mantida como referência das fotos) --------------- */
 T.rotafoto={nome:'Rota — igual à foto',grupo:'Rota',render(){return `${status}
@@ -3768,7 +3812,26 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
      em andamento, nunca"); faltava aplicá-la aqui. Mesma peça, `.tmx-dock`.
      Lado a lado e não empilhados: dois botões cheios comiam 22% da tela do
      motorista pra sempre. O que MONTA leva a largura maior (`wide`). */
-  const pe=d.linhas.length?`<div class="acts pe-montagem" style="margin-top:0">
+  /* 🔴 O "+" VOLTOU PRO LUGAR ONDE ELE FOI PROCURADO (dono, 09/08: "estou em
+     montagem de rota... cadê o +?"). É a porta da `T.rapida`, e ela mora AQUI
+     porque é aqui que se decide quem entra no dia. Ícone só, sem rótulo: o dono
+     procura o SÍMBOLO, e dois botões cheios já comem 22% da tela — um terceiro
+     com palavra empurraria "Salvar rota" pra fora.
+
+     🔴 E O DOCK PASSA A NASCER MESMO COM A LISTA VAZIA. Domingo (ou qualquer
+     dia sem cliente agendado) caía num `d.linhas.length` falso: sem linha não
+     havia rodapé, e sem rodapé a tela ficava SEM UM ÚNICO BOTÃO — beco sem
+     saída justamente no dia em que a única coisa que resta é adicionar uma
+     parada na mão. Com lista vazia o "+" é o dock inteiro, com o nome escrito:
+     é a única ação que existe ali, e ação única não se esconde atrás de glifo.
+     Montar/Iniciar continuam fora nesse caso — montar um dia sem ninguém é o
+     botão que promete o que não vai acontecer. */
+  const maisParada=(largo)=>`<button class="act${largo?' go wide':''}"
+    style="${largo?'':'flex:0 0 46px;'}justify-content:center" data-ir="rapida" aria-label="Adicionar parada avulsa">
+    ${ic('plus',19)}${largo?'<b>Adicionar parada</b>':''}</button>`;
+  const pe=!d.linhas.length?`<div class="acts pe-montagem" style="margin-top:0">${maisParada(1)}</div>`
+    :`<div class="acts pe-montagem" style="margin-top:0">
+    ${maisParada(0)}
     <button class="act" style="background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));border:0;color:var(--white);justify-content:center" data-acao="salvar-rota">
       ${ic('save',18)}<b>Salvar rota</b></button>
     ${DADOS.rota.montando
@@ -3779,10 +3842,10 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
       <span style="text-align:center"><b>Iniciar rota</b>${d.iniciarSub?`<small>${d.iniciarSub}</small>`:''}</span></button>`
       :`<button class="act go wide" style="justify-content:center" data-acao="montar-agora">${ic('route',19)}
       <span style="text-align:center"><b>Montar rota</b>${d.iniciarSub?`<small>${d.iniciarSub}</small>`:''}</span></button>`}
-  </div>`:'';
+  </div>`;
   return `${status}
 ${hdr({voltar:'rota'})}
-<div class="body${pe?' com-dock-1':''}">
+<div class="body com-dock-1">
   <h2 style="font-size:23px;font-weight:500;margin:4px 0 2px;letter-spacing:-.4px;text-align:center">${d.titulo}</h2>
   ${chips}
   ${modos}
@@ -3793,7 +3856,7 @@ ${hdr({voltar:'rota'})}
     <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>${d.somaValor}</b><small>valor marcado</small></span></span>
   </div>`)}
 </div>
-${pe?`<div class="tmx-dock">${pe}</div>`:''}${nav('rota')}`;}};
+<div class="tmx-dock">${pe}</div>${nav('rota')}`;}};
 
 /* 9 — ROTAS SALVAS -------------------------------------------------------- */
 T.salvas={nome:'Rotas salvas',grupo:'Rota',render(){
@@ -4183,35 +4246,100 @@ T.consumo={nome:'Ajustes · Consumo e bônus',grupo:'Ajustes',render(){
       <span>Migração entre rotas é <b>grátis</b>: a mesma entrega não debita duas vezes.</span></div>`);
 }};
 
-/* 20 — ROTA RÁPIDA --------------------------------------------------------- */
-T.rapida={nome:'Rota rápida',grupo:'Rota',render(){
+/* 20 — PARADA AVULSA (era "Rota rápida") ----------------------------------
+   O histórico mora em `DADOS.rapida`; aqui só o desenho.
+
+   A tela é uma ESCADA de um degrau por vez — procurar, escolher a porta, dizer
+   o que ela é, dizer onde ela entra — e cada degrau só nasce quando o de cima
+   respondeu. Formulário que abre as seis perguntas de uma vez é formulário que
+   ninguém termina em pé na porta de um cliente, com o carro ligado. */
+T.rapida={nome:'Parada avulsa',grupo:'Rota',render(){
+  const d=DADOS.rapida;
+  const a=d.achado;
+  const procurando=!!d.buscando, salvando=!!d.salvando, ocupado=procurando||salvando;
+
+  /* 🔴 UM CAMPO SÓ, e ele engole os quatro jeitos de dizer "é aqui": endereço
+     escrito, CEP com número ("13500-000 1067"), link do Maps e par de
+     coordenadas colado. Dois campos obrigatórios (CEP **e** número) foi o que
+     matou a versão anterior desta tela: pra ir na casa de um amigo — que mandou
+     a localização, não o CEP — ela não servia pra nada. */
+  const busca=`<label class="search" style="height:48px;margin-top:4px">${ic('search',18)}
+    <input data-campo="rapida-busca" enterkeyhint="search" autocomplete="off"
+      placeholder="Endereço, CEP com número ou link" value="${d.busca}"></label>`;
+
+  /* 🔴 QUEM ESCOLHE É ELE. Endereço parecido demais pra máquina decidir sozinha
+     vira parada plantada no lugar errado — e pino errado custa mais caro que
+     pino nenhum. A lista e a porta escolhida NUNCA convivem: escolher uma fecha
+     a lista, e daí pra frente a tela fala de um endereço só. */
+  const opcoes=(!a&&d.opcoes.length)?`<div class="grupo">Achei estes — qual é?</div>
+    ${d.opcoes.map((o,i)=>`<div class="rowcard" data-acao="rapida-opcao" data-i="${i}">
+      <span class="ico">${ic('map',20)}</span>
+      <span><strong>${o.titulo}</strong>${o.detalhe?`<span>${o.detalhe}</span>`:''}</span>
+      ${o.dist?`<span class="rgt"><small>daqui</small><b>${o.dist}</b></span>`
+              :`<span class="go">${ic('chev',15)}</span>`}
+    </div>`).join('')}`:'';
+
+  /* A porta escolhida — e quem já mora nela. O cadastro existente VENCE a linha
+     do "achei": é ele que decide o verbo do botão do pé (usar o que já tem, em
+     vez de abrir linha nova na base). */
+  const porta=a?`<div class="grupo">Esta é a porta</div>
+    <div class="rowcard">
+      <span class="ico lime">${ic('map',20)}</span>
+      <span><strong>${a.titulo}</strong>${a.detalhe?`<span>${a.detalhe}</span>`:''}
+        ${a.quem?`<span class="meta"><i>${ic('users',12)} ${a.quem} já está nesta porta</i></span>`:''}</span>
+      <span class="go">${ic('check',16)}</span>
+    </div>`:'';
+
+  /* 🔴 DIREÇÃO × CADASTRO. Direção é "só traçar rota mesmo": a parada entra na
+     rota igual, mas NÃO vira cliente no Cadastro. Sem esta escolha, cada
+     endereço avulso virava um "cliente" chamado "Rua 14 JP, 1682" na base do
+     dono. Cadastro é o fluxo de sempre, pra quando é cliente de verdade.
+     Link e coordenada colados não têm cadastro a fazer — ali a fileira some. */
+  const modos=d.soDirecao?'':`<div class="grupo">O que é esta parada</div>
+    <div class="modos">${[['direcao','Direção'],['cadastro','Cadastro']].map(m=>`
+      <button class="modo${d.modo===m[0]?' on':''}" data-acao="rapida-modo" data-modo="${m[0]}"><b>${m[1]}</b></button>`).join('')}</div>`;
+
+  /* O nome só é pedido quando ele vai PARA algum lugar: em Direção a parada não
+     vira cadastro, e numa porta que já tem cliente quem manda é o nome de lá.
+     Campo que não salva é mentira na tela. */
+  const nome=(a&&d.pedeNome)?`<div class="grupo">Quem recebe nesta porta</div>
+    <div class="campos"><label class="campo">
+      <input data-campo="rapida-nome" value="${d.nome}" placeholder="nome do cliente" maxlength="120"></label></div>`:'';
+
+  /* 🔴 ONDE ELA ENTRA — só com rota de pé. "No caminho" mede o custo REAL do
+     encaixe em cada perna (pelas ruas, caindo pra linha reta sem rede) e põe a
+     parada onde ela custa menos; "Primeira parada" fura a fila. Sem paradas
+     abertas não existe "caminho" nem "primeira" que signifiquem alguma coisa —
+     e a fileira inteira some, em vez de virar um toque que não muda nada. */
+  const posicao=(a&&d.temRota)?`<div class="grupo">Onde ela entra</div>
+    <div class="modos">${[['perto','No caminho'],['primeira','Primeira parada']].map(p=>`
+      <button class="modo${d.posicao===p[0]?' on':''}" data-acao="rapida-posicao" data-posicao="${p[0]}"><b>${p[1]}</b></button>`).join('')}</div>`:'';
+
+  const aviso=d.aviso?`<div class="banner alerta">${ic('alert',16)}<span>${d.aviso}</span></div>`:'';
+
+  /* O BOTÃO DIZ O QUE ELE FAZ, e o recibo do toque mora nele (mesma lei do
+     "Montando…" da Montagem): sem porta escolhida ele procura; com porta
+     escolhida ele adiciona; e quando a porta já tem cadastro o verbo muda de
+     novo, porque a base não vai ganhar linha nova. */
+  const rotulo=salvando?'Adicionando…':procurando?'Procurando…'
+    :!a?'Buscar endereço'
+    :(a.quem&&d.modo==='cadastro')?'Usar este cadastro':'Adicionar na rota';
   return `${status}
-${hdr({voltar:'rota'})}
-<div class="body">
-  <label class="search" style="height:48px;margin-top:4px">${ic('search',18)}
-    <input placeholder="Endereço, CEP, coordenada ou link" value="Rua 14 JP, 1682"></label>
-  <div class="grupo">Achei estes</div>
-  <div class="stops">
-    <div class="stop on"><span class="grip"></span>
-      <span class="numwrap"><span class="num">1</span><span class="hh">220 m</span></span>
-      <span class="who"><strong>Rua 14 JP, 1682</strong><span>Jd. São Caetano · Rio Claro — SP</span>
-        <span class="tags"><b class="tag lime">já é cliente</b><b class="tag">Larissa Ypê</b></span></span>
-      <span class="side"><span class="pill blue">${ic('check',14)}Usar</span></span></div>
-    <div class="stop"><span class="grip"></span>
-      <span class="numwrap"><span class="num off">2</span><span class="hh off">1,4 km</span></span>
-      <span class="who"><strong>Rua 14 JP, 168</strong><span>Centro · Rio Claro — SP</span>
-        <span class="tags"><b class="tag">porta sem cadastro</b></span></span>
-      <span class="side"><span class="pill mute">Usar</span></span></div>
-  </div>
-  <div class="grupo">Modo cadastro</div>
-  <div class="campos">
-    <label class="campo"><label>Nome de quem recebe</label><input></label>
-  </div>
-  <div class="acts">
-    <button class="act go wide" style="justify-content:center" data-ir="rota">${ic('plus',19)}<b>Colocar na rota</b></button>
-    <button class="act" style="justify-content:center" data-ir="rota">${ic('back',17)}<b>Voltar</b></button>
-  </div>
+${hdr({voltar:d.volta||'montagem'})}
+<div class="body com-dock-1">
+  ${busca}
+  ${aviso}
+  ${opcoes}
+  ${porta}
+  ${modos}
+  ${nome}
+  ${posicao}
 </div>
+<div class="tmx-dock"><div class="acts" style="margin-top:0">
+  <button class="act go wide${ocupado?' ocupado':''}" style="justify-content:center"
+    ${ocupado?'disabled aria-busy="true"':`data-acao="${a?'rapida-confirmar':'rapida-buscar'}"`}>
+    ${ic(a?'plus':'search',19)}<b>${rotulo}</b></button>
+</div></div>
 ${nav('rota')}`;}};
 
 /* 21 — FICHA DO PRODUTO ---------------------------------------------------- */
@@ -5551,7 +5679,13 @@ const AULAS={
   montagem:[
     ['.day-chips,.chips','O dia','Escolha o dia. Só aparece dia que tem cliente.'],
     ['.stop','A ordem do dia','Arraste pra ajustar a ordem antes de sair.'],
+    ['[data-ir="rapida"]','Uma parada fora do dia','O "+" põe na rota um endereço que não está agendado hoje.'],
     ['.acts,.tmx-dock','Salvar ou começar','"Salvar rota" guarda pra depois. "Iniciar rota" começa o dia agora.'],
+  ],
+  rapida:[
+    ['.search','Diga pra onde','Endereço, CEP com o número, ou cole o link que mandaram no WhatsApp.'],
+    ['.modos','Só ir, ou cadastrar','"Direção" traça a rota e pronto. "Cadastro" guarda a pessoa nos seus clientes.'],
+    ['.tmx-dock','Um botão só','Primeiro ele procura o endereço. Depois de achar, ele põe a parada na rota.'],
   ],
   novocliente:[
     ['[data-campo="novo-nome"]','O nome','Comece pelo nome do cliente.'],
