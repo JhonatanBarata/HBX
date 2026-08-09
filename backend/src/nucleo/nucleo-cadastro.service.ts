@@ -698,6 +698,11 @@ export class NucleoCadastroService {
         numero: row.numero ?? null,
         cidade: row.cidade ?? null,
         uf: row.uf ?? null,
+        // O PINO VIAJA JUNTO (09/08): o select já paga por lat/lng e este map
+        // os descartava — o rascunho da Rota avulsa recebia cliente sem pino e
+        // a montagem carimbava "sem trajeto" em gente com porta marcada.
+        lat: row.lat ?? null,
+        lng: row.lng ?? null,
         formaPagamento: row.formaPagamento ?? 'aberto',
         diaFechamento: row.diaFechamento ?? null,
         // PR18072026 W1 — observação livre sobre o cliente.

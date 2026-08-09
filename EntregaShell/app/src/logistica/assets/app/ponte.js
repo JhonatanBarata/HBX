@@ -1790,6 +1790,9 @@
         // Sem produto: rascunho é uma PARADA escolhida, não uma venda montada.
         itens: [],
         ...(typeof c.lat === 'number' && typeof c.lng === 'number' ? { lat: c.lat, lng: c.lng } : {}),
+        // a MESMA bagagem da linha da agenda — a régua é uma só (ver o push
+        // do rascunho): sem isto a avulsa era a única linha "sem trajeto".
+        resolveSozinho: !!c.resolveSozinho,
       });
     });
   }
@@ -7688,12 +7691,25 @@
       ids.forEach((id) => {
         if (jaNoRascunho.has(String(id))) return;
         const c = nomes.get(String(id)) || {};
+        /* 🔴 MESMA CASCA ⇒ MESMA BAGAGEM (dono, 09/08: "a gente combinou de
+           fazer tudo com a mesma casca, mesmas regras"). A linha do rascunho
+           senta no MESMO cartão da prévia da agenda e é lida pela MESMA régua
+           (`pernaDaPrevia`) — então ela viaja com o PINO e com o
+           `resolveSozinho` que a linha da agenda já traz do servidor. Sem
+           isso a mesma tela falava duas línguas: a semana quieta e a avulsa
+           gritando "não sei onde fica" pra cliente com porta marcada.
+           Recorrência ativa = a régua de `logistica-base-saude` ("a 1ª
+           entrega grava a porta pelo GPS do entregador"), lida do
+           `diasEntrega` que o card de clientes já manda. Zero não é pino
+           (a lição do mapa na África). */
+        const latC = Number(c.lat); const lngC = Number(c.lng);
         RASCUNHO.push({
           id: String(id),
           nome: String(c.name || 'Cliente'),
           endereco: String(c.endereco || ''),
           bairro: String(c.cidade || ''),
-          ...(typeof c.lat === 'number' && typeof c.lng === 'number' ? { lat: c.lat, lng: c.lng } : {}),
+          ...(isFinite(latC) && isFinite(lngC) && !(latC === 0 && lngC === 0) ? { lat: latC, lng: lngC } : {}),
+          resolveSozinho: Array.isArray(c.diasEntrega) && c.diasEntrega.length > 0,
         });
         novos += 1;
       });

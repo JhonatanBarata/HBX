@@ -85,12 +85,20 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
     custo: custo || { blocosTotais: 3, blocosJaDebitados: 0, creditosAIniciar: 1.2, saldoAtual: 9340, saldoCobre: true },
   };
   window.__S = S;
+  /* O DIALETO REAL do /nucleo/clientes (09/08): lat/lng (o map da resposta
+     descartava os dois e este dublê, mais generoso que o servidor, escondia o
+     buraco — o aparelho carimbava "sem trajeto" em todo escolhido) e
+     `diasEntrega` (recorrência ativa, de onde o rascunho tira o
+     `resolveSozinho` da régua do desktop). c6/c7 são o par da vacina:
+     sem pino COM recorrência × sem pino SEM recorrência. */
   const CLIENTES = [
-    { id: 'c1', name: 'Larissa Ype', isCliente: true, endereco: 'Rua 3a, 1354', cidade: 'Rio Claro', lat: -22.40, lng: -47.55 },
-    { id: 'c2', name: 'Ademir', isCliente: true, endereco: 'Av. 28a, 507', cidade: 'Rio Claro', lat: -22.401, lng: -47.551 },
-    { id: 'c3', name: 'Alfredo', isCliente: true, endereco: 'Rua 4-a, 93', cidade: 'Rio Claro', lat: -22.402, lng: -47.552 },
-    { id: 'c4', name: 'Ana Alice', isCliente: true, endereco: 'Av. 28a, 507', cidade: 'Rio Claro', lat: -22.403, lng: -47.553 },
-    { id: 'c5', name: 'Andreia bicicletaria', isCliente: true, endereco: 'Rua 8 JP, 210', cidade: 'Rio Claro', lat: -22.404, lng: -47.554 },
+    { id: 'c1', name: 'Larissa Ype', isCliente: true, endereco: 'Rua 3a, 1354', cidade: 'Rio Claro', lat: -22.40, lng: -47.55, diasEntrega: [6] },
+    { id: 'c2', name: 'Ademir', isCliente: true, endereco: 'Av. 28a, 507', cidade: 'Rio Claro', lat: -22.401, lng: -47.551, diasEntrega: [] },
+    { id: 'c3', name: 'Alfredo', isCliente: true, endereco: 'Rua 4-a, 93', cidade: 'Rio Claro', lat: -22.402, lng: -47.552, diasEntrega: [] },
+    { id: 'c4', name: 'Ana Alice', isCliente: true, endereco: 'Av. 28a, 507', cidade: 'Rio Claro', lat: -22.403, lng: -47.553, diasEntrega: [] },
+    { id: 'c5', name: 'Andreia bicicletaria', isCliente: true, endereco: 'Rua 8 JP, 210', cidade: 'Rio Claro', lat: -22.404, lng: -47.554, diasEntrega: [] },
+    { id: 'c6', name: 'Rosa recorrente', isCliente: true, endereco: 'Av 60, 586', cidade: 'Rio Claro', lat: null, lng: null, diasEntrega: [6] },
+    { id: 'c7', name: 'Zeca sem porta', isCliente: true, endereco: 'Rua 19, 880', cidade: 'Rio Claro', lat: null, lng: null, diasEntrega: [] },
   ];
   const porId = new Map(CLIENTES.map((c) => [c.id, c]));
 
@@ -363,6 +371,35 @@ const SO_MEDIR = process.argv.includes('--antes');
   const tB2 = await espiar();
   nota(`[B] montagem de novo: stops=${tB2.nStops} (rascunho descartado no voltar) · entregas=${tB2.entregasNoServidor}`);
   eh('B4 · voltar DESCARTA o rascunho', tB2.nStops === 0 && tB2.entregasNoServidor === 0);
+
+  /* ===================================================================
+     CENA B5 — A MESMA LÍNGUA (dono, 09/08: "é a mesma tela... a gente
+     combinou de fazer tudo com a mesma casca, mesmas regras"). A linha do
+     rascunho é lida pela MESMA régua da linha da agenda (`pernaDaPrevia`):
+     COM pino fica quieta; SEM pino mas recorrente fica quieta
+     (`resolveSozinho` — a 1ª entrega grava a porta); SEM pino e SEM
+     recorrência é a ÚNICA que avisa, e o aviso é honesto.
+     =================================================================== */
+  await cena({});
+  await irPara('rota', 900);
+  await irPara('montagem');
+  await irPara('rapida', 900);
+  await marcar(1); await marcar(5); await marcar(6);
+  await p.evaluate(() => document.querySelector('[data-acao="rapida-adicionar-escolhidos"]').click());
+  await p.waitForTimeout(2000);
+  const tB5 = await espiar();
+  const flagsB5 = tB5.pernas.filter((t) => /não sei onde fica/i.test(t));
+  nota(`[B5] mesma língua: stops=${tB5.nStops} · avisos="${flagsB5.join(' | ') || '(nenhum)'}"`);
+  eh('B5a · os 3 escolhidos estão na montagem', tB5.nStops === 3, `stops=${tB5.nStops}`);
+  eh('B5b · cliente COM pino não leva "não sei onde fica"; recorrente sem pino também não',
+    flagsB5.length === 1, `avisos=${flagsB5.length}`);
+  eh('B5c · o único aviso é do sem pino SEM recorrência (aviso honesto)',
+    flagsB5.length === 1, flagsB5[0] || '(nenhum)');
+  await p.evaluate(() => {
+    const x = document.querySelector('.portao-wrap .principal');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(400);
 
   /* ===================================================================
      CENA B2 — SALVAR/INICIAR materializa o rascunho
