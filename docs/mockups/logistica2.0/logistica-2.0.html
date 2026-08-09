@@ -2686,7 +2686,7 @@ const DADOS={
 
      DADO: manobra* · rumo · velocidade · paradaN · paradaTotal · paradaNome ·
            chegada · restante · distancia · chegouEndereco · chegouPrecisao ·
-           chegouFaltam · chegouKm.
+           chegouFaltam · chegouKm · chegouId.
      COPY: velocidadeUnidade · chegadaRotulo · restanteRotulo · distanciaRotulo
            · encerrar · chegouTitulo · chegouAcao.
 
@@ -2701,7 +2701,13 @@ const DADOS={
     chegada:'12:26', chegadaRotulo:'chegada',
     restante:'45 min', restanteRotulo:'restante',
     distancia:'8,2 km', distanciaRotulo:'distância',
-    encerrar:'Encerrar',
+    /* 🔴 "Sair", nunca "Encerrar" (09/08). Este botão só volta pra tela Rota
+       com a rota VIVA — não fecha dia, não devolve parada, não desfaz nada.
+       Verbo destrutivo em botão que não destrói é a mesma mentira do "cancelar"
+       de duas caras: quem lê "Encerrar" no meio do trânsito fica preso no GPS
+       com medo de perder o dia. A CHAVE segue `encerrar` porque é o nome do
+       slot no seam (a ponte não a reescreve); o que o motorista lê é o valor. */
+    encerrar:'Sair',
     chegouTitulo:'Você chegou', chegouEndereco:'R. São Judas, 142',
     chegouPrecisao:'GPS ±6 m, você está na porta',
     /* `chegouFaltamVerbo` é COPY com CONCORDÂNCIA: "faltam 5 paradas" mas
@@ -2710,6 +2716,12 @@ const DADOS={
        plural porque o exemplo dele tinha 5. */
     chegouFaltamVerbo:'faltam', chegouFaltam:'5 paradas',
     chegouKm:'6,4 km', chegouAcao:'Registrar entrega',
+    /* 🔴 `chegouId` é o INTERRUPTOR do botão verde, e nasce VAZIO de propósito.
+       No desenho não existe parada de verdade: sem id o botão não é desenhado,
+       porque botão que promete "Registrar entrega" e não abre folha nenhuma é
+       pior que vaga vazia — era exatamente o que estava no ar, um verde grande
+       sem `data-acao`. Quem liga é a ponte, com a parada em que se chegou. */
+    chegouId:'',
   },
   /* L4 — A PORTA. Os literais abaixo são os que estavam nos templates da folha
      de chegada e da folha da venda, MOVIDOS pra cá. `itens` é [ícone, nome,
@@ -3457,9 +3469,23 @@ function telaGps(chegou){
     <div class="gps-lado" style="bottom:118px">
       <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',18)}</button>
     </div>
+    <!-- 🔴 ESTA TELA ERA UM BECO SEM SAÍDA (09/08). Quem chegava na parada não
+         tinha PORTA nenhuma: nem um data-ir, nem um data-acao — e o verde
+         grande, o botão mais chamativo do app, era MORTO (toque no vidro, nada
+         acontecia). Agora são duas portas na mesma linha do ramo de dirigir: o
+         verde abre a folha da parada e o "Sair" volta pro mapa 2D com a rota
+         viva, no MESMO canto do polegar das duas telas. O verde só existe se
+         houver chegouId: sem parada de verdade a vaga fica vazia, nunca com um
+         botão fingindo. (Sem CRASE aqui dentro: este comentário mora num
+         template literal e a crase o fecharia — foi o que eu quase fiz agora,
+         escrevendo o nome do campo entre crases.) -->
     <div class="gps-rodape">
       ${rodape?`<div class="parada">${ic('route',14)} ${rodape}</div>`:''}
-      <button class="act go full" style="justify-content:center">${ic('check',20)}<b>${g.chegouAcao||''}</b></button>
+      <div class="linha" style="justify-content:flex-end">
+        ${g.chegouId?`<button class="act go full" style="justify-content:center"
+          data-acao="abrir-parada" data-parada="${g.chegouId}">${ic('check',20)}<b>${g.chegouAcao||''}</b></button>`:''}
+        <button class="sair" data-ir="rota">${g.encerrar||''}</button>
+      </div>
     </div>
   </div>
 </div>`;
@@ -3524,10 +3550,13 @@ function telaGps(chegou){
       <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',18)}</button>
     </div>
 
-    <!-- 🔴 O RODAPÉ PODE FICAR SÓ COM O "Encerrar", e é o certo: ele é a PORTA
+    <!-- 🔴 O RODAPÉ PODE FICAR SÓ COM O "Sair", e é o certo: ele é a PORTA
          DE SAÍDA da navegação. Motorista preso nesta tela é pior que qualquer
-         número faltando — por isso o "encerrar" é COPY e nunca zera. (Sem
-         CRASE aqui dentro: este comentário mora num template literal.) -->
+         número faltando — por isso o "encerrar" é COPY e nunca zera. O rótulo
+         virou "Sair" em 09/08: o botão volta pra tela Rota com a rota VIVA, e
+         verbo de destruir em botão que não destrói é mentira (a razão longa
+         mora no seam, em DADOS.gps). (Sem CRASE aqui dentro: este comentário
+         mora num template literal.) -->
     <div class="gps-rodape">
       ${rodape?`<div class="parada">${ic('route',14)} ${rodape}</div>`:''}
       <div class="linha">

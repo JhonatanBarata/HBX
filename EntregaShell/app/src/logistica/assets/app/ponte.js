@@ -1281,7 +1281,50 @@
     if (seq !== previaSeq) return;
     previaCrua = Array.isArray(prev && prev.clientes) ? prev.clientes : [];
     previaAlvo = alvo;
+    somarAvulsas(data);
     publicarPrevia();
+  }
+
+  /* ------------------------------------------------------------------------
+     🔴 A PARADA AVULSA TEM QUE APARECER NA TELA DE MONTAR (09/08).
+
+     A lista da montagem sai do `/logistica/dia-preview`, e ele lê a AGENDA —
+     os vínculos de `ClienteProduto` que vencem no dia. Ele NÃO lê `Entrega`.
+     Uma parada criada à mão pelo "+" não tem vínculo nenhum, então ela nascia
+     INVISÍVEL aqui mesmo já estando na rota: no domingo do dono — dia sem
+     agenda — a tela seguiria dizendo "Nenhum cliente nesse dia" logo depois de
+     ele adicionar um endereço, e o rodapé nem apareceria.
+
+     A cura não é só da minha frente: TODA entrega que nasce fora da agenda
+     sofria disto (o painel web agendando uma avulsa é o outro caso). Então o
+     que entra aqui são as entregas ABERTAS do dia que não casam com ninguém da
+     prévia. As que casam já estão na lista — somá-las de novo poria o mesmo
+     cliente em duas linhas, que é bug de produto pela lei desta casa.
+
+     Só vale pro DIA DE HOJE: `ENTREGAS` é a rota de hoje, e enfiá-la na prévia
+     de uma quarta-feira futura seria mentir sobre o dia que ele está olhando.
+     ------------------------------------------------------------------------ */
+  function somarAvulsas(data) {
+    if (data !== hojeISO() || !ENTREGAS.size || !Array.isArray(previaCrua)) return;
+    const jaTem = new Set(previaCrua.map((c) => String((c && c.customerProfileId) || '')));
+    paradasAbertas().forEach((p) => {
+      const it = p.item || {};
+      const c = it.cliente || {};
+      const cid = String(c.id || '');
+      if (!cid || jaTem.has(cid)) return;
+      jaTem.add(cid);
+      previaCrua.push({
+        customerProfileId: cid,
+        ...(it.localId ? { localId: String(it.localId) } : {}),
+        nome: c.nome || '',
+        localApelido: c.endereco || '',
+        observacoes: c.observacoes || '',
+        // Sem produto: a avulsa é uma PARADA, não uma venda montada. Item
+        // inventado aqui viraria contagem falsa no rodapé da tela.
+        itens: [],
+        ...(typeof c.lat === 'number' && typeof c.lng === 'number' ? { lat: c.lat, lng: c.lng } : {}),
+      });
+    });
   }
 
   /* ------------------------------------------------------------------------
@@ -1649,6 +1692,26 @@
 
   /** o dedo ou um espaço mandaram nesta lista? então a ordem é DELES */
   const ordemDeGente = () => previaDoDedo || modoSel !== 'dist';
+
+  /* 🔴 ABRIR A MONTAGEM NÃO PODE RE-RODAR O OTIMIZADOR AGORA (09/08).
+     Abrir a Montagem RE-PLANEJA — é o "montar já no carregamento" que o dono
+     pediu, e está certo enquanto ninguém decidiu nada. A parada avulsa quebra
+     as duas pontas disso, e por motivos diferentes:
+
+     1. DEU CERTO: ela acabou de gravar uma sequência ESCOLHIDA ("No caminho"
+        mediu o encaixe perna a perna, "Primeira parada" furou a fila). O
+        `planejar` sem `ordemManual` do toque seguinte desfazia a escolha dele
+        em silêncio, e a parada reaparecia noutro lugar sem ninguém pedir. É a
+        metade já escrita duas seções acima: COM decisão humana, o motor não
+        tem o direito de refazer.
+     2. DEU ERRADO: o encaixe caiu na rede, e a tela volta com o aviso "a
+        parada entrou, mas não consegui reordenar". Deixar a Montagem tentar
+        planejar de novo ali é pedir pro MESMO erro acontecer 300 ms depois —
+        e o portão genérico do erro APAGA o aviso certo (medido: o "Não deu
+        certo" comia a única frase que dizia que a parada existe).
+
+     Vale UMA vez e some depois. */
+  let pularMontarAoAbrir = false;
 
   /* Casa a lista da tela (clientes) com as entregas do dia (ids) e devolve a
      sequência em ids — o formato que o servidor entende. O elo é o CLIENTE:
@@ -3050,6 +3113,14 @@
       chegada,
       restante: navRota ? emMinutos(navRota.totalS) : '',
       distancia: navRota ? emMetros(navRota.totalM) : '',
+      /* 🔴 O BOTÃO VERDE DO "VOCÊ CHEGOU" ERA MORTO POR FALTA DE ID (09/08).
+         O desenho monta a porta com `data-acao="abrir-parada" data-parada=…`,
+         e `abrirParada` só sabe abrir o que está em `ENTREGAS` — a chave é o id
+         da ENTREGA, o MESMO que o cartão da lista carrega (`traduzirParada.id`),
+         nunca o do cliente. Sem parada da vez sai VAZIO de propósito: a Lei do
+         IF apaga o botão, e vaga vazia é melhor que verde grande que não leva
+         a lugar nenhum. */
+      chegouId: vez && vez.item && vez.item.id ? String(vez.item.id) : '',
       chegouEndereco: vez ? esc(cliente.endereco) : '',
       chegouPrecisao: precisao,
       // "faltam N paradas" conta as que sobram DEPOIS desta — quem está na
@@ -3271,6 +3342,45 @@
       if (!mapa) return;
       quandoEstiloPronto(mapa, () => desenharTraco(mapa));
     });
+  }
+
+  /* ---- O 2D TAMBÉM TEM DIREITO DE PEDIR O CAMINHO ------------------------
+     🔴 A ROTA PRONTA MOSTRAVA PONTOS SOLTOS (09/08). `pintarTraco` já é dos
+     DOIS mapas desde 08/08, mas quem enche o `navRota` (e com ele a
+     `geometria`) era só a tela de DIRIGIR: `pedirRota` só era chamado no
+     `aoMover` e no `ir`, os dois travados em `telaAtual()==='mapa'`. Resultado
+     na tela principal: o dono monta a rota, abre o mapa 2D e vê seis pinos
+     numerados sem nada ligando um ao outro — o caminho só nascia depois de ele
+     começar a dirigir.
+
+     🔴 E ELE PEDE PELA MESMA PORTA. Nada de um segundo pedido de rota: é o
+     `pedirRota` de sempre, com o teto do dia (`NAV_TETO_DIA`), o um-em-voo
+     (`navPedindo`), o piso de 15 s e o backoff por falha. Rota é API PAGA —
+     dois caminhos de pedido são duas contas, e só uma tem freio.
+
+     🔴 UMA VEZ POR ENTRADA NA TELA, e é isto que o bilhete guarda. O mapa 2D
+     não tem manobra pra recalcular: o traço dele é o mesmo o dia inteiro,
+     então repetir a cada fix seria a tela Rota queimando pedido parada na
+     garagem. O bilhete é GASTO na primeira tentativa de verdade, dê ou não dê:
+     pedido recusado por um dos freios devolve a tela de hoje (os pinos, sem
+     caminho), e enfeite que falha não vira laço (§ "enfeite lento não derruba
+     a tela"). */
+  let planoQuerTraco = false;
+
+  function tracoDoPlano() {
+    if (!planoQuerTraco || telaAtual() !== 'rota') return;
+    /* Sem fix do GPS, ou sem parada com pino, não há o que pedir — e aí o
+       bilhete FICA armado: numa garagem o 1º fix demora, e é ele que volta
+       aqui sozinho (`aoFix`). */
+    const coords = coordenadasDaNavegacao();
+    if (!coords) return;
+    planoQuerTraco = false;
+    /* A MESMA régua que o `pedirRota` usa pra saber se a rota virou outra: as
+       paradas SEM a origem. Traço que já serve a estas paradas não se repede —
+       quem voltou de dirigir traz o caminho no bolso. */
+    const alvos = coords.split(';').slice(1).join(';');
+    if (navRota && navRota.geometria && navRota.alvos === alvos) { pintarTraco(); return; }
+    pedirRota();
   }
 
   /* ---- 7d-bis. A DESCIDA: 2D → 3D, o efeito do V4 -------------------------
@@ -3747,6 +3857,10 @@
     // já existe — nem repinte, nem câmera, nem tile novo. A tela principal da
     // rota mostrando onde o motorista está AGORA custa isto.
     moverEuNoPlano();
+    // ...e o CAMINHO entre os pinos, se a tela Rota tirou bilhete e ainda não
+    // havia fix pra gastá-lo (§ tracoDoPlano). Gasto UMA vez: os fixes
+    // seguintes batem na porta e voltam — não é laço, é um bilhete só.
+    tracoDoPlano();
     // O anel roda em QUALQUER tela: o motorista chega perto do cliente
     // com o app na lista de paradas, não no GPS. `aoMover` é que é só da
     // navegação — por isso o anel vem antes, e fora dele.
@@ -3875,7 +3989,8 @@
            mandar montar — o 2º "Montar rota" no pé da tela não existe mais.
            Rota JÁ RODANDO fica de fora: re-planejar no meio do dia embaralharia
            a sequência de quem está na rua só porque ele abriu a tela. */
-        if (estadoRota !== 'rodando' && estadoRota !== 'pausada') montarRota();
+        if (pularMontarAoAbrir) pularMontarAoAbrir = false;
+        else if (estadoRota !== 'rodando' && estadoRota !== 'pausada') montarRota();
       }
       /* 🔴 A TELA PRINCIPAL DA ROTA É UM MAPA, E MAPA SEM "ONDE EU ESTOU" NÃO É
          MAPA (dono, 08/08: *"não mostra minha localização tbm"*). O watch do
@@ -3885,7 +4000,11 @@
          "pedir fora de hora" que este arquivo evita é pedir no boot ou na tela
          de chat — numa tela que É um mapa, a localização é o assunto. Mesma
          régua do "Navegar" e da Montagem: cobra-se onde serve. */
-      if (tela === 'rota') garantirGps();
+      /* 🔴 ...E O CAMINHO ENTRE OS PINOS. Entrar aqui TIRA O BILHETE do traço
+         (§ tracoDoPlano): um pedido, na mesma porta com os mesmos freios, pra
+         a tela principal não mostrar mais ponto solto. Se o GPS ainda não deu
+         fix, o bilhete espera o primeiro — não há relógio nenhum atrás disto. */
+      if (tela === 'rota') { garantirGps(); planoQuerTraco = true; tracoDoPlano(); }
       if (tela === 'chat') aoAbrirChat();
       // Cadastro NASCE EM BRANCO, sempre. Formulário que guarda o cliente
       // anterior é a receita de cadastrar duas vezes a mesma pessoa — e aqui
@@ -5863,6 +5982,20 @@
     return { aplicado: true, anterior: nomeAnterior || null };
   }
 
+  /* 🔴 O PORTÃO SÓ NASCE DEPOIS QUE A TELA PAROU DE SE PINTAR (09/08, medido).
+     `portao()` monta na camada VIVA — e `ir('montagem')` dispara um
+     `encherMontagem()` que termina DEPOIS: quando termina, `usarDados` repinta
+     e leva embora a camada inteira, com o portão dentro. O aviso simplesmente
+     não aparecia, e no caminho do ERRO isso apagava a única frase que dizia que
+     a parada tinha sido criada. É a mesma receita do `criarCliente`, que espera
+     a ficha carregar antes de avisar: navega, ESPERA o dado da tela, e só
+     então fala. */
+  async function voltarDaAvulsa(volta) {
+    window.ir(volta);
+    if (volta !== 'montagem') return;
+    try { await encherMontagem(); } catch (_) { /* o aviso vale mais que a lista */ }
+  }
+
   async function rapidaConfirmar() {
     const r = rapida;
     if (!r || r.salvando || r.buscando || !r.resolvido) return;
@@ -5884,6 +6017,15 @@
       r.aviso = 'Escreva o nome do cliente.';
       return publicarRapida();
     }
+    const posicao = r.posicao;
+    const volta = r.volta;
+    /* 🔴 DEPOIS DE CRIAR, NÃO DÁ PRA VOLTAR ATRÁS — e o `catch` tem que saber
+       disso. A conta e a entrega já existem no servidor; se a rede cair no
+       ENCAIXE (que vem depois), tratar como "não deu certo" seria mentira:
+       a parada está lá. Sem este marcador o `catch` tentava repintar um
+       rascunho já apagado, e a tela ficava travada em "Adicionando…" pra
+       sempre — com a parada criada por trás. */
+    let criou = false;
     r.salvando = true; r.aviso = ''; publicarRapida();
     try {
       const numero = digitos(r.numero) || String(res.numero || '');
@@ -5928,8 +6070,7 @@
         scheduledAt: `${hojeISO()}T12:00:00.000Z`,
         paraMinhaRota: true,
       });
-      const posicao = r.posicao;
-      const volta = r.volta;
+      criou = true;
       rapida = null;
       // A rota tem que ser relida ANTES do encaixe: é dela que sai a lista de
       // abertas em que a parada nova vai entrar.
@@ -5937,9 +6078,11 @@
       let encaixe = { aplicado: false, anterior: null };
       const novoId = entrega && entrega.id ? String(entrega.id) : '';
       if (novoId) encaixe = await encaixarAvulsa(novoId, posicao);
+      // A escolha dele já está gravada: a Montagem que vem a seguir não
+      // reotimiza por cima (ver `pularMontarAoAbrir`).
+      pularMontarAoAbrir = encaixe.aplicado;
       await carregarRota();
-      if (volta === 'montagem') await encherMontagem();
-      window.ir(volta);
+      await voltarDaAvulsa(volta);
       window.portao({
         tom: 'ok', ico: 'check', titulo: 'Parada adicionada',
         sub: !encaixe.aplicado ? 'Ela entrou na rota de hoje.'
@@ -5948,8 +6091,24 @@
         acoes: [['Fechar', 'principal', true]],
       });
     } catch (e) {
-      if (rapida === r) { r.salvando = false; publicarRapida(); }
-      avisoErro(e);
+      if (!criou) {
+        // Nada foi escrito: devolve a tela como estava e o dedo tenta de novo.
+        if (rapida === r) { r.salvando = false; publicarRapida(); }
+        return avisoErro(e);
+      }
+      // A parada EXISTE; o que falhou foi a ordem. Dizer "não deu certo" aqui
+      // faria ele adicionar o mesmo endereço duas vezes.
+      rapida = null;
+      try { await carregarRota(); } catch (_) { /* já estamos no desvio */ }
+      // Sem isto a Montagem tentaria planejar de novo e o erro genérico dela
+      // apagaria o aviso abaixo — que é a única frase que diz que a parada existe.
+      pularMontarAoAbrir = true;
+      await voltarDaAvulsa(volta);
+      window.portao({
+        tom: 'alerta', ico: 'alert', titulo: 'A parada entrou',
+        sub: 'Mas não consegui reordenar a rota agora. Toque em "Montar rota" pra ela achar o lugar dela.',
+        acoes: [['Fechar', 'principal', true]],
+      });
     }
   }
 
