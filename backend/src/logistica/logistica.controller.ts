@@ -764,6 +764,17 @@ export class LogisticaController {
     return this.recorrencia.getDiaPreview(companyId, date, req.user);
   }
 
+  /**
+   * HISTÓRICO DA MONTAGEM (09/08) — os últimos 14 dias de rota, derivados de
+   * Entrega (sem tabela nova). Sem `date` = dias; com `date` = os clientes do
+   * dia pra reutilizar como rascunho. Ver historicoDeRotas no service.
+   */
+  @Get('rota/historico')
+  historicoDeRotas(@Req() req: any, @Query('date') date?: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.rota.historicoDeRotas(companyId, date);
+  }
+
   // ── LOGÍSTICA-MOBILE M3 — motor de rota + ETA ───────────────────────────────
 
   /**

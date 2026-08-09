@@ -126,6 +126,22 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
         return R({ modoRotaPadrao: 'essencial', appModulosDesativados: '' });
       }
       if (caminho.indexOf('/logistica/rota/custo-preview') === 0) return R(S.custo);
+      // ANTES do genérico '/logistica/rota' (prefixo engole o específico —
+      // foi exatamente assim que este stub nasceu devolvendo rota no historico)
+      if (caminho.indexOf('/logistica/rota/historico') === 0) {
+        // o dialeto REAL do historicoDeRotas: dias sem date; clientes com date
+        const d = q('date');
+        if (d) {
+          return R({
+            data: d,
+            clientes: [
+              { customerProfileId: 'c3', nome: 'Alfredo', endereco: 'Rua 4-a, 93', bairro: '', cidade: 'Rio Claro', lat: -22.402, lng: -47.552, recorrente: true },
+              { customerProfileId: 'c7', nome: 'Zeca sem porta', endereco: 'Rua 19, 880', bairro: '', cidade: 'Rio Claro', lat: null, lng: null, recorrente: false },
+            ],
+          });
+        }
+        return R({ dias: [{ data: '2026-08-08', paradas: 2 }] });
+      }
       if (caminho.indexOf('/logistica/rota/planejar') === 0 && metodo === 'POST') {
         const manual = corpo && Array.isArray(corpo.ordemManual) ? corpo.ordemManual.map(String) : null;
         const fila = abertas();
@@ -330,11 +346,18 @@ const SO_MEDIR = process.argv.includes('--antes');
      rota de HOJE. Hora prevista e pílula de status são da ENTREGA — e a entrega
      da segunda-feira não existe ainda. */
   eh('A5 · prévia de outro dia NAO mostra hora da rota de hoje', tA1.horas.length === 0 && tA2.horas.length === 0);
-  /* 🔴 A PORTA DE VOLTA. O dia de hoje TEM que ter chip quando há parada ou
-     rascunho na tela — sem ele, tocar em "Seg" troca a lista e o único caminho
-     de volta é adivinhar que o chip aceso desliga no 2º toque. */
-  eh('A6 · com paradas hoje, HOJE ganha chip (porta de volta)',
-    tA0.chips.length >= 3 && tA0.chips.some((c) => c[1] === 1));
+  /* 🔴 CHIP É DA AGENDA, E SÓ DELA (dono, 09/08: "vc meio q criou um 'dom'
+     como se tivesse cliente de domingo, totalmente fora de semantica... isso
+     aqui é AVULSO, crie uma parte avulsa"). A 1ª versão desta prova cobrava o
+     contrário — o chip de HOJE nascendo de parada/rascunho — e foi exatamente
+     o "Dom" fantasma que ele reprovou na tela. Agora: com avulsas de hoje e
+     agenda vazia no dia, NENHUM chip inventado; quem mostra o trabalho é a
+     PARTE AVULSA, com cabeçalho próprio no topo da lista. */
+  const cabA = await p.evaluate(() => [...document.querySelectorAll('.grupo')]
+    .map((e) => e.textContent.trim()).filter((t) => /avulsa/i.test(t)).length);
+  eh('A6 · chip de dia so nasce da AGENDA (nenhum "Dom" fantasma de avulsa)',
+    !tA0.chips.some((c) => c[0] === 'Dom' || c[0] === 'Hoje'), tA0.chips.map((c) => c[0]).join(' '));
+  eh('A6b · a PARTE AVULSA existe com cabecalho proprio', cabA >= 1, `cabecalhos=${cabA}`);
 
   /* ===================================================================
      CENA B — VOLTAR SEM SALVAR: o rascunho não persiste
@@ -400,6 +423,29 @@ const SO_MEDIR = process.argv.includes('--antes');
     if (x) x.click();
   });
   await p.waitForTimeout(400);
+
+  /* ===================================================================
+     CENA H — HISTÓRICO 14 DIAS (dono, 09/08: "criar um histórico, salva por
+     14 dias... E tem como reutilizar"). A seção lista os dias que já rodaram;
+     o toque enche o RASCUNHO (nada gravado) com a MESMA bagagem — o Alfredo
+     com pino fica quieto, o Zeca sem porta leva o aviso honesto.
+     =================================================================== */
+  await cena({});
+  await irPara('rota', 900);
+  await irPara('montagem');
+  const temHist = await p.evaluate(() => document.querySelectorAll('[data-acao="historico-usar"]').length);
+  eh('H1 · a secao do historico aparece na montagem', temHist >= 1, `linhas=${temHist}`);
+  await zerar();
+  await p.evaluate(() => document.querySelector('[data-acao="historico-usar"]').click());
+  await p.waitForTimeout(2200);
+  const tH = await espiar();
+  const flagsH = tH.pernas.filter((t) => /não sei onde fica/i.test(t));
+  nota(`[H] reutilizar 08/08: stops=${tH.nStops} · entregas=${tH.entregasNoServidor} · portao="${tH.portao}" · avisos=${flagsH.length}`);
+  eh('H2 · reutilizar poe os clientes do dia na lista', tH.nStops === 2, `stops=${tH.nStops}`);
+  eh('H3 · e NAO grava nada no servidor', tH.entregasNoServidor === 0
+    && (await posts()).indexOf('/logistica/entregas') < 0);
+  eh('H4 · o recibo diz o verbo do estado (na lista)', /na lista/i.test(tH.portao), tH.portao);
+  eh('H5 · mesma lingua: so o sem-porta-sem-recorrencia avisa', flagsH.length === 1, `avisos=${flagsH.length}`);
 
   /* ===================================================================
      CENA B2 — SALVAR/INICIAR materializa o rascunho

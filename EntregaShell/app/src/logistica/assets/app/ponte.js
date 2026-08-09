@@ -1026,6 +1026,10 @@
         // e o "nesse dia" do mock não se refere a dia nenhum sem chip aceso.
         vazio: textoVazio(0),
         somaParadas: '', somaProdutos: '', somaValor: '', dias: [], diaSel: 0,
+        // o HISTÓRICO demo do mock morre aqui como todo dado de exemplo —
+        // "Sáb · 95 paradas" inventado numa tela de decisão é a mentira de
+        // sempre com roupa nova (09/08).
+        historico: [],
       },
       clientes: { carregando: true, lista: [], total: '', semEndereco: '', marcadoHoje: '', subtitulo: '' },
       produtos: { carregando: true, lista: [], categorias: [], ativos: '', estoqueBaixo: '', valorEstimado: '' },
@@ -1489,20 +1493,15 @@
     // atual não é diferente dos outros. Quem explica a tela quando hoje está
     // vazio é o TEXTO ("Nada a exibir hoje"), não um chip mentindo que há o que
     // montar.
-    /* 🔴 O CHIP DE HOJE TAMBÉM NASCE DO QUE ESTÁ NA TELA (dono, 09/08: "adicionei
-       alguns clientes… se eu clicar em segunda, quarta, ele entra em um estado
-       estranho, onde meio q esquece dessa tela").
-       A fila saía SÓ da agenda — e num dia SEM agenda (o domingo dele, ou o dia
-       em que ele montou a rota escolhendo os clientes na mão) HOJE não ganhava
-       chip nenhum. Então acontecia isto, MEDIDO na prova: 3 paradas na tela,
-       fila de chips "Seg Qua", o dedo toca em "Seg" — e as 3 somem, trocadas
-       pela agenda da segunda, SEM PORTA DE VOLTA. O único caminho de volta era
-       adivinhar que tocar de novo no chip ACESO desliga o filtro. Tela que troca
-       e não sabe voltar é a tela "esquecendo" o trabalho dele, na letra.
-       Parada aberta e rascunho são gente no dia de hoje tanto quanto a agenda: é
-       essa a régua que faltava, e ela é a MESMA régua do "tem o que mostrar". */
-    const temHoje = (diasComCliente && diasComCliente.has(hoje))
-      || paradasAbertas().length > 0 || RASCUNHO.length > 0;
+    /* 🔴 CHIP DE DIA É DA AGENDA, E SÓ DELA (dono, 09/08: "vc meio q criou um
+       'dom' como se tivesse cliente de domingo, totalmente fora de semantica…
+       isso aqui é AVULSO, crie uma parte avulsa"). A 1ª cura da "porta de
+       volta" fez rascunho e parada aberta acenderem o chip de HOJE — e num
+       domingo sem agenda nasceu um "Dom" mentindo que havia cliente de
+       domingo. O chip conta a AGENDA; o avulso vive na PARTE AVULSA da lista
+       de HOJE (etiqueta `avulsa` no somarRascunho/somarAvulsas), e a volta de
+       um dia espiado é o 2º toque no chip aceso — regra que os chips já têm. */
+    const temHoje = !!(diasComCliente && diasComCliente.has(hoje));
     const dias = [1, 2, 3, 4, 5, 6, 7]
       .filter((n) => (n === hoje ? temHoje : (!diasComCliente || diasComCliente.has(n))))
       .map((n) => [n === hoje ? 0 : n, ROTULO_DIA[n]]);
@@ -1753,6 +1752,9 @@
         // inventado aqui viraria contagem falsa no rodapé da tela.
         itens: [],
         ...(typeof c.lat === 'number' && typeof c.lng === 'number' ? { lat: c.lat, lng: c.lng } : {}),
+        // a PARTE AVULSA da lista (dono, 09/08: "isso aqui é AVULSO, crie uma
+        // parte avulsa") — a tela agrupa por esta etiqueta, nunca por chip.
+        avulsa: true,
       });
     });
   }
@@ -1793,7 +1795,89 @@
         // a MESMA bagagem da linha da agenda — a régua é uma só (ver o push
         // do rascunho): sem isto a avulsa era a única linha "sem trajeto".
         resolveSozinho: !!c.resolveSozinho,
+        // a PARTE AVULSA da lista (dono, 09/08) — mesma etiqueta do somarAvulsas.
+        avulsa: true,
       });
+    });
+  }
+
+  /* ------------------------------------------------------------------------
+     O HISTÓRICO DA MONTAGEM (dono, 09/08: "criar um histórico, salva por 14
+     dias. SIMPLES E FÁCIL, sem inventar moda. E tem como reutilizar a rota
+     salva"). O servidor DERIVA os dias de Entrega — nada novo se grava, então
+     "salvar" nunca falha e os 14 dias são só a janela da pergunta.
+     Reutilizar = encher o RASCUNHO com os clientes daquele dia: o mesmo fluxo
+     do escolher na mão — nada persiste até o Salvar/Iniciar, e o Voltar
+     descarta, como toda escolha desta tela.
+     ------------------------------------------------------------------------ */
+  async function carregarHistorico() {
+    if (!temPonte() || typeof window.usarDados !== 'function') return;
+    let resp;
+    try { resp = await window.API.get('/logistica/rota/historico'); } catch (_) { return; }
+    const dias = Array.isArray(resp && resp.dias) ? resp.dias : [];
+    window.usarDados('montagem', {
+      historico: dias.slice(0, 14).map((h) => {
+        const [a, m, d] = String(h.data || '').split('-').map(Number);
+        const dt = new Date(a, (m || 1) - 1, d || 1, 12);
+        const dow = dt.getDay() === 0 ? 7 : dt.getDay();
+        return {
+          data: String(h.data || ''),
+          dia: ROTULO_DIA[dow] || '',
+          titulo: `${ROTULO_DIA[dow] || ''} · ${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}`,
+          sub: `${Number(h.paradas) || 0} ${Number(h.paradas) === 1 ? 'parada' : 'paradas'}`,
+        };
+      }),
+    });
+  }
+
+  async function usarHistorico(data) {
+    if (!data || !temPonte()) return;
+    if (rotaNaRua()) {
+      return window.portao({
+        tom: 'info', ico: 'route', titulo: 'A rota já está em andamento',
+        sub: 'Finalize ou cancele antes de reutilizar outra.', acoes: [['Fechar', '']],
+      });
+    }
+    let resp;
+    try { resp = await window.API.get(`/logistica/rota/historico?date=${encodeURIComponent(data)}`); }
+    catch (_) {
+      return window.portao({
+        tom: 'trava', ico: 'route', titulo: 'Não consegui abrir esse dia',
+        sub: 'Tente de novo.', acoes: [['Fechar', '']],
+      });
+    }
+    const clientes = Array.isArray(resp && resp.clientes) ? resp.clientes : [];
+    const jaNoRascunho = new Set(RASCUNHO.map((c) => String(c.id)));
+    let novos = 0;
+    clientes.forEach((c) => {
+      const id = String(c.customerProfileId || '');
+      if (!id || jaNoRascunho.has(id) || paradaAbertaDaConta(id)) return;
+      jaNoRascunho.add(id);
+      // a MESMA bagagem do escolher na mão (pino + recorrência) — zero não é pino.
+      const lat = Number(c.lat); const lng = Number(c.lng);
+      RASCUNHO.push({
+        id,
+        nome: String(c.nome || 'Cliente'),
+        endereco: String(c.endereco || ''),
+        bairro: String(c.bairro || c.cidade || ''),
+        ...(isFinite(lat) && isFinite(lng) && !(lat === 0 && lng === 0) ? { lat, lng } : {}),
+        resolveSozinho: !!c.recorrente,
+      });
+      novos += 1;
+    });
+    // volta pra HOJE: o rascunho vive na lista de hoje, e reutilizar com um
+    // chip de outro dia aceso mostraria a lista errada com o recibo certo.
+    montarDia = 0;
+    window.usarDados('montagem', { diaSel: 0 });
+    // ESPERA a lista chegar antes do recibo — portão aberto antes do repinte
+    // morre com a camada (armadilha 2 da parada avulsa, 09/08).
+    await encherMontagem();
+    const q = `${novos} ${novos === 1 ? 'parada' : 'paradas'}`;
+    window.portao({
+      tom: novos ? 'ok' : 'info', ico: novos ? 'check' : 'route',
+      titulo: novos ? `${q} na lista` : 'Todo mundo desse dia já está na lista',
+      sub: novos ? 'Nada gravado ainda — Salvar ou Iniciar é que gravam.' : '',
+      acoes: [['Fechar', '']],
     });
   }
 
@@ -1990,16 +2074,23 @@
            sequência que o motorista vai dirigir, e é isso que faz a tela parar
            de discordar do que foi gravado. */
         : (ordemDaRotaMontada(previaCrua, daRota) || encadearPorDistancia(previaCrua, ultimaPos)));
+    /* 🔴 A PARTE AVULSA VEM PRIMEIRO (dono, 09/08: "crie uma parte avulsa").
+       Antes do Iniciar a ordem da tela é prévia — quem crava a sequência é o
+       otimizador na saída. Então o avulso, que é o trabalho da vez, senta no
+       TOPO como grupo próprio, e a agenda do dia segue abaixo. A partição
+       preserva a ordem relativa de cada grupo, e roda ANTES do `previaCrua =`
+       pra pernas, arrasto e PREVIA andarem no MESMO índice da tela. */
+    const clientesOrdenados = [...clientes.filter((c) => c && c.avulsa), ...clientes.filter((c) => !(c && c.avulsa))];
     // 🔴 O QUE FOI PUBLICADO VIRA A VERDADE. Guardar a ordem CRUA do servidor
     // depois de pintar outra deixaria dois donos da mesma lista — e o próximo
     // repinte escolheria um deles no escuro. Daqui pra frente `previaCrua` e
     // `PREVIA` andam no mesmo índice, que é o que faz o arrasto ser mapeável.
-    previaCrua = clientes;
+    previaCrua = clientesOrdenados;
     PREVIA.length = 0;
     let produtos = 0;
     let total = 0;
     let temPreco = false;
-    const linhas = clientes.map((c, i) => {
+    const linhas = clientesOrdenados.map((c, i) => {
       const itens = Array.isArray(c.itens) ? c.itens : [];
       const qtdCliente = itens.reduce((s, it) => s + Math.max(1, Number(it.qtd) || 1), 0);
       produtos += qtdCliente;
@@ -2019,6 +2110,8 @@
            a ficha. Enquanto este campo não existiu, o cartão da montagem não
            tinha porta nenhuma (dono, 09/08). */
         cliente: String(c.customerProfileId || ''),
+        // a etiqueta da PARTE AVULSA — o desenho agrupa por ela (T.montagem)
+        avulsa: c.avulsa ? 1 : 0,
         // a POSIÇÃO de origem: é por ela que o arrasto desta lista fala
         // (`hbx:ordem` → `{previa}`), já que não há id de entrega pra mandar.
         previa: i,
@@ -2044,7 +2137,7 @@
         marcado: somaCliente ? somaCliente.toFixed(2).replace('.', ',') : '',
         cor: corDaParada(naRota && naRota.status),
         pill: pilulaDaParada(naRota && naRota.status),
-        perna: pernaDaPrevia(c, clientes[i - 1], naRota, naRotaMontada(daRota, clientes[i - 1])),
+        perna: pernaDaPrevia(c, clientesOrdenados[i - 1], naRota, naRotaMontada(daRota, clientesOrdenados[i - 1])),
       };
     });
     window.usarDados('montagem', {
@@ -5109,7 +5202,7 @@
       // navegação): a lista cai na ordem do servidor e a rota se monta como
       // antes. Montar rota nunca depende de permissão.
       if (tela === 'montagem') {
-        garantirGps(); publicarMontarDias(); carregarDiasComCliente(); carregarEspacos(); encherMontagem();
+        garantirGps(); publicarMontarDias(); carregarDiasComCliente(); carregarEspacos(); encherMontagem(); carregarHistorico();
         /* 🔴 O OTIMIZADOR RODA NO CARREGAMENTO (dono, 08/08: "é pra funcionar
            já no carregamento, ao apertar Montar Rota, só isso"). Chegar aqui É
            mandar montar — o 2º "Montar rota" no pé da tela não existe mais.
@@ -8466,6 +8559,9 @@
       if (i >= 0) rapida.escolhidos.splice(i, 1); else rapida.escolhidos.push(id);
       rapida.aviso = '';
       return publicarRapida();
+    }
+    if (chave === 'historico-usar') {
+      return void usarHistorico(String(alvo.dataset.data || ''));
     }
     if (chave === 'montar-dia') {
       const n = Number(alvo.dataset.dia) || 0;

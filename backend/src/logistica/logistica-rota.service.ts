@@ -1295,6 +1295,90 @@ export class LogisticaRotaService {
     };
   }
 
+  /**
+   * HISTÓRICO DA MONTAGEM (09/08, pedido literal do dono: "criar um histórico,
+   * salva por 14 dias. SIMPLES E FÁCIL, sem inventar moda. E tem como
+   * reutilizar a rota salva"). NADA de tabela nova: as rotas dos últimos 14
+   * dias JÁ moram em Entrega — parada é quem tem rotaOrdem OU foi entregue
+   * (cancelada sem rotaOrdem não é parada desta rota, lei de 09/08). Hoje fica
+   * de fora: a rota de hoje é a viva, não histórico.
+   * Sem `date` = a lista dos dias; com `date` = os clientes daquele dia com a
+   * MESMA bagagem da linha da agenda (pino + recorrência) — rascunho que nasce
+   * sem bagagem é a tela gritando "não sei onde fica" pra cliente com porta
+   * marcada, o defeito que este mesmo dia curou.
+   */
+  async historicoDeRotas(companyId: number, date?: string) {
+    const eParada = [
+      { rotaOrdem: { not: null } },
+      { status: 'entregue' },
+    ];
+    if (date) {
+      const { start, end, dayISO } = resolveDayRange(date);
+      const rows = await this.prisma.entrega.findMany({
+        where: {
+          companyId,
+          scheduledAt: { gte: start, lte: end },
+          OR: eParada,
+        },
+        orderBy: [{ rotaOrdem: 'asc' }, { createdAt: 'asc' }],
+        select: {
+          customerProfileId: true,
+          customerProfile: {
+            select: {
+              name: true, endereco: true, bairro: true, cidade: true,
+              lat: true, lng: true,
+              logisticaPlanosEntrega: { where: { ativo: true }, take: 1, select: { id: true } },
+            },
+          },
+        },
+      });
+      // o mesmo cliente 2x no dia é UMA linha: reutilizar duplicaria a porta.
+      const vistos = new Set<string>();
+      const clientes = rows.flatMap((r) => {
+        const id = String(r.customerProfileId);
+        if (vistos.has(id)) return [];
+        vistos.add(id);
+        const c = r.customerProfile;
+        return [{
+          customerProfileId: id,
+          nome: c?.name ?? '',
+          endereco: c?.endereco ?? '',
+          bairro: c?.bairro ?? '',
+          cidade: c?.cidade ?? '',
+          lat: c?.lat ?? null,
+          lng: c?.lng ?? null,
+          recorrente: (c?.logisticaPlanosEntrega?.length ?? 0) > 0,
+        }];
+      });
+      return { data: dayISO, clientes };
+    }
+    const hoje = resolveDayRange();
+    const inicio = new Date(hoje.start.getTime() - 14 * 24 * 3600 * 1000);
+    const fim = new Date(hoje.start.getTime() - 1);
+    const rows = await this.prisma.entrega.findMany({
+      where: {
+        companyId,
+        scheduledAt: { gte: inicio, lte: fim },
+        OR: eParada,
+      },
+      select: { scheduledAt: true, customerProfileId: true },
+    });
+    // agrupa pela MESMA régua de dia do resolveDayRange (fuso local do
+    // servidor, via toDayISO) — segunda régua de dia é como as telas começam
+    // a discordar da rota.
+    const porDia = new Map<string, Set<string>>();
+    rows.forEach((r) => {
+      if (!r.scheduledAt) return;
+      const dia = toDayISO(r.scheduledAt);
+      if (!porDia.has(dia)) porDia.set(dia, new Set());
+      porDia.get(dia)!.add(String(r.customerProfileId));
+    });
+    const dias = [...porDia.entries()]
+      .map(([data, ids]) => ({ data, paradas: ids.size }))
+      .sort((a, b) => (a.data < b.data ? 1 : -1));
+    return { dias };
+  }
+
   private async loadConfig(companyId: number): Promise<{ velocidadeMediaKmH: number; tempoParadaMin: number }> {
     let cfg: { velocidadeMediaKmH: number; tempoParadaMin: number } | null = null;
     try {

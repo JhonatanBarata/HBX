@@ -268,6 +268,8 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "cliente-produtos"),
             listOf("logistica", "rota"),
             listOf("logistica", "rota", "custo-preview"),
+            // HISTÓRICO DA MONTAGEM (09/08) — reutilizar rota dos últimos 14 dias.
+            listOf("logistica", "rota", "historico"),
             listOf("logistica", "mobile", "route"),
             listOf("logistica", "produtos"),
             listOf("logistica", "config"),

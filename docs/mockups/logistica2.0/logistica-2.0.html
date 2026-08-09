@@ -3463,12 +3463,19 @@ const DADOS={
     // Vazios pelo MESMO motivo dos `dias`: nome de espaço é dinheiro do dono na
     // tela. Maquete aqui faria o motorista ler "Manhã" num espaço que não existe.
     modos:[], modoSel:'',
+    // demo do HISTÓRICO (09/08) — dado vivo vem da ponte; aqui é só a peça.
+    historico:[
+      {data:'2026-08-08',dia:'Sáb',titulo:'Sáb · 08/08',sub:'95 paradas'},
+      {data:'2026-08-04',dia:'Ter',titulo:'Ter · 04/08',sub:'52 paradas'},
+    ],
     /* A linha da montagem é a MESMA do `.stop` da rota (ver `T.montagem`): um
        objeto, não mais uma tupla posicional de 8 casas. Foi a tupla que fez o
        cartão daqui virar cópia — cada campo novo da rota (`pill`, `perna`,
        `nota`, o gancho de toque) exigia uma 9ª casa e ninguém a abria. */
+    // O 1º demo é AVULSO de propósito: é ele que mostra o cabeçalho da parte
+    // avulsa (09/08) no visualizador, senão a peça só existiria com dado vivo.
     linhas:[
-      {n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['Pendente','mute','clock'],perna:''},
+      {n:1,hora:'08:30',avulsa:1,nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['Pendente','mute','clock'],perna:''},
       {n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['Pendente','mute','clock'],perna:'850 m · 4 min'},
       {n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Entregue','lime','check'],perna:'1,2 km · 6 min'},
       {n:4,hora:'10:45',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Pendente','mute','clock'],perna:'620 m · 3 min'},
@@ -4440,10 +4447,27 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
      contam quem tem gente, e a mesma conta em dois lugares da MESMA tela é
      exatamente o bug de produto que esta casa persegue. O dado é o mesmo que os
      chips já pedem no boot (`DADOS.rota.semana`) — nenhuma ida nova à rede. */
+  /* 🔴 A PARTE AVULSA (dono, 09/08: "isso aqui é AVULSO, crie uma parte
+     avulsa" — depois do chip "Dom" fantasma que a 1ª cura inventou). Quem é
+     avulso NÃO vira dia de agenda: vem etiquetado (`avulsa`) pela ponte, senta
+     no TOPO da lista como grupo próprio, e o cabeçalho só nasce na VIRADA da
+     etiqueta — mesmo padrão do `cab` das Rotas salvas. */
   const lista=d.linhas.length
-    ? `<div class="stops" data-gestos="rota">${d.linhas.map(p=>`${perna(p.perna)}${stop(p)}`).join('')}</div>`
+    ? `<div class="stops" data-gestos="rota">${d.linhas.map((p,i)=>{
+        const cab=p.avulsa&&(!i||!d.linhas[i-1].avulsa)?`<div class="grupo">Rota avulsa</div>`:'';
+        return `${cab}${perna(p.perna)}${stop(p)}`;}).join('')}</div>`
     : `<div class="vazio"><span class="ico">${ic('route',24)}</span><strong>${d.vazio}</strong></div>
        ${semanaAgenda()}`;
+  /* O HISTÓRICO (dono, 09/08: "criar um histórico, salva por 14 dias. SIMPLES
+     E FÁCIL, sem inventar moda. E tem como reutilizar"). Cada linha é um dia
+     que JÁ rodou; o toque enche o rascunho com os clientes daquele dia — nada
+     grava até o Salvar/Iniciar. Sem fonte, sem seção (Lei do IF). A peça é a
+     mesma `lista-card`/`cli` da porta "Meus clientes": casca única, por lei. */
+  const hist=Array.isArray(d.historico)&&d.historico.length?`<div class="grupo">Histórico · 14 dias</div>
+  <div class="lista-card">${d.historico.map(h=>`<button type="button" class="cli" data-acao="historico-usar" data-data="${h.data}">
+    <span class="ava">${h.dia}</span>
+    <span><strong>${h.titulo}</strong><span>${h.sub}</span></span>
+    <span class="rgt"><span class="go">${ic('chev',15)}</span></span></button>`).join('')}</div>`:'';
   /* 🔴 O BOTÃO DE MONTAR NÃO ROLA (dono, 08/08: "montar rota não está sempre
      visível"). Ele nascia no PÉ da lista: com 52 clientes na tela isso é
      3.259 px abaixo da dobra — MEDIDO no g15 — e cada repinte devolvia o dedo
@@ -4524,7 +4548,8 @@ ${hdr({voltar:'rota'})}
     <span class="c"><span style="color:var(--lime)">${ic('route',17)}</span><span><b>${d.somaParadas}</b><small>paradas</small></span></span>
     <span class="c"><span style="color:var(--blue-l)">${ic('box',17)}</span><span><b>${d.somaProdutos}</b><small>produtos</small></span></span>
     <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>${d.somaValor}</b><small>valor marcado</small></span></span>
-  </div>`)}
+  </div>
+  ${hist}`)}
 </div>
 <div class="tmx-dock">${pe}</div>${nav('rota')}`;}};
 
