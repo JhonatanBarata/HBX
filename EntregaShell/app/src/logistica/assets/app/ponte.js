@@ -651,8 +651,12 @@
       hora: horaDaParada(item),
       cor: corDaParada(status),
       nome: esc(c.nome),
-      rua: esc(c.endereco),
-      bairro: esc(c.cidade),
+      // A MESMA linha da Montagem (`enderecoLinha`, montada no servidor pela régua
+      // única) — aqui se lia `c.endereco` cru, e "Rua M-7" sem o 897 é outro
+      // endereço. Duas listas do mesmo app não podem escrever a mesma porta de
+      // dois jeitos (dono, 09/08).
+      rua: esc(c.enderecoLinha || ''),
+      bairro: esc(c.bairro || c.cidade || ''),
       // o pino do mapa sai daqui; sem coordenada a parada existe na lista e
       // NÃO aparece no mapa (é o que "sem trajeto" já conta pro motorista).
       lat: typeof c.lat === 'number' ? c.lat : null,
@@ -1834,7 +1838,19 @@
   function pernaDaPrevia(atual, anterior, naRota, anteriorNaRota) {
     const temPino = (c) => !!c && typeof c.lat === 'number' && typeof c.lng === 'number'
       && isFinite(c.lat) && isFinite(c.lng) && !(c.lat === 0 && c.lng === 0);
-    if (!temPino(atual)) return 'sem trajeto — não sei onde fica';
+    /* 🔴 A MESMA RÉGUA DO PAINEL DO COMPUTADOR (dono, 09/08: "quero ver erro
+       apenas nos 4, igual está no desktop do Andre"; e a lei geral: "o que for
+       regra no celular é regra no desktop também").
+       O painel `/logistica?visao=enderecos` só põe em "Corrigir" quem o dono
+       precisa ver: cliente SEM PINO mas COM recorrência ativa vai pra "Revisar",
+       porque a 1ª entrega grava a porta pelo GPS do entregador — é a regra
+       `resolveSozinho`, escrita em logistica-base-saude.service.ts por ordem dele
+       em 06/08. Medido hoje na company 41: o computador mostra 4 e o app gritava
+       "não sei onde fica" em 34 — a mesma base, duas réguas.
+       Quem vem da AGENDA já chega com `resolveSozinho` do servidor. A parada
+       AVULSA não vem, e continua avisando: ali não há entrega recorrente pra
+       gravar a porta sozinha. */
+    if (!temPino(atual)) return atual && atual.resolveSozinho ? '' : 'sem trajeto — não sei onde fica';
     if (!anterior) return '';
     if (naRota && anteriorNaRota && naRota.pos === anteriorNaRota.pos + 1
       && typeof naRota.legDistanceM === 'number') {
@@ -1903,17 +1919,18 @@
         nome: esc(c.nome),
         /* 🔴 O ENDEREÇO DO CARTÃO É O ENDEREÇO (dono, 09/08: "celular tem que
            espelhar os mesmos dados que o desktop tem").
-           Aqui estava `c.localApelido` — o APELIDO do local ("Casa", "Loja"),
-           não a rua. Medido em prod na empresa 41: dos 51 clientes de segunda,
-           51 têm apelido VAZIO e 51 têm rua preenchida — ou seja, a montagem
-           listava a lista inteira com o endereço em branco enquanto o mesmo
-           cliente aparecia com "Rua M-7, 897" no computador e na tela de Rota
-           deste mesmo app (`rua: esc(c.endereco)`, lá em cima).
-           Agora vem pronto do servidor (`enderecoLinha`, montado da MESMA fonte
-           que deu o pino). O apelido não morre: quando existe, ele é o que o
-           dono chamou aquela porta, então entra na linha de baixo. */
-        rua: esc(c.enderecoLinha || c.endereco || c.localApelido || ''),
-        bairro: esc(c.bairro || c.cidade || (c.enderecoLinha ? c.localApelido : '') || ''),
+           Aqui se lia `localApelido` — o APELIDO do local ("Casa", "Loja"), não a
+           rua. Medido em prod na empresa 41: dos 51 clientes de segunda, 51 têm
+           apelido VAZIO e 51 têm rua preenchida; a montagem listava a lista
+           inteira com o endereço em branco enquanto o mesmo cliente aparecia com
+           "Rua M-7, 897" no computador.
+           UMA FONTE, SEM MULETA (dono, 09/08: "não deixe legados do que era antes
+           no celular"): quem monta a linha é `linhaEnderecoDaFonte`, no servidor,
+           da MESMA fonte que deu o pino. Cadeia de `||` com o campo velho seria
+           uma segunda régua escondida — e é assim que as duas telas voltam a
+           divergir. Sem endereço, a linha fica vazia e o cartão diz a verdade. */
+        rua: esc(c.enderecoLinha || ''),
+        bairro: esc(c.bairro || c.cidade || ''),
         nota: c.observacoes ? esc(c.observacoes) : undefined,
         tags: itens.map((it) => [`${Math.max(1, Number(it.qtd) || 1)}x ${esc(it.nome)}`, 'blue']),
         marcado: somaCliente ? somaCliente.toFixed(2).replace('.', ',') : '',
@@ -4520,6 +4537,7 @@
      que chega por último. O guard `__hbxBusca` é obrigatório: cada repinte
      traz um input NOVO, e sem ele o listener empilhava a cada tecla. */
   let buscaTimer = null;
+  let buscaRapidaTimer = null;
   function ligarBusca() {
     const cli = naCamada('[data-campo="busca-cliente"]');
     if (cli && !cli.__hbxBusca) {
@@ -4532,6 +4550,24 @@
           // O seam guarda o texto pra ele sobreviver ao repinte da lista — sem
           // isso o campo se apagava sozinho no meio da digitação.
           carregarClientes();
+        }, 350);
+      });
+    }
+    /* A busca da porta "Meus clientes" tem a MESMA espera de 350ms da lista de
+       Clientes, e pelo mesmo motivo: uma ida ao servidor por letra enfileira 8
+       pedidos pra digitar "Larissa" e o último a chegar nem sempre é o certo. */
+    const cliRapida = naCamada('[data-campo="rapida-cliente-busca"]');
+    if (cliRapida && !cliRapida.__hbxBusca) {
+      cliRapida.__hbxBusca = true;
+      cliRapida.addEventListener('input', () => {
+        const valor = String(cliRapida.value || '');
+        clearTimeout(buscaRapidaTimer);
+        buscaRapidaTimer = setTimeout(() => {
+          if (!rapida) return;
+          rapida.buscaCliente = valor;
+          rapida.listaCarregando = true;
+          publicarRapida();
+          carregarClientesDaRapida();
         }, 350);
       });
     }
@@ -4563,7 +4599,9 @@
       // A parada avulsa NASCE EM BRANCO, sempre — mesma lei do cadastro: campo
       // que guarda o endereço da vez passada é a receita de adicionar duas
       // vezes a mesma porta.
-      if (tela === 'rapida') rapidaEmBranco(veioDe);
+      // ...e a porta "Meus clientes" abre já buscando: ela é a porta padrão, e
+      // lista que só carrega no 1º toque faz a tela nascer vazia por engano.
+      if (tela === 'rapida') { rapidaEmBranco(veioDe); carregarClientesDaRapida(); }
       // A montagem é a tela de MONTAR: abrir já traz os chips (quem é admin) e
       // a lista do dia escolhido. Sem isto ela abriria com a lista da última
       // vez — e o motorista montaria a rota de ontem sem saber.
@@ -6671,13 +6709,46 @@
       cep: '', numero: '', nome: '',
       modo: 'direcao', posicao: 'perto',
       aviso: '', buscando: false, salvando: false,
+      /* A PORTA "MEUS CLIENTES" (09/08). Ela abre PRIMEIRO de propósito: a
+         pergunta "quem entra na rota?" quase sempre se responde com gente que
+         já está na base — digitar endereço é o caso raro, não o caminho. */
+      porta: 'cadastro',
+      buscaCliente: '', lista: [], escolhidos: [],
+      listaCarregando: true, listaSemFonte: false,
     };
     if (typeof window.usarDados !== 'function') return;
     window.usarDados('rapida', {
       volta, busca: '', buscando: 0, salvando: 0, opcoes: [], achado: null,
       aviso: '', modo: 'direcao', soDirecao: 0, nome: '', pedeNome: 0,
       temRota: paradasAbertas().length ? 1 : 0, posicao: 'perto',
+      porta: 'cadastro', buscaCliente: '', clientes: [], escolhidos: [],
+      listaCarregando: 1, listaSemFonte: 0,
     });
+  }
+
+  /* A LISTA DA PORTA "MEUS CLIENTES" — mesma fonte da tela de Clientes
+     (`/nucleo/clientes`, `isCliente` obrigatório: lead e fornecedor não entram
+     na rota de quem vende). Fonte PRÓPRIA e bandeiras próprias: a busca de
+     endereço da outra porta pode estar no chão sem apagar esta lista. */
+  let clientesDaRapidaEmVoo = false;
+  async function carregarClientesDaRapida() {
+    const r = rapida;
+    if (!r || !temPonte() || typeof window.usarDados !== 'function') return;
+    if (clientesDaRapidaEmVoo) return;
+    clientesDaRapidaEmVoo = true;
+    try {
+      const p = new URLSearchParams({ page: '1', pageSize: '100' });
+      if (r.buscaCliente) p.set('query', r.buscaCliente);
+      let resp;
+      try { resp = await window.API.get(`/nucleo/clientes?${p.toString()}`); } catch (_) {
+        if (rapida === r) { r.listaCarregando = false; r.listaSemFonte = true; publicarRapida(); }
+        return;
+      }
+      if (rapida !== r) return;
+      r.lista = (Array.isArray(resp && resp.items) ? resp.items : []).filter((c) => c && c.isCliente === true);
+      r.listaCarregando = false; r.listaSemFonte = false;
+      publicarRapida();
+    } finally { clientesDaRapidaEmVoo = false; }
   }
 
   /* Publica o rascunho na tela. O que o dedo DIGITOU volta junto (`busca`,
@@ -6713,6 +6784,24 @@
       pedeNome: modo === 'cadastro' && vaiBatizar ? 1 : 0,
       temRota: paradasAbertas().length ? 1 : 0,
       posicao: r.posicao,
+      /* A porta "Meus clientes" vai JUNTO em todo repinte — as duas portas são
+         uma tela só, e publicar meia tela deixaria a lista sumindo cada vez que
+         a busca de endereço escrevesse. */
+      porta: r.porta === 'endereco' ? 'endereco' : 'cadastro',
+      buscaCliente: esc(campo('rapida-cliente-busca') || r.buscaCliente || ''),
+      listaCarregando: r.listaCarregando ? 1 : 0,
+      listaSemFonte: r.listaSemFonte ? 1 : 0,
+      escolhidos: (r.escolhidos || []).slice(),
+      clientes: (r.lista || []).map((c) => ({
+        id: String(c.id),
+        ini: iniciais(c.name),
+        nome: esc(c.name),
+        endereco: [esc(c.endereco), esc(c.cidade)].filter(Boolean).join(' • '),
+        // Quem já está na rota de hoje aparece marcado e DESLIGADO: a mesma
+        // porta não entra 2× (o freio que o `rapidaConfirmar` já cobra), e
+        // dizer isso na lista evita o toque que ia levar recusa.
+        naRota: paradaAbertaDaConta(String(c.id)) ? 1 : 0,
+      })),
     });
   }
 
@@ -7053,6 +7142,87 @@
         acoes: [['Fechar', 'principal', true]],
       });
     }
+  }
+
+  /* ==========================================================================
+     "MONTAR ROTA AGORA, 5 PONTOS" (dono, 09/08) — a porta "Meus clientes".
+
+     🔴 O VERBO SÓ CUMPRE SE OS PONTOS PUDEREM SER ESCOLHIDOS. Até aqui a única
+     entrada avulsa era digitar endereço, uma por vez: montar 5 pontos do
+     próprio cadastro custava 5 buscas de endereço, mesmo com os 5 na base.
+     Aqui a lista é a base, marca-se quem entra e o toque faz as duas metades do
+     verbo — cria as paradas e MONTA a ordem — deixando o pé da Montagem em
+     "Iniciar rota".
+
+     Sem endpoint novo: `paraMinhaRota` (a entrega nasce com motorista, senão o
+     Iniciar recusa o dia inteiro) e o `planejar` de sempre.
+
+     🔴 UMA DE CADA VEZ, e não `Promise.all`. Cinco POSTs em paralelo disputam a
+     mesma rota no servidor, e o que eu ganharia em segundos eu perderia em não
+     saber QUEM entrou quando um falha. Aqui a falha é por NOME.
+     ========================================================================== */
+  async function rapidaAdicionarEscolhidos() {
+    const r = rapida;
+    if (!r || r.salvando || r.buscando) return;
+    const nomePorId = new Map((r.lista || []).map((c) => [String(c.id), String(c.name || 'Cliente')]));
+    // A mesma porta não entra 2× na rota do dia — mesmo freio do `rapidaConfirmar`.
+    const ids = (r.escolhidos || []).map(String).filter((id) => !paradaAbertaDaConta(id));
+    if (!ids.length) {
+      r.aviso = 'Marque quem entra na rota.';
+      return publicarRapida();
+    }
+    const volta = r.volta;
+    r.salvando = true; r.aviso = ''; publicarRapida();
+
+    const entraram = [];
+    const falharam = [];
+    for (const id of ids) {
+      try {
+        await window.API.post('/logistica/entregas', {
+          customerProfileId: id,
+          quantidade: 1,
+          scheduledAt: `${hojeISO()}T12:00:00.000Z`,
+          paraMinhaRota: true,
+        });
+        entraram.push(id);
+      } catch (_) { falharam.push(nomePorId.get(id) || 'Cliente'); }
+    }
+
+    /* NINGUÉM ENTROU = nada foi escrito: devolve a tela como estava e o dedo
+       tenta de novo. É o único caminho em que "não deu certo" é verdade. */
+    if (!entraram.length) {
+      if (rapida === r) { r.salvando = false; publicarRapida(); }
+      return avisoErro(new Error('Não consegui adicionar agora. Tente de novo.'));
+    }
+
+    rapida = null;
+    /* A ORDEM É A SEGUNDA METADE DO VERBO. Falhar aqui não desfaz nada — as
+       paradas existem —, então o recibo muda de tom em vez de mentir. */
+    let ordenou = true;
+    try {
+      await carregarRota();
+      await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...origemGps() });
+    } catch (_) { ordenou = false; }
+    await carregarRota();
+    // Acabei de planejar: a Montagem não precisa (nem deve) planejar de novo.
+    pularMontarAoAbrir = ordenou;
+    await voltarDaAvulsa(volta);
+
+    const n = entraram.length;
+    const quantas = `${n} ${n === 1 ? 'parada' : 'paradas'}`;
+    if (falharam.length) {
+      return window.portao({
+        tom: 'alerta', ico: 'alert', titulo: `${quantas} na rota`,
+        sub: `Não consegui: ${falharam.join(', ')}.`,
+        acoes: [['Fechar', 'principal', true]],
+      });
+    }
+    window.portao({
+      tom: 'ok', ico: 'check', titulo: `${quantas} na rota`,
+      sub: ordenou ? 'A ordem já está montada — é só iniciar.'
+        : 'Toque em "Montar rota" pra achar a ordem delas.',
+      acoes: [['Fechar', 'principal', true]],
+    });
   }
 
   /** Salvar: manda SÓ o que mudou, e cada porta é a sua. */
@@ -7557,6 +7727,13 @@
     // o "+" da Montagem e da Rota: a parada avulsa
     'rapida-buscar': () => comTrava(rapidaBuscar),
     'rapida-confirmar': () => comTrava(rapidaConfirmar),
+    'rapida-adicionar-escolhidos': () => comTrava(rapidaAdicionarEscolhidos),
+    'rapida-recarregar': () => {
+      if (!rapida) return;
+      rapida.listaCarregando = true; rapida.listaSemFonte = false;
+      publicarRapida();
+      carregarClientesDaRapida();
+    },
     'entendi-recado': entendiRecado,
     // "Tentar de novo" do aviso de fonte fora do ar: volta pro esqueleto e
     // pede de novo. Sem devolver o esqueleto o toque não teria resposta
@@ -7701,6 +7878,25 @@
     if (chave === 'rapida-posicao') {
       if (!rapida) return;
       rapida.posicao = alvo.dataset.posicao === 'primeira' ? 'primeira' : 'perto';
+      return publicarRapida();
+    }
+    if (chave === 'rapida-porta') {
+      if (!rapida) return;
+      rapida.porta = alvo.dataset.porta === 'endereco' ? 'endereco' : 'cadastro';
+      rapida.aviso = '';
+      publicarRapida();
+      // Volta pra porta do cadastro com a lista no chão? Ela tenta de novo
+      // sozinha — trocar de aba é o pedido de ver a lista.
+      if (rapida.porta === 'cadastro' && (rapida.listaSemFonte || !rapida.lista.length)) carregarClientesDaRapida();
+      return;
+    }
+    if (chave === 'rapida-marcar') {
+      if (!rapida) return;
+      const id = String(alvo.dataset.cliente || '');
+      if (!id) return;
+      const i = rapida.escolhidos.indexOf(id);
+      if (i >= 0) rapida.escolhidos.splice(i, 1); else rapida.escolhidos.push(id);
+      rapida.aviso = '';
       return publicarRapida();
     }
     if (chave === 'montar-dia') {

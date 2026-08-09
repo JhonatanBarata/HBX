@@ -618,6 +618,18 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
           uf: endereco.uf,
           cep: endereco.cep,
           enderecoLinha: linhaEnderecoDaFonte(endereco),
+          /* 🔴 A MESMA RÉGUA DO PAINEL DO COMPUTADOR (09/08, ordem do dono: "quero ver
+             erro apenas nos 4, igual está no desktop do Andre").
+             `resolveSozinho` é a regra que o dono mandou escrever em 06/08 e que mora
+             em logistica-base-saude.service.ts: cliente SEM PINO mas COM recorrência
+             ativa não é "Corrigir", é "Revisar" — a 1ª entrega grava a porta pelo GPS
+             do entregador (`realimentarCoordenadaPorta`), sem ninguém digitar nada.
+             Medido lá na época: 97 sem pino, 94 com recorrência; e hoje, na mesma base,
+             o painel mostra 4 enquanto o app gritava por 34.
+             Todo mundo desta lista veio da AGENDA — é dela que a prévia sai —, então
+             tem recorrência ativa por construção. Quem NÃO vem da agenda (a parada
+             avulsa) não recebe este campo, e continua avisando. */
+          resolveSozinho: true,
           lat: coord.lat,
           lng: coord.lng,
           geoFonte: coord.geoFonte,

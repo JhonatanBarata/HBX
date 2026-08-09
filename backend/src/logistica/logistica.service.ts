@@ -29,7 +29,12 @@ import {
   LogisticaTrackedBillingService,
   type PreparedTrackedDeliveryCharge,
 } from './logistica-tracked-billing.service';
-import { resolverCoordenadaMultilocal, GPS_ACCURACY_LIMITE_METROS } from './logistica-geo-fonte.util';
+import {
+  enderecoDaFonteMultilocal,
+  linhaEnderecoDaFonte,
+  resolverCoordenadaMultilocal,
+  GPS_ACCURACY_LIMITE_METROS,
+} from './logistica-geo-fonte.util';
 // F0 (27/07) — MOTOR CONFIÁVEL: o cursor da Agenda (`proximaData`) só avança
 // no DESFECHO (aqui), nunca na geração. Ver avancarPlanoNoDesfecho abaixo.
 import { sourceDateFromOccurrenceKey, saoPauloMidnight } from './logistica-agenda-cursor.util';
@@ -229,6 +234,13 @@ export class LogisticaService {
           select: {
             apelido: true,
             endereco: true,
+            // 09/08 — número/complemento/bairro/CEP entram porque a linha do cartão
+            // passou a ser montada pela régua única (`enderecoDaFonteMultilocal` +
+            // `linhaEnderecoDaFonte`), a mesma da prévia do dia e da conferência.
+            numero: true,
+            complemento: true,
+            bairro: true,
+            cep: true,
             cidade: true,
             uf: true,
             lat: true,
@@ -240,6 +252,10 @@ export class LogisticaService {
             id: true,
             name: true,
             endereco: true,
+            numero: true,
+            complemento: true,
+            bairro: true,
+            cep: true,
             cidade: true,
             uf: true,
             lat: true,
@@ -585,12 +601,20 @@ export class LogisticaService {
         cliente: {
           id: r.customerProfile.id,
           nome: r.customerProfile.name ?? null,
-          // MULTILOCAL — endereço/geo vêm do LOCAL da entrega quando presente (cada
-          // porta tem sua coordenada); sem local = perfil (legado). id/nome/saldoAberto
-          // SEGUEM do perfil (a cobrança é da CONTA — NÃO muda).
-          endereco: r.local ? (r.local.endereco ?? null) : (r.customerProfile.endereco ?? null),
-          cidade: r.local ? (r.local.cidade ?? null) : (r.customerProfile.cidade ?? null),
-          uf: r.local ? (r.local.uf ?? null) : (r.customerProfile.uf ?? null),
+          /* 🔴 UMA RÉGUA SÓ, AQUI TAMBÉM (09/08, dono: "o q for regra no celular é
+             desktop tbm" + "não deixe legados do que era antes").
+             Isto era `r.local ? r.local.endereco : perfil.endereco` — o ternário que
+             testa a EXISTÊNCIA do objeto `local`, não se ele TEM endereço. É o mesmo
+             "Frankenstein" que logistica-geo-fonte.util.ts nasceu pra matar, e aqui
+             ele era pior que na coordenada: o `clienteCoord` logo acima já escolhia a
+             fonte pela régua certa, então o cartão podia mostrar a RUA de uma fonte
+             com o PINO da outra. Agora as duas saem da MESMA função, e a linha pronta
+             (`enderecoLinha`) é a mesma que a Montagem usa — as duas listas do app
+             deixam de compor endereço de dois jeitos. */
+          ...(({ endereco, numero, complemento, bairro, cidade, uf, cep }) => ({
+            endereco, numero, complemento, bairro, cidade, uf, cep,
+            enderecoLinha: linhaEnderecoDaFonte({ endereco, numero }),
+          }))(enderecoDaFonteMultilocal(r.local, r.customerProfile)),
           lat: clienteCoord.lat,
           lng: clienteCoord.lng,
           phone: r.customerProfile.phone ?? null,
