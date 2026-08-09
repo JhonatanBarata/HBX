@@ -1372,6 +1372,77 @@
     previaAlvo = alvo;
     somarAvulsas(data);
     publicarPrevia();
+    // A cura do endereço roda DEPOIS de a lista estar na tela — ver `sanitizarPrevia`.
+    void sanitizarPrevia(seq, data, alvo || diaDaSemana());
+  }
+
+  /* ------------------------------------------------------------------------
+     🔴 A MONTAGEM VOLTOU A SANITIZAR O ENDEREÇO (dono, 09/08: "não está
+     sanitizando endereço, você tem todo o mecanismo, religue").
+
+     O mecanismo nunca morreu — ele mudou de porta e o app novo não bateu nela.
+     Desde 27/07 ("tudo automático, sem telas sem botões, deixe tudo backend") a
+     cura CNEFE não tem pop-up: ela roda DENTRO de quem lê o dia. São duas
+     portas, e cada uma lê uma coisa:
+       · `POST /logistica/rota/conferir` — cura as ENTREGAS já materializadas.
+         Esta o app chama, no `montarRota`. Ou seja: só cura DEPOIS de montar.
+       · `POST /logistica/rota/checar-enderecos` — cura o ROSTER DO DIA, lendo a
+         MESMA fonte da lista desta tela (`getDayPreview`, o dia da agenda) e
+         ANTES de materializar entrega nenhuma. Esta ninguém chamava no app novo
+         (o inventário da fusão já registrava o sanitizador como "NÃO EXISTE").
+
+     Como a Montagem virou a tela única e ela sai do `dia-preview`, o buraco era
+     exatamente este: o dono abria a lista e via "sem trajeto — não sei onde
+     fica" num cliente que o CNEFE resolve sozinho em milissegundos, e o pino só
+     aparecia depois de montar. Agora a 2ª porta é chamada aqui.
+
+     TRÊS CUIDADOS, porque cura é cara e a tela é de decisão:
+     1. NUNCA ANTES DA LISTA. O orçamento da cura é de 12 s no servidor; segurar
+        a Montagem por ela seria trocar um pino faltando por uma tela parada.
+        Publica primeiro, cura depois, republica se mudou.
+     2. UMA TENTATIVA POR DIA, POR SESSÃO. É o mesmo espírito do carimbo
+        `sanitizadoEm` do servidor ("não sanitizar 2x"): trocar de chip pra lá e
+        pra cá não paga ViaCEP+CNEFE de novo pelos mesmos endereços.
+     3. REPINTE SÓ SE CUROU, E SÓ SE O DEDO NÃO MANDOU. Repintar sem pino novo é
+        pisca à toa; repintar por cima de um arrasto é desfazer decisão humana —
+        o pecado que a frente inteira está matando.
+     ------------------------------------------------------------------------ */
+  const semPinoNaPrevia = (c) => !(c && typeof c.lat === 'number' && typeof c.lng === 'number'
+    && isFinite(c.lat) && isFinite(c.lng) && !(c.lat === 0 && c.lng === 0));
+  const SANITIZADO = new Set();       // datas já tentadas nesta sessão
+
+  async function sanitizarPrevia(seq, data, dia) {
+    if (!temPonte() || !Array.isArray(previaCrua)) return;
+    // Ninguém sem pino = nada a curar. Sai ANTES de marcar a data: o dia pode
+    // ganhar um cliente novo daqui a pouco, e aí a cura ainda tem o que fazer.
+    const antes = previaCrua.filter(semPinoNaPrevia).length;
+    if (!antes || SANITIZADO.has(data)) return;
+    SANITIZADO.add(data);
+    let r;
+    try {
+      r = await window.API.post('/logistica/rota/checar-enderecos', { dias: [dia], dates: [data] });
+    } catch (_) {
+      return;   // cura é best-effort: fonte no chão nunca derruba a lista da tela
+    }
+    if (seq !== previaSeq || previaDoDedo) return;
+    // O que SOBROU sem mapa depois da cura. Menos do que entrou = o servidor
+    // gravou pino em alguém, e a lista na tela está velha.
+    const restam = (Array.isArray(r && r.problemas) ? r.problemas : [])
+      .filter((p) => Array.isArray(p.campos) && p.campos.some((c) => c && c.campo === 'localizacao')).length;
+    if (restam >= antes) return;
+    let prev;
+    try {
+      prev = await window.API.get(`/logistica/dia-preview?date=${encodeURIComponent(data)}`);
+    } catch (_) { return; }
+    // Sem `carregando` aqui, de propósito: a lista já está de pé e correta; o
+    // que muda é o pino de quem estava sem — esqueleto seria a tela sumindo
+    // debaixo do dedo dele por causa de um enfeite que chegou atrasado.
+    if (seq !== previaSeq || previaDoDedo) return;
+    const clientes = Array.isArray(prev && prev.clientes) ? prev.clientes : [];
+    if (!clientes.length) return;
+    previaCrua = clientes;
+    somarAvulsas(data);
+    publicarPrevia();
   }
 
   /* ------------------------------------------------------------------------
