@@ -4753,6 +4753,20 @@
     ? (config.prospectorDisponivel ? 1 : 0)
     : 0);
 
+  /* 🔴 "A EMPRESA LIGOU" NÃO É "ESTA PESSOA VÊ" (09/08). O prospector tem QUATRO
+     chaves, não uma, e a régua de quem enxerga os prédios é do servidor:
+     **admin sempre, funcionário só com `prospectorEquipe`**
+     (`logistica-rota.service.ts:502`). Ensinar pelo `prospectorAtivo` sozinho
+     poria o capítulo completo — "toque no prédio aceso" — na frente do motorista
+     de uma empresa com `prospectorEquipe` desligado, que nunca verá prédio
+     nenhum. Seria o tutorial FABRICANDO a pergunta besta que ele veio matar
+     ("cadê os prédios que o app me ensinou?").
+     Aqui a régua do servidor é traduzida UMA vez, num fato só: quem vê. */
+  const prospectorEuVejo = () => {
+    if (!config || !config.prospectorAtivo) return 0;
+    return (ehAdmin() || config.prospectorEquipe) ? 1 : 0;
+  };
+
   /* A MESMA régua da barra (`moduloDesligado` da casca), lida do MESMO CSV: não
      existe capítulo de Chat num app em que o admin apagou o Chat. */
   const moduloLigado = (k) => (String((config && config.appModulosDesativados) || '')
@@ -4799,6 +4813,8 @@
       fatos.financeiro = config.moduloFinanceiroAtivo ? 1 : 0;
       fatos.prospectorAtivo = config.prospectorAtivo ? 1 : 0;
       fatos.prospectorDisponivel = prospectorPodeLigar();
+      // "Esta pessoa vê os prédios?" — o fato que o capítulo completo pede.
+      fatos.prospectorVejo = prospectorEuVejo();
       fatos.chat = moduloLigado('chat');
     }
     window.usarDados('tutorial', fatos);

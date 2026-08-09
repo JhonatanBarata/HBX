@@ -172,6 +172,26 @@ class NativeApiClientPathPolicyTest {
         assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/espelho/quadro"))
     }
 
+    /**
+     * TUTORIAL OBRIGATÓRIO (09/08) — a mesma armadilha do recado, pela 3ª vez.
+     *
+     * Sem as duas linhas da allowlist o defeito seria MUDO nos dois lados: o app
+     * trata "não sei" como "já viu" (de propósito, pra não prender ninguém 90 s
+     * a cada falha de rede), então o tutorial simplesmente nunca abriria, e o
+     * "visto" nunca gravaria. Backend verde, celular calado, nada no log.
+     */
+    @Test
+    fun logisticaAllowsTheTutorialContract() {
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/tutorial"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/tutorial/visto"))
+        // A política é por MÉTODO, não por caminho: trocar o verbo não passa.
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/tutorial"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/tutorial/visto"))
+        // E nada disso vaza pro módulo de vendas.
+        assertFalse(isMobileEndpointAllowed("vendas", "GET", "/logistica/tutorial"))
+        assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/tutorial/visto"))
+    }
+
     @Test
     fun vendasCannotAccessNucleoOrLogistica() {
         assertTrue(isMobileEndpointAllowed("vendas", "GET", "/vendas/board"))

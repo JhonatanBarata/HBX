@@ -326,8 +326,17 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "recados", "portao"),
             listOf("logistica", "recados", "me"),
         ) -> true
+        // 🔴 TUTORIAL OBRIGATÓRIO (09/08) — mesma armadilha dos recados, e é a
+        // TERCEIRA vez que ela morde: endpoint novo sem esta linha morre DENTRO do
+        // aparelho ("Esta operação não pertence ao logistica"), sem sair pra rede.
+        // Aqui o defeito seria mudo dos dois lados: o tutorial simplesmente nunca
+        // dispararia (o app trata "não sei" como "já viu", de propósito) e o
+        // "visto" nunca gravaria — backend verde, celular calado.
+        method == "GET" && segments == listOf("logistica", "tutorial") -> true
         method == "POST" && segments in listOf(
             listOf("financeiro", "credits", "recharge"),
+            // Carimba o tutorial obrigatório como visto (par do GET acima).
+            listOf("logistica", "tutorial", "visto"),
             listOf("logistica", "gerar-dia"),
             listOf("logistica", "mobile", "materialize"),
             listOf("logistica", "rota", "planejar"),
