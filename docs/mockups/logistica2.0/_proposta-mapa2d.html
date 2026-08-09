@@ -7035,5 +7035,92 @@ document.addEventListener('click',e=>{
 });
 pintar(false);
 </script>
+<script>/* A VITRINE DA PROPOSTA — roda DEPOIS do script do mock, dentro de uma cópia
+   dele. Não desenha nada por conta própria: chama `T.rota.render()` de verdade,
+   com o estado que interessa, e monta os aparelhos lado a lado. */
+(function(){
+  const CENAS = [
+    ['claro','semparada','',1, 'A TELA DO PRINT — dia sem rota',
+     'O ponto azul é você: anel branco, o halo é a PRECISÃO do GPS (metros de verdade, convertidos pelo zoom) e o farol aponta o rumo. No pé, uma barra inteira com a palavra dentro — no lugar do quadrado solto.'],
+    ['escuro','semparada','',1, 'A mesma tela, tema escuro',
+     'Mesma peça, mesmos tokens. O azul do "eu" muda de tom entre as duas peles; o anel branco é o que o separa do chão nas duas.'],
+    ['claro','semparada','negado',0, 'Localização DESLIGADA',
+     'A barra vira BOTÃO e é ela que pede a permissão do Android. Sem posição, o ponto não é desenhado: nada de "você está aqui" inventado.'],
+    ['claro','semparada','procurando',0, 'Ainda buscando o GPS',
+     'Informa e não alarma — some sozinho no primeiro fix. Hoje esta tela não diz uma palavra sobre GPS, e é por isso que a pergunta "cadê minha localização?" fica sem resposta.'],
+    ['claro','pronta','',1, 'Rota montada — comparação',
+     'Com satélites, a barra divide a linha com Cancelar e Montagem. O rodapé todo passa de 120px para 79px.'],
+    ['escuro','rodando','',1, 'Rota rodando — comparação',
+     'O verbo da vez lê-se de longe: "Navegar" DENTRO do botão, não numa legenda de 12px por baixo dele.'],
+  ];
+
+  const CABECA = ''
+    + '<div style="max-width:1080px;margin:0 auto 26px;font-family:Inter,system-ui,sans-serif;color:#eef3fb">'
+    + '<div style="font-size:12px;letter-spacing:.16em;color:#9ede2a;font-weight:500">PROPOSTA · APROVAR ANTES DE IR PRO CELULAR</div>'
+    + '<h1 style="font-size:27px;font-weight:500;margin:9px 0 14px">Rota · mapa 2D — o dia sem rota</h1>'
+    + '<p style="font-size:14.5px;line-height:1.62;color:#c3cfe2;margin:0 0 18px">'
+    +   'Três defeitos, medidos no código antes de mexer numa linha:'
+    + '</p>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:22px">'
+    +   card('1', 'Cadê minha localização',
+          'Você era um <b>alfinete padrão do maplibre</b> — a MESMA gota que marca uma parada. Nenhum mapa de rua desenha o dono da tela como pino: pino é coisa que está lá, eu sou quem olha. E a tela não tinha uma palavra pra "GPS desligado" fora da navegação.',
+          'Agora: ponto + anel + halo da precisão + farol do rumo, e três estados escritos na barra.')
+    +   card('2', 'O botão feio',
+          'O transmux nasceu instrumento de <b>três colunas</b>. Num dia por montar sobra UM verbo — as duas laterais viravam <span style="font-family:ui-monospace,monospace;font-size:12px">&lt;span&gt;&lt;/span&gt;</span> vazios e ficava um quadrado de 82px sozinho numa faixa branca de 120px, com a palavra em 12px por baixo.',
+          'Agora: barra larga com a palavra dentro. Alvo de dedo de 6.724px² para 21.840px². Rodapé de 120px para 79px — 41px de mapa de volta.')
+    +   card('3', 'Não existe no mock',
+          'Verdade, e medido: <span style="font-family:ui-monospace,monospace;font-size:12px">dockDaRota</span> só devolve o estado <span style="font-family:ui-monospace,monospace;font-size:12px">semparada</span> quando não há parada aberta — e o mock sempre teve as 6 paradas de maquete. A conta nunca dava zero, então o rodapé do dia vazio nunca aparecia no desenho.',
+          'Agora: chip "Sem parada" e chip de GPS no topo do mock. Estado que o aparelho mostra tem porta no mock.')
+    + '</div>'
+    + '<p style="font-size:13px;line-height:1.6;color:#93a3bf;margin:0 0 4px">'
+    +   'O que <b style="color:#c3cfe2">não</b> mudei sem você mandar: o verbo <b style="color:#c3cfe2">"Montar rota"</b> continua abrindo a Montagem. '
+    +   'Ele continua não montando rota nenhuma sozinho — isso é a outra frente, e a decisão é sua.'
+    + '</p>'
+    + '</div>';
+
+  function card(n, titulo, corpo, depois){
+    return '<div style="background:#111a2b;border:.7px solid #1f2c46;border-radius:15px;padding:15px 16px">'
+      + '<div style="font-size:12.5px;color:#5b9dff;font-weight:500;margin-bottom:5px">' + n + ' · ' + titulo + '</div>'
+      + '<div style="font-size:13px;line-height:1.62;color:#a9b7cf">' + corpo + '</div>'
+      + '<div style="font-size:13px;line-height:1.62;color:#9ede2a;margin-top:9px">' + depois + '</div>'
+      + '</div>';
+  }
+
+  window.addEventListener('load', function(){
+    document.querySelectorAll('.doc-top,.rail').forEach(function(n){ n.remove(); });
+    const stage = document.querySelector('.stage');
+    stage.innerHTML = '';
+    stage.style.cssText = 'display:block;padding:30px 22px 60px';
+
+    const cabeca = document.createElement('div');
+    cabeca.innerHTML = CABECA;
+    stage.appendChild(cabeca);
+
+    const grade = document.createElement('div');
+    grade.style.cssText = 'display:flex;flex-wrap:wrap;gap:34px 30px;align-items:flex-start;justify-content:center';
+    stage.appendChild(grade);
+
+    CENAS.forEach(function(c){
+      const luz = c[0], er = c[1], gps = c[2], euDemo = c[3], titulo = c[4], texto = c[5];
+      estadoRota = er;
+      DADOS.rota.gps = gps;
+      DADOS.rota.euDemo = euDemo;
+      const cx = document.createElement('div');
+      cx.style.cssText = 'width:334px';
+      if (luz === 'claro') cx.dataset.luz = 'claro';
+      cx.innerHTML =
+        '<div class="phone" style="--z:.78;margin:0 auto"><div class="notch"></div>' +
+          '<div class="app"><div class="tela">' + T.rota.render() + '</div></div>' +
+        '</div>' +
+        '<div style="margin-top:15px;font:500 14.5px Inter,system-ui,sans-serif;color:#eef3fb">' + titulo + '</div>' +
+        '<div style="margin-top:6px;font:400 12.5px/1.55 Inter,system-ui,sans-serif;color:#93a3bf">' + texto + '</div>';
+      grade.appendChild(cx);
+    });
+
+    document.body.style.background = '#080d17';
+    document.querySelector('.doc-body').style.cssText = 'display:block';
+  });
+})();
+</script>
 </body>
 </html>

@@ -312,12 +312,16 @@ function transmux(estado){
   const c=ROTA_ESTADOS[estado]; if(!c) return '';
   const sat=(s,lado)=>s?`<span class="tmx-sat tmx-${s.tipo} tmx-${lado}">
       <button aria-label="${s.rotulo}"${s.acao?` data-acao="${s.acao}"`:''}>${ic(s.glifo,20)}${s.contagem?`<i class="cont">${s.contagem}</i>`:''}</button>
-      <small>${s.rotulo}</small></span>`:'<span></span>';
+      <small>${s.rotulo}</small></span>`:'';
   // main sem `acao` = trabalho em curso: não vira gancho e não aceita dedo.
+  /* 🔴 A PALAVRA ENTROU NO BOTÃO. Ela era um `<small>` de 12px POR BAIXO de um
+     quadrado com um ícone de 34px — quer dizer: o desenho grande não dizia
+     nada e o que dizia era a menor letra do rodapé. Agora o verbo é o botão.
+     O ícone encolhe (34 → 21) porque virou o acompanhante, não o cartaz. */
   return `<div class="transmux">${sat(c.esq,'esq')}
     <span class="tmx-main">
-      <button${c.main.acao?` data-estado="${c.main.acao}"`:' class="ocupado" disabled aria-busy="true"'} aria-label="${c.main.rotulo}">${ic(c.main.glifo,34)}</button>
-      <small>${c.main.rotulo}</small></span>
+      <button${c.main.acao?` data-estado="${c.main.acao}"`:' class="ocupado" disabled aria-busy="true"'}>${ic(c.main.glifo,21)}<b>${c.main.rotulo}</b></button>
+    </span>
     ${sat(c.dir,'dir')}</div>`;
 }
 
@@ -373,8 +377,19 @@ function stop(o){
    O que fica no lugar: NADA. O palco tem a cor do mapa (`.mapa-palco`), o mapa
    vivo entra por cima quando fica pronto. Fundo de espera não precisa de
    desenho, precisa de COR — e cor não tem o que piscar nem o que inventar.
+
+   🔴 E O "EU" NÃO RESSUSCITA A MAQUETE. O ponto que entra aqui é DESENHO —
+   existe pro mock poder mostrar a peça, e é a mesma casca (`.eu-puck`) que o
+   marcador do mapa de verdade veste. No aparelho ele nunca aparece: `euDemo` é
+   DADO de demonstração e o boot o apaga (`apagarDemonstracao`), e o palco
+   ainda ganha `.com-mapa` quando o maplibre sobe. Duas travas porque uma
+   posição inventada de "você está aqui" é a pior das mentiras que esta tela
+   pode contar — pior que a maquete, que ao menos mentia sobre os OUTROS.
    ========================================================================== */
-function mapa(){ return `<div class="mapa-palco" data-mapa="geral"></div>`; }
+function mapa(){
+  return `<div class="mapa-palco" data-mapa="geral">${DADOS.rota.euDemo
+    ?'<i class="eu-puck demo" style="--rumo:34deg;--cone:1;--halo:104px"></i>':''}</div>`;
+}
 
 /* ==========================================================================
    TELAS
@@ -404,6 +419,21 @@ const DADOS={
     creditos:'240', creditosDebita:'12',
     somaProdutos:'20', somaMarcado:'R$ 336,00',
     vazioTitulo:'Sem paradas hoje',
+    /* DEMONSTRAÇÃO — o "você está aqui" do desenho no palco do mapa 2D. Só o
+       mock o enxerga: `apagarDemonstracao` zera este campo no boot do aparelho
+       (ver `mapa()`), porque no app quem diz onde o motorista está é o GPS. */
+    euDemo:1,
+    /* 🔴 O ESTADO DO GPS É UM FATO DO DIA (dono, 09/08: *"cadê minha
+       localização?"*). A tela não tinha uma palavra sobre isso: sem permissão,
+       sem sinal ou nos primeiros segundos de busca, ela mostrava um mapa mudo e
+       deixava a pergunta sem resposta — e a pergunta se responde sozinha se
+       alguém a fizer em voz alta. Três valores e nada mais:
+       '' = tenho a posição (nada a dizer, o ponto está lá)
+       'procurando' = ainda não veio fix (informa, não alarma)
+       'negado' = a localização está desligada (ALARME, e a barra vira botão)
+       Quem escreve é a ponte; sem fonte fica vazio, que é o desfecho honesto —
+       "procurando" eterno num app que nunca perguntou seria alarme inventado. */
+    gps:'',
     /* 🔴 UM NOME SÓ, PORQUE É UMA COISA SÓ (dono, 09/08: *"estou inclinado a
        remover o agenda, não vejo utilidade q o montar rota não tem"*).
        Esta tela teve dois nomes por um dia: com rota montada, "Rota de hoje";
@@ -619,6 +649,14 @@ const DADOS={
      ponte — o que ela não souber responder não é desenhado (Lei do IF). */
   rapida:{
     volta:'montagem',    // a porta de entrada: Montagem ou Rota (ver `ficha.volta`)
+    /* 🔴 AS DUAS PORTAS DO "+" (dono, 09/08: "eu quero montar uma rota AGORA,
+       5 pontos, como eu faço?"). A tela nascia com UMA porta — endereço — e
+       quem já era cliente só aparecia DEPOIS que o endereço resolvia. Montar
+       5 pontos do próprio cadastro custava 5 endereços digitados. A porta
+       `cadastro` é a que o mercado tem primeiro (Circuit, Route4Em, Onfleet):
+       a rota é uma LISTA que se compõe, e a 1ª fonte da lista é a sua base. */
+    // (Circuit, Route4Me, Onfleet — todas abrem pela lista, não pelo endereço.)
+    porta:'cadastro',    // 'cadastro' | 'endereco'
     busca:'',            // o que o dedo escreveu — devolvido a cada repinte
     buscando:0, salvando:0,
     opcoes:[],           // [{titulo, detalhe, dist}] — as portas parecidas
@@ -629,6 +667,19 @@ const DADOS={
     nome:'', pedeNome:0,
     temRota:0,           // rota de pé ⇒ a pergunta "onde ela entra" existe
     posicao:'perto',     // 'perto' | 'primeira'
+    /* A porta do cadastro tem fonte PRÓPRIA (a lista de clientes) — por isso
+       bandeiras próprias, e não as do `buscando` da busca de endereço: uma
+       porta no chão não pode apagar a outra (a escada do `mioloDe`). */
+    buscaCliente:'', listaCarregando:0, listaSemFonte:0,
+    escolhidos:[],       // ids marcados — o que vai virar parada num toque só
+    clientes:[
+      {id:'c1',ini:'LY',nome:'Larissa Ypê',endereco:'Rua 3a, 1354 · Jd. Ypê'},
+      {id:'c2',ini:'AD',nome:'Ademir',endereco:'Av. 28a, 507 · Vila Alemã'},
+      {id:'c3',ini:'AL',nome:'Alfredo',endereco:'Rua 4-a, 93 · Jd. América'},
+      {id:'c4',ini:'AA',nome:'Ana Alice',endereco:'Av. 28a, 507 · Vila Alemã'},
+      {id:'c5',ini:'AY',nome:'Andreia/Yan bicicletaria',endereco:'Rua 8 JP, 210 · Jd. Paulista'},
+      {id:'c6',ini:'ME',nome:'Mercado Estrela',endereco:'Rua Aracanguá, 210 · Jabaquara',naRota:1},
+    ],
   },
   ficha:{
     ini:'LY', nome:'Larissa Ypê', resumo:'cliente desde 03/2025 · 42 entregas',
@@ -988,6 +1039,14 @@ const temRotaNoDia=e=>e==='pronta'||e==='rodando'||e==='pausada'||e==='semsinal'
    escreviam esta escada à mão, em duas cópias que já divergiam num ponto (a
    lista lia `DADOS.rota.montando`, o mapa lia o `d` local); e é numa cópia
    dessas que o estado novo aparece só em metade das telas. */
+/* 🔴 `semparada` NÃO ERA ALCANÇÁVEL NO MOCK — e por isso a tela que o dono
+   estava olhando no aparelho não existia aqui (09/08: *"nem existe essa tela no
+   mock"*). Ele é um estado DERIVADO: nasce de `montar` + zero parada aberta, e
+   o mock sempre teve as 6 paradas de maquete, então a conta nunca dava zero e o
+   rodapé de um dia vazio nunca aparecia no desenho. Agora ele é também um chip
+   do topo (`data-er="semparada"`), que entra direto por baixo da derivação.
+   LEI: estado que o aparelho consegue mostrar tem que ter porta no mock —
+   estado sem porta é estado que se desenha no escuro. */
 function dockDaRota(e){
   if(DADOS.rota.montando) return transmux('montando');
   if(e==='semsinal') return transmux('pronta');
@@ -1065,7 +1124,21 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
      barra é o fato do dia; quando o dia está num estado, o estado É o fato, e o
      "entregues" cede a vaga (a linha é uma, e nome de estado + duas contagens
      não cabe em 412px — este app já perdeu texto por isso). */
-  const aviso = e==='pausada'  ? ['pause','Rota pausada','pausa']
+  /* 🔴 E O GPS ENTRA NA MESMA FILA, NO TOPO DELA (dono, 09/08: *"cadê minha
+     localização?"*). Pela lei de cima, quando o dia está num estado o estado É
+     o fato — e "não sei onde você está" é o estado mais forte que esta tela
+     pode ter: sem posição, o ponto não existe, o botão de centralizar não tem
+     onde centralizar e o mapa vira um pedaço de cidade qualquer. Vinha ANTES
+     dos outros dois de propósito: rota pausada com GPS desligado é o GPS que
+     precisa de dedo, a pausa espera.
+     'negado' é ALARME e a barra inteira vira BOTÃO — o único jeito de sair
+     dali é a permissão do Android, então a informação e a porta são a mesma
+     peça. 'procurando' informa e não alarma: ele se resolve sozinho em
+     segundos, e âmbar piscando pra coisa que passa é o app gritando à toa. */
+  const gps = d.gps==='negado'     ? ['gps','Localização desligada','alerta','gps-ligar']
+            : d.gps==='procurando' ? ['gps','Procurando você…','',''] : null;
+  const aviso = gps            ? gps
+              : e==='pausada'  ? ['pause','Rota pausada','pausa']
               : e==='semsinal' ? ['alert','Sem sinal','alerta'] : null;
   /* 🔴 SEM ROTA MONTADA A BARRA NÃO CONTA PARADA (dono, 09/08: ele cancelou a
      rota, limpou tudo, e a tela continuou dizendo "52 paradas · 0 entregues").
@@ -1092,8 +1165,10 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
 <div class="body flush" style="overflow:hidden;padding:0">
   <div class="plano${dock?' com-dock':''}">
     ${mapa()}
-    <div class="plano-bar${aviso?' '+aviso[2]:''}">
-      <span class="f">${ic(aviso?aviso[0]:'route',16)}${fato}</span>
+    <div class="plano-bar${aviso&&aviso[2]?' '+aviso[2]:''}">
+      ${aviso&&aviso[3]
+        ? `<button class="f" data-acao="${aviso[3]}">${ic(aviso[0],16)}${fato}</button>`
+        : `<span class="f">${ic(aviso?aviso[0]:'route',16)}${fato}</span>`}
       ${/* 🔴 SEM ROTA NÃO HÁ LISTA PRA ABRIR (dono, 09/08: *"estou inclinado a
            remover o agenda"*). Este botão era a única porta do modo agenda — a
            tela que dizia "0 agendadas" e listava 137 canceladas num domingo
@@ -1105,8 +1180,15 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
            mesma tela é quem carrega as ações do dia por montar. */''}
       ${temRotaNoDia(e)?`<button class="ghost" data-ir="rotalista">${ic('list',15)} Lista</button>`:''}
     </div>
+    ${/* 🔴 O MESMO BOTÃO, DOIS TRABALHOS — e ele tem que DIZER qual é o da vez.
+         Com rota, ele devolve o dia inteiro pra tela; sem rota (o dia por
+         montar) não há o que enquadrar e o que ele faz é ir até MIM. O código
+         já era esse (`enquadrarGeral` com um ponto só = a minha posição); o que
+         faltava era o nome — "Enquadrar a rota" num dia sem rota é botão
+         prometendo coisa que não existe. */''}
     <div class="plano-lado">
-      <button data-acao="mapa-enquadrar" aria-label="Enquadrar a rota">${ic('target',18)}</button>
+      <button data-acao="mapa-enquadrar"
+        aria-label="${temRotaNoDia(e)?'Enquadrar a rota':'Centralizar em mim'}">${ic('target',19)}</button>
     </div>
   </div>
 </div>
@@ -2315,10 +2397,48 @@ T.historico={nome:'Ajustes · Histórico',grupo:'Ajustes',render(){
    o que ela é, dizer onde ela entra — e cada degrau só nasce quando o de cima
    respondeu. Formulário que abre as seis perguntas de uma vez é formulário que
    ninguém termina em pé na porta de um cliente, com o carro ligado. */
-T.rapida={nome:'Parada avulsa',grupo:'Rota',render(){
+T.rapida={nome:'Adicionar paradas',grupo:'Rota',render(){
   const d=DADOS.rapida;
   const a=d.achado;
   const procurando=!!d.buscando, salvando=!!d.salvando, ocupado=procurando||salvando;
+  const noCadastro=d.porta!=='endereco';
+
+  /* 🔴 AS DUAS PORTAS, NA MESMA TELA. "Montar rota" só cumpre o verbo se os
+     pontos puderem ser ESCOLHIDOS; até aqui a única entrada era digitar
+     endereço, um por um. A porta "Do cadastro" busca por NOME e marca vários;
+     "Endereço" é a tela que já existia, intacta. Duas portas e não duas telas
+     porque a pergunta é a mesma ("quem entra na rota?") e a resposta é que
+     muda de fonte — tela nova faria o dedo escolher antes de saber. */
+  const ativa=noCadastro?'cadastro':'endereco';
+  /* "Meus clientes" e não "Do cadastro": a porta de dentro do Endereço já tem
+     um botão chamado CADASTRO (Direção × Cadastro, que decide se o ponto vira
+     cliente). Mesma palavra em dois sentidos na mesma tela é o defeito que a
+     pessoa lê como bug. */
+  const portas=`<div class="modos" style="margin-top:4px">${[['cadastro','Meus clientes'],['endereco','Endereço']].map(p=>`
+    <button class="modo${ativa===p[0]?' on':''}" data-acao="rapida-porta" data-porta="${p[0]}"><b>${p[1]}</b></button>`).join('')}</div>`;
+
+  /* A LISTA DA BASE. Marcar é um toque no cartão inteiro — alvo de dedo, não
+     quadradinho de 18px. Quem JÁ está na rota de hoje aparece marcado e
+     DESLIGADO: some a dúvida "já pus esse?" sem tirar a pessoa da lista. */
+  const escolhidos=Array.isArray(d.escolhidos)?d.escolhidos:[];
+  const buscaNome=`<label class="search" style="height:48px;margin-top:8px">${ic('search',18)}
+    <input data-campo="rapida-cliente-busca" enterkeyhint="search" autocomplete="off"
+      placeholder="Buscar cliente pelo nome" value="${d.buscaCliente}"></label>`;
+  const linhaCliente=(c)=>{
+    const on=escolhidos.indexOf(c.id)>=0;
+    const marca=c.naRota?`<span class="pill mute">${ic('check',13)}na rota</span>`
+      :on?`<span class="pill lime">${ic('check',13)}escolhido</span>`
+      :`<span style="color:var(--ink-3)">${ic('plus',16)}</span>`;
+    return `<button type="button" class="cli"${c.naRota?' disabled':` data-acao="rapida-marcar" data-cliente="${c.id}"`}>
+      <span class="ava${on||c.naRota?' lime':''}">${c.ini}</span>
+      <span><strong>${c.nome}</strong><span>${c.endereco}</span></span>
+      <span class="rgt">${marca}</span></button>`;
+  };
+  const lista=d.clientes.length?`<div class="lista-card">${d.clientes.map(linhaCliente).join('')}</div>`
+    :`<div class="vazio"><span class="ico">${ic('users',24)}</span>
+      <strong>Nenhum cliente com esse nome</strong>
+      <span>Se ele ainda não existe, a porta é a do Endereço.</span></div>`;
+  const listaMiolo=mioloDe(d.listaCarregando,d.listaSemFonte,'users','rapida-recarregar',6,lista);
 
   /* 🔴 UM CAMPO SÓ, e ele engole os quatro jeitos de dizer "é aqui": endereço
      escrito, CEP com número ("13500-000 1067"), link do Maps e par de
@@ -2386,22 +2506,38 @@ T.rapida={nome:'Parada avulsa',grupo:'Rota',render(){
   const rotulo=salvando?'Adicionando…':procurando?'Procurando…'
     :!a?'Buscar endereço'
     :(a.quem&&d.modo==='cadastro')?'Usar este cadastro':'Adicionar na rota';
+
+  /* 🔴 O PÉ SÓ EXISTE QUANDO TEM O QUE FAZER. Sem ninguém marcado, um botão
+     verde ali seria toque mudo — a doença que esta tela persegue. Ele nasce no
+     1º toque, contando quantos vão entrar: o número é o recibo da escolha. */
+  const quantos=escolhidos.length;
+  const peCadastro=quantos?`<div class="tmx-dock"><div class="acts" style="margin-top:0">
+  <button class="act go wide${salvando?' ocupado':''}" style="justify-content:center"
+    ${salvando?'disabled aria-busy="true"':'data-acao="rapida-adicionar-escolhidos"'}>
+    ${ic('plus',19)}<b>${salvando?'Adicionando…':`Adicionar ${quantos} na rota`}</b></button>
+</div></div>`:'';
+  const peEndereco=`<div class="tmx-dock"><div class="acts" style="margin-top:0">
+  <button class="act go wide${ocupado?' ocupado':''}" style="justify-content:center"
+    ${ocupado?'disabled aria-busy="true"':`data-acao="${a?'rapida-confirmar':'rapida-buscar'}"`}>
+    ${ic(a?'plus':'search',19)}<b>${rotulo}</b></button>
+</div></div>`;
+  const pe=noCadastro?peCadastro:peEndereco;
+
   return `${status}
 ${hdr({voltar:d.volta||'montagem'})}
-<div class="body com-dock-1">
-  ${busca}
+<div class="body${pe?' com-dock-1':''}">
+  ${portas}
+  ${noCadastro?`${buscaNome}
+  ${aviso}
+  ${listaMiolo}`:`${busca}
   ${aviso}
   ${opcoes}
   ${porta}
   ${modos}
   ${nome}
-  ${posicao}
+  ${posicao}`}
 </div>
-<div class="tmx-dock"><div class="acts" style="margin-top:0">
-  <button class="act go wide${ocupado?' ocupado':''}" style="justify-content:center"
-    ${ocupado?'disabled aria-busy="true"':`data-acao="${a?'rapida-confirmar':'rapida-buscar'}"`}>
-    ${ic(a?'plus':'search',19)}<b>${rotulo}</b></button>
-</div></div>
+${pe}
 ${nav('rota')}`;}};
 
 /* 21 — FICHA DO PRODUTO ---------------------------------------------------- */
@@ -4386,6 +4522,19 @@ document.addEventListener('click',e=>{
   if(er){
     estadoRota=er.dataset.er;
     document.querySelectorAll('#estadorota button').forEach(b=>b.classList.toggle('on',b===er));
+    if(atual==='rota'){ pintar(false); } else ir('rota');
+    return;
+  }
+  /* O estado do GPS é DADO (quem escreve é a ponte), então a porta do mock é
+     um chip como o do estado da rota — sem ele as duas telas de localização
+     ficariam desenhadas no escuro, que é o defeito que o `semparada` acabou de
+     mostrar que existe. O ponto do mapa só aparece com fix: sem posição, o
+     desenho não desenha posição. */
+  const gp=e.target.closest('#estadogps [data-gps]');
+  if(gp){
+    DADOS.rota.gps=gp.dataset.gps;
+    DADOS.rota.euDemo=gp.dataset.gps?0:1;
+    document.querySelectorAll('#estadogps button').forEach(b=>b.classList.toggle('on',b===gp));
     if(atual==='rota'){ pintar(false); } else ir('rota');
     return;
   }

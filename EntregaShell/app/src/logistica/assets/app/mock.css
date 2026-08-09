@@ -99,6 +99,15 @@ button,input{font:inherit;color:inherit}
      mapa se desenha. É a única cor do mapa que só existe DURANTE a cena, e
      ela se vira com CONTRASTE: não há halo nem filtro (ver a folha). */
   --map-cabeca:#e8f4ff;
+  /* 🔴 ONDE EU ESTOU — a peça que faltava no mapa 2D (dono, 09/08: *"cadê minha
+     localização?"*). Ela é AZUL em qualquer pele, e de propósito: o lima é a
+     ROTA e o `--map-pino` é a PARADA; se o motorista fosse verde também, a
+     única coisa que a tela precisa achar em meio segundo teria a cor de tudo o
+     mais. Azul de "eu" é a convenção de todo mapa desde 2005 — copiar aqui é
+     acerto, não falta de ideia. */
+  --eu-1:#2f7ef7; --eu-anel:#ffffff;
+  --eu-halo:rgba(47,126,247,.17); --eu-halo-linha:rgba(47,126,247,.32);
+  --eu-cone:rgba(47,126,247,.5);
   /* EMPRESAS DO CORREDOR (prospector) — três estados numa peça só: APAGADA
      (possível), VARRENDO (o app está olhando) e ACESA (achou). Cada cor do
      desenho do dono virou token aqui: casca nova troca a família inteira sem
@@ -983,9 +992,12 @@ button,input{font:inherit;color:inherit}
    baixo. Quem rola é conteúdo; controle de operação em andamento, nunca. */
 .tmx-dock{position:absolute;left:0;right:0;bottom:60px;z-index:30;padding:7px 11px 9px;
   background:var(--bg);border-top:.7px solid var(--line)}
-/* medido: rodapé 120 + abas 60 = 180. 188 dá o respiro de 8px pro último
-   cartão não encostar no vidro do controle. */
-.body.com-dock{padding-bottom:188px}
+/* MEDIDO no navegador com a barra nova (não calculado): 79 de rodapé com os
+   satélites (46 do botão + 4 + 11 da legenda + 16 de padding + a linha) e 73
+   sem eles; com as abas (60), 139. 147 dá o respiro de 8px pro último cartão
+   não encostar no vidro do controle. (Era 188, com a torre de 82px — a lista
+   ganhou 41px de altura no mesmo commit.) */
+.body.com-dock{padding-bottom:147px}
 /* Rodapé de UMA fila (o da Montagem): 48 do botão + 17 do respiro = 65, mais
    as abas (60) e 7 pro último cartão não encostar no vidro do controle. */
 .body.com-dock-1{padding-bottom:132px}
@@ -994,8 +1006,33 @@ button,input{font:inherit;color:inherit}
    encolhia 11px no meio do trabalho e a lista inteira dava um pulo. Altura de
    controle é do CONTROLE, não do texto que calhou de caber nele. */
 .pe-montagem .act{min-height:48px}
-.transmux{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;gap:8px}
-.tmx-sat{display:flex;flex-direction:column;align-items:center;gap:4px}
+/* ==========================================================================
+   🔴 UMA AÇÃO SÓ NÃO É UMA TORRE — é uma BARRA (dono, 09/08, sobre o mapa do
+   dia vazio: *"o botão montar rota está feio baiano"*).
+
+   O transmux nasceu instrumento de TRÊS colunas (`1fr auto 1fr`): Cancelar à
+   esquerda, o botão grande no meio, Montagem/Finalizar à direita. Equilibrado
+   com três. Só que o dia por montar tem UM verbo — e aí as duas laterais eram
+   `<span></span>` vazios e sobrava um quadrado de 82px sozinho, centrado numa
+   faixa branca opaca de 120px, com a palavra em 12px por baixo dele. Era isso
+   que o dono estava olhando: 120px de tela gastos pra dizer uma palavra.
+
+   A régua nova é a que todo app de entrega usa (Circuit, Onfleet, Waze): o
+   verbo principal é uma BARRA LARGA com a palavra DENTRO, e o que é secundário
+   fica em botões pequenos ao lado. O que se ganha, medido:
+   · a palavra sai de 12px de legenda para 16px dentro do botão;
+   · o alvo do dedo vai de 82×82 (6.724 px²) para 100%×56 (~21.000 px²);
+   · o rodapé cai de 120px para 78px — 42px de MAPA de volta, que é o produto;
+   · e com uma ação só a barra ocupa a largura inteira, sem buraco nenhum.
+   A lei do tutorial continua de pé ("o botão grande é sempre o próximo passo"),
+   e a âncora dele (`.tmx-main`) continua sendo esta peça — só mudou de forma.
+   ========================================================================== */
+/* FLEX e não grid de 3 colunas: com grid, o estado de UMA ação continuava
+   pagando as duas colunas vazias (`<span></span>` × 2 = 18px de gap sobrando
+   nas pontas). No flex, satélite que não existe não é escrito, e a barra
+   ocupa a largura inteira sem sobra — que é o ponto todo desta mudança. */
+.transmux{display:flex;align-items:center;gap:9px}
+.tmx-sat{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:4px}
 .tmx-sat button{width:46px;height:46px;border-radius:16px;border:.7px solid var(--line);background:var(--card);
   color:var(--ink);display:grid;place-items:center;cursor:pointer;position:relative}
 .tmx-sat.tmx-perigo button{color:var(--red);border-color:var(--red-line)}
@@ -1005,14 +1042,18 @@ button,input{font:inherit;color:inherit}
 @keyframes tmxPisca{50%{opacity:.35}}
 .tmx-sat .cont{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;border-radius:9px;background:var(--amber);
   color:#1a1204;font-size:10px;font-weight:500;display:grid;place-items:center;border:1.5px solid var(--bg)}
-.tmx-main{display:flex;flex-direction:column;align-items:center;gap:5px}
-.tmx-main button{width:82px;height:82px;border-radius:30px;border:0;cursor:pointer;display:grid;place-items:center;
-  color:var(--white);background:linear-gradient(180deg,var(--go-1),var(--go-2));box-shadow:0 10px 26px rgba(122,190,30,.3)}
+.tmx-main{flex:1;min-width:0}
+.tmx-main button{width:100%;height:56px;border-radius:18px;border:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:9px;
+  color:var(--white);background:linear-gradient(180deg,var(--go-1),var(--go-2));box-shadow:0 8px 22px rgba(122,190,30,.28)}
+/* A palavra mora DENTRO do botão — e é ela que manda no tamanho da peça.
+   Nome que não cabe encolhe o texto, nunca a barra (mesma lei da `.plano-bar`). */
+.tmx-main b{font-weight:500;font-size:16px;letter-spacing:.1px;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .tmx-main button[data-estado="pausar"]{background:linear-gradient(180deg,#ffca63,#e08a00);color:#241500;
-  box-shadow:0 10px 26px rgba(224,138,0,.3)}
+  box-shadow:0 8px 22px rgba(224,138,0,.3)}
 .tmx-main button[data-estado="montar"]{background:linear-gradient(180deg,#4a95ff,var(--btn-blue-2));
-  box-shadow:0 10px 26px rgba(47,126,247,.32)}
-.tmx-main small{font-size:12px;font-weight:500}
+  box-shadow:0 8px 22px rgba(47,126,247,.32)}
 /* TRABALHANDO: o botão continua no lugar, com o mesmo tamanho, respirando.
    Some com a sombra viva porque nada vai acontecer se o dedo insistir. */
 .ocupado{opacity:.62;box-shadow:none!important;animation:respira 1.15s ease-in-out infinite}
@@ -1161,12 +1202,17 @@ button,input{font:inherit;color:inherit}
    INTEIRO. Os dois números são os mesmos do `.body.com-dock` (que já mede este
    mesmo rodapé) — e sem dock na tela sobra só a barra de abas. */
 .plano{position:absolute;left:0;right:0;top:0;bottom:60px;overflow:hidden;background:var(--fog)}
-.plano.com-dock{bottom:180px}
+.plano.com-dock{bottom:139px}
 /* A barra FLUTUA em vez de empurrar: mapa que começa abaixo de uma faixa opaca
    é mapa com menos mapa. Ela é vidro, e o dia continua aparecendo por baixo. */
 .plano-bar{position:absolute;left:9px;right:9px;top:9px;z-index:30;display:flex;align-items:center;gap:9px;
   padding:8px 10px;border-radius:13px;background:var(--glass);border:.7px solid var(--line)}
 .plano-bar .f{flex:1;min-width:0;display:flex;align-items:center;gap:7px;color:var(--lime)}
+/* A barra vira BOTÃO quando o fato tem porta (hoje: a localização desligada —
+   ver `T.rota`). Mesmo desenho, mesma linha, mesmo lugar: o que muda é aceitar
+   dedo. Barra que informa e barra que resolve não podem ter caras diferentes,
+   senão o motorista aprende a não tocar em nenhuma das duas. */
+.plano-bar button.f{background:none;border:0;padding:0;font:inherit;text-align:left;cursor:pointer}
 /* Dia num estado troca o TOM da barra, nas MESMAS famílias dos banners que ela
    substituiu aqui (`.banner.pausa` é azul, `.banner.alerta` é âmbar) — cor nova
    pro mesmo fato seria a terceira língua pra dizer "parado". */
@@ -1184,10 +1230,19 @@ button,input{font:inherit;color:inherit}
 .plano-bar .ghost{flex:0 0 auto}
 /* 🔴 UM BOTÃO SÓ NA BEIRADA, e ele tem trabalho: devolver o enquadramento da
    rota depois de o dedo levar o mapa embora. Zoom não entra — pinça é o gesto
-   nativo do mapa, e dois botões redondos por cima do dia seriam cromo. */
-.plano-lado{position:absolute;right:12px;top:66px;z-index:30}
-.plano-lado button{width:40px;height:40px;border-radius:50%;border:.7px solid var(--line);background:var(--glass);
-  color:var(--blue-l);display:grid;place-items:center;cursor:pointer}
+   nativo do mapa, e dois botões redondos por cima do dia seriam cromo.
+
+   🔴 ELE DESCEU (09/08). Morava a 66px do TOPO, colado embaixo da barra de
+   vidro: o canto mais longe do polegar de quem segura o telefone com uma mão
+   só — e é ele o botão que o motorista mais aperta nesta tela. Vai pro pé, do
+   lado direito, logo acima do rodapé, que é onde todo mapa de rua o põe (a
+   mesma regra nº 6 do GPS aqui embaixo: "recentralizar só faz sentido perto do
+   polegar"). De quebra, sai de cima da barra e deixa o topo do mapa livre.
+   44px e não 40: alvo de dedo mínimo com luva, no sol, com o carro andando. */
+.plano-lado{position:absolute;right:12px;bottom:14px;z-index:30}
+.plano-lado button{width:44px;height:44px;border-radius:50%;border:.7px solid var(--line);background:var(--glass);
+  color:var(--blue-l);display:grid;place-items:center;cursor:pointer;
+  box-shadow:0 4px 14px rgba(0,0,0,.24)}
 
 /* ==========================================================================
    GPS EM NAVEGAÇÃO — o que todo navegador de rua faz e eu não tinha feito:
@@ -1220,6 +1275,55 @@ button,input{font:inherit;color:inherit}
    nunca fica pronto deixa o chão no ar, que é o desfecho honesto. */
 .mapa-palco .mapa-vivo{opacity:0}
 .mapa-palco.pronto .mapa-vivo{opacity:1;transition:opacity .32s ease}
+
+/* ==========================================================================
+   🔴 ONDE EU ESTOU — três peças, e cada uma responde uma pergunta diferente
+   (dono, 09/08, no mapa 2D: *"cadê minha localização?"*).
+
+   O que existia era um alfinete PADRÃO do maplibre (`new Marker({color})`): a
+   MESMA gota que marca uma parada, no mesmo tamanho, na mesma família. Num
+   mapa com rota ele se perdia entre os pinos numerados; num dia SEM rota ele
+   era a única coisa na tela e mesmo assim não dizia "você" — dizia "tem um
+   ponto aqui". Nenhum mapa de rua do mundo desenha o dono da tela como pino, e
+   o motivo é este: pino é COISA QUE ESTÁ LÁ, e eu sou QUEM OLHA.
+
+   · O PONTO (o elemento): onde eu estou. Azul, anel branco, sombra — o anel é
+     o que o separa do chão em qualquer cor de mapa, claro ou escuro.
+   · O HALO (`::before`, `--halo`): QUANTO o GPS tem certeza. Ele é a precisão
+     em METROS convertida em pixels pelo zoom da hora (ver `moverEuNoPlano`),
+     não um enfeite de tamanho fixo: dentro de um galpão ele incha e conta a
+     verdade, no meio da rua ele encolhe. Respira devagar porque GPS é coisa
+     VIVA — ponto parado e duro passa por desenho.
+   · O FAROL (`::after`, `--rumo`/`--cone`): pra onde eu APONTO. Sem rumo no
+     fix, `--cone:0` e ele não existe — apontar pra um lado inventado seria
+     pior que não apontar (Lei do IF, aplicada a desenho).
+   ========================================================================== */
+.eu-puck{position:relative;width:20px;height:20px;border-radius:50%;
+  background:var(--eu-1);border:3px solid var(--eu-anel);
+  box-shadow:0 2px 7px rgba(0,0,0,.38)}
+.eu-puck::before{content:'';position:absolute;left:50%;top:50%;
+  width:var(--halo,96px);height:var(--halo,96px);
+  margin:calc(var(--halo,96px) / -2) 0 0 calc(var(--halo,96px) / -2);
+  border-radius:50%;background:var(--eu-halo);border:.7px solid var(--eu-halo-linha);
+  animation:euRespira 3.6s ease-in-out infinite}
+/* O cone é um GRADIENTE CÔNICO recortado por máscara, e não um triângulo: o
+   triângulo tem bico e beirada dura, e o que se quer é a luz saindo do ponto e
+   morrendo na distância. A máscara começa em 21% pra não passar por cima do
+   próprio ponto — o farol sai DE TRÁS dele. */
+.eu-puck::after{content:'';position:absolute;left:50%;top:50%;width:76px;height:76px;margin:-38px 0 0 -38px;
+  border-radius:50%;opacity:var(--cone,0);
+  background:conic-gradient(from calc(var(--rumo,0deg) - 27deg),var(--eu-cone),transparent 54deg);
+  -webkit-mask-image:radial-gradient(circle,transparent 21%,#000 34%,transparent 96%);
+          mask-image:radial-gradient(circle,transparent 21%,#000 34%,transparent 96%)}
+@keyframes euRespira{50%{transform:scale(1.05);opacity:.7}}
+/* No MOCK o ponto é desenho e fica no meio do palco; no app quem o põe no
+   lugar é o mapa (marcador do maplibre), e aí `left/top` não podem existir. */
+.eu-puck.demo{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
+/* 🔴 E O DESENHO MORRE QUANDO NASCE MAPA DE VERDADE. Enquanto o maplibre não
+   sobe, o palco é só cor — pôr um "você está aqui" em cima de chão liso seria
+   a maquete de novo, inventando posição (ver `mapa()`). A ponte marca o palco
+   assim que cria o mapa; daí em diante quem mostra o motorista é o marcador. */
+.mapa-palco.com-mapa>.eu-puck{display:none}
 .gps-mundo{position:absolute;left:-42%;right:-42%;top:-52%;bottom:-6%;
   transform:perspective(640px) rotateX(51deg);transform-origin:50% 74%}
 .gps-mundo svg{width:100%;height:100%;display:block}
@@ -2229,6 +2333,13 @@ button,input{font:inherit;color:inherit}
   /* No claro a cabeça INVERTE junto com o resto: sobre chão #e6ebf3 uma ponta
      branca não existiria. Azul cravado, que é o mesmo azul do "partida". */
   --map-cabeca:#0f4fc0;
+  /* O "eu" no claro: o mesmo azul, um tom mais FUNDO (o chão do mapa claro é
+     #e6ebf3 — o azul de tela escura clareia demais ali) e o halo mais forte,
+     porque transparência sobre cinza claro some. Anel branco fica branco: é
+     ele que separa o ponto do mapa nas duas peles. */
+  --eu-1:#1257c8;
+  --eu-halo:rgba(18,87,200,.14); --eu-halo-linha:rgba(18,87,200,.3);
+  --eu-cone:rgba(18,87,200,.42);
 
   /* 🔴 AS EMPRESAS NO CLARO — paleta 1:1 do mock rota (gps-ruas-prospector-v4),
      que o dono desenhou com o claro DENTRO. O que resolve o contraste aqui é
