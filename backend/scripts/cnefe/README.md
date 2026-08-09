@@ -50,6 +50,28 @@ municipio, cod_municipio, lat, lng, nivel_geo)` — índices `(cep,numero)`, `(c
 `cnefe_uf(uf, status, zip_bytes, linhas, baixado_em, carregado_em, erro)` — controle do
 agendador.
 
+### Agregados de PORTA — `agregados.sql` (09/08/2026)
+
+`carregar-uf.sh` enche `cnefe_endereco`, que é indexada por CEP. Quem cadastra sem CEP
+(metade da base real do dono) só chegava ao pino adivinhando o CEP no ViaCEP. Rode
+**depois da carga**:
+
+```
+psql "$CNEFE_DATABASE_URL" -f backend/scripts/cnefe/agregados.sql
+```
+
+Ele cria as tabelas que o backend consulta pra achar a porta por **município + rua +
+número**, sem CEP nenhum: `cnefe_mun_map(uf, city_norm) → cod_municipio` e
+`cnefe_porta(cod_municipio, via_canon, numero, loc_norm)` (+ `cnefe_porta_any`,
+`cnefe_via`, `cnefe_bairro`, `cnefe_mun`, usados pelo enriquecimento da RFB).
+
+Sem estas tabelas o backend **não quebra**: `resolverCnefePorta` pergunta uma vez por
+`to_regclass`, avisa no log e segue pelo caminho do CEP. Medido na company 41: dos 91
+clientes sem pino, 18 curavam pelo CEP e **56** curam pela porta direta.
+
+`via_canon` tem duas pontas — `canon_via(norm_via(x))` aqui e `canonVia()` no backend
+(`nucleo/cnefe-resolver.util.ts`). Mudou uma, muda a outra no MESMO commit.
+
 ## Referência de carga (SP, 26/07/2026)
 
 Ver relatório da frente: ~26M linhas, zip 1,0 GB, carga noturna sem derrubar produção.

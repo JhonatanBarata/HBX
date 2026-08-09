@@ -897,8 +897,12 @@ let agregadosCache: { tem: boolean; expiraEm: number } | null = null;
 async function agregadosDisponiveis(): Promise<boolean> {
   if (agregadosCache && agregadosCache.expiraEm > Date.now()) return agregadosCache.tem;
   try {
+    // `::text` NÃO É ENFEITE: `to_regclass` devolve o tipo `regclass`, que o Prisma não
+    // sabe desserializar — a consulta LANÇA, e o catch de `cnefeQuery` põe o CNEFE
+    // INTEIRO em cooldown de 60s, derrubando junto a cura por CEP que estava boa.
+    // Medido antes de subir: 0 de 91 clientes resolvidos, com "base indisponível" no log.
     const rows = await cnefeQuery(
-      "SELECT to_regclass('public.cnefe_porta') AS porta, to_regclass('public.cnefe_mun_map') AS mapa",
+      "SELECT to_regclass('public.cnefe_porta')::text AS porta, to_regclass('public.cnefe_mun_map')::text AS mapa",
       [],
     );
     const tem = !!(rows[0]?.porta && rows[0]?.mapa);
