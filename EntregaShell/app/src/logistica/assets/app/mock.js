@@ -419,6 +419,11 @@ const DADOS={
     creditos:'240', creditosDebita:'12',
     somaProdutos:'20', somaMarcado:'R$ 336,00',
     vazioTitulo:'Sem paradas hoje',
+    /* A segunda linha do dia por montar (ver `T.rota`). Ela explica o mapa
+       vazio e NOMEIA a ação que já está no dock — não é um segundo botão.
+       Curta de propósito: a barra é uma linha de vidro em cima do mapa, não um
+       lugar de texto. */
+    vazioDica:'Monte a rota pra ver o dia no mapa.',
     /* DEMONSTRAÇÃO — o "você está aqui" do desenho no palco do mapa 2D. Só o
        mock o enxerga: `apagarDemonstracao` zera este campo no boot do aparelho
        (ver `mapa()`), porque no app quem diz onde o motorista está é o GPS. */
@@ -1157,15 +1162,32 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
                (temRota&&d.kpiParadas)?`<b>${d.kpiParadas}</b> paradas`:'',
                (aviso||!temRota||!entregues)?'':`<b>${entregues}</b> entregues`]
               .filter(Boolean).join(' <small>·</small> ');
+  /* 🔴 O DIA POR MONTAR MERECE UMA LINHA A MAIS — e SÓ ele (09/08, dono, sobre
+     a tela inicial da rota: *"essa é a tela 2d e tá um lixo"*). O que a tela
+     dizia era "Sem paradas hoje" e ponto: um fato sem saída, numa faixa fina em
+     cima de um mapa vazio. A frase está certa (a lei acima: PALAVRA, nunca um
+     "0 paradas" que pareceria contagem) — o que faltava era dizer POR QUE o
+     mapa está vazio e o que enche ele.
+     🔴 E NÃO ENTRA BOTÃO AQUI. O dock desta mesma tela já é o "Montar rota"
+     (`transmux('semparada')`), grande e no alcance do polegar. Repetir o verbo
+     numa segunda peça é a receita de o motorista aprender que existem dois
+     lugares pra mesma coisa — e de um dia os dois discordarem. A dica NOMEIA a
+     ação que já está na tela; quem executa continua sendo um botão só.
+     Só no vazio LIMPO: com aviso (GPS, pausa, sem sinal) o estado é OUTRO e ele
+     é que manda na barra — duas explicações empilhadas seria a barra falando
+     por cima de si mesma. */
+  const vazioNoMapa = !temRota && !aviso && e!=='carregando' && !PARADAS.length;
   const fato = e==='carregando'
     ? '<span class="esq" style="height:15px;width:118px;border-radius:8px"></span>'
-    : `<span>${(PARADAS.length||aviso)&&conta?conta:`<b>${d.vazioTitulo}</b>`}</span>`;
+    : vazioNoMapa
+      ? `<span class="txt"><span><b>${d.vazioTitulo}</b></span><em>${d.vazioDica}</em></span>`
+      : `<span>${(PARADAS.length||aviso)&&conta?conta:`<b>${d.vazioTitulo}</b>`}</span>`;
 
   return `${status}${hdr({})}
 <div class="body flush" style="overflow:hidden;padding:0">
   <div class="plano${dock?' com-dock':''}">
     ${mapa()}
-    <div class="plano-bar${aviso&&aviso[2]?' '+aviso[2]:''}">
+    <div class="plano-bar${aviso&&aviso[2]?' '+aviso[2]:''}${vazioNoMapa?' estado':''}">
       ${aviso&&aviso[3]
         ? `<button class="f" data-acao="${aviso[3]}">${ic(aviso[0],16)}${fato}</button>`
         : `<span class="f">${ic(aviso?aviso[0]:'route',16)}${fato}</span>`}
@@ -1186,8 +1208,14 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
          já era esse (`enquadrarGeral` com um ponto só = a minha posição); o que
          faltava era o nome — "Enquadrar a rota" num dia sem rota é botão
          prometendo coisa que não existe. */''}
+    ${/* 🔴 O ALVO DIZ QUANDO ESTÁ TRABALHANDO. Ele é o botão mais apertado desta
+         tela e não tinha estado nenhum: sem posição, o toque ia buscar o GPS e a
+         tela não mudava um pixel — então o dedo tocava de novo, e de novo, que é
+         o desenho ensinando que o botão não funciona. `buscando` é o mesmo dado
+         que a barra já usa ('procurando'), lido no mesmo lugar: uma fonte, duas
+         peças. Ele se apaga sozinho quando o fix chega. */''}
     <div class="plano-lado">
-      <button data-acao="mapa-enquadrar"
+      <button data-acao="mapa-enquadrar"${d.gps==='procurando'?' class="buscando"':''}
         aria-label="${temRotaNoDia(e)?'Enquadrar a rota':'Centralizar em mim'}">${ic('target',19)}</button>
     </div>
   </div>
@@ -1279,7 +1307,7 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
        Aqui o encaixe é o que interessa: "No caminho" põe a parada onde ela
        custa menos, em vez de jogar pro fim do dia. -->
   <div class="bar"><span class="t">${ic('list',17)} Sua rota de hoje</span>
-    <button class="ghost" data-ir="rapida" aria-label="Adicionar parada avulsa">${ic('plus',15)} Parada</button>
+    <button class="ghost" data-ir="rapida" aria-label="Rota avulsa">${ic('plus',15)} Rota avulsa</button>
     <button class="ghost" data-ir="rota">${ic('map',15)} Ver mapa</button></div>
   ${emCurso?`<div class="dia-bar"><small>${DADOS.rota.diaFeitas} de ${DADOS.rota.diaTotal}</small><span class="trilho"><i style="width:${DADOS.rota.diaPct}"></i></span><b>${DADOS.rota.diaMarcado}</b><small>marcado</small></div>`:''}
   ${emCurso?`<div class="filtro">
@@ -1897,8 +1925,8 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
      Montar/Iniciar continuam fora nesse caso — montar um dia sem ninguém é o
      botão que promete o que não vai acontecer. */
   const maisParada=(largo)=>`<button class="act${largo?' go wide':''}"
-    style="${largo?'':'flex:0 0 46px;'}justify-content:center" data-ir="rapida" aria-label="Adicionar parada avulsa">
-    ${ic('plus',19)}${largo?'<b>Adicionar parada</b>':''}</button>`;
+    style="${largo?'':'flex:0 0 46px;'}justify-content:center" data-ir="rapida" aria-label="Rota avulsa">
+    ${ic('plus',19)}${largo?'<b>Rota avulsa</b>':''}</button>`;
   const pe=!d.linhas.length?`<div class="acts pe-montagem" style="margin-top:0">${maisParada(1)}</div>`
     :`<div class="acts pe-montagem" style="margin-top:0">
     ${maisParada(0)}
@@ -2397,7 +2425,7 @@ T.historico={nome:'Ajustes · Histórico',grupo:'Ajustes',render(){
    o que ela é, dizer onde ela entra — e cada degrau só nasce quando o de cima
    respondeu. Formulário que abre as seis perguntas de uma vez é formulário que
    ninguém termina em pé na porta de um cliente, com o carro ligado. */
-T.rapida={nome:'Adicionar paradas',grupo:'Rota',render(){
+T.rapida={nome:'Rota avulsa',grupo:'Rota',render(){
   const d=DADOS.rapida;
   const a=d.achado;
   const procurando=!!d.buscando, salvando=!!d.salvando, ocupado=procurando||salvando;
@@ -2626,7 +2654,7 @@ ${hdr({})}
   ${p('longe','Longe do ponto de partida','8,7 km da primeira parada','alerta')}
   ${p('creditos','Créditos acabaram','sem crédito a rota não inicia','trava')}
   <div class="grupo">No meio do dia</div>
-  ${p('fora','Entrega fora da rota de hoje','vira parada avulsa','alerta')}
+  ${p('fora','Entrega fora da rota de hoje','vira rota avulsa','alerta')}
   ${p('ddd','Telefone sem DDD','sem DDD o WhatsApp não abre','alerta')}
   ${p('preco','Preço bloqueado','quem muda preço é o escritório','alerta')}
   <div class="grupo">Aplicativo</div>
@@ -3069,6 +3097,54 @@ function herdarRolagem(m,camada){
   if(!m) return;
   ROLAM.forEach(s=>{if(!m[s])return; const el=camada.querySelector(s); if(el) el.scrollTop=m[s];});
 }
+/* 🔴 REPINTAR NÃO PODE FECHAR O TECLADO (dono, 09/08: *"abri o adicionar
+   parada, fui buscar clientes por nome, o teclado fecha depois de digitar 1
+   palavra"*).
+   Cada escrita do seam monta uma CAMADA NOVA e mata a velha — `replaceWith`
+   num ramo, `app.innerHTML=''` no outro. O campo que estava SOB O DEDO morre
+   junto: o Android fica sem quem receba a próxima letra e recolhe o teclado, e
+   ele não volta sozinho — a pessoa tem que tocar no campo de novo, palavra por
+   palavra. Não é defeito de UMA tela: vale pra toda tela onde digitar dispara
+   busca ou seam (a busca da porta "Meus clientes", a de Clientes, a de
+   Produtos, e qualquer campo de cadastro que repinte no meio da digitação).
+   A cura é a MESMA da rolagem e mora no MESMO lugar, por isso está aqui:
+   medir na camada que vai morrer, devolver na camada que nasce.
+
+   Duas restrições que fazem a coisa funcionar de verdade:
+   1. SÍNCRONO, na mesma tarefa da troca. Devolver o foco num `setTimeout` ou
+      num `requestAnimationFrame` cede o quadro — o Android já fechou o teclado
+      e reabri-lo não é decisão de quem programa.
+   2. O VALOR VIVO VENCE o do seam. Entre a tecla e o repinte cabe mais letra:
+      o dado que volta do servidor carrega o texto de 350 ms atrás, e escrevê-lo
+      por cima apagaria o que o dedo acabou de digitar. No campo FOCADO quem
+      manda é o dedo.
+   Campo sem `data-campo` fica de fora: sem nome não há como reencontrá-lo na
+   camada nova, e adivinhar por posição erraria de campo. */
+function medirFoco(camada){
+  const el=document.activeElement;
+  if(!camada||!el||!camada.contains(el)) return null;
+  const nome=el.dataset?el.dataset.campo:'';
+  if(!nome) return null;
+  const m={nome};
+  // `value` só existe em campo de digitar. Em contenteditable volta `undefined`
+  // e só o FOCO viaja — devolver undefined apagaria o texto.
+  if(typeof el.value==='string') m.valor=el.value;
+  // O CARETE também é dele: sem isto o cursor volta pro fim e quem estava
+  // corrigindo o meio da palavra digita no lugar errado. `selectionStart`
+  // ESTOURA em input sem seleção (number, email, date) — daí o try.
+  try{ m.ini=el.selectionStart; m.fim=el.selectionEnd; }catch(_){}
+  return m;
+}
+function herdarFoco(m,camada){
+  if(!m||!camada) return;
+  const el=camada.querySelector('[data-campo="'+m.nome+'"]');
+  if(!el) return;
+  if(typeof m.valor==='string'&&el.value!==m.valor) el.value=m.valor;
+  // `preventScroll` é obrigatório: sem ele o navegador rola a lista até o campo
+  // e desfaz na hora a rolagem que o `herdarRolagem` acabou de devolver.
+  try{ el.focus({preventScroll:true}); }catch(_){ try{ el.focus(); }catch(__){} }
+  if(m.ini!=null&&el.setSelectionRange){ try{ el.setSelectionRange(m.ini,m.fim); }catch(_){} }
+}
 function pintar(animar,dir){
   const app=document.getElementById('app');
   const tr=document.documentElement.dataset.tr||'escalonado';
@@ -3083,6 +3159,11 @@ function pintar(animar,dir){
   // medido ANTES de qualquer troca: no ramo comum a camada velha é destruída
   // (`innerHTML=''`) e depois disso não há o que perguntar.
   const rolagem=animar?{}:medirRolagem(antiga);
+  // O DEDO, medido no mesmo instante e pelo mesmo motivo. Só no REPINTE: TROCAR
+  // de tela leva o foco embora de propósito — campo de uma tela não segue o
+  // dedo pra outra, e devolver teclado numa tela que o motorista acabou de
+  // deixar seria o defeito ao contrário.
+  const foco=animar?null:medirFoco(antiga);
   // 🔴 REPINTE DE DADO NÃO MATA A ENTRADA DA TELA. O seam repinta assim que o
   // servidor responde, e o repinte não anima — só que ele chegava NO MEIO da
   // entrada e a camada nova nascia sem papel nenhum. Medido no mock: 13
@@ -3241,6 +3322,10 @@ function pintar(animar,dir){
     antiga.replaceWith(nova);
     herdarRolagem(rolagem,nova);
     remontarPortao(nova,portaoVivo);
+    // DEPOIS do portão voltar, nunca antes: campo de portão (o "Nome" do
+    // Espaço) mora DENTRO do `.portao-wrap`, e enquanto ele não é re-encaixado
+    // o campo não existe na camada nova pra ser reencontrado.
+    herdarFoco(foco,nova);
     // E o relógio continua: `currentTime` põe cada animação exatamente onde a
     // da camada anterior estava. Sem isto a lista recomeçaria do zero e o dado
     // chegando tarde daria um pisca. Quem não tiver a API fica sem o acerto —
@@ -3299,6 +3384,8 @@ function pintar(animar,dir){
     // continua vivo na variável (com os ouvintes), e é por isso que ele pode
     // ser re-encaixado aqui embaixo.
     remontarPortao(nova,portaoVivo);
+    // idem ao ramo de cima: o foco volta por ÚLTIMO, com o portão já no lugar.
+    herdarFoco(foco,nova);
   }
   pintarRail();
   /* 🔴 O TOUR SE REMONTA NA CAMADA NOVA. O `.aula-wrap` mora DENTRO da camada,
@@ -3491,7 +3578,7 @@ const PORTOES={
     acoes:[['Cancelar',''],['Iniciar mesmo assim','principal']]},
 
   fora:{tom:'alerta',ico:'gps',titulo:'Entrega fora da rota de hoje',
-    sub:'Mercado São Judas não está no dia. Ela entra como parada avulsa e conta no fechamento.',
+    sub:'Mercado São Judas não está no dia. Ela entra como rota avulsa e conta no fechamento.',
     acoes:[['Cancelar',''],['Entregar assim','principal']]},
 
   // Portão só informativo: o único botão É a saída, mesmo com cara de ação.
@@ -4050,7 +4137,7 @@ const CAPITULOS={
   ]},
   /* Os do AVANÇADO que REAPROVEITAM a aula da tela — `aula` em vez de `passos`.
      Copy nova não se inventa: a que está lá já foi lida e aprovada. */
-  avulsa:{titulo:'Parada avulsa — o "+"',ico:'plus',aula:'rapida',tela:'rapida'},
+  avulsa:{titulo:'Rota avulsa — o "+"',ico:'plus',aula:'rapida',tela:'rapida'},
   entregar:{titulo:'Entregar e receber',ico:'check',aula:'folha',tela:'folha'},
   fechamento:{titulo:'Fechamento do dia',ico:'note',aula:'fechamento',tela:'fechamento',
     se:d=>!!d.financeiro},

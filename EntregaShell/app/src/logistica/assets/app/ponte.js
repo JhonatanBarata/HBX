@@ -1359,6 +1359,43 @@
      escolhido. 0 = hoje (fluxo de sempre). Chip só aparece pra admin.
      -------------------------------------------------------------------- */
   let montarDia = 0;
+
+  /* ------------------------------------------------------------------------
+     🔴 ESCOLHER CLIENTE É RASCUNHO ATÉ ALGUÉM MANDAR GRAVAR (dono, 09/08: "se
+     eu apertar voltar ele já abre a tela inicial com as 3 rotas avulsas, eu
+     ainda nem confirmei q queria nada — está cobrando créditos?").
+
+     A porta "Meus clientes" gravava no toque: MEDIDO na prova, três
+     `POST /logistica/entregas` mais um `planejar` saíam antes de o dono
+     confirmar coisa nenhuma. Decidir e GRAVAR eram o mesmo gesto, e o Voltar
+     não desfazia nada — a tela inicial já abria com as paradas dentro.
+
+     Agora, com a rota AINDA NÃO INICIADA, o que sai da porta é RASCUNHO: mora
+     aqui no aparelho, aparece na lista da Montagem junto com a prévia do dia, e
+     só vira entrega quando o dedo manda — "Salvar rota", "Montar rota" ou
+     "Iniciar rota". Voltar sem mandar joga fora.
+
+     🔴 DUAS EXCEÇÕES, E AS DUAS SÃO DO DOMÍNIO, NÃO CONVENIÊNCIA MINHA:
+     1. ROTA VIVA NA RUA. Quem entrou pela Rota / Rota·lista está dirigindo, e a
+        rota já existe: adicionar A ELA é o propósito do gesto, e não há nenhum
+        momento "salvar" depois pra segurar o rascunho até lá. Ali a parada
+        continua imediata, exatamente como sempre foi.
+     2. CADASTRO DE CLIENTE NOVO. Cadastro é cadastro: a CONTA continua nascendo
+        na hora (porta Endereço, modo Cadastro). O que virou rascunho é a
+        PARADA, nunca o cliente.
+     ------------------------------------------------------------------------ */
+  const RASCUNHO = [];        // {id, nome, endereco, bairro, lat, lng}
+  /** a rota está viva na rua? então nada aqui é rascunho */
+  const rotaNaRua = () => estadoRota === 'rodando' || estadoRota === 'pausada';
+  /** as telas em que o rascunho SOBREVIVE: elas são a própria escolha de gente */
+  const MANTEM_RASCUNHO = new Set(['rapida', 'ficha', 'novocliente']);
+  function descartarRascunho() {
+    if (!RASCUNHO.length) return;
+    RASCUNHO.length = 0;
+    // o chip de HOJE pode ter nascido só por causa do rascunho — ver `publicarMontarDias`
+    publicarMontarDias();
+  }
+
   /** a data (SP) da próxima ocorrência do dia n (1=Seg…7=Dom), hoje inclusive */
   const dataDoDia = (n) => {
     const [a, m, d] = diaOperacional().split('-').map(Number);
@@ -1452,8 +1489,22 @@
     // atual não é diferente dos outros. Quem explica a tela quando hoje está
     // vazio é o TEXTO ("Nada a exibir hoje"), não um chip mentindo que há o que
     // montar.
+    /* 🔴 O CHIP DE HOJE TAMBÉM NASCE DO QUE ESTÁ NA TELA (dono, 09/08: "adicionei
+       alguns clientes… se eu clicar em segunda, quarta, ele entra em um estado
+       estranho, onde meio q esquece dessa tela").
+       A fila saía SÓ da agenda — e num dia SEM agenda (o domingo dele, ou o dia
+       em que ele montou a rota escolhendo os clientes na mão) HOJE não ganhava
+       chip nenhum. Então acontecia isto, MEDIDO na prova: 3 paradas na tela,
+       fila de chips "Seg Qua", o dedo toca em "Seg" — e as 3 somem, trocadas
+       pela agenda da segunda, SEM PORTA DE VOLTA. O único caminho de volta era
+       adivinhar que tocar de novo no chip ACESO desliga o filtro. Tela que troca
+       e não sabe voltar é a tela "esquecendo" o trabalho dele, na letra.
+       Parada aberta e rascunho são gente no dia de hoje tanto quanto a agenda: é
+       essa a régua que faltava, e ela é a MESMA régua do "tem o que mostrar". */
+    const temHoje = (diasComCliente && diasComCliente.has(hoje))
+      || paradasAbertas().length > 0 || RASCUNHO.length > 0;
     const dias = [1, 2, 3, 4, 5, 6, 7]
-      .filter((n) => !diasComCliente || diasComCliente.has(n))
+      .filter((n) => (n === hoje ? temHoje : (!diasComCliente || diasComCliente.has(n))))
       .map((n) => [n === hoje ? 0 : n, ROTULO_DIA[n]]);
     window.usarDados('montagem', { dias, diaSel: montarDia });
   }
@@ -1565,6 +1616,7 @@
     previaCrua = Array.isArray(prev && prev.clientes) ? prev.clientes : [];
     previaAlvo = alvo;
     somarAvulsas(data);
+    somarRascunho(data);
     publicarPrevia();
     // A cura do endereço roda DEPOIS de a lista estar na tela — ver `sanitizarPrevia`.
     void sanitizarPrevia(seq, data, alvo || diaDaSemana());
@@ -1636,6 +1688,7 @@
     if (!clientes.length) return;
     previaCrua = clientes;
     somarAvulsas(data);
+    somarRascunho(data);
     publicarPrevia();
   }
 
@@ -1698,6 +1751,43 @@
         observacoes: c.observacoes || '',
         // Sem produto: a avulsa é uma PARADA, não uma venda montada. Item
         // inventado aqui viraria contagem falsa no rodapé da tela.
+        itens: [],
+        ...(typeof c.lat === 'number' && typeof c.lng === 'number' ? { lat: c.lat, lng: c.lng } : {}),
+      });
+    });
+  }
+
+  /* ------------------------------------------------------------------------
+     O RASCUNHO NA LISTA DA MONTAGEM — mesma porta do `somarAvulsas` logo acima,
+     e pelo mesmo motivo: o `dia-preview` lê a AGENDA, e quem foi escolhido na
+     mão não tem vínculo nenhum pra ele achar. Sem isto o dono marcava 3 clientes
+     e voltava pra uma tela que não os mostrava — a escolha dele viraria fé.
+
+     Só HOJE: rascunho é do dia que se está montando, e empurrá-lo pra prévia de
+     uma quarta-feira futura seria mentir sobre o dia que está na tela.
+
+     Quem já está na prévia — ou já virou parada de verdade — não entra 2×: o
+     mesmo cliente em duas linhas é bug de produto pela lei desta casa.
+     ------------------------------------------------------------------------ */
+  function somarRascunho(data) {
+    if (data !== hojeISO() || !RASCUNHO.length || !Array.isArray(previaCrua)) return;
+    const jaTem = new Set(previaCrua.map((c) => String((c && c.customerProfileId) || '')));
+    paradasAbertas().forEach((p) => {
+      const cid = String((((p.item || {}).cliente) || {}).id || '');
+      if (cid) jaTem.add(cid);
+    });
+    RASCUNHO.forEach((c) => {
+      const cid = String(c.id || '');
+      if (!cid || jaTem.has(cid)) return;
+      jaTem.add(cid);
+      previaCrua.push({
+        customerProfileId: cid,
+        nome: c.nome || '',
+        // fala a MESMA língua da prévia do servidor: quem desenha o cartão lê
+        // `enderecoLinha` (é o achado de 09/08 que a avulsa já pagou).
+        enderecoLinha: c.endereco || '',
+        bairro: c.bairro || '',
+        // Sem produto: rascunho é uma PARADA escolhida, não uma venda montada.
         itens: [],
         ...(typeof c.lat === 'number' && typeof c.lng === 'number' ? { lat: c.lat, lng: c.lng } : {}),
       });
@@ -2183,9 +2273,57 @@
     return true;
   }
 
+  /* ------------------------------------------------------------------------
+     O RASCUNHO VIRA ENTREGA — e este é o ÚNICO lugar onde isso acontece.
+
+     Três chamadores, todos com o dedo do dono em cima: "Salvar rota", "Montar
+     rota" e "Iniciar rota". Um lugar só de propósito: enquanto criar a parada
+     morava dentro da porta de escolher gente, escolher e gravar eram a mesma
+     coisa — que é o defeito inteiro que esta frente mata.
+
+     🔴 UMA DE CADA VEZ, e não `Promise.all`: cinco POSTs em paralelo disputam a
+     mesma rota no servidor, e o que eu ganharia em segundos eu perderia em não
+     saber QUEM entrou quando um falha. Aqui a falha é por NOME (mesma lei da
+     porta "Meus clientes", de onde este laço veio).
+
+     🔴 RESPEITA O QUE JÁ EXISTE: quem já tem parada aberta hoje não nasce de
+     novo (a mesma porta não entra 2× na rota do dia), e `paraMinhaRota` continua
+     sendo o que dá MOTORISTA à entrega — sem ele o Iniciar recusa o dia inteiro.
+
+     O rascunho sai da memória ANTES dos POSTs (`splice`): se a rede cair no
+     meio, o que entrou está no servidor e o que não entrou é dito por nome —
+     segurar a lista aqui faria o toque seguinte tentar criar tudo de novo.
+     ------------------------------------------------------------------------ */
+  async function materializarRascunho() {
+    if (!RASCUNHO.length) return { falharam: [], entraram: 0 };
+    const fila = RASCUNHO.splice(0, RASCUNHO.length);
+    const falharam = [];
+    let entraram = 0;
+    for (const c of fila) {
+      if (paradaAbertaDaConta(String(c.id))) continue;
+      try {
+        await window.API.post('/logistica/entregas', {
+          customerProfileId: String(c.id),
+          quantidade: 1,
+          scheduledAt: `${hojeISO()}T12:00:00.000Z`,
+          paraMinhaRota: true,
+        });
+        entraram += 1;
+      } catch (_) { falharam.push(c.nome || 'Cliente'); }
+    }
+    // A rota é relida ANTES de quem chamou seguir: é dela que sai a lista de
+    // abertas que o planejar vai ordenar.
+    if (entraram) await carregarRota();
+    publicarMontarDias();      // o chip de HOJE pode ter mudado de fonte
+    return { falharam, entraram };
+  }
+
   /** monta a rota do dia: planeja (grava a ordem) e confere (semáforo). */
   async function montarRota() {
     await comTrava(async () => {
+      // O rascunho vira parada ANTES de planejar: planejar ordena o que EXISTE,
+      // e o que só está no aparelho não existe pro servidor.
+      const mat = await materializarRascunho();
       // 🔴 TOQUE MUDO É DEFEITO — mas o recibo é do BOTÃO, não da tela inteira.
       // Montar são 3 idas ao servidor (planejar, conferir, recarregar) e passa
       // de 2 s. O sinal disto era `estadoRota='carregando'`, e ele mentia nas
@@ -2277,6 +2415,16 @@
          sequência é do servidor, de propósito. */
       if (ordemDeGente()) await cravarOrdemDaTela();
       devolverEstado();          // o "Montando…" sai com o dado já na tela
+      /* Quem não conseguiu virar parada é dito por NOME, e antes do semáforo de
+         endereço: "o Alfredo não entrou" vale mais pra quem vai sair pra rua do
+         que "2 endereços com aviso". Nunca "não deu certo" — o resto entrou. */
+      if (mat.falharam.length && typeof window.portao === 'function') {
+        return window.portao({
+          tom: 'alerta', ico: 'alert', titulo: 'Rota montada sem todos',
+          sub: `Não consegui adicionar: ${mat.falharam.join(', ')}.`,
+          acoes: [['Entendi', 'principal']],
+        });
+      }
       if (comAviso && typeof window.usarDados === 'function') {
         window.usarDados('montagem', { iniciarSub: `${comAviso} com aviso` });
       }
@@ -2300,6 +2448,9 @@
          chegar aqui sem ordem gravada — e o servidor responderia "monte a rota
          antes de iniciar" no toque que devia sair pra rua. Planejar de novo o
          mesmo conjunto não cria parada nem debita. */
+      // O rascunho vira parada ANTES de tudo: é o dedo mandando gravar, e é
+      // daqui que sai o conjunto que o planejar vai ordenar e o servidor cobrar.
+      const mat = await materializarRascunho();
       if (estadoRota === 'montar' || !ENTREGAS.size) {
         try {
           await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...origemGps() });
@@ -2322,27 +2473,30 @@
         ? custo.saldoCobre
         : (isFinite(saldo) && isFinite(debita) ? saldo >= debita : true);
       const num = (v) => (isFinite(v) ? String(v).replace('.', ',') : '');
-      window.portao({
-        tom: temSaldo ? 'info' : 'trava',
-        ico: temSaldo ? 'play' : 'card',
-        titulo: temSaldo ? 'Iniciar a rota?' : 'Créditos insuficientes',
-        sub: isFinite(saldo)
-          ? `Debita ${num(debita)} · você tem ${num(saldo)}`
-          : `Debita ${num(debita)}`,
-        acoes: temSaldo ? [['Agora não', ''], ['Iniciar', 'principal']] : [['Fechar', '']],
-        classe: temSaldo ? 'duas' : '',
-      });
-      // o "Iniciar" do portão é quem cobra — nunca este trecho.
-      const wrap = naCamada('.portao-wrap');
-      const botao = wrap && wrap.querySelector('.principal');
-      if (temSaldo && botao) {
-        // `comTravaFila`, não `comTrava`: ver a nota lá em cima — o toque que
-        // chega ocupado espera a vez em vez de morrer junto com o diálogo.
-        botao.addEventListener('click', () => comTravaFila(async () => {
-          try {
-            // 🔴 A RESPOSTA DO INICIAR TEM DADO DENTRO. Ela era descartada, e
-            // com ela iam embora as empresas do corredor (`prospector`) que o
-            // servidor acabou de embarcar pro dia. Ver `aplicarProspector`.
+      /* 🔴 SALDO QUE COBRE NÃO PERGUNTA NADA (dono, 09/08: "apertei iniciar, não
+         tem q perguntar nada já inicia").
+         O portão "Iniciar a rota? · Debita X · você tem Y" nasceu pra pôr o
+         preço na frente da decisão — e ele continua existindo exatamente onde
+         DECIDE alguma coisa: sem saldo, é a trava que impede a saída, e trava
+         bloqueia por natureza. Com saldo, ele não decidia nada: era um "sim" a
+         mais entre o dedo e a rua, na única tela em que o motorista já tinha
+         dito o que queria. Um gesto, uma reação.
+         O preço não sumiu — ele virou RECIBO, depois, sem travar ninguém (ver o
+         `avisar` no fim). E o custo-preview continua sendo consultado, porque é
+         ele quem diz se cobre: quem decide se pode sair é o servidor. */
+      if (!temSaldo) {
+        return window.portao({
+          tom: 'trava', ico: 'card', titulo: 'Créditos insuficientes',
+          sub: isFinite(saldo)
+            ? `Debita ${num(debita)} · você tem ${num(saldo)}`
+            : `Debita ${num(debita)}`,
+          acoes: [['Fechar', '']],
+        });
+      }
+      try {
+        // 🔴 A RESPOSTA DO INICIAR TEM DADO DENTRO. Ela era descartada, e
+        // com ela iam embora as empresas do corredor (`prospector`) que o
+        // servidor acabou de embarcar pro dia. Ver `aplicarProspector`.
             /* 🔴 AQUI O OTIMIZADOR TEM A ÚLTIMA PALAVRA — de propósito. O
                iniciar "re-planeja a partir da origem atual": é o único momento
                em que o servidor sabe de ONDE o motorista está saindo de fato
@@ -2351,27 +2505,44 @@
                A exceção é a ordem de gente: arrasto ou espaço escolhido. Aí a
                sequência viaja junto, senão o toque de sair desfaria a decisão
                dele — que foi o defeito que este trecho já teve. */
-            const minha = ordemDeGente() ? idsNaOrdemDaTela() : null;
-            aplicarProspector(await window.API.post('/logistica/rota/iniciar', {
-              date: hojeISO(), ...(minha ? { ordemManual: minha } : {}), ...origemGps(),
-            }));
-          } catch (e) {
-            // 🔴 NUNCA MORRER CALADO (dono, §1.3): primeiro a verdade do
-            // servidor — se a rota JÁ ESTÁ em andamento, a resposta certa é
-            // levar o motorista pra ela, não um erro genérico.
-            await carregarRota();
-            if (estadoRota === 'rodando' || estadoRota === 'pausada') {
-              if (typeof window.ir === 'function') window.ir('rota');
-              return window.portao({
-                tom: 'info', ico: 'route', titulo: 'A rota já está em andamento',
-                sub: 'Você caiu direto nela.', acoes: [['Fechar', '']],
-              });
-            }
-            return avisoErro(e);
-          }
-          await carregarRota();
+        const minha = ordemDeGente() ? idsNaOrdemDaTela() : null;
+        aplicarProspector(await window.API.post('/logistica/rota/iniciar', {
+          date: hojeISO(), ...(minha ? { ordemManual: minha } : {}), ...origemGps(),
+        }));
+      } catch (e) {
+        // 🔴 NUNCA MORRER CALADO (dono, §1.3): primeiro a verdade do
+        // servidor — se a rota JÁ ESTÁ em andamento, a resposta certa é
+        // levar o motorista pra ela, não um erro genérico.
+        await carregarRota();
+        if (estadoRota === 'rodando' || estadoRota === 'pausada') {
           if (typeof window.ir === 'function') window.ir('rota');
-        }), { once: true });
+          return window.portao({
+            tom: 'info', ico: 'route', titulo: 'A rota já está em andamento',
+            sub: 'Você caiu direto nela.', acoes: [['Fechar', '']],
+          });
+        }
+        return avisoErro(e);
+      }
+      await carregarRota();
+      if (typeof window.ir === 'function') window.ir('rota');
+      /* 🔴 O RECIBO FALA DEPOIS QUE A TELA PAROU DE SE PINTAR (mesma armadilha
+         que o portão da parada avulsa já pagou, 09/08). `avisar` monta na camada
+         VIVA, e o `carregarRota` acima repinta: falar antes é falar pra uma
+         camada que já morreu. Navega, espera o dado, e só então fala.
+         🔴 DÉBITO ZERO NÃO VIRA AVISO NENHUM. Recibo de coisa que não aconteceu
+         é ruído na cara de quem está saindo pra rua — e no modo free (ou com a
+         franquia do plano cobrindo o dia) o débito é 0 de verdade.
+         Quem falhou em virar parada é dito aqui também: o dono mandou iniciar e
+         tem o direito de saber que saiu sem o Alfredo. */
+      if (typeof window.avisar === 'function') {
+        if (mat.falharam.length) {
+          window.avisar({
+            ico: 'alert', cls: 'alerta', titulo: 'Rota iniciada sem todos',
+            sub: `Ficou de fora: ${mat.falharam.join(', ')}`,
+          });
+        } else if (isFinite(debita) && debita > 0) {
+          window.avisar({ ico: 'card', cls: 'ok', titulo: 'Rota iniciada', sub: `Debitou ${num(debita)}` });
+        }
       }
     });
   }
@@ -2608,10 +2779,51 @@
   // olha. Com o teto, o z14 estica (overzoom), que é o certo.
   const MAPA_ZOOM_MAX = 14;
   let maplibrePromessa = null;
+  /* 🔴 A BIBLIOTECA TEM DUAS METADES E O APP NOVO CARREGAVA UMA (09/08 — dono,
+     no mapa 2D da rota montada: *"cadê os pontos os checkpoints?"*).
+
+     MEDIDO no harness (`scripts/prova-mapa-2d.js`), 3 paradas, viewport
+     412x940: os três pinos NASCEM (26x26, textos "1","2","3") e mesmo assim
+     nenhum aparece — `getComputedStyle('.maplibregl-marker').position` devolvia
+     `static` e o bounding box caía em y=1095, 1214 e 1333. Ou seja: FORA DA
+     TELA, empilhados um embaixo do outro DEPOIS do canvas de 754px.
+
+     A causa é uma linha que nunca existiu neste app: o `index.html` linka só o
+     `mock.css`, e o `vendor/maplibre-gl.css` — que é onde mora
+     `.maplibregl-marker{position:absolute}` — não é carregado por ninguém. Sem
+     essa regra o marcador é um `div` comum: entra no fluxo normal do container,
+     e o `transform` que o maplibre escreve a cada quadro passa a deslocá-lo a
+     partir da posição errada. O app VELHO carregava o arquivo (`app.js`, a
+     linha `link.href = "vendor/maplibre-gl.css"`); o app novo perdeu isso na
+     fusão e o defeito ficou MUDO, porque a fita verde é WebGL (desenhada no
+     canvas, não precisa de CSS nenhum) e continuou aparecendo. Fita sem pino é
+     exatamente o print do dono.
+
+     Por que AQUI e não no `index.html`: o `index.html` é GERADO pela injeção da
+     casca, e conserto escrito nele tem validade de uma injeção (foi assim que o
+     cordão de update se perdeu duas vezes — ver o comentário lá). O lugar de
+     quem depende do maplibre é junto de quem o carrega. E por que não copiar a
+     regra pro mock: a folha do vendor é o contrato de LAYOUT da biblioteca (não
+     é pele nossa) — duplicá-la no mock seria a mesma regra morando em dois
+     lugares, que é como elas passam a discordar. A PELE do pino continua sendo
+     nossa e mora no mock (`.map-pino`). */
+  const cssDoMaplibre = () => {
+    if (document.getElementById('maplibre-css')) return;
+    const l = document.createElement('link');
+    l.id = 'maplibre-css';
+    l.rel = 'stylesheet';
+    l.href = 'vendor/maplibre-gl.css';
+    document.head.appendChild(l);
+  };
+
   const carregarMaplibre = () => {
     if (window.maplibregl) return Promise.resolve(window.maplibregl);
     if (maplibrePromessa) return maplibrePromessa;
     maplibrePromessa = new Promise((ok, falha) => {
+      // A folha ANTES do script: o primeiro marcador pode nascer no mesmo
+      // quadro em que o mapa fica pronto, e marcador que nasce sem a regra de
+      // posição já entra no lugar errado.
+      cssDoMaplibre();
       const s = document.createElement('script');
       s.src = 'vendor/maplibre-gl.js';
       s.onload = () => (window.maplibregl ? ok(window.maplibregl) : falha(new Error('Mapa indisponível.')));
@@ -2719,6 +2931,26 @@
       .filter((p) => p && pontoOk(p.lat, p.lng));
   }
 
+  /* 🔴 QUEM DECIDE O TAMANHO DO PINO É A QUANTIDADE, NÃO SÓ O ZOOM (09/08).
+     O rebaixamento por zoom nasceu pra um dia de 56 paradas, onde 56 bolas de
+     26px no zoom da cidade viram uma mancha sem leitura — e essa parte continua
+     certa. Errado era ele valer pra TODO dia: com 3 paradas no mesmo zoom não há
+     amontoado nenhum pra desfazer, e rebaixar transformava a única informação da
+     tela ("onde são minhas paradas, na ordem") em três pontinhos anônimos.
+     Régua nova, em duas faixas:
+     · até 12 paradas → NUMERADO SEMPRE, em qualquer zoom. Doze é o corte onde
+       o dia inteiro ainda cabe na tela sem os pinos se tocarem: no zoom em que
+       Rio Claro cabe nos 412px (z12), cada pixel vale ~19 m, então dois pinos
+       de 26px só encostam se as portas estiverem a menos de ~500 m — o que num
+       dia de 12 paradas espalhadas pela cidade é a exceção, não a regra.
+     · acima de 12 → abaixo do zoom de bairro o pino vira PONTO. Mas ponto que
+       se LÊ: o rebaixado não é o pino encolhido, é outra peça (`.map-pino.min`,
+       com anel próprio) medida contra a fita verde e contra o chão do mapa nos
+       dois modos — ponto de 10px sem anel some sobre a fita, que era o outro
+       lado do mesmo defeito. */
+  const PINOS_NUMERADOS_ATE = 12;
+  const PINOS_ZOOM_CORTE = 13.6;
+
   /** os pinos numerados: só se refaz quando a LISTA muda, não a cada repinte */
   function sincronizarPinos(casa) {
     const paradas = paradasDoMapa();
@@ -2730,16 +2962,37 @@
     paradas.forEach((p) => {
       const pino = document.createElement('div');
       pino.textContent = String(p.n);
-      pino.style.cssText = 'width:26px;height:26px;border-radius:50%;display:grid;place-items:center;'
-        + 'font:500 12px Inter,sans-serif;background:var(--map-pino);color:var(--map-pino-tinta);'
-        + 'border:1.5px solid var(--map-rota)';
+      /* A PELE SAIU DO INLINE (Lei 1: nada de cor solta em tela). Era um
+         `cssText` com as cores escritas aqui dentro, invisível pro fiscal e
+         impossível de trocar junto com o resto da casca. Agora é a classe
+         `.map-pino` do mock, que é onde toda peça deste app veste. */
+      pino.className = 'map-pino';
       casa.pinos.set(String(p.n), new casa.gl.Marker({ element: pino })
         .setLngLat([p.lng, p.lat]).addTo(casa.mapa));
     });
+    acertarPinos(casa);
     pinosVisiveis(casa);
     // rota OUTRA = enquadramento outro. Aqui dentro é o único lugar automático
     // que reenquadra, e de propósito: este bloco só roda quando a lista muda.
     enquadrarGeral(casa);
+  }
+
+  /* O rebaixamento, aplicado a cada zoom. Só mexe em CLASSE — nada de recriar
+     marcador ao girar a pinça, que seria o mapa remontando a rota inteira a
+     cada quadro do gesto. */
+  function acertarPinos(casa) {
+    if (!casa || !casa.pinos.size) return;
+    // Poucas paradas nunca rebaixam: a régua é a QUANTIDADE primeiro, e só
+    // depois o zoom. Sem esta linha, 3 paradas no zoom-cidade viravam 3 pontos.
+    const muitas = casa.pinos.size > PINOS_NUMERADOS_ATE;
+    let z;
+    try { z = casa.mapa.getZoom(); } catch (_) { return; }
+    const min = muitas && z < PINOS_ZOOM_CORTE;
+    casa.pinos.forEach((marcador) => {
+      let el;
+      try { el = marcador.getElement(); } catch (_) { return; }
+      el.classList.toggle('min', min);
+    });
   }
 
   /* ---- O ENQUADRAMENTO DO MAPA 2D --------------------------------------------
@@ -2811,15 +3064,70 @@
      parada num quarteirão que ficou pra trás é a tela mentindo o dia inteiro.
      Aqui ele é UM marcador pela vida do mapa, movido a cada fix — sem repinte,
      sem câmera, sem nada que brigue com o dedo. */
+  /* 🔴 EU NÃO SOU UM PINO — e era exatamente isso que a tela desenhava. O
+     marcador do motorista era `new Marker({ color })` com um azul cravado no
+     código: a gota PADRÃO
+     do maplibre, a mesma forma e o mesmo tamanho do que marca uma PARADA, com a
+     cor escrita solta aqui dentro (a Lei 1 proíbe hex em tela; este passou
+     porque não está em folha nenhuma). Num dia com rota ele se perdia no meio
+     dos numerados; num dia SEM rota era a única coisa na tela e mesmo assim não
+     dizia "você" — dizia "tem um ponto aqui". Pino é COISA QUE ESTÁ LÁ; eu sou
+     QUEM OLHA, e todo mapa de rua do mundo desenha isso como um PONTO com halo.
+
+     A casca disso já existia no mock desde 09/08 (`.eu-puck`, com o comentário
+     "ver `moverEuNoPlano`") e este arquivo nunca a vestiu: a folha prometia
+     halo de precisão e cone de rumo pra um marcador que continuava sendo a gota
+     padrão. Aqui a promessa passa a ser verdade, e ela é DADO, não enfeite:
+     · `--halo` é a PRECISÃO do fix em metros, convertida em pixels pelo zoom da
+       hora. Dentro de um galpão ele incha e conta a verdade; no meio da rua
+       encolhe. Halo de tamanho fixo seria desenho fingindo medida.
+     · `--cone`/`--rumo` só existem quando o fix TEM rumo. Parado, o GPS não
+       sabe pra onde a pessoa aponta — e apontar pra um lado inventado é pior
+       que não apontar (Lei do IF aplicada a desenho). */
+  const EU_HALO_MIN = 26;    // abaixo disto o halo some atrás do próprio ponto
+  const EU_HALO_MAX = 220;   // fix ruim de 2 km não pode virar mancha na tela
+
+  /** metros por pixel na latitude e no zoom da hora — a régua do maplibre */
+  function metrosPorPixel(casa, lat) {
+    let z;
+    try { z = casa.mapa.getZoom(); } catch (_) { return null; }
+    if (!Number.isFinite(z)) return null;
+    return (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, z);
+  }
+
+  /* A pele do "eu" a cada fix E a cada zoom: o halo é medida de CHÃO, então
+     aproximar a pinça tem que engordá-lo na tela — senão ele mentiria a
+     precisão em todo zoom que não fosse aquele em que o fix chegou. */
+  function vestirEu(casa) {
+    if (!casa || !casa.eu) return;
+    let el;
+    try { el = casa.eu.getElement(); } catch (_) { return; }
+    const fix = ultimoFix || {};
+    const mpp = metrosPorPixel(casa, Number(fix.lat != null ? fix.lat : (ultimaPos || {}).lat) || 0);
+    // Sem precisão no fix o halo fica no tamanho de repouso da folha: some
+    // melhor um halo padrão que um halo que diz um número que ninguém mediu.
+    if (mpp && Number.isFinite(fix.precisaoM) && fix.precisaoM > 0) {
+      const px = Math.min(EU_HALO_MAX, Math.max(EU_HALO_MIN, (fix.precisaoM * 2) / mpp));
+      el.style.setProperty('--halo', `${Math.round(px)}px`);
+    }
+    const temRumo = Number.isFinite(fix.rumoGraus);
+    el.style.setProperty('--cone', temRumo ? '1' : '0');
+    if (temRumo) el.style.setProperty('--rumo', `${Math.round(fix.rumoGraus)}deg`);
+  }
+
   function moverEuNoPlano() {
     const casa = GARAGEM.get('geral');
     const eu = ultimaPos || ultimoFix;
     if (!casa || !eu || !Number.isFinite(eu.lat) || !Number.isFinite(eu.lng)) return;
     if (!casa.eu) {
       try {
-        casa.eu = new casa.gl.Marker({ color: '#3d8bff' })
+        const ponto = document.createElement('i');
+        ponto.className = 'eu-puck';
+        ponto.setAttribute('aria-label', 'Você está aqui');
+        casa.eu = new casa.gl.Marker({ element: ponto })
           .setLngLat([eu.lng, eu.lat]).addTo(casa.mapa);
       } catch (_) { casa.eu = null; return; }
+      vestirEu(casa);
       /* 🔴 O PRIMEIRO FIX ENQUADRA — UMA VEZ. O mapa nasce antes de existir GPS
          (numa garagem, bem antes) e nasce onde dá: no fallback da cidade, zoom
          12. Sem isto o motorista ganhava o marcador dele num mapa apontado pra
@@ -2830,6 +3138,9 @@
       return;
     }
     try { casa.eu.setLngLat([eu.lng, eu.lat]); } catch (_) { /* mapa saindo de cena */ }
+    // o ponto andou; o halo e o farol contam o fix NOVO — precisão velha
+    // desenhada em cima de posição nova é a tela mentindo devagar.
+    vestirEu(casa);
   }
 
   /* 🔴 PINO FORA DA TELA NÃO É PINO — é enfeite encostado na moldura. Com a
@@ -2892,6 +3203,11 @@
       palco.__hbxMapa = true;
       palco.__hbxMapaObj = casa.mapa;
       palco.classList.add('pronto');
+      // 🔴 O PALCO NOVO TAMBÉM É "COM MAPA". A folha desliga o "você está aqui"
+      // de DESENHO quando existe mapa de verdade (`.mapa-palco.com-mapa>.eu-puck`)
+      // — sem esta linha o transplante levava o mapa pra um palco que ainda se
+      // dizia vazio, e as duas peças podiam aparecer juntas.
+      palco.classList.add('com-mapa');
       acertarLuz(casa);
       sincronizarPinos(casa);
       if (nome === 'gps') { desenharTraco(casa.mapa); cameraDaNavegacao(); return; }
@@ -2931,6 +3247,21 @@
     MONTANDO.delete(nome);
     palco.__hbxMapa = true;
     palco.__hbxMapaObj = mapa;
+    // existe mapa de verdade: o "você está aqui" de DESENHO sai de cena (ver
+    // `.mapa-palco.com-mapa>.eu-puck` na folha). Posição inventada é a pior
+    // mentira que esta tela pode contar, e esta é a 2ª das duas travas.
+    palco.classList.add('com-mapa');
+
+    /* O ZOOM MEXE EM DUAS PEÇAS, e as duas por serem MEDIDA e não enfeite: o
+       rebaixamento dos pinos (a régua da quantidade × zoom) e o halo do "eu"
+       (precisão em metros vale pixels diferentes em cada zoom). Só troca de
+       classe e de variável de CSS — nada aqui recria marcador durante a pinça. */
+    mapa.on('zoom', () => {
+      const casa = GARAGEM.get(nome);
+      if (!casa) return;
+      acertarPinos(casa);
+      vestirEu(casa);
+    });
 
     mapa.on('load', () => {
       palco.classList.add('pronto');             // o desenho de espera se apaga
@@ -4479,6 +4810,11 @@
        na memória (nada de rede) e só UMA vez — `previaComGps` fecha a porta;
        repintar a cada fix seria a lista tremendo debaixo do dedo dele. */
     if (!previaComGps && telaAtual() === 'montagem') publicarPrevia();
+    // Chegou fix: a barra do mapa não tem mais o que dizer sobre GPS e cede a
+    // linha pro fato do dia (§ publicarGps). É aqui e não no `armarGps` porque
+    // "armado" não é "achou" — quem tira o "Procurando você…" da tela é a
+    // posição de verdade.
+    publicarGps();
     // A seta do mapa 2D anda aqui, e só aqui: é um `setLngLat` num marcador que
     // já existe — nem repinte, nem câmera, nem tile novo. A tela principal da
     // rota mostrando onde o motorista está AGORA custa isto.
@@ -4500,6 +4836,60 @@
       gpsWatch = navigator.geolocation.watchPosition(aoFix, aoErroGps, GPS_OPCOES);
       gpsNegado = false;
     } catch (_) { gpsWatch = null; }
+    publicarGps();
+  }
+
+  /* 🔴 DÁ PRA SABER SEM PERGUNTAR — e é essa a diferença entre ligar o GPS e
+     dar um susto em quem abriu o app (09/08, dono na tela inicial da rota:
+     *"não tem pino de onde estou"*).
+
+     O que havia era `armarGps()` no BOOT, cru: um `watchPosition` disparado
+     antes de qualquer tela existir. No aparelho isso não abre diálogo (o
+     `onGeolocationPermissionsShowPrompt` do Kotlin nega sozinho quando a
+     permissão do Android não está na mão), mas QUEIMA o estado — o erro de
+     código 1 chega, `gpsNegado` vira true e o app passa o resto da sessão
+     achando que foi recusado, sem ninguém ter perguntado nada. Num navegador
+     comum é pior: é o diálogo do sistema na cara de quem só abriu o app.
+
+     `navigator.permissions.query` responde "granted/prompt/denied" SEM abrir
+     diálogo nenhum. Então a regra fica honesta: já concedida ⇒ liga o watch e o
+     ponto anda sozinho; não concedida ⇒ NÃO se pede aqui — quem pede é o dedo,
+     no botão-alvo ou na própria barra do mapa, que é onde o pedido tem assunto.
+     Sem a API (WebView velho) ninguém arma no boot: o desfecho é a barra dizendo
+     que a localização está desligada, e um toque resolve. Ficar sem pedir é
+     recuperável com um toque; pedir fora de hora não tem desfazer. */
+  function estadoDaPermissao() {
+    try {
+      if (!navigator.permissions || !navigator.permissions.query) return Promise.resolve(null);
+      return navigator.permissions.query({ name: 'geolocation' })
+        .then((s) => (s && s.state) || null, () => null);
+    } catch (_) { return Promise.resolve(null); }
+  }
+
+  function armarGpsSeConcedido() {
+    estadoDaPermissao().then((estado) => {
+      if (estado === 'granted') armarGps();
+      else publicarGps();
+    });
+  }
+
+  /* 🔴 O ESTADO DO GPS ERA UMA CHAVE MORTA. O mock desenhou os três estados da
+     barra do mapa (`DADOS.rota.gps`: '' / 'procurando' / 'negado', com a barra
+     virando BOTÃO no 'negado') e ninguém deste lado do fio jamais escreveu o
+     campo — casca prometendo pele em peça que não existe, a armadilha de
+     [[chave-morta-vira-parede]]. Aqui ele passa a ser escrito, e por um dono só.
+     A régua é o que o app REALMENTE tem, nunca o que ele gostaria de ter:
+       tenho fix          → '' (nada a dizer: o ponto está na tela)
+       watch ligado, sem fix → 'procurando' (informa, não alarma — passa sozinho)
+       sem watch          → 'negado' (a barra vira a porta que resolve)
+     "Nunca perguntei" cai no mesmo 'negado' de propósito: pro motorista o fato
+     é o mesmo — o app não sabe onde ele está e o caminho de saída é a permissão
+     do Android. Inventar um quarto estado seria explicar a nossa contabilidade
+     interna pra quem só quer ver o próprio ponto. */
+  function publicarGps() {
+    if (typeof window.usarDados !== 'function') return;
+    const estado = ultimoFix ? '' : (gpsWatch !== null ? 'procurando' : 'negado');
+    try { window.usarDados('rota', { gps: estado }); } catch (_) { /* sem seam */ }
   }
 
   /* Só o NEGADO (código 1) desarma. Timeout e "posição indisponível" são a
@@ -4512,9 +4902,33 @@
       gpsWatch = null;
     }
     gpsNegado = true;
+    // A barra do mapa passa a dizer o que acabou de acontecer — e como ela é
+    // BOTÃO no 'negado', o motorista sai dali com um toque em vez de ficar
+    // olhando um mapa mudo (§ publicarGps).
+    publicarGps();
     // Fora da navegação a permissão não é cobrada: diálogo de localização na
     // cara de quem abriu o app pra ver o chat é pedido fora de hora.
     if (naNavegacao()) garantirGps();
+  }
+
+  /* 🔴 O PEDIDO QUE NASCE DO DEDO. O botão-alvo do mapa 2D e a barra de
+     "Localização desligada" são as duas portas por onde o motorista PEDE a
+     própria posição — e pedido dele é a única hora em que o diálogo do Android
+     não é invasão.
+     Por que não reusar o `garantirGps` puro: ele só chama o nativo depois de já
+     ter levado um "negado" (`gpsNegado`), e na tela do mapa esse negado pode
+     ainda não ter chegado — o `aoErroGps` só reencaminha em NAVEGAÇÃO. O toque
+     ficaria sem efeito nenhum na primeira vez, que é justamente a vez que
+     importa. Aqui se pergunta o estado ANTES (sem diálogo) e se decide: já
+     concedida, é só armar; não concedida, o nativo pede — uma vez por sessão. */
+  function pedirGpsNoToque() {
+    if (gpsWatch !== null) return;              // já ligado: não há o que pedir
+    estadoDaPermissao().then((estado) => {
+      if (estado === 'granted') { armarGps(); return; }
+      if (gpsPedido) { avisarSemGps(); return; }
+      gpsPedido = true;
+      try { window.HBX.requestLocationPermission(); } catch (_) { avisarSemGps(); }
+    });
   }
 
   function garantirGps() {
@@ -4541,10 +4955,14 @@
   // motorista não acendia nada até ele fechar e abrir o app.
   window.HBXApp.locationPermissionChanged = function (concedida) {
     if (concedida) { gpsNegado = false; armarGps(); return; }
+    publicarGps();
     avisarSemGps();
   };
 
-  armarGps();
+  /* No boot só se LIGA o que já foi concedido — nunca se PEDE (§ estadoDaPermissao).
+     Era `armarGps()` cru aqui, e era ele quem queimava o "negado" antes de
+     qualquer tela existir. */
+  armarGpsSeConcedido();
 
   /* A BUSCA É DE TECLA, NÃO DE CLIQUE — por isso não cabe no mapa de ações.
      Espera o dedo parar (350ms) antes de ir ao servidor: mandar a cada letra
@@ -4608,6 +5026,27 @@
       // Voltar apontar pra tela certa (mesma lei do `ficha.volta`). Depois do
       // `irDoMock` o `atual` já é o destino, e a origem estaria perdida.
       const veioDe = telaAtual();
+      /* 🔴 JÁ ESTOU NESTA TELA ⇒ NÃO HOUVE ENTRADA (09/08, "TELA REMONTANDO
+         TELA"). O `ir` do mock recusa o destino igual ao atual (`k===atual`) e
+         não repinta nada — mas ESTE embrulho seguia rodando os efeitos de
+         ABERTURA assim mesmo, e o de 'montagem' é o mais caro que existe aqui:
+         ele RE-RODA o otimizador (`montarRota`, que fala com o servidor) e
+         reenche a lista inteira. Um `ir('rota')` no fim do Iniciar, ou um
+         `ir('montagem')` de quem já estava nela, virava trabalho de tela cheia
+         sem tela nenhuma ter trocado.
+         🔴 A CURA É DA FAMÍLIA, não deste chamador: efeito de ENTRADA é da
+         entrada, e a régua mora na única porta por onde toda tela entra. Curar
+         só o `iniciarRota` seria o bug trocando de endereço — a lei de 08/08
+         ([[o-pisca-era-a-tela-entrando-de-novo]]).
+         Quem precisa de dado fresco na tela em que já está pede pelo SEAM
+         (`carregarRota`/`usarDados`), que é o caminho que MORFA o rodapé em vez
+         de reconstruir a tela. */
+      if (tela === veioDe) return irDoMock.apply(this, arguments);
+      /* 🔴 SAIR DA MONTAGEM SEM MANDAR GRAVAR JOGA O RASCUNHO FORA (dono, 09/08:
+         "eu ainda nem confirmei q queria nada"). As telas que CONTINUAM a mesma
+         decisão — a porta de escolher gente, a ficha do cliente, o cadastro —
+         não contam como desistir: o dedo ainda está montando o dia. */
+      if (veioDe === 'montagem' && !MANTEM_RASCUNHO.has(tela)) descartarRascunho();
       const r = irDoMock.apply(this, arguments);
       if (tela === 'clientes') carregarClientes();
       if (tela === 'produtos') carregarProdutos();
@@ -4646,12 +5085,20 @@
          `enquadrarGeral` também não tinha o motorista pra pôr na moldura. O
          "pedir fora de hora" que este arquivo evita é pedir no boot ou na tela
          de chat — numa tela que É um mapa, a localização é o assunto. Mesma
-         régua do "Navegar" e da Montagem: cobra-se onde serve. */
+         régua do "Navegar" e da Montagem: cobra-se onde serve.
+
+         🔴 MAS ABRIR A TELA NÃO É PEDIR (09/08). Aqui era `garantirGps()`, que
+         chama o diálogo do Android — quer dizer que ENTRAR na aba Rota abria um
+         pedido de permissão sem ninguém ter tocado em nada. `armarGpsSeConcedido`
+         faz a metade que serve e nenhuma a mais: quem já concedeu ganha o ponto
+         andando na hora, sem diálogo; quem não concedeu vê a barra dizer que a
+         localização está desligada, e o pedido nasce do DEDO — no botão-alvo ou
+         na própria barra (§ pedirGpsNoToque). */
       /* 🔴 ...E O CAMINHO ENTRE OS PINOS. Entrar aqui TIRA O BILHETE do traço
          (§ tracoDoPlano): um pedido, na mesma porta com os mesmos freios, pra
          a tela principal não mostrar mais ponto solto. Se o GPS ainda não deu
          fix, o bilhete espera o primeiro — não há relógio nenhum atrás disto. */
-      if (tela === 'rota') { garantirGps(); planoQuerTraco = true; tracoDoPlano(); }
+      if (tela === 'rota') { armarGpsSeConcedido(); planoQuerTraco = true; tracoDoPlano(); }
       if (tela === 'chat') aoAbrirChat();
       // Cadastro NASCE EM BRANCO, sempre. Formulário que guarda o cliente
       // anterior é a receita de cadastrar duas vezes a mesma pessoa — e aqui
@@ -7187,6 +7634,47 @@
       return publicarRapida();
     }
     const volta = r.volta;
+
+    /* ------------------------------------------------------------------------
+       🔴 ROTA POR MONTAR ⇒ ISTO É RASCUNHO, NÃO GRAVAÇÃO (dono, 09/08: "eu ainda
+       nem confirmei q queria nada, ele meio q já adiciona").
+       Entrou pela Montagem e a rota ainda não saiu pra rua? Então marcar cliente
+       é DECIDIR, e decidir não escreve na base: os escolhidos vão pro rascunho,
+       aparecem na lista da Montagem, e viram entrega no "Salvar rota" / "Montar
+       rota" / "Iniciar rota" (ver `materializarRascunho`). Voltar joga fora.
+       A exceção mora logo abaixo e é do domínio: com a rota VIVA na rua o
+       propósito do gesto é somar a ela agora — lá não existe momento "salvar". */
+    if (volta === 'montagem' && !rotaNaRua()) {
+      const nomes = new Map((r.lista || []).map((c) => [String(c.id), c]));
+      const jaNoRascunho = new Set(RASCUNHO.map((c) => String(c.id)));
+      let novos = 0;
+      ids.forEach((id) => {
+        if (jaNoRascunho.has(String(id))) return;
+        const c = nomes.get(String(id)) || {};
+        RASCUNHO.push({
+          id: String(id),
+          nome: String(c.name || 'Cliente'),
+          endereco: String(c.endereco || ''),
+          bairro: String(c.cidade || ''),
+          ...(typeof c.lat === 'number' && typeof c.lng === 'number' ? { lat: c.lat, lng: c.lng } : {}),
+        });
+        novos += 1;
+      });
+      rapida = null;
+      // O chip de HOJE pode passar a existir só por causa do rascunho — é ele
+      // que dá a porta de volta quando o dedo for espiar outro dia.
+      publicarMontarDias();
+      await voltarDaAvulsa(volta);
+      const q = `${novos} ${novos === 1 ? 'parada' : 'paradas'}`;
+      return window.portao({
+        tom: 'ok', ico: 'check', titulo: `${q} na lista`,
+        // O verbo do recibo é o verbo do estado: nada foi gravado ainda, e
+        // prometer "está na rota" seria a mesma mentira de antes com outra cara.
+        sub: 'Ainda dá pra mexer. Toque em "Iniciar rota" pra valer.',
+        acoes: [['Fechar', 'principal', true]],
+      });
+    }
+
     r.salvando = true; r.aviso = ''; publicarRapida();
 
     const entraram = [];
@@ -7807,7 +8295,19 @@
     // O único botão da beirada do mapa 2D (a tela principal da rota). Ele existe
     // porque o dedo pode levar o mapa pra qualquer lugar e nada ali o traz de
     // volta: não há câmera automática no palco "geral", de propósito.
-    'mapa-enquadrar': () => { enquadrarPlano(); },
+    /* 🔴 O BOTÃO-ALVO É A PORTA DA LOCALIZAÇÃO, NÃO SÓ UMA CÂMERA (09/08). Ele
+       enquadrava e pronto — e num dia SEM rota o que ele promete ("Centralizar
+       em mim") depende de uma posição que o app pode não ter: sem fix, o toque
+       não fazia absolutamente nada e o motorista tocava de novo, e de novo.
+       Agora ele faz as duas metades, nesta ordem: GARANTE o GPS (pedindo a
+       permissão ao Android se ainda não houver — e este é o toque que autoriza
+       o pedido, § pedirGpsNoToque) e enquadra com o que já existe. Quando o fix
+       chegar depois, `moverEuNoPlano` cria o marcador e enquadra UMA vez — o
+       "centra" acontece sozinho, sem este botão precisar esperar por nada. */
+    'mapa-enquadrar': () => { pedirGpsNoToque(); enquadrarPlano(); },
+    // A barra do mapa vira BOTÃO quando a localização está desligada (§ T.rota
+    // no mock). É a mesma porta do alvo: informação e saída na mesma peça.
+    'gps-ligar': () => { pedirGpsNoToque(); },
     'aviso-chegada': () => virarChave('avisoChegandoEnabled'),
     // As 6 do dono. Uma chave = um campo = um PATCH, sem lote: assim o que
     // falhou fica evidente e o resto não volta atrás junto.

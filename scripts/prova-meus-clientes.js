@@ -153,31 +153,32 @@ const eh = (nome, cond) => (cond ? ok : falhou).push(nome);
     sub: (document.querySelector('.portao .sub') || {}).textContent,
     tela: (function () { try { return atual; } catch (e) { return null; } })(),
   }));
-  eh('3 POSTs em /logistica/entregas', t7.posts.length === 3);
-  eh('todos com paraMinhaRota', t7.posts.every((c) => c && c.paraMinhaRota === true && c.quantidade === 1));
-  // O poll de recados tambem faz POST — a regua e a ORDEM entre as duas portas
-  // que importam, nao "o ultimo POST da pagina".
-  const iPlanejar = t7.ordem.findIndex((c) => String(c).indexOf('/logistica/rota/planejar') === 0);
-  const iUltimaEntrega = t7.ordem.map((c) => String(c)).lastIndexOf('/logistica/entregas');
-  eh('planejou 1x DEPOIS de criar', t7.planejou === 1 && iPlanejar > iUltimaEntrega);
-  eh('recibo diz "3 paradas na rota"', t7.titulo === '3 paradas na rota');
-  eh('recibo promete o Iniciar', /é só iniciar/.test(t7.sub || ''));
+  /* 🔴 O CONTRATO MUDOU EM 09/08, E ESTA PROVA GUARDAVA O ANTIGO.
+     Ela cobrava "3 POSTs em /logistica/entregas" no toque do pé — que é
+     exatamente o defeito que o dono reprovou no celular: *"eu ainda nem
+     confirmei q queria nada, ele meio q já adiciona"*. Com a rota AINDA NÃO
+     INICIADA, escolher cliente virou RASCUNHO: nada vai ao servidor até
+     "Montar rota" / "Iniciar rota" (ver `materializarRascunho` na ponte, e a
+     cobrança ponta a ponta em `prova-fluxo-rota.js`).
+     A entrada daqui é o boot (`veioDe` não é 'rota' nem 'rotalista'), então
+     `rapida.volta` é 'montagem' — o caminho do rascunho. */
+  eh('escolher NAO grava: zero POST em /logistica/entregas', t7.posts.length === 0);
+  eh('escolher NAO planeja a rota', t7.planejou === 0);
+  eh('recibo conta as 3 na LISTA, nao "na rota"', t7.titulo === '3 paradas na lista');
+  eh('recibo diz que ainda da pra mexer', /Ainda dá pra mexer/.test(t7.sub || ''));
+  eh('recibo aponta o Iniciar como o que vale', /Iniciar rota/.test(t7.sub || ''));
   eh('volta pra Montagem', t7.tela === 'montagem');
 
-  await p.evaluate(() => { window.__falhar = 'c3'; window.__chamadas = []; });
-  await p.evaluate(() => window.ir('rapida'));
-  await p.waitForTimeout(700);
-  await marcar(0); await marcar(2);
-  await p.evaluate(() => document.querySelector('[data-acao="rapida-adicionar-escolhidos"]').click());
-  await p.waitForTimeout(1500);
+  /* O rascunho aparece na lista da Montagem — sem isto a escolha dele viraria
+     fé: 3 marcados e uma tela que não os mostra. */
   const t8 = await p.evaluate(() => ({
-    titulo: (document.querySelector('.portao h3') || {}).textContent,
-    sub: (document.querySelector('.portao .sub') || {}).textContent,
-    tom: (document.querySelector('.portao') || {}).className,
+    stops: document.querySelectorAll('.stops .stop').length,
+    nomes: [...document.querySelectorAll('.stops .stop .who strong')].map((e) => e.textContent.trim()),
   }));
-  eh('falha parcial NAO diz "nao deu certo"', t8.titulo === '1 parada na rota');
-  eh('falha parcial nomeia quem ficou fora', /Alfredo/.test(t8.sub || ''));
-  eh('falha parcial e ALERTA, nao ok', /alerta/.test(t8.tom || ''));
+  eh('os 3 escolhidos APARECEM na Montagem', t8.stops === 3);
+  // QUEM entrou é do dedo; a SEQUÊNCIA é do otimizador (e do desmarca/remarca
+  // logo acima) — cobrar ordem aqui seria cobrar a decisão de outro dono.
+  eh('e sao os 3 que o dedo marcou', t8.nomes.slice().sort().join('|') === ['Larissa Ype', 'Alfredo', 'Ana Alice'].sort().join('|'));
 
   await b.close();
   console.log('\n=== PROVA: porta "Meus clientes" ===');

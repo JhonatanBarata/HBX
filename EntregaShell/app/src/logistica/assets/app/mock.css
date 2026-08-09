@@ -95,6 +95,19 @@ button,input{font:inherit;color:inherit}
   --map-fundo:var(--bg-2); --map-quadra:#0d1727; --map-rua2:#16223a;
   --map-parque:#0f2418; --map-pino:#0c1526; --map-pino-tinta:#eaf6d5;
   --map-rota:var(--lime); --map-rota-borda:#4f8f14; --map-leito:#1d2c47;
+  /* 🔴 O ANEL DO PINO VIROU TOKEN PRÓPRIO, e não por capricho: MEDIDO, a borda
+     lima contra o chão do mapa CLARO dava 2,83:1 — abaixo do AA de peça gráfica
+     (3,0). No escuro a mesma lima dá 11,61:1, então o problema era só de uma
+     pele, e token único não tem como servir às duas.
+     Aqui ele continua sendo a lima da ROTA (o pino é ponto DA rota, e a cor diz
+     isso). Sobre a fita a lima some, claro — e é aí que o CHEIO do pino assume:
+     `--map-pino` contra a fita mede 11,24:1. É assim que todo mapa de rua
+     resolve, com DUAS tintas: onde uma se perde, a outra desenha a silhueta.
+     Uma tinta só não resolveria nem em tese — pra bater 3,0 contra o chão
+     (#0a1120) e contra a fita (#9ede2a) ao mesmo tempo, a luminância teria que
+     morar numa faixa de 0,14 a 0,19, que é cinza-chumbo: passaria na conta e
+     mentiria a cor da rota. */
+  --map-pino-anel:var(--map-rota);
   /* A CABEÇA DA COBRA — a ponta acesa que viaja na frente do traço quando o
      mapa se desenha. É a única cor do mapa que só existe DURANTE a cena, e
      ela se vira com CONTRASTE: não há halo nem filtro (ver a folha). */
@@ -1228,6 +1241,20 @@ button,input{font:inherit;color:inherit}
 .plano-bar .f b{font-weight:500}
 .plano-bar .f small{color:var(--ink-2);font-size:12.5px}
 .plano-bar .ghost{flex:0 0 auto}
+/* 🔴 O DIA POR MONTAR — a barra cresce pra caber a segunda linha, e só nesse
+   estado. Barra de duas linhas é o desenho dizendo "aqui não tem nada rolando";
+   nos outros estados ela volta a ser a faixa fina de um fato só, que é o que uma
+   tela de mapa aguenta sem virar folha de texto. O `align-items` sai do centro:
+   com duas linhas, o ícone tem que casar com a PRIMEIRA, não com o meio do
+   bloco. */
+.plano-bar.estado{align-items:flex-start;padding:10px 12px}
+.plano-bar.estado .f{align-items:flex-start}
+.plano-bar.estado .f>svg{margin-top:1px}
+/* Vence o `.plano-bar .f span` (nowrap + ellipsis) por especificidade: aqui o
+   texto é uma COLUNA, e a dica pode quebrar em duas linhas num aparelho
+   estreito em vez de sumir com reticências no meio da frase. */
+.plano-bar .f .txt{display:flex;flex-direction:column;gap:2px;overflow:visible;white-space:normal}
+.plano-bar .f .txt em{font-style:normal;font-size:11.5px;line-height:1.32;color:var(--ink-2)}
 /* 🔴 UM BOTÃO SÓ NA BEIRADA, e ele tem trabalho: devolver o enquadramento da
    rota depois de o dedo levar o mapa embora. Zoom não entra — pinça é o gesto
    nativo do mapa, e dois botões redondos por cima do dia seriam cromo.
@@ -1243,6 +1270,11 @@ button,input{font:inherit;color:inherit}
 .plano-lado button{width:44px;height:44px;border-radius:50%;border:.7px solid var(--line);background:var(--glass);
   color:var(--blue-l);display:grid;place-items:center;cursor:pointer;
   box-shadow:0 4px 14px rgba(0,0,0,.24)}
+/* PROCURANDO VOCÊ — o alvo respira enquanto o GPS não deu fix (ver `T.rota`).
+   É pulso de OPACIDADE, não de tamanho: botão que incha e murcha embaixo do
+   polegar muda de alvo no meio do toque. Some sozinho quando o fix chega. */
+.plano-lado button.buscando{animation:alvoBusca 1.5s ease-in-out infinite}
+@keyframes alvoBusca{50%{opacity:.45}}
 
 /* ==========================================================================
    GPS EM NAVEGAÇÃO — o que todo navegador de rua faz e eu não tinha feito:
@@ -1275,6 +1307,39 @@ button,input{font:inherit;color:inherit}
    nunca fica pronto deixa o chão no ar, que é o desfecho honesto. */
 .mapa-palco .mapa-vivo{opacity:0}
 .mapa-palco.pronto .mapa-vivo{opacity:1;transition:opacity .32s ease}
+
+/* ==========================================================================
+   🔴 OS CHECKPOINTS DO MAPA 2D (09/08 — dono, sobre a rota montada: *"tela 2d
+   totalmente tosca, cadê os pontos os checkpoints?"*).
+
+   A pele do pino morava num `cssText` inline dentro da ponte: fora do alcance
+   do fiscal, fora do tema, e com as cores escritas à mão num arquivo de lógica.
+   Ela vem pra cá inteira. (O que fazia os pinos SUMIREM era outra coisa — a
+   folha do maplibre nunca era carregada e o marcador caía fora da tela; isso se
+   consertou na ponte, ver `cssDoMaplibre`.)
+
+   DUAS TINTAS, SEMPRE, porque o pino tem dois fundos possíveis e eles são
+   opostos: o chão do mapa e a FITA DA ROTA — e é sobre a fita que ele mais
+   aparece, já que parada é ponto DA rota. Medido (AA de peça gráfica = 3,0):
+     escuro  anel lima  vs chão 11,61 · cheio vs fita 11,24
+     claro   anel fundo vs chão 10,22 · anel      vs fita  3,61
+   Onde uma tinta se perde a outra desenha a silhueta — nunca as duas juntas.
+
+   🔴 E O PINO NÃO COME O DEDO. Marcador do maplibre nasce clicável; estes não
+   têm toque nenhum na ponte, então um arrasto que começasse em cima de um pino
+   simplesmente não arrastava o mapa. `pointer-events:none` devolve o gesto pro
+   mapa, que é de quem ele é. */
+.map-pino{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+  font:500 12px Inter,sans-serif;background:var(--map-pino);color:var(--map-pino-tinta);
+  border:1.5px solid var(--map-pino-anel);box-shadow:0 1px 4px rgba(0,0,0,.34);
+  pointer-events:none}
+/* O REBAIXADO — e ele só existe em dia CHEIO (acima de 12 paradas, ver
+   `acertarPinos` na ponte). Não é o pino encolhido: é outra peça, com o anel
+   mais GROSSO em proporção, porque o que sobra de um ponto de 14px é a borda.
+   O número sai (12px não cabe em 9px de miolo e viraria borrão), a silhueta
+   fica. Some o número, não some a parada. */
+.map-pino.min{width:14px;height:14px;border-width:2.5px;font-size:0;
+  box-shadow:0 1px 3px rgba(0,0,0,.4)}
 
 /* ==========================================================================
    🔴 ONDE EU ESTOU — três peças, e cada uma responde uma pergunta diferente
@@ -2330,6 +2395,15 @@ button,input{font:inherit;color:inherit}
      "mapa+fila bugado" da foto. Tinta do pino é token, como todo o resto. */
   --map-pino-tinta:#1c3d00;
   --map-rota:#5a9c10; --map-rota-borda:#3f7a00; --map-leito:#cfd8e6;
+  /* 🔴 AQUI O ANEL SAI DO VERDE, e a conta é que mandou (ver o token no escuro).
+     Sobre o chão claro (#e6ebf3) a lima do escuro dava 2,83:1 e reprovava; os
+     verdes da própria família também não fecham a conta INTEIRA — medidos, o
+     `--map-rota-borda` (#3f7a00) dá 4,39 contra o chão mas 1,55 contra a fita,
+     e nenhum tom de verde entre eles passa nos dois. #1c3d00 é o único que
+     fecha: 10,22 contra o chão e 3,61 contra a fita. Continua sendo verde — é
+     o verde no fundo do poço, a mesma tinta que o número do pino já usa nesta
+     pele — então a peça não muda de família, só de profundidade. */
+  --map-pino-anel:#1c3d00;
   /* No claro a cabeça INVERTE junto com o resto: sobre chão #e6ebf3 uma ponta
      branca não existiria. Azul cravado, que é o mesmo azul do "partida". */
   --map-cabeca:#0f4fc0;
