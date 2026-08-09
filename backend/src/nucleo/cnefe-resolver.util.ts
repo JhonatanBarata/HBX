@@ -337,6 +337,16 @@ export function escolherPinoRua(rows: CnefeRow[], numeroPedido: number, input: C
      Então o CEP prova UMA rua: a DOMINANTE (a que tem mais portas nele). O vizinho só
      vale dentro dela; empate técnico entre duas ruas ⇒ null, que é "não sei". */
   if (input.cepDoCadastro) {
+    /* O NOME AINDA TEM A PRIMEIRA PALAVRA — ele só perdeu o VETO. Quem está escrito
+       certo continua curando pelo caminho de sempre, inclusive na rua MINORITÁRIA do
+       CEP (sem isto, o cliente legítimo da AVENIDA 64 pararia de curar por causa da
+       RUA DEZENOVE — o conserto viraria regressão). A dominante abaixo é o SOCORRO de
+       quem digitou o nome errado, não o novo dono da decisão. */
+    const peloNome = viaPedida
+      ? candidatos.filter((r) => viasCompativeisCnefe(viaPedida, r.logradouro))
+      : [];
+    if (peloNome.length) candidatos = peloNome;
+    else {
     const porLogradouro = new Map<string, typeof candidatos>();
     for (const r of candidatos) {
       const chave = String(r.logradouro ?? '').trim().toUpperCase();
@@ -349,6 +359,7 @@ export function escolherPinoRua(rows: CnefeRow[], numeroPedido: number, input: C
       // Dominante de verdade: pelo menos o dobro da 2ª. Sem folga, não há dona.
       if (ordenadas[0].length < ordenadas[1].length * 2) return null;
       candidatos = ordenadas[0];
+    }
     }
   }
 
