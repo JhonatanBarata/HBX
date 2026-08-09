@@ -75,11 +75,12 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
 
   constructor(
     private readonly prisma: PrismaService,
-    // 🔴 A AGENDA V2 É O ÚNICO GERADOR (F1, 09/08). `gerarDia`/`getDiaPreview`
-    // não têm mais motor próprio: delegam pra cá, sem `if` nenhum. @Optional
-    // porque os testes legados instanciam este serviço só com o prisma pra
-    // exercitar o CRUD de vínculo — quem chamar gerar/prévia sem a Agenda
-    // recebe erro EXPLÍCITO (nunca um dia vazio calado).
+    // 🔴 A AGENDA V2 É O ÚNICO GERADOR (F1, 09/08) — e desde a F2 também a única
+    // DONA DO DIA: `gerarDia`/`getDiaPreview`/`definirDiasDoCliente` não têm
+    // motor próprio, delegam pra cá sem `if` nenhum. @Optional porque os testes
+    // legados instanciam este serviço só com o prisma pra exercitar o CRUD de
+    // vínculo — quem chamar gerar/prévia/definir-dias sem a Agenda recebe erro
+    // EXPLÍCITO (nunca um dia vazio calado).
     @Optional() private readonly agenda?: LogisticaAgendaService,
     // ESTOQUE NO APP (07/08, decisão do dono). @Optional pelo mesmo motivo do
     // `cargaEstoque` do logistica-rota.service: testes legados instanciam este
@@ -87,7 +88,7 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
     @Optional() private readonly estoque?: EstoqueService,
   ) {}
 
-  /** A Agenda V2 é obrigatória pra gerar/prever o dia — ausência é bug de wiring. */
+  /** A Agenda V2 é obrigatória pra gerar/prever/agendar o dia — ausência é bug de wiring. */
   private agendaOuErro(): LogisticaAgendaService {
     if (!this.agenda) {
       throw new BadRequestException('Agenda de entregas indisponível.');

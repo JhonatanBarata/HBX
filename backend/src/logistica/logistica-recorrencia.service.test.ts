@@ -26,7 +26,7 @@ function buildPrismaMock(vinculos: any[], contatos: any[] = []) {
   const entregas: any[] = [];
   const cpUpdates: any[] = [];
   const itensCriados: any[] = [];
-  // clona os vínculos p/ o update de proximaData ser observável sem mutar a fixture.
+  // clona os vínculos p/ o update ser observável sem mutar a fixture.
   const vinculosState = vinculos.map((v) => ({ ...v }));
 
   const cpDeletes: string[] = [];
@@ -140,9 +140,6 @@ test('remove: apaga o vínculo da própria empresa e devolve true', async () => 
       productId: 10,
       qtdPadrao: 1,
       precoAcordado: null,
-      frequenciaDias: null,
-      diasSemana: '1',
-      proximaData: null,
       product: { id: 10, name: 'Galão 20L', price: 10, priceCents: null },
       customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
     },
@@ -163,9 +160,6 @@ test('remove: vínculo de OUTRA empresa → false (company-scoped, não apaga)',
       productId: 10,
       qtdPadrao: 1,
       precoAcordado: null,
-      frequenciaDias: null,
-      diasSemana: '1',
-      proximaData: null,
       product: { id: 10, name: 'Galão 20L', price: 10, priceCents: null },
       customerProfile: { id: 'conta-1', name: 'Dona Maria', precoPadrao: null },
     },
@@ -271,10 +265,8 @@ test('listByCliente: ator sem cobrança recebe vínculo operacional sem preços'
             productId: 10,
             qtdPadrao: 2,
             precoAcordado: 15,
-            frequenciaDias: 7,
-            diasSemana: null,
-            proximaData: new Date('2026-07-20T00:00:00Z'),
             ativo: true,
+            localId: null,
             product: {
               id: 10,
               name: 'Galão',
@@ -286,6 +278,7 @@ test('listByCliente: ator sem cobrança recebe vínculo operacional sem preços'
         ];
       },
     },
+    logisticaPlanoEntrega: { findMany: async () => [] },
   };
 
   const result = await svc(prisma).listByCliente(7, 'cliente-1', GERENTE_SEM_COBRANCA);
@@ -295,6 +288,40 @@ test('listByCliente: ator sem cobrança recebe vínculo operacional sem preços'
   assert.equal('precoAcordado' in query.select, false);
   assert.equal('price' in query.select.product.select, false);
   assert.equal('priceCents' in query.select.product.select, false);
+});
+
+// 🔴 F2 (09/08) — O DIA VEM DO PLANO. Enquanto `ClienteProduto.diasSemana`
+// existia, a tela do cadastro e o traçar rota liam tabelas diferentes e
+// discordavam (medido em 05/08: filtro trazia SEG, legenda dizia "SEX/QUI/SÁB").
+// Agora o campo do DTO é PROJEÇÃO de `LogisticaPlanoEntrega.diaSemana`: uma
+// pergunta, uma resposta — e igual pra todos os vínculos, porque o dia é da
+// VISITA do cliente, nunca do produto.
+test('listByCliente: diasSemana é a UNIÃO dos dias do PLANO, nunca do vínculo', async () => {
+  let cpQuery: any;
+  const prisma: any = {
+    clienteProduto: {
+      findMany: async (args: any) => {
+        cpQuery = args;
+        return [
+          { id: 'cp-1', customerProfileId: 'cliente-1', productId: 10, qtdPadrao: 2, precoAcordado: 15, ativo: true, localId: null, product: { id: 10, name: 'Galão', unidade: 'un', price: 20, priceCents: 2000 } },
+          { id: 'cp-2', customerProfileId: 'cliente-1', productId: 11, qtdPadrao: 1, precoAcordado: null, ativo: true, localId: null, product: { id: 11, name: 'Água 5L', unidade: 'un', price: 8, priceCents: 800 } },
+        ];
+      },
+    },
+    logisticaPlanoEntrega: {
+      // fora de ordem e com repetido de propósito: sai normalizado.
+      findMany: async () => [{ diaSemana: 5 }, { diaSemana: 1 }, { diaSemana: 5 }],
+    },
+  };
+
+  const result = await svc(prisma).listByCliente(7, 'cliente-1', { role: 'ADMIN', canViewBilling: true });
+  assert.equal(result[0].diasSemana, '1,5');
+  assert.equal(result[1].diasSemana, '1,5', 'o dia é do CLIENTE — todo vínculo enxerga o mesmo');
+  assert.equal(
+    'diasSemana' in cpQuery.select,
+    false,
+    'o vínculo NÃO pode nem ser consultado por dia — a coluna morreu na F2',
+  );
 });
 
 test('catálogo e vínculo preservam preços para dono/master', async () => {
@@ -313,14 +340,13 @@ test('catálogo e vínculo preservam preços para dono/master', async () => {
           productId: 10,
           qtdPadrao: 2,
           precoAcordado: 19,
-          frequenciaDias: 7,
-          diasSemana: null,
-          proximaData: null,
           ativo: true,
+          localId: null,
           product: { id: 10, name: 'Galão', unidade: 'un', price: null, priceCents: 2150 },
         },
       ],
     },
+    logisticaPlanoEntrega: { findMany: async () => [] },
   };
 
   const produtos = await svc(prisma).listProdutos(7, owner);

@@ -249,7 +249,7 @@ test('vender: preço NÃO editado nunca reescreve o cadastro do cliente', async 
   assert.equal(gravados.length, 0);
 });
 
-test('vender: preço editado em cliente SEM vínculo cria o combinado sem dia (não inventa recorrência)', async () => {
+test('vender: preço editado em cliente SEM vínculo cria SÓ o preço combinado (não inventa recorrência)', async () => {
   const criados: any[] = [];
   const svc = new LogisticaFechamentoDiaService(
     prismaMock({
@@ -264,8 +264,14 @@ test('vender: preço editado em cliente SEM vínculo cria o combinado sem dia (n
   await svc.vender(5, { ...DTO_BASE, itens: [{ productId: 7, quantidade: 1, valorUnit: 9.5 }] });
   assert.equal(criados.length, 1);
   assert.equal(criados[0].precoAcordado, 9.5);
-  assert.equal(criados[0].diasSemana, null, 'sem dia = invisível pro gerar-dia');
-  assert.equal(criados[0].proximaData, null);
+  // 🔴 F2 (09/08): guardar preço não pode inventar recorrência — e agora isso é
+  // verdade POR CONSTRUÇÃO. O vínculo não tem mais coluna de cadência nenhuma
+  // pra preencher; quem coloca o cliente na rota é a visita (PlanoEntrega).
+  assert.deepEqual(
+    Object.keys(criados[0]).sort(),
+    ['companyId', 'customerProfileId', 'precoAcordado', 'productId', 'qtdPadrao'],
+    'o vínculo criado pelo fechamento é SÓ preço/quantidade — zero agenda',
+  );
 });
 
 // ── APAGAR A VENDA ERRADA (05/08) ────────────────────────────────────────────
@@ -634,9 +640,11 @@ function recorrenciaAgendaMocks() {
   const chamadas: any[] = [];
   const recorrencia = {
     vinculoEspelhoSnapshot: async () => ({ id: 'v1' }),
+    // F2 (09/08) — `definirDiasDoCliente` escreve o PLANO direto (era vínculo +
+    // espelho). A porta canônica virou UMA chamada só, e ela devolve os avisos.
     definirDiasDoCliente: async (_c: number, clienteId: string, dias: number[]) => {
       chamadas.push(['definir', clienteId, dias]);
-      return { vinculoIds: ['v1'], diasSemana: dias.join(',') };
+      return { vinculoIds: ['v1'], diasSemana: dias.join(','), avisos: [] };
     },
   } as any;
   const agenda = {
@@ -671,8 +679,8 @@ test('ouro nº1: cliente SEM dia nenhum + 2 datas distintas na página → dia p
         findFirst: async () => null,
         create: async () => ({}),
         update: async () => ({}),
-        // comDia (where.NOT) = 0; vínculos ativos = 1 (não precisa criar).
-        count: async (args: any) => (args?.where?.NOT ? 0 : 1),
+        // vínculos ativos = 1 (não precisa criar o do produto da venda).
+        count: async () => 1,
       },
     }) as any,
     logisticaMock() as any,
@@ -681,10 +689,9 @@ test('ouro nº1: cliente SEM dia nenhum + 2 datas distintas na página → dia p
   );
   await svc.vender(5, DTO_BASE);
   const diaHoje = isoWeekdayForDate(hoje);
-  assert.deepEqual(chamadas, [
-    ['definir', 'cli-1', [diaHoje]],
-    ['espelhar', 'v1'],
-  ]);
+  // 🔴 F2: UMA porta só. Antes eram duas escritas (vínculo + espelho) e a
+  // segunda podia falhar calada, deixando "dia na tela, cliente fora da rota".
+  assert.deepEqual(chamadas, [['definir', 'cli-1', [diaHoje]]]);
 });
 
 test('ouro nº1: cliente que JÁ tem dia cadastrado NUNCA é reescrito calado', async () => {

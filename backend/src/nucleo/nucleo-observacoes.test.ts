@@ -63,7 +63,7 @@ test('createConta: grava observacoes (trim + max 500)', async () => {
   const { prisma, store } = buildPrismaMock();
   const svc = new NucleoCadastroService(prisma as any);
 
-  await svc.createConta(1, { nome: 'Dona Maria', observacoes: '  Deixa na portaria.  ' } as any);
+  await svc.createConta(1, { nome: 'Dona Maria', observacoes: '  Deixa na portaria.  ', cep: '60000-000', numero: '10', endereco: 'Rua A' } as any);
   assert.equal(store.profiles[0].observacoes, 'Deixa na portaria.');
 });
 
@@ -71,7 +71,7 @@ test('createConta: observacoes muito longa é truncada em 500', async () => {
   const { prisma, store } = buildPrismaMock();
   const svc = new NucleoCadastroService(prisma as any);
 
-  await svc.createConta(1, { nome: 'Dona Maria', observacoes: 'x'.repeat(600) } as any);
+  await svc.createConta(1, { nome: 'Dona Maria', observacoes: 'x'.repeat(600), cep: '60000-000', numero: '10', endereco: 'Rua A' } as any);
   assert.equal(store.profiles[0].observacoes.length, 500);
 });
 
@@ -79,7 +79,7 @@ test('createConta: observacoes omitida nasce null', async () => {
   const { prisma, store } = buildPrismaMock();
   const svc = new NucleoCadastroService(prisma as any);
 
-  await svc.createConta(1, { nome: 'Dona Maria' } as any);
+  await svc.createConta(1, { nome: 'Dona Maria', cep: '60000-000', numero: '10', endereco: 'Rua A' } as any);
   assert.equal(store.profiles[0].observacoes, null);
 });
 

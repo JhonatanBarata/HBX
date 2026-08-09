@@ -66,6 +66,7 @@ type EmpresaDetail = {
   cnpj: string | null;
   document: string | null;
   endereco: string | null;
+  numero: string | null;
   cidade: string | null;
   uf: string | null;
   cep: string | null;
@@ -216,6 +217,7 @@ function Ficha({ id, onClose }: { id: string; onClose: () => void }) {
             email: data.email,
             phone: data.phone,
             endereco: data.endereco,
+            numero: data.numero,
             cidade: data.cidade,
             uf: data.uf,
             cep: data.cep,
@@ -395,6 +397,7 @@ function EmpresaContext({
             email: data.email,
             phone: data.phone,
             endereco: data.endereco,
+            numero: data.numero,
             cidade: data.cidade,
             uf: data.uf,
             cep: data.cep,

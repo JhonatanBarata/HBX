@@ -483,7 +483,10 @@ test('createConta: com endereço → semeia 1 LOCAL PRINCIPAL a partir do perfil
 test('createConta: SEM nenhum campo de endereço → NÃO semeia local', async () => {
   const { prisma, store } = buildSyncMock();
   const svc = new NucleoCadastroService(prisma as any);
-  await svc.createConta(7, { nome: 'Sem Endereço', whatsapp: '85988880000' });
+  // `isCliente: false` de propósito: desde 06/08 CLIENTE não entra sem endereço
+  // fechado (ver `exigirEnderecoFechado`), então "conta pelada" só existe como
+  // lead/fornecedor — e é justamente nela que o seed do local não tem o que semear.
+  await svc.createConta(7, { nome: 'Sem Endereço', whatsapp: '85988880000', isCliente: false });
   assert.equal(store.locais.length, 0, 'nada a semear');
 });
 
@@ -543,6 +546,7 @@ test('createConta idempotente: conta reimportada que JÁ tem principal → sincr
     whatsapp: '85999990000',
     endereco: 'Rua Nova',
     numero: '99',
+    cep: '60000-000',
     lat: -3.73,
     lng: -38.52,
     geoFonte: 'gps_cadastro',

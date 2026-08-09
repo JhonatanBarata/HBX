@@ -736,7 +736,13 @@ export class LogisticaAgendaService {
       const itensPorLocal = await this.itensDoCadastroPorLocal(companyId, clienteId);
       const planos = await this.prisma.logisticaPlanoEntrega.findMany({
         where: { companyId, customerProfileId: clienteId },
-        select: { id: true, localId: true, diaSemana: true, ativo: true },
+        select: {
+          id: true,
+          localId: true,
+          diaSemana: true,
+          ativo: true,
+          itens: { select: { productId: true, qtd: true, valorUnit: true } },
+        },
         orderBy: { createdAt: 'asc' },
       });
 
@@ -759,7 +765,15 @@ export class LogisticaAgendaService {
           const existente = planos.find((p) => (p.localId ?? null) === localId && p.diaSemana === dia);
           try {
             if (existente) {
-              await this.updatePlan(companyId, existente.id, { ativo: true, itens });
+              // 🔴 REAPROVEITAR NÃO PODE APAGAR: `updatePlan({itens})` REESCREVE a
+              // lista inteira. Item que o dono acrescentou pela tela da Agenda e
+              // não tem vínculo (troca pontual, brinde, item de outro catálogo)
+              // sumiria calado só por alguém remarcar o dia. Mescla: o cadastro
+              // manda no que é dele, o resto fica.
+              await this.updatePlan(companyId, existente.id, {
+                ativo: true,
+                itens: mesclarItensDaVisita(existente.itens, itens),
+              });
             } else {
               await this.createPlan(companyId, {
                 customerProfileId: clienteId,
@@ -2167,6 +2181,24 @@ function normalizeVisitDays(dias: unknown): number[] {
 /** Nome do dia pro aviso que o cadastro devolve/loga. */
 function diaNomeAgenda(dia: number): string {
   return DAY_NAMES[dia - 1] ?? String(dia);
+}
+
+/**
+ * Itens da visita = os que já estavam lá + os do cadastro. Produto que existe
+ * nos dois lados fica com a quantidade/preço do CADASTRO (é lá que o dono
+ * combina); produto que só existe na visita SOBREVIVE (nunca some calado).
+ */
+function mesclarItensDaVisita(
+  atuais: Array<{ productId: number; qtd: number; valorUnit: number | null }>,
+  doCadastro: AgendaPlanoItemDto[],
+): AgendaPlanoItemDto[] {
+  const porProduto = new Map<number, AgendaPlanoItemDto>();
+  for (const i of atuais) {
+    if (porProduto.has(i.productId)) continue; // duplicado na visita: 1 linha por produto
+    porProduto.set(i.productId, { productId: i.productId, qtd: i.qtd, valorUnit: Number(i.valorUnit || 0) });
+  }
+  for (const i of doCadastro) porProduto.set(i.productId, { ...i });
+  return [...porProduto.values()].slice(0, 50);
 }
 
 // ── FUSO (26/07) — a Agenda pensa em SÃO PAULO, nunca no fuso do processo ────────

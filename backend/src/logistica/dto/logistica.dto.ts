@@ -277,16 +277,23 @@ export class TipoComprovanteDto {
   clientKey?: string;
 }
 
-// ── LOGÍSTICA-MOBILE M2 — vínculo produto×cliente (recorrência) ──────────────
-// "O cliente X leva N do produto Y a cada Z dias, pelo preço P."
+// ── LOGÍSTICA-MOBILE M2 — vínculo produto×cliente ────────────────────────────
+// "O cliente X leva N do produto Y, neste local, pelo preço P."
 //
 // 🔴 27/07 (ordem do dono, SEM LEGADO): **dia da semana NÃO existe em produto.**
 // O dia é do CLIENTE (a visita) e se define em UM lugar só —
-// `PATCH /logistica/clientes/:id/dias`. Nenhum endpoint de vínculo aceita
-// `diasSemana`: no create o servidor COPIA os dias do cliente, no update o campo
-// nem é lido. Motivo real (medido em prod 27/07): com o dia preso ao produto,
-// dois produtos do mesmo cliente podiam cair em dias diferentes, a contagem do
-// dia virava contagem de produto e "terça com 7 clientes" aparecia como vazia.
+// `PATCH /logistica/clientes/:id/dias`. Motivo real (medido em prod 27/07): com
+// o dia preso ao produto, dois produtos do mesmo cliente podiam cair em dias
+// diferentes, a contagem do dia virava contagem de produto e "terça com 7
+// clientes" aparecia como vazia.
+//
+// 🔴 F2 (09/08): CADÊNCIA TAMBÉM SAIU DAQUI. `diasSemana`/`frequenciaDias`/
+// `proximaData` do `ClienteProduto` eram a agenda V1; a agenda mora inteira em
+// `LogisticaPlanoEntrega`. `frequenciaDias` e `proximaData` seguem DECLARADOS
+// abaixo e são IGNORADOS pelo serviço — o `ValidationPipe` global roda com
+// `forbidNonWhitelisted`, então apagar o campo daria 400 na cara de cliente já
+// publicado (tela /contatos, APK em campo). Quem ainda mandar sai no log.
+// PENDÊNCIA F5: tirar o campo da tela /contatos e só então destes DTOs.
 export class CreateClienteProdutoDto {
   @IsString()
   @MaxLength(60)
@@ -306,13 +313,14 @@ export class CreateClienteProdutoDto {
   @Min(0)
   precoAcordado?: number;
 
+  /** @deprecated ACEITO E IGNORADO (F2) — cadência mora em LogisticaPlanoEntrega. */
   @IsOptional()
   @IsInt()
   @Min(1)
   @Max(365)
   frequenciaDias?: number;
 
-  // ISO date; se omitido, o serviço calcula a próxima data pela frequência.
+  /** @deprecated ACEITO E IGNORADO (F2) — cadência mora em LogisticaPlanoEntrega. */
   @IsOptional()
   @IsString()
   @MaxLength(40)
@@ -344,6 +352,7 @@ export class UpdateClienteProdutoDto {
   @Min(0)
   precoAcordado?: number;
 
+  /** @deprecated ACEITO E IGNORADO (F2) — cadência mora em LogisticaPlanoEntrega. */
   @IsOptional()
   @IsInt()
   @Min(1)
@@ -352,6 +361,7 @@ export class UpdateClienteProdutoDto {
 
   // (sem `diasSemana`: dia é do CLIENTE — ver o cabeçalho do Create acima)
 
+  /** @deprecated ACEITO E IGNORADO (F2) — cadência mora em LogisticaPlanoEntrega. */
   @IsOptional()
   @IsString()
   @MaxLength(40)

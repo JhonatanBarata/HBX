@@ -141,7 +141,7 @@ test('BUG 1: createConta grava searchName sem acento (create)', async () => {
   const { prisma, store } = buildPrismaMock();
   const svc = new NucleoCadastroService(prisma as any);
 
-  await svc.createConta(1, { nome: 'Déia Conceição' } as any);
+  await svc.createConta(1, { nome: 'Déia Conceição', cep: '60000-000', numero: '10', endereco: 'Rua A' } as any);
   const row = store.profiles.find((p) => p.name === 'Déia Conceição');
   assert.ok(row, 'conta deveria ter sido criada');
   assert.equal(row.searchName, normalizeSearch('Déia Conceição'));
@@ -152,9 +152,9 @@ test('BUG 1: createConta grava searchName no ramo UPDATE (idempotência por tele
   const { prisma, store } = buildPrismaMock();
   const svc = new NucleoCadastroService(prisma as any);
 
-  await svc.createConta(1, { nome: 'André', whatsapp: '85999990000' } as any);
+  await svc.createConta(1, { nome: 'André', whatsapp: '85999990000', cep: '60000-000', numero: '10', endereco: 'Rua A' } as any);
   // mesma empresa + mesmo telefone → resolve pro MESMO registro (ramo update)
-  await svc.createConta(1, { nome: 'André Souza', whatsapp: '85999990000' } as any);
+  await svc.createConta(1, { nome: 'André Souza', whatsapp: '85999990000', cep: '60000-000', numero: '10', endereco: 'Rua A' } as any);
 
   assert.equal(store.profiles.length, 1, 'idempotência por telefone: não deve duplicar');
   assert.equal(store.profiles[0].name, 'André Souza');

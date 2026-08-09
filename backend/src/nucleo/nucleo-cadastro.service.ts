@@ -322,6 +322,7 @@ export class NucleoCadastroService {
         cnpj: true,
         document: true,
         endereco: true,
+        numero: true,
         cidade: true,
         uf: true,
         cep: true,
@@ -357,6 +358,7 @@ export class NucleoCadastroService {
       cnpj: row.cnpj ?? null,
       document: row.document ?? null,
       endereco: row.endereco ?? null,
+      numero: row.numero ?? null,
       cidade: row.cidade ?? null,
       uf: row.uf ?? null,
       cep: row.cep ?? null,
@@ -1479,6 +1481,33 @@ export class NucleoCadastroService {
     // PR18072026 W1 — observação livre (trim + max 500); string vazia limpa (null).
     if (input.observacoes !== undefined) data.observacoes = normalizeObservacoes(input.observacoes);
 
+    /* 🔴 A REGRA DE ENDEREÇO FECHADO TAMBÉM VALE NA EDIÇÃO (09/08, ordem do dono:
+       "faça o cadastro recusar sem CEP/número").
+       Ela existia desde 06/08 — e só no `createConta`. Por isso a base continuou
+       ganhando buraco: dava pra criar a conta fechada e APAGAR o CEP no PATCH
+       seguinte, e dava pra ligar `isCliente` numa conta que entrou como lead sem
+       endereço nenhum. Medido em produção na company 41: 91 dos 225 clientes sem CEP.
+
+       Duas escolhas de propósito:
+       · A conta é julgada pelo RESULTADO (o que já está salvo + o que veio no corpo),
+         nunca só pelo corpo — senão trocar o telefone de um cliente completo
+         reprovaria por "sem CEP" que ele nunca deixou de ter.
+       · Só cobra quando o PATCH ENCOSTA no endereço, ou quando a conta VIRA cliente.
+         Editar nome/telefone de um cadastro legado incompleto continua passando: o
+         que está barrado é criar buraco novo e é fechar o endereço pela metade. */
+    const seraCliente = input.isCliente !== undefined ? Boolean(input.isCliente) : Boolean(found.isCliente);
+    const virouCliente = input.isCliente === true && !found.isCliente;
+    if (seraCliente && (enderecoEscritoTocado(input) || virouCliente)) {
+      exigirEnderecoFechado(
+        {
+          cep: input.cep !== undefined ? input.cep : found.cep,
+          numero: input.numero !== undefined ? input.numero : found.numero,
+          endereco: input.endereco !== undefined ? input.endereco : found.endereco,
+        },
+        true,
+      );
+    }
+
     const updated = await this.prisma.customerProfile.update({
       where: { id: found.id },
       data,
@@ -1737,9 +1766,16 @@ export class NucleoCadastroService {
     if (!companyId || !customerProfileId) return null;
     const conta = await this.prisma.customerProfile.findFirst({
       where: { id: String(customerProfileId).trim(), companyId },
-      select: { id: true },
+      select: { id: true, isCliente: true },
     });
     if (!conta) return null;
+
+    /* 🔴 O LOCAL É A PORTA — e era a porta SEM GUARDA (09/08).
+       `resolverCoordenadaMultilocal` lê o LOCAL primeiro: um cliente com perfil
+       perfeito e um local sem CEP entrega pelo local, e o local é que manda. A regra
+       de endereço fechado nascera só no `createConta`, então a segunda casa do
+       cliente entrava por aqui sem CEP nenhum e desfazia o que o perfil garantia. */
+    exigirEnderecoFechado(input, Boolean(conta.isCliente));
 
     // 1º local ativo nasce principal (ou quando o cliente pede explicitamente).
     const ativosCount = await this.prisma.localEntrega.count({
@@ -1791,9 +1827,27 @@ export class NucleoCadastroService {
     if (!companyId || !id) return null;
     const found = await this.prisma.localEntrega.findFirst({
       where: { id: String(id).trim(), companyId },
-      select: { id: true, customerProfileId: true, isPrincipal: true, lat: true, lng: true },
+      select: {
+        id: true, customerProfileId: true, isPrincipal: true, lat: true, lng: true,
+        // pra julgar o endereço pelo RESULTADO (salvo + corpo), como no updateConta.
+        cep: true, numero: true, endereco: true,
+        customerProfile: { select: { isCliente: true } },
+      },
     });
     if (!found) return null;
+
+    // Mesma regra do `createLocal`, e pelo mesmo motivo: editar o local até deixá-lo
+    // sem CEP é o mesmo buraco, feito em dois passos.
+    if (enderecoEscritoTocado(input)) {
+      exigirEnderecoFechado(
+        {
+          cep: input.cep !== undefined ? input.cep : found.cep,
+          numero: input.numero !== undefined ? input.numero : found.numero,
+          endereco: input.endereco !== undefined ? input.endereco : found.endereco,
+        },
+        Boolean(found.customerProfile?.isCliente),
+      );
+    }
 
     const data: any = {};
     if (input.apelido !== undefined) data.apelido = input.apelido?.trim() || null;
@@ -2416,6 +2470,34 @@ function enderecoFieldsTouched(input: {
   );
 }
 
+/**
+ * O PATCH encostou no ENDEREÇO ESCRITO? (09/08) — gate da regra de endereço fechado.
+ *
+ * Parece o `enderecoFieldsTouched` de cima, e a diferença é o ponto inteiro: aquele
+ * inclui `lat`/`lng`/`geoFonte`, porque o sync do local principal tem que rodar
+ * quando o PINO muda. Aqui não pode incluir: marcar o ponto no mapa é justamente
+ * como o dono conserta um endereço ruim na rua, e cobrar CEP nessa hora barraria a
+ * correção — a tela recusaria exatamente a ação que melhora o cadastro.
+ * Pino não é endereço: quem manda pino não está reescrevendo a porta.
+ */
+function enderecoEscritoTocado(input: {
+  endereco?: string | null;
+  numero?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  cep?: string | null;
+}): boolean {
+  return (
+    input.endereco !== undefined ||
+    input.numero !== undefined ||
+    input.bairro !== undefined ||
+    input.cidade !== undefined ||
+    input.uf !== undefined ||
+    input.cep !== undefined
+  );
+}
+
 // B-backend (08/07) — recorte do CustomerProfile que `maybeResolveServerGeo` precisa pra
 // decidir se vale (e com que endereço) resolver coordenada no servidor.
 type GeoRecord = {
@@ -2442,6 +2524,10 @@ const GEO_RECORD_SELECT = {
   cidade: true,
   uf: true,
   cep: true,
+  // 09/08 — o PATCH decide a regra de endereço fechado sobre o cadastro RESULTANTE
+  // (o que já está salvo + o que veio no corpo), e pra isso precisa saber se esta
+  // conta é CLIENTE. Ver `exigirEnderecoFechado` no updateConta.
+  isCliente: true,
 } as const;
 
 // Casa contato↔conversa pelo MESMO número, tolerando país (55) e o "9" de celular.
@@ -2571,7 +2657,7 @@ export type ClientePendencia = 'endereco' | 'numero' | 'gps' | 'dia' | 'whatsapp
 export interface ClienteCardExtras {
   /** ordem FIXA: endereco → numero → gps → dia → whatsapp */
   pendencias: ClientePendencia[];
-  /** união ISO (1=seg…7=dom) dos diasSemana dos vínculos ativos, ordenada asc */
+  /** união ISO (1=seg…7=dom) dos dias das VISITAS ativas (LogisticaPlanoEntrega), asc */
   diasEntrega: number[];
   /** o OUTRO lado do par duplicado (company-wide, só clientes ativos) ou null */
   duplicataDe: { id: string; nome: string } | null;
@@ -2626,6 +2712,10 @@ export interface EmpresaDetail {
   cnpj: string | null;
   document: string | null;
   endereco: string | null;
+  /** 09/08 — o detalhe passou a devolver o NÚMERO porque a tela de editar ganhou
+   *  campo pra ele (regra de endereço fechado). Caixa vazia num cadastro que TEM
+   *  número é a tela mentindo sobre o que está salvo. */
+  numero: string | null;
   cidade: string | null;
   uf: string | null;
   cep: string | null;

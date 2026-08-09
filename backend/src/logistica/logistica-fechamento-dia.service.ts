@@ -959,12 +959,15 @@ export class LogisticaFechamentoDiaService {
   }
 
   /**
-   * Grava o preço combinado com o cliente. Sem vínculo, cria um SEM DIA —
-   * invisível pro gerar-dia (`buscarVencidosPorCliente` só olha quem tem
-   * diasSemana ou proximaData), então guardar um preço NUNCA inventa recorrência.
+   * Grava o preço combinado com o cliente. Sem vínculo, cria um novo.
    *
-   * Toca SÓ o preço: `qtdPadrao`, dias e cadência ficam como o dono deixou. Ele
-   * pediu que o PREÇO ficasse fixo — vender 3 hoje não pode virar "3 sempre".
+   * 🔴 GUARDAR PREÇO NUNCA INVENTA RECORRÊNCIA — e depois da F2 (09/08) isso é
+   * verdade POR CONSTRUÇÃO, não por cuidado: `ClienteProduto` não tem mais
+   * cadência nenhuma pra preencher. Quem coloca o cliente na rota é a visita
+   * (`LogisticaPlanoEntrega`), e ela só nasce por `definirDiasDoCliente`/Agenda.
+   *
+   * Toca SÓ o preço: `qtdPadrao` fica como o dono deixou. Ele pediu que o PREÇO
+   * ficasse fixo — vender 3 hoje não pode virar "3 sempre".
    */
   private async gravarPrecoCombinado(
     companyId: number,
@@ -992,19 +995,20 @@ export class LogisticaFechamentoDiaService {
         productId,
         precoAcordado: valorUnit,
         qtdPadrao: 1,
-        diasSemana: null,
-        frequenciaDias: null,
-        proximaData: null,
       },
     });
   }
 
   /**
    * Ouro nº1 — o dia do cliente se preenche sozinho. Régua aprovada pelo dono
-   * (05/08): SÓ cliente sem dia NENHUM (nem plano, nem vínculo com dia), com 2+
-   * datas distintas anotadas na MESMA página em 28 dias. Escrita pela porta
-   * canônica: garante 1 vínculo, definirDiasDoCliente + espelho da agenda — a
-   * MESMA sequência do PATCH /clientes/:id/dias (nunca uma 2ª verdade de dia).
+   * (05/08): SÓ cliente sem dia NENHUM, com 2+ datas distintas anotadas na MESMA
+   * página em 28 dias. Escrita pela porta canônica: garante 1 vínculo (o produto
+   * da venda) + `definirDiasDoCliente`, a MESMA sequência do
+   * PATCH /clientes/:id/dias — nunca uma 2ª verdade de dia.
+   *
+   * 🔴 F2 (09/08): "sem dia nenhum" virou UMA pergunta só — o cliente tem visita
+   * em `LogisticaPlanoEntrega`? Antes eram duas (plano OU vínculo com
+   * `diasSemana`), porque as duas tabelas guardavam dia e podiam discordar.
    */
   private async aprenderDiaDoCliente(
     companyId: number,
@@ -1014,16 +1018,11 @@ export class LogisticaFechamentoDiaService {
   ): Promise<void> {
     if (!this.recorrencia || !this.agenda) return;
 
-    const [planos, vinculosComDia] = await Promise.all([
-      this.prisma.logisticaPlanoEntrega.count({
-        where: { companyId, customerProfileId: clienteId, ativo: true },
-      }),
-      this.prisma.clienteProduto.count({
-        where: { companyId, customerProfileId: clienteId, ativo: true, NOT: { diasSemana: null } },
-      }),
-    ]);
-    // Qualquer dia já cadastrado (mesmo com espelho quebrado) = decisão dele; não sobrescrever.
-    if (planos > 0 || vinculosComDia > 0) return;
+    const planos = await this.prisma.logisticaPlanoEntrega.count({
+      where: { companyId, customerProfileId: clienteId, ativo: true },
+    });
+    // Dia já cadastrado = decisão dele; não sobrescrever.
+    if (planos > 0) return;
 
     const desde = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
     const vendas = await this.prisma.entrega.findMany({
@@ -1039,9 +1038,9 @@ export class LogisticaFechamentoDiaService {
     const datas = new Set(vendas.map((v) => saoPauloDateKey(v.deliveredAt)).filter(Boolean));
     if (datas.size < 2) return;
 
-    // Sem vínculo o definirDias não tem onde escrever — nasce um SEM DIA com o
-    // produto da venda (mesma forma do gravarPrecoCombinado: nada de recorrência
-    // inventada; o dia entra logo abaixo pela porta canônica).
+    // Sem vínculo a visita não tem ITEM — e visita sem item não existe. Nasce um
+    // vínculo com o produto da venda (mesma forma do gravarPrecoCombinado: o
+    // vínculo é só preço/quantidade; o dia entra logo abaixo pela porta canônica).
     const vinculos = await this.prisma.clienteProduto.count({
       where: { companyId, customerProfileId: clienteId, ativo: true },
     });
@@ -1052,25 +1051,16 @@ export class LogisticaFechamentoDiaService {
           customerProfileId: clienteId,
           productId: productIdDaVenda,
           qtdPadrao: 1,
-          diasSemana: null,
-          frequenciaDias: null,
-          proximaData: null,
         },
       });
     }
 
-    // Snapshots ANTES da mutação (contrato do espelho: mover, nunca duplicar).
-    const ativos = await this.prisma.clienteProduto.findMany({
-      where: { companyId, customerProfileId: clienteId, ativo: true },
-      select: { id: true },
-    });
-    const anteriores = await Promise.all(
-      ativos.map((v) => this.recorrencia.vinculoEspelhoSnapshot(companyId, v.id)),
-    );
     const res = await this.recorrencia.definirDiasDoCliente(companyId, clienteId, [dia]);
-    for (const vinculoId of res.vinculoIds) {
-      const anterior = anteriores.find((s: any) => s && String(s.id) === String(vinculoId)) ?? null;
-      await this.agenda.espelharVinculoCadastro(companyId, vinculoId, anterior);
+    if (res.avisos?.length) {
+      this.logger.warn(
+        `[fechamento] dia aprendido com pendência cliente=${clienteId} dia=${dia}: ${res.avisos.join(' | ')}`,
+      );
+      return;
     }
     this.logger.log(`[fechamento] dia aprendido cliente=${clienteId} dia=${dia} company=${companyId}`);
   }

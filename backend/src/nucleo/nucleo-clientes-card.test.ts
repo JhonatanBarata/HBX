@@ -268,6 +268,10 @@ test('DIA: plano ativo limpa a pendência e une os dias, ordenado', async () => 
 // SEX/QUI/SÁB"). O produto NÃO decide dia: dia só no vínculo de produto tem de
 // acender a pendência, senão o filtro e a legenda leem tabelas diferentes e a
 // tela mente. Sem flag nenhuma — não existe mais caminho legado.
+//
+// F2 (09/08) tornou isto ESTRUTURAL: `ClienteProduto` não guarda mais dia
+// nenhum. A fixture continua alimentando `diasSemana` de propósito — é o
+// tripwire: se alguém reabrir essa porta, o teste cai aqui.
 test('DIA: produto NÃO decide dia — vínculo com diasSemana não limpa nada', async () => {
   const row = baseRow();
   const { prisma } = buildPrismaMock({

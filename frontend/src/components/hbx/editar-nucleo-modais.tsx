@@ -276,6 +276,11 @@ export type EditarContaInicial = {
   email?: string | null;
   phone?: string | null;
   endereco?: string | null;
+  /* 09/08 — o NÚMERO ganhou campo próprio porque o backend passou a exigir endereço
+     fechado de CLIENTE (CEP + número, "SN" valendo). A regra existia e esta tela não
+     tinha onde cumpri-la: o dono levava "Informe o número da casa" sem campo pra
+     digitar. Regra que não dá pra satisfazer na tela onde ela dispara é parede. */
+  numero?: string | null;
   cidade?: string | null;
   uf?: string | null;
   cep?: string | null;
@@ -297,6 +302,7 @@ export function EditarContaModal({
   const [email, setEmail] = useState(conta.email || "");
   const [phone, setPhone] = useState(conta.phone || "");
   const [endereco, setEndereco] = useState(conta.endereco || "");
+  const [numero, setNumero] = useState(conta.numero || "");
   const [cidade, setCidade] = useState(conta.cidade || "");
   const [uf, setUf] = useState(conta.uf || "");
   const [cep, setCep] = useState(conta.cep || "");
@@ -323,6 +329,7 @@ export function EditarContaModal({
           email: email.trim() || undefined,
           phone: phone.trim() || undefined,
           endereco: endereco.trim() || undefined,
+          numero: numero.trim() || undefined,
           cidade: cidade.trim() || undefined,
           uf: uf.trim() || undefined,
           cep: cep.trim() || undefined,
@@ -383,15 +390,27 @@ export function EditarContaModal({
             </div>
           </div>
 
-          <div className="f">
-            <label htmlFor="eco-end">Endereço</label>
-            <input
-              id="eco-end"
-              className="field-dark"
-              placeholder="Rua, número, bairro"
-              value={endereco}
-              onChange={(e) => setEndereco(e.target.value)}
-            />
+          <div className="ctt-form__row">
+            <div className="f">
+              <label htmlFor="eco-end">Endereço</label>
+              <input
+                id="eco-end"
+                className="field-dark"
+                placeholder="Rua, bairro"
+                value={endereco}
+                onChange={(e) => setEndereco(e.target.value)}
+              />
+            </div>
+            <div className="f ctt-form__uf">
+              <label htmlFor="eco-numero">Número</label>
+              <input
+                id="eco-numero"
+                className="field-dark"
+                placeholder="123 ou SN"
+                value={numero}
+                onChange={(e) => setNumero(e.target.value)}
+              />
+            </div>
           </div>
 
           <div className="ctt-form__row">

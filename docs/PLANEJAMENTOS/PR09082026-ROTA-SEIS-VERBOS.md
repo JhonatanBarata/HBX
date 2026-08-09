@@ -43,7 +43,7 @@ morto mantido vivo — e o espelho é a máquina de dessincronizar.
 |---|---|---|
 | `LogisticaLeituraSessao` / `Parada` | 17 / **0** — **todas as 17 CANCELADAS** | Leitura de Rota nunca foi terminada por ninguém |
 | `LogisticaImportacaoLote` / `Item` | 0 / 0 | Tela `/logistica/importar` nunca usada |
-| `LogisticaCargaDia` / `Item` | 0 / 0 | Balcão B4, publicada 04/08, sem uso |
+| ~~`LogisticaCargaDia` / `Item`~~ | 0 / 0 | ⛔ **NÃO É MORTA** — Balcão B4 (04/08) esperando o cliente certo. Base do estoque ativo / NF. Ver G4. |
 | `LogisticaRotaIndicada` | 4 | "Rota Pronta" usada 4× na vida |
 | `zz_backup_cp48_*` / `zz_backup_planos48_*` | 246 / 245 | Backup da faxina de 09/08 |
 
@@ -94,14 +94,15 @@ zero JSON.
 | G3 | **Rota Indicada** (indicar rota → popup no app) — 1 tabela + serviço + UI web/APK | 4 usos na vida | MATAR |
 | ~~G4~~ | ~~Carga do dia~~ | — | ⛔ **NÃO MORRE — decisão do dono (09/08)**: `LogisticaCargaDia`/`Item` são a base do **estoque ativo (modo nota fiscal)** que vem à frente. 0 linhas hoje é feature nova sem uso, não lixo. Ninguém encosta. |
 | G5 | Modelo LIVRE sem itens | Itens passam a morar SÓ no plano; LIVRE vira ordem de clientes | Aceitar (quem precisa de item ganha plano) |
-| G6 | `zz_backup_*` de 09/08 | Backup da agenda 48 | DROP depois que F2 rodar 7 dias limpa |
+| G6 | `zz_backup_*` de 09/08 | Backup da agenda 48 | ✅ GO — DROP na migration única ("sem backup") |
 
 ## 6. FASES — cada fase é UM publish, DROP sempre em 2 tempos
 
 **Leis da faxina** (valem pra toda fase):
-1. Backup `zz_backup_<oquê>_<data>` antes de qualquer DROP/backfill.
-2. O publish que apaga CÓDIGO nunca é o que apaga TABELA — tabela cai no
-   publish seguinte, com a produção provada estável (lei "conserto em 2 tempos").
+1. 🔴 **SEM BACKUP — ordem do dono (09/08): "orquestre os 5, sem backup, árvore
+   limpa, só faça".** Nada de `zz_backup_*` novo; os dois de hoje entram no DROP.
+2. 🔴 **UMA migration só, tudo de uma vez** (o "DROP em 2 tempos" que este plano
+   propunha foi VETADO na mesma ordem). Ela só toca produção no `npm run publish`.
 3. Dinheiro (`Route`/`RouteStop`/claims/tracking) e história (`AgendaEvento`,
    `ClienteHistorico`, snapshots da `Entrega`) NÃO entram na faxina.
 4. Prova de cada fase: empresas vivas **41 e 48** (gerar-dia + montar + barra do
@@ -139,7 +140,7 @@ zero JSON.
 ## 7. CONTA DO LIXO
 
 - **Código:** ~6.000–8.000 linhas mortas (occurrence 725 + recorrencia ~600 + espelho ~400 + leitura ~1.500 + importação ~1.800 + indicada ~600 + testes/telas).
-- **Tabelas:** 8 dropadas (Leitura×2, Importacao×2, CargaDia×2, RotaIndicada, zz_backup×2) + 1 JSON + ~17 colunas.
+- **Tabelas:** 7 dropadas (Leitura×2, Importacao×2, RotaIndicada, zz_backup×2) + 1 JSON + ~17 colunas. **CargaDia×2 FORA** (ver G4).
 - **O que o dono ganha:** cada pergunta tem UMA resposta no banco — divergência de tela vira classe de bug extinta, não whack-a-mole.
 
 ## 8. STATUS
