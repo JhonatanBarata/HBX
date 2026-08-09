@@ -1083,6 +1083,63 @@ button,input{font:inherit;color:inherit}
   box-shadow:0 7px 18px rgba(47,126,247,.3)}
 
 /* ==========================================================================
+   O PLANO — A TELA PRINCIPAL DA ROTA É O MAPA, EM 2D (ordem do dono, 08/08:
+   *"a tela principal do rota, mapa limpo, 2d"*).
+
+   Até aqui a aba Rota abria uma PILHA DE PAINÉIS (3 kpis, saldo, dinheiro/pix,
+   barra do dia, filtro Fila/Entregue, créditos, a lista e a soma) e o mapa era
+   um botão chamado "Ver mapa" — quer dizer: o app de entrega mostrava o dia em
+   números e escondia o dia no espaço. Invertido: o mapa É a tela, a lista está
+   a UM toque na barra de cima (`T.rotalista`, com tudo o que saiu daqui).
+
+   🔴 "LIMPO" É LITERAL, E É UMA CONTA: por cima do mapa ficam TRÊS peças e
+   nenhuma a mais — a barra de cima (o fato do dia + a porta da lista), o botão
+   de enquadrar, e o transmux, que é o rodapé fixo de sempre. Toda peça nova
+   aqui tem que tirar outra: painel em cima de mapa é painel escondendo mapa.
+
+   🔴 2D É O QUE ESTA TELA TEM DE SER. O 3D inclinado é pra DIRIGIR (a rua
+   fugindo pro horizonte, ver o comentário do GPS lá embaixo); de cima, com
+   norte pra cima, é o que serve pra PLANEJAR — ver a ordem das paradas, o que
+   ficou pra trás e onde o dia aperta. Por isso o palco aqui é o "geral"
+   (`data-mapa="geral"`: pitch 0, sem câmera automática brigando com o dedo) e
+   nunca o "gps".
+   ========================================================================== */
+/* 🔴 O MAPA PARA ONDE O CONTROLE COMEÇA — ele NÃO passa por baixo do dock.
+   Medido: com `inset:0` o transmux (120) + as abas (60) tapavam os 180px de
+   baixo do mapa, e as duas últimas paradas do dia ficavam atrás do botão
+   grande. Pino tapado é pino que não existe, e a tela existe pra mostrar o dia
+   INTEIRO. Os dois números são os mesmos do `.body.com-dock` (que já mede este
+   mesmo rodapé) — e sem dock na tela sobra só a barra de abas. */
+.plano{position:absolute;left:0;right:0;top:0;bottom:60px;overflow:hidden;background:var(--fog)}
+.plano.com-dock{bottom:180px}
+/* A barra FLUTUA em vez de empurrar: mapa que começa abaixo de uma faixa opaca
+   é mapa com menos mapa. Ela é vidro, e o dia continua aparecendo por baixo. */
+.plano-bar{position:absolute;left:9px;right:9px;top:9px;z-index:30;display:flex;align-items:center;gap:9px;
+  padding:8px 10px;border-radius:13px;background:var(--glass);border:.7px solid var(--line)}
+.plano-bar .f{flex:1;min-width:0;display:flex;align-items:center;gap:7px;color:var(--lime)}
+/* Dia num estado troca o TOM da barra, nas MESMAS famílias dos banners que ela
+   substituiu aqui (`.banner.pausa` é azul, `.banner.alerta` é âmbar) — cor nova
+   pro mesmo fato seria a terceira língua pra dizer "parado". */
+.plano-bar.pausa .f{color:var(--blue-l)}
+.plano-bar.pausa{border-color:var(--blue-line)}
+.plano-bar.alerta .f{color:var(--amber)}
+.plano-bar.alerta{border-color:var(--amber-line)}
+/* O fato do dia numa linha só, e ele TEM que caber: nome grande de empresa e
+   contagem alta já cortaram tela neste app. Quem encolhe é o texto, não a
+   barra — barra que cresce empurra o botão da lista pra fora. */
+.plano-bar .f span{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+  font-size:12.5px;color:var(--ink)}
+.plano-bar .f b{font-weight:500}
+.plano-bar .f small{color:var(--ink-2);font-size:12.5px}
+.plano-bar .ghost{flex:0 0 auto}
+/* 🔴 UM BOTÃO SÓ NA BEIRADA, e ele tem trabalho: devolver o enquadramento da
+   rota depois de o dedo levar o mapa embora. Zoom não entra — pinça é o gesto
+   nativo do mapa, e dois botões redondos por cima do dia seriam cromo. */
+.plano-lado{position:absolute;right:12px;top:66px;z-index:30}
+.plano-lado button{width:40px;height:40px;border-radius:50%;border:.7px solid var(--line);background:var(--glass);
+  color:var(--blue-l);display:grid;place-items:center;cursor:pointer}
+
+/* ==========================================================================
    GPS EM NAVEGAÇÃO — o que todo navegador de rua faz e eu não tinha feito:
 
    1. O CARRO NÃO FICA NO MEIO: fica a ~68% da altura. O que interessa é a rua
@@ -1410,6 +1467,27 @@ button,input{font:inherit;color:inherit}
 .chip{padding:8px 13px;border-radius:10px;border:.7px solid var(--line-2);background:transparent;
   color:var(--ink);font-size:12.5px;white-space:nowrap;cursor:pointer}
 .chip.on{border-color:var(--lime);color:var(--lime);background:var(--sel-bg)}
+
+/* ---------- seletor de ORDEM da montagem (08/08) ----------
+   3 posições: a ordem automática por DISTÂNCIA e os 2 espaços de rota salva
+   DAQUELE dia. Peça SOLDADA (fundo único, 3 fatias) de propósito — os chips do
+   dia logo acima são pílulas soltas, e duas fileiras de pílula empilhadas viram
+   a mesma coisa aos olhos do motorista. Cada fatia leva 1/3 da largura: é por
+   isso que o nome tem teto (10 caracteres na ponte) e ainda assim corta com
+   reticência — `min-width:0` é o que faz o corte acontecer dentro do flex em
+   vez de estourar a linha. */
+.modos{display:flex;gap:3px;margin-top:9px;background:var(--card);border:.7px solid var(--line);
+  border-radius:12px;padding:3px}
+.modos .modo{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:5px;
+  border:0;background:transparent;color:var(--ink-2);padding:8px 6px;border-radius:9px;
+  font-size:12.5px;cursor:pointer}
+.modos .modo b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.modos .modo.vaga b{color:var(--ink-3);font-weight:400}
+.modos .modo.on{background:var(--sel-bg);box-shadow:inset 0 0 0 .7px var(--lime);color:var(--lime)}
+.modos .modo.on b{color:var(--lime)}
+/* O ponto diz "a ordem na tela já não é a que está gravada nesse espaço" —
+   âmbar, porque é pendência de decisão (salvar ou não), nunca erro. */
+.modos .ponto{flex:0 0 5px;width:5px;height:5px;border-radius:50%;background:var(--amber)}
 
 /* ---------- título de tela ---------- */
 .screen-head{display:flex;align-items:center;gap:10px;margin:2px 0 0}
@@ -1932,10 +2010,16 @@ button,input{font:inherit;color:inherit}
 /* Barras fixas: branco sólido, separadas por fio — sem gradiente de fumaça. */
 [data-luz="claro"] .nav,[data-luz="claro"] .tmx-dock,[data-luz="claro"] .gps-rodape{
   background:#fff;border-top-color:var(--line)}
+/* 🔴 TODA PEÇA DE VIDRO POR CIMA DE MAPA ENTRA NESTA LISTA — e as duas do mapa
+   2D nasceram FORA dela (medido 08/08: a barra saía #0b1322 sobre um mapa
+   claro, com o "12 paradas · 6 entregues" tinta escura em cima de fundo escuro,
+   ilegível). `--glass` existe só no tema de noite; no claro quem manda é esta
+   regra. Peça nova de vidro que não entrar aqui repete o mesmo defeito. */
 [data-luz="claro"] .gps-manobra,[data-luz="claro"] .next-card,
 [data-luz="claro"] .map-chip,[data-luz="claro"] .map-ctrl button,
 [data-luz="claro"] .gps-bussola,[data-luz="claro"] .gps-vel,
 [data-luz="claro"] .emp-chip,
+[data-luz="claro"] .plano-bar,[data-luz="claro"] .plano-lado button,
 [data-luz="claro"] .gps-lado button{background:#fff;border-color:var(--line-2);
   box-shadow:0 2px 10px rgba(15,23,38,.12)}
 [data-luz="claro"] .gps-manobra .seta{background:#eaf1fe;color:var(--blue)}

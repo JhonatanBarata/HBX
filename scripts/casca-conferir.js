@@ -68,13 +68,23 @@ body{margin:0;display:block;overflow:hidden;background:#06090f}
     folha: getComputedStyle(document.body).fontFamily.includes('Inter'),
   }));
 
+  /* 🔴 A CONTA DE TELAS SAI DO MOCK, NÃO DE UM NÚMERO DIGITADO. Era `!== 32`
+     cravado aqui: a 33ª tela nasceu (o mapa 2D da rota, 08/08) e o conferidor
+     reprovou dizendo "A CASCA NÃO SUBIU" com as cinco medidas VERDES logo acima
+     — alarme falso, e do pior tipo, porque ele acusa o defeito mais assustador
+     que existe neste app (tela preta). A régua deste script é o mock; então a
+     conta também é. Tela nova passa a ser conferida sozinha, e um `T` que
+     ENCOLHEU na injeção continua sendo reprovado, que é o que importava. */
+  const telasNoMock = await mock.p.evaluate(() => (typeof T === 'object' ? Object.keys(T).length : 0));
+
   console.log('=== A) A CASCA SOBE? ===');
   console.log(`  #app existe        : ${vida.temApp}`);
   console.log(`  #app com conteúdo  : ${vida.conteudo} caracteres`);
-  console.log(`  telas carregadas   : ${vida.telas}`);
+  console.log(`  telas carregadas   : ${vida.telas} (o mock tem ${telasNoMock})`);
   console.log(`  tela pintada no boot: ${vida.camada}`);
   console.log(`  folha aplicada     : ${vida.folha}`);
-  const morreu = !vida.temApp || vida.conteudo < 200 || vida.telas !== 32 || !vida.camada;
+  const morreu = !vida.temApp || vida.conteudo < 200
+    || !telasNoMock || vida.telas !== telasNoMock || !vida.camada;
   if (app.erros.length) { console.log('  erros:'); app.erros.forEach((e) => console.log('    ' + e)); }
   if (morreu) {
     console.log('\n✗ A CASCA NÃO SUBIU. (tela preta é o desfecho típico: CSP, boot ou folha)');

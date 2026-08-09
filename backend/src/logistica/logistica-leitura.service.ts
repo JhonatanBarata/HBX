@@ -373,7 +373,9 @@ export class LogisticaLeituraService {
 
       const nomeInput = String(input?.nome ?? '').trim();
       const nome = nomeInput || (diaSemana != null ? diaLabel(diaSemana) : defaultNomeRotaSemDia());
-      await assertNomeUnico(tx, companyId, nome);
+      // O dia entra na régua (08/08): a rota salva pelo finalizar nasce com este
+      // mesmo `diaSemana`, então tem que disputar nome com as do dia dela.
+      await assertNomeUnico(tx, companyId, nome, diaSemana);
 
       const modelo = await tx.logisticaRotaModelo.create({
         data: { companyId, nome, diaSemana, paradasJson: paradasJson as any },

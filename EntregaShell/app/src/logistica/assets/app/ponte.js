@@ -65,7 +65,17 @@
      está POR CIMA, depois volta pra Rota, e só na Rota é que sair vale.
      Camada nova do mock entra AQUI, não em outro lugar.
      ------------------------------------------------------------------------ */
-  const POR_CIMA = ['.erro-wrap', '.conf-wrap', '.portao-wrap', '.sheet-wrap', '.modal-wrap', '.aviso'];
+  /* 🔴 A LISTA É A DO MOCK, NA ORDEM DO Z-INDEX — de cima pra baixo:
+     aula(70) · erro(60) · portão(59) · confirmação(58) · aviso(55).
+     Duas coisas estavam erradas aqui e as duas se viam na tela:
+     · `.aula-wrap` NÃO EXISTIA nesta lista. A aula é a camada MAIS ALTA do app
+       e o Voltar passava por baixo dela — com a aula aberta, Voltar trocava a
+       tela ATRÁS do holofote (ou saía do app), deixando o furo apontando pro
+       nada. E `.sheet-wrap`/`.modal-wrap` são nomes do app ANTIGO: não existem
+       em nenhuma tela do 2.0, eram duas voltas de laço procurando fantasma.
+     · portão e confirmação estavam TROCADOS. Com os dois na tela, o Voltar
+       fechava o de baixo e o de cima continuava na cara do motorista. */
+  const POR_CIMA = ['.aula-wrap', '.erro-wrap', '.portao-wrap', '.conf-wrap', '.aviso'];
   window.HBXApp = window.HBXApp || {};
   window.HBXApp.handleBack = function () {
     const camada = camadaViva();
@@ -82,33 +92,54 @@
         // continua de pé, com o app aberto.
         // ⚠️ Medido no g15: "Créditos acabaram" TEM "Fechar" — tom vermelho não
         // é obrigação, e tratar tom como trava prenderia o dono numa tela.
-        const escapes = peca.querySelectorAll('[data-escape], [data-fechar]:not(.principal):not(.azul)');
+        const escape = peca.querySelector('[data-escape], [data-fechar]:not(.principal):not(.azul)');
         const eEnfeite = sel === '.aviso';   // aviso passa sozinho; não é decisão
-        if (!escapes.length && !eEnfeite) return true;
-        // o mock sabe fechar com a animação certa; sem ele, some direto.
-        if (typeof window.fechar === 'function' && peca.firstElementChild) window.fechar(peca);
-        else peca.remove();
+        if (!escape && !eEnfeite) return true;
+        /* 🔴 VOLTAR APERTA O BOTÃO DE SAIR — não arranca a peça do DOM.
+           Arrancar fechava a caixa e deixava o RASTRO de quem a abriu: o "Não"
+           da exclusão é quem tira o `pronto` do cartão (sem ele a parada ficava
+           aberta no vermelho do deslize, para sempre), e o "Pular" da aula é
+           quem a marca como vista. Apertar o escape roda o fechamento de
+           verdade — o MESMO caminho do dedo, e nenhum estado meio-fechado. */
+        if (escape) escape.click();
+        // Aviso não tem botão: ele sai como sai sozinho (`sai` + 280ms), que é
+        // a saída que o mock desenhou. `fechar()` aqui animaria o ÍCONE, porque
+        // o aviso não tem wrap — ele É o cartão.
+        else if (eEnfeite) { peca.classList.add('sai'); setTimeout(() => peca.remove(), 280); }
         return true;
       }
     }
     // O degrau do meio (dono, 07/08: "primeiro fecha por partes... aí volta").
-    // A tela que se entra por dentro carrega a própria volta no cabeçalho (o
-    // botão com `data-ir` do hdr) ou no fechar da folha — o Voltar do Android
-    // CASA com ele: Financeiro→Ajustes, Semana→Caderneta, Ficha→Clientes.
+    // A tela que se entra por dentro carrega a própria volta no cabeçalho ou no
+    // × da folha — o Voltar do Android CASA com ele: Financeiro→Ajustes,
+    // Semana→Caderneta, Ficha→Clientes.
+    //
+    // 🔴 QUEM RESPONDE É `[data-voltar]`, NUNCA "o primeiro `data-ir`".
+    // `.hdr [data-ir]` pegava o PRIMEIRO link do cabeçalho — e o cabeçalho só
+    // começa com a volta nas telas que TÊM volta. Nas outras (Rota, Chat,
+    // Venda, Ajustes, Folha, Conferência…) o primeiro é o "+", que é
+    // `data-ir="novocliente"`. Medido: **na Rota, o Voltar do aparelho abria
+    // "Cadastrar cliente"** — o degrau de sair nunca era alcançado e o app não
+    // fechava por Voltar em lugar nenhum. Voltar deduzido por POSIÇÃO anda pra
+    // frente no dia em que alguém troca a ordem dos ícones; marcado, não.
     const tela = telaAtual();
     if (camada && typeof window.ir === 'function') {
-      const volta = camada.querySelector('.hdr [data-ir], .sheet .round[data-ir]');
+      const volta = camada.querySelector('[data-voltar][data-ir]');
       const destino = volta && volta.dataset ? volta.dataset.ir : '';
       if (destino && destino !== tela) {
         window.ir(destino);
-        return true;
+        // `ir()` RECUSA calado (módulo desligado pelo admin, destino que não
+        // existe mais). Sem conferir, o Voltar virava tecla morta na mão do
+        // motorista: some a tela não muda e o Kotlin acha que foi tratado.
+        // Não mudou? cai pro degrau de baixo, que é sempre a Rota.
+        if (telaAtual() !== tela) return true;
       }
     }
     if (tela && tela !== 'rota' && typeof window.ir === 'function') {
       window.ir('rota');
-      return true;
+      if (telaAtual() === 'rota') return true;
     }
-    return false;   // na Rota, Voltar sai do app (o Kotlin pede a confirmação)
+    return false;   // na Rota, Voltar sai do app — um toque só (Kotlin)
   };
 
   /* ------------------------------------------------------------------------
@@ -1045,6 +1076,61 @@
      (escrita pelo `carregarRota`) e o botão do pé vira "Iniciar rota". */
   let previaSeq = 0;
   const PREVIA = [];                  // as paradas da prévia, pro Salvar rota
+
+  /* ------------------------------------------------------------------------
+     🔴 A LISTA JÁ CHEGA NA ORDEM DE QUEM VAI DIRIGIR (dono, 08/08: "montar
+     rota — carregar em ordem de distância, já carregar montado pelo GPS").
+
+     A prévia vinha na ordem do BANCO (a varredura dos vínculos vencidos), que
+     não é ordem nenhuma pra quem está com o carro na rua: o cliente da esquina
+     podia ser o nº 40 da lista e o do outro bairro o nº 1. Montar era a única
+     forma de ver uma sequência — e mesmo assim (ver `origemGps`) ela nascia a
+     partir da 1ª parada da lista, não de onde o motorista está.
+
+     Aqui a tela se antecipa: vizinho-mais-próximo a partir do GPS, em linha
+     reta (Haversine, o mesmo `metrosEntre` do anel de chegada). É PRÉ-ordem, e
+     de propósito não tenta ser o motor: quem manda na rota final continua sendo
+     o servidor, que roda NN + 2-opt por RUA (OSRM) a partir da MESMA origem —
+     por isso as duas ordens se parecem, e a segunda é sempre melhor.
+
+     Sem fix, ou sem pino, ninguém inventa distância: a lista sai na ordem que o
+     servidor mandou e quem não tem coordenada vai pro FIM (não some — some é
+     que seria mentira). ------------------------------------------------------ */
+  function encadearPorDistancia(itens, de) {
+    const temPino = (c) => typeof c.lat === 'number' && typeof c.lng === 'number'
+      && isFinite(c.lat) && isFinite(c.lng) && !(c.lat === 0 && c.lng === 0);
+    const semPino = itens.filter((c) => !temPino(c));
+    if (!de) return itens.filter(temPino).concat(semPino);
+    const fila = itens.filter(temPino);
+    const saida = [];
+    let atual = de;
+    while (fila.length) {
+      let melhor = 0;
+      let menor = Infinity;
+      for (let i = 0; i < fila.length; i += 1) {
+        const d = metrosEntre(atual, fila[i]);
+        if (d < menor) { menor = d; melhor = i; }
+      }
+      const p = fila.splice(melhor, 1)[0];
+      saida.push(p);
+      atual = { lat: p.lat, lng: p.lng };
+    }
+    return saida.concat(semPino);
+  }
+
+  /* O que o servidor mandou fica guardado CRU: o primeiro fix do GPS costuma
+     chegar depois da lista (numa garagem, bem depois), e reordenar não pode
+     custar outra ida à rede. `previaComGps` é o que garante UM repinte só —
+     encadear de novo a cada fix seria a tela piscando na mão do motorista, e o
+     dedo dele pode já ter arrastado um cartão. */
+  let previaCrua = null;
+  let previaAlvo = 0;
+  let previaComGps = false;
+  /* O dedo já mandou nesta lista? Então nem o GPS a reordena de novo. Um fix
+     novo chegando depois do arrasto refaria a corrente e desfaria a decisão
+     dele — o mesmo pecado do otimizador que esta frente inteira está matando. */
+  let previaDoDedo = false;
+
   async function encherMontagem() {
     if (typeof window.usarDados !== 'function') return;
     // Rota de HOJE já montada: quem manda na tela é o `carregarRota` (o dado
@@ -1055,6 +1141,10 @@
     const alvo = montarDia;
     const seq = ++previaSeq;
     const data = alvo ? dataDoDia(alvo) : hojeISO();
+    // A lista velha morre ANTES da rede: um fix que chegasse no meio da busca
+    // acharia a prévia do chip anterior na memória e a republicaria na tela.
+    previaCrua = null;
+    previaDoDedo = false;      // lista nova, decisão de dedo nenhuma ainda
     window.usarDados('montagem', { carregando: true, semFonte: false });
     let prev;
     try {
@@ -1064,13 +1154,142 @@
       // selecionado — a mentira que este conserto existe pra matar.
       if (seq !== previaSeq) return;
       PREVIA.length = 0;
+      previaCrua = null;
       return window.usarDados('montagem', {
         carregando: false, semFonte: true, linhas: [], somaParadas: '', somaProdutos: '', somaValor: '',
       });
     }
     // trocou de chip enquanto a rede respondia: resposta velha não escreve.
     if (seq !== previaSeq) return;
-    const clientes = Array.isArray(prev && prev.clientes) ? prev.clientes : [];
+    previaCrua = Array.isArray(prev && prev.clientes) ? prev.clientes : [];
+    previaAlvo = alvo;
+    publicarPrevia();
+  }
+
+  /* ------------------------------------------------------------------------
+     🔴 OS 2 ESPAÇOS DO DIA (dono, 08/08) — o botão do MEIO da tela de montar.
+
+     Três posições e uma só valendo: `dist` (a ordem automática por distância,
+     que a lista já nasce tendo) e `s1`/`s2`, as duas rotas salvas DAQUELE dia
+     da semana. O rótulo é o nome que o motorista digitou: "Manhã" no sábado é
+     o Manhã do sábado, sempre — é `diaSemana` do rota-modelo que carrega isso,
+     coluna que já existia.
+
+     A ORDEM DOS ESPAÇOS É A DE NASCIMENTO (`criadoEm`), nunca a alfabética: o
+     1º salvo do dia é o Espaço 1 pra sempre. Ordenar por nome faria renomear
+     "Manhã" pra "Tarde" trocar o espaço de lugar embaixo do dedo dele.
+
+     Escolher um espaço REORDENA o dia — não corta o dia em dois. Quem decide
+     QUEM entra na rota é o `planejar` do servidor (ele monta tudo o que está
+     aberto hoje); o espaço diz em que SEQUÊNCIA. Por isso o que não está no
+     espaço não some: vai pro fim, na ordem de distância que já tinha.
+     ------------------------------------------------------------------------ */
+  const ESPACOS = [];          // até 2 rota-modelos do dia, em ordem de nascimento
+  let modoSel = 'dist';        // 'dist' | 's1' | 's2'
+  const NOME_MAX = 10;         // teto do nome: o botão tem 1/3 da largura da tela
+
+  const modeloDoModo = () => (modoSel === 's1' ? ESPACOS[0] : modoSel === 's2' ? ESPACOS[1] : null);
+  const diaDosEspacos = () => montarDia || diaDaSemana();
+
+  /** a fileira do seletor — e o ponto âmbar de "editado" mora no modo ATIVO */
+  function publicarModos() {
+    if (typeof window.usarDados !== 'function') return;
+    const modos = ['dist', 's1', 's2'].map((chave, i) => {
+      const m = i ? ESPACOS[i - 1] : null;
+      // `previaDoDedo` já é o "o dedo mandou nesta lista" da montagem — o ponto
+      // é a LEITURA dele, não um estado novo pra sair de sincronia depois.
+      return [chave, i ? esc(String((m && m.nome) || '')) : 'Distância', (modoSel === chave && previaDoDedo) ? 1 : 0];
+    });
+    window.usarDados('montagem', { modos, modoSel });
+  }
+
+  /** os 2 espaços do dia escolhido, do servidor */
+  async function carregarEspacos() {
+    if (!temPonte() || typeof window.usarDados !== 'function') return;
+    const dia = diaDosEspacos();
+    let r;
+    // Fonte no chão FICA COM O QUE JÁ SABIA: zerar a fileira por causa de uma
+    // rede ruim faria os espaços do motorista sumirem — e salvar por cima de um
+    // espaço "vazio" que na verdade tem rota é perda de trabalho dele.
+    try { r = await window.API.get('/logistica/rota-modelos'); } catch (_) { return publicarModos(); }
+    ESPACOS.length = 0;
+    (Array.isArray(r) ? r : [])
+      .filter((m) => m && Number(m.diaSemana) === dia)
+      .sort((a, b) => String(a.criadoEm || '').localeCompare(String(b.criadoEm || ''))
+        || String(a.id || '').localeCompare(String(b.id || '')))
+      .slice(0, 2)
+      .forEach((m) => ESPACOS.push(m));
+    // O dia mudou debaixo do espaço escolhido? Volta pra Distância: espaço 2 de
+    // sábado não é espaço 2 de segunda, e manter a seleção mostraria a ordem de
+    // uma rota que não é aquela.
+    if (modoSel !== 'dist' && !modeloDoModo()) modoSel = 'dist';
+    publicarModos();
+  }
+
+  /* A ordem gravada num espaço, aplicada por cima da lista de hoje. O elo é
+     cliente+porta (a mesma dupla que o `fixarSequencia` usa lá embaixo); sem a
+     porta bater, vale o cliente. Quem não está no espaço vai pro FIM mantendo a
+     ordem que tinha — o índice de origem no desempate é o que garante isso sem
+     depender de `sort` estável. */
+  function ordenarPeloEspaco(clientes, modelo) {
+    const paradas = modelo && Array.isArray(modelo.paradas) ? modelo.paradas : [];
+    if (!paradas.length) return clientes;
+    const porPorta = new Map();
+    const porCliente = new Map();
+    paradas.forEach((p, i) => {
+      const cid = String((p && p.customerProfileId) || '');
+      if (!cid) return;
+      const porta = `${cid}|${String((p && p.localId) || '')}`;
+      if (!porPorta.has(porta)) porPorta.set(porta, i);
+      if (!porCliente.has(cid)) porCliente.set(cid, i);
+    });
+    const FIM = Number.MAX_SAFE_INTEGER;
+    const peso = (c) => {
+      const cid = String((c && c.customerProfileId) || '');
+      const porta = `${cid}|${String((c && c.localId) || '')}`;
+      if (porPorta.has(porta)) return porPorta.get(porta);
+      return porCliente.has(cid) ? porCliente.get(cid) : FIM;
+    };
+    return clientes
+      .map((c, i) => ({ c, p: peso(c), i }))
+      .sort((a, b) => (a.p - b.p) || (a.i - b.i))
+      .map((x) => x.c);
+  }
+
+  /** trocar de posição no seletor: a lista se repinta na ordem escolhida */
+  function escolherModo(chave) {
+    const alvo = String(chave || 'dist');
+    const idx = alvo === 's1' ? 0 : alvo === 's2' ? 1 : -1;
+    // Espaço vazio não troca nada: ENSINA.
+    if (idx >= 0 && !ESPACOS[idx]) return tutorialDoEspaco(alvo);
+    // 2º toque no que já está aceso abre renomear/apagar (ver `gerirEspaco`).
+    if (idx >= 0 && alvo === modoSel) return gerirEspaco(idx);
+    modoSel = alvo;
+    // Escolher uma ordem gravada é DESFAZER o arrasto de propósito — ele some
+    // aqui, e com ele o ponto de "editado". Sem isto `previaDoDedo` venceria a
+    // escolha e o toque seria mudo.
+    previaDoDedo = false;
+    publicarModos();
+    publicarPrevia();
+  }
+
+  /** a prévia na tela — encadeada pelo GPS quando existe fix */
+  function publicarPrevia() {
+    if (typeof window.usarDados !== 'function' || !previaCrua) return;
+    const alvo = previaAlvo;
+    // Ordem do dedo > ordem do ESPAÇO > ordem do GPS > ordem do servidor.
+    previaComGps = previaDoDedo || !!ultimaPos;
+    const espaco = modeloDoModo();
+    const clientes = previaDoDedo
+      ? previaCrua.slice()
+      : (espaco
+        ? ordenarPeloEspaco(encadearPorDistancia(previaCrua, ultimaPos), espaco)
+        : encadearPorDistancia(previaCrua, ultimaPos));
+    // 🔴 O QUE FOI PUBLICADO VIRA A VERDADE. Guardar a ordem CRUA do servidor
+    // depois de pintar outra deixaria dois donos da mesma lista — e o próximo
+    // repinte escolheria um deles no escuro. Daqui pra frente `previaCrua` e
+    // `PREVIA` andam no mesmo índice, que é o que faz o arrasto ser mapeável.
+    previaCrua = clientes;
     PREVIA.length = 0;
     let produtos = 0;
     let total = 0;
@@ -1105,10 +1324,29 @@
       somaProdutos: String(produtos),
       somaValor: temPreco ? dinheiro(total) : '',
     });
+    etiquetarPrevia();
+  }
+
+  /* 🔴 A ETIQUETA QUE FAZ O ARRASTO DA PRÉVIA CONTAR. O cartão da montagem não
+     tem `data-parada` — e não pode ter mesmo: a entrega ainda não existe, não
+     há id de servidor pra pôr ali. Sem NENHUMA marca, porém, um cartão movido
+     pelo dedo vira anônimo e o montar cravaria a ordem que EU publiquei, não a
+     que ele está vendo. Este número é a posição de origem de cada cartão; o
+     mock MOVE o nó (não redesenha), então ele viaja junto com o dedo.
+     `pintar` é síncrono (o seam repinta na hora), então carimbar logo depois de
+     escrever alcança a camada nova. Só na montagem: em outra tela o `.stops` da
+     camada viva é a lista da ROTA, e carimbá-la seria etiqueta mentindo. */
+  function etiquetarPrevia() {
+    if (telaAtual() !== 'montagem') return;
+    const lista = naCamada('.stops');
+    if (!lista) return;
+    [...lista.querySelectorAll('.stop')].forEach((el, i) => { el.dataset.previa = String(i); });
   }
 
   /** o botão do meio da Rota: abre a tela de montar, sem tocar no servidor */
   function abrirMontagem() {
+    // Os espaços do dia entram junto com a tela — quem os busca é o guarda de
+    // `tela === 'montagem'`, o mesmo lugar que já enche a lista.
     if (typeof window.ir === 'function') window.ir('montagem');
   }
 
@@ -1126,6 +1364,144 @@
   };
   const hojeISO = () => diaOperacional();
 
+  /* 🔴 O PONTO DE PARTIDA DA ROTA É ONDE O MOTORISTA ESTÁ — e o app nunca
+     mandava (dono, 08/08: "já carregar montado pelo GPS").
+     O servidor SEMPRE soube receber isto: `origemLat/origemLng` está no
+     PlanejarRotaDto ("GPS do entregador (ponto de partida)"), no ConferirRotaDto,
+     no IniciarRotaDto e no prepare do admin. Sem ele, `coordFromInput` devolve
+     null e o `nearestNeighbor` faz o que está escrito no próprio código: "sem
+     origem: a 1ª parada da LISTA é o ponto de partida" — ou seja, a rota nascia
+     encadeada a partir de um cliente sorteado pela varredura do banco, com o
+     carro do motorista em outro bairro. Este objeto é o conserto inteiro.
+
+     Vai nos QUATRO caminhos que rodam o motor, e não em um só: planejar (montar),
+     conferir (o semáforo roda o MESMO motor em dry-run — origem diferente daria
+     um aviso sobre uma rota que não é a montada), prepare (o dia puxado pra hoje)
+     e iniciar — que RE-PLANEJA ("re-planeja a partir da origem atual"). Faltando
+     no iniciar, a ordem que ele acabou de ver na montagem seria reescrita no
+     toque seguinte, e o motorista sairia com uma sequência que ninguém mostrou.
+     Sem fix, o objeto é VAZIO e tudo volta a ser exatamente o que era. */
+  const origemGps = () => (ultimaPos ? { origemLat: ultimaPos.lat, origemLng: ultimaPos.lng } : {});
+
+  /* ------------------------------------------------------------------------
+     🔴 A ROTA É CRIADA NA SEQUÊNCIA EXATA DA TELA (ordem do dono, 08/08).
+
+     Até aqui o servidor era o dono da ordem em DOIS momentos, e nos dois ele
+     podia desfazer o que o motorista estava vendo:
+       · MONTAR  → o `planejar` roda NN + 2-opt e grava a ordem DELE. A lista
+                   que o motorista acabou de ler na montagem virava outra.
+       · INICIAR → "re-planeja a partir da origem atual" (está escrito no
+                   próprio serviço). Ou seja: mesmo depois de arrastar cartão
+                   por cartão, o toque em Iniciar reordenava tudo de novo — o
+                   arrasto era gravado e desfeito no passo seguinte.
+
+     O contrato pra isso já existia e é o mesmo que o desktop usa: `ordemManual`
+     — "os ids listados recebem rotaOrdem NA ORDEM DADA e o motor pula o
+     NN+2-opt". Agora ele viaja nos dois momentos, e quem o preenche é a TELA.
+
+     💰 Não custa: re-planejar o MESMO conjunto não cria parada nem debita (o
+     bloco cobrável tem claim único por empresa+motorista+data+bloco) — é a
+     mesma conta que o arrastar já fazia desde 08/08.
+
+     ⚖️ O que se perde de propósito: o otimizador por rua deixa de ter a última
+     palavra. Ele continua sendo quem PROPÕE a ordem no montar (é ele que roda
+     primeiro, agora a partir do GPS); o que ele não faz mais é reescrever a
+     sequência depois que ela foi mostrada.
+     ------------------------------------------------------------------------ */
+
+  /** os ids das paradas na ORDEM DO DOM — a lista da rota carrega `data-parada` */
+  function idsNaTela() {
+    const lista = naCamada('.stops');
+    if (!lista) return [];
+    return [...lista.querySelectorAll('.stop')]
+      .map((el) => String((el.dataset && el.dataset.parada) || '')).filter(Boolean);
+  }
+
+  /* A sequência que o motorista está vendo, em ids de entrega. O DOM manda
+     quando ele tem o que dizer (é a tela LITERAL, inclusive no meio de um
+     arrasto que ainda não voltou do servidor); fora da lista — na montagem, que
+     desenha as paradas sem `data-parada` — vale a ordem em que a ponte pintou,
+     que é a mesma que o servidor devolveu. */
+  const sequenciaDaTela = () => {
+    const carregada = [...ENTREGAS.keys()];
+    const doDom = idsNaTela();
+    return doDom.length === carregada.length && doDom.length > 1 ? doDom : carregada;
+  };
+
+  /* A sequência da PRÉVIA (tela de montar), em clientes. O arrasto ali é só
+     visual — a entrega ainda não existe, então não há id pra gravar (está dito
+     no próprio mock). A etiqueta `data-previa`, carimbada a cada pintura, é o
+     que faz o dedo contar mesmo assim: o mock MOVE o nó, e a etiqueta viaja
+     junto. Sem lista na tela, vale a ordem que eu publiquei. */
+  function indicesDaPrevia() {
+    if (telaAtual() !== 'montagem') return null;
+    const lista = naCamada('.stops');
+    if (!lista) return null;
+    const nos = [...lista.querySelectorAll('.stop[data-previa]')];
+    // Lista de outro tamanho = outra lista (ou etiqueta velha). Na dúvida, a
+    // ordem que EU publiquei — nunca uma permutação meio adivinhada.
+    if (!nos.length || nos.length !== PREVIA.length) return null;
+    const idx = nos.map((el) => Number(el.dataset.previa));
+    if (idx.some((n) => !(n >= 0 && n < PREVIA.length))) return null;
+    if (new Set(idx).size !== idx.length) return null;
+    return idx;
+  }
+
+  function ordemDaPrevia() {
+    const idx = indicesDaPrevia();
+    if (!idx) return PREVIA.slice();
+    const alvo = idx.map((n) => PREVIA[n]);
+    /* 🔴 ARRASTOU = A LISTA É OUTRA, NO DADO. Deixar a decisão só no DOM era
+       promessa de 2 segundos: o "Montando…" repinta a tela inteira e o cartão
+       voltava pro lugar de antes na cara dele. Aqui o dedo entra no dado — e
+       o repinte seguinte já nasce na ordem dele. */
+    if (idx.some((n, i) => n !== i) && previaCrua && previaCrua.length === idx.length) {
+      previaCrua = idx.map((n) => previaCrua[n]);
+      previaDoDedo = true;
+      publicarPrevia();
+    }
+    return alvo;
+  }
+
+  /* Casa a sequência da tela com as entregas que nasceram no montar e crava.
+     O elo é o CLIENTE (a prévia fala de cliente; a rota, de entrega): mesmo
+     cliente com duas portas vira duas entregas, consumidas na ordem em que
+     aparecem. Entrega que não estava na prévia não se perde — vai pro fim, na
+     ordem que o servidor deu, e explícita (não confio no "as ausentes vão pro
+     fim" ficar valendo pra sempre do outro lado).
+     Devolve `false` só quando tentou gravar e o servidor recusou. */
+  async function fixarSequencia(sequencia) {
+    if (!Array.isArray(sequencia) || sequencia.length < 2 || !ENTREGAS.size) return true;
+    const porCliente = new Map();
+    ENTREGAS.forEach((e, id) => {
+      const cid = String((e && e.item && e.item.cliente && e.item.cliente.id) || '');
+      if (!cid) return;
+      const fila = porCliente.get(cid);
+      if (fila) fila.push(String(id));
+      else porCliente.set(cid, [String(id)]);
+    });
+    const ids = [];
+    sequencia.forEach((p) => {
+      const fila = porCliente.get(String((p && p.customerProfileId) || ''));
+      if (fila && fila.length) ids.push(fila.shift());
+    });
+    // Casou pouco (dia trocado, prévia de outro conjunto): a ordem do servidor
+    // é melhor que uma ordem MINHA feita em cima de meia dúzia de palpites.
+    if (ids.length < 2) return true;
+    const atual = [...ENTREGAS.keys()].map(String);
+    const alvo = ids.concat(atual.filter((id) => ids.indexOf(id) < 0));
+    if (alvo.join('|') === atual.join('|')) return true;   // o servidor já concordou
+    try {
+      await window.API.post('/logistica/rota/planejar', {
+        date: hojeISO(), ordemManual: alvo, ...origemGps(),
+      });
+    } catch (_) {
+      return false;
+    }
+    await carregarRota();
+    return true;
+  }
+
   /** monta a rota do dia: planeja (grava a ordem) e confere (semáforo). */
   async function montarRota() {
     await comTrava(async () => {
@@ -1139,6 +1515,11 @@
       const montando = (v) => {
         try { window.usarDados('rota', { montando: v }); } catch (_) { /* sem seam */ }
       };
+      /* 🔴 A FOTO DA TELA VEM ANTES DE TUDO — inclusive do "Montando…". É esta
+         sequência que a rota vai ter no fim, e ela mora no DOM: o `montando(1)`
+         repinta a tela inteira e leva junto as etiquetas do arrasto. Ler depois
+         seria cravar a ordem que EU publiquei, não a que o dedo deixou. */
+      const sequencia = ordemDaPrevia();
       montando(1);
       const devolverEstado = () => montando(0);
 
@@ -1148,11 +1529,11 @@
           // Outro dia puxado pra HOJE: o prepare materializa a agenda do dia
           // escolhido em cima do dia operacional de hoje e já planeja.
           const prep = await window.API.post('/logistica/admin-route/prepare', {
-            operationalDate: hojeISO(), sourceDates: [dataDoDia(montarDia)],
+            operationalDate: hojeISO(), sourceDates: [dataDoDia(montarDia)], ...origemGps(),
           });
           plano = prep && prep.plan ? prep.plan : prep;
         } else {
-          plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO() });
+          plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...origemGps() });
         }
       } catch (e) { devolverEstado(); return avisoErro(e); }
       const paradas = Array.isArray(plano && plano.stops) ? plano.stops
@@ -1161,7 +1542,7 @@
 
       // semáforo dos endereços: só ATRASA a montagem se o servidor acusar algo.
       let conf = null;
-      try { conf = await window.API.post('/logistica/rota/conferir', { date: hojeISO() }); } catch (_) { /* aviso é enfeite, não portão */ }
+      try { conf = await window.API.post('/logistica/rota/conferir', { date: hojeISO(), ...origemGps() }); } catch (_) { /* aviso é enfeite, não portão */ }
       const comAviso = conf && Array.isArray(conf.items)
         ? conf.items.filter((i) => Array.isArray(i.motivosVisiveis) && i.motivosVisiveis.length).length
         : 0;
@@ -1187,7 +1568,21 @@
         devolverEstado();
         return avisoErro(new Error('Não consegui montar agora. Tente de novo.'));
       }
+      // 🔴 E AGORA A ORDEM VOLTA A SER A DA TELA. O `planejar` acima devolveu a
+      // sequência DELE (NN + 2-opt por rua); esta linha crava a que o motorista
+      // estava lendo. Só fala com o servidor se as duas discordarem.
+      const cravou = await fixarSequencia(sequencia);
       devolverEstado();          // o "Montando…" sai com o dado já na tela
+      if (!cravou && typeof window.portao === 'function') {
+        // Rota montada, ordem do servidor na tela: não é mentira nenhuma (a
+        // lista foi repintada), mas não é o que ele pediu — e some calado seria
+        // ele descobrir isso na rua, no 3º cliente.
+        return window.portao({
+          tom: 'alerta', ico: 'route', titulo: 'Montei, mas a ordem é a do sistema',
+          sub: 'Não consegui gravar a ordem da tela. Arraste de novo ou monte outra vez.',
+          acoes: [['Fechar', '']],
+        });
+      }
       if (comAviso && typeof window.usarDados === 'function') {
         window.usarDados('montagem', { iniciarSub: `${comAviso} com aviso` });
       }
@@ -1240,7 +1635,14 @@
             // 🔴 A RESPOSTA DO INICIAR TEM DADO DENTRO. Ela era descartada, e
             // com ela iam embora as empresas do corredor (`prospector`) que o
             // servidor acabou de embarcar pro dia. Ver `aplicarProspector`.
-            aplicarProspector(await window.API.post('/logistica/rota/iniciar', { date: hojeISO() }));
+            // 🔴 `ordemManual` = A LISTA COMO ELA ESTÁ NA TELA. Sem ela o
+            // iniciar re-planeja e o motorista sai com uma sequência que
+            // ninguém mostrou — inclusive desfazendo os cartões que ele
+            // arrastou um por um. Id que o servidor não conhece (parada já
+            // entregue, que viaja na lista) ele ignora sozinho.
+            aplicarProspector(await window.API.post('/logistica/rota/iniciar', {
+              date: hojeISO(), ordemManual: sequenciaDaTela(), ...origemGps(),
+            }));
           } catch (e) {
             // 🔴 NUNCA MORRER CALADO (dono, §1.3): primeiro a verdade do
             // servidor — se a rota JÁ ESTÁ em andamento, a resposta certa é
@@ -1327,7 +1729,10 @@
     gestoSujouATela += 1;         // o DOM saiu do que o dado diz: o repinte vale
     naFila(async () => {
       try {
-        await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ordemManual: ids });
+        // A origem entra aqui também: `planRouteManual` não reordena nada (a
+        // ordem é a do dedo), mas é ela que dá a PERNA real da 1ª parada — sem
+        // origem o trecho até o primeiro cliente sai zerado na tela.
+        await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ordemManual: ids, ...origemGps() });
       } catch (e) {
         // A tela está mostrando a ordem NOVA e o servidor ficou com a velha.
         // Repintar primeiro DESFAZ a mentira; o aviso vem depois, senão o
@@ -1489,6 +1894,91 @@
         .setLngLat([p.lng, p.lat]).addTo(casa.mapa));
     });
     pinosVisiveis(casa);
+    // rota OUTRA = enquadramento outro. Aqui dentro é o único lugar automático
+    // que reenquadra, e de propósito: este bloco só roda quando a lista muda.
+    enquadrarGeral(casa);
+  }
+
+  /* ---- O ENQUADRAMENTO DO MAPA 2D --------------------------------------------
+     🔴 O PALCO "geral" VIROU A TELA PRINCIPAL DA ROTA (08/08 — dono: *"a tela
+     principal do rota, mapa limpo, 2d"*), e ele não estava pronto pro cargo:
+     nascia centrado na PRIMEIRA parada com zoom 15 e deixava o resto do dia
+     fora da tela. Mapa que mostra um pino de seis não é "a rota vista de cima",
+     é um pedaço de rua com um número em cima. Quem enquadra é a caixa de TUDO o
+     que a tela promete: as paradas e o motorista.
+
+     🔴 E ELE NÃO REENQUADRA A CADA REPINTE. Esta tela repinta por segundo (fix
+     do GPS, seam da lista); mandar câmera ali seria o mapa se recusando a ficar
+     onde o dedo o deixou — exatamente o defeito que a fase 'solta' curou na
+     navegação. São DUAS as horas de enquadrar, e só elas: quando a ROTA muda
+     (a digital dos pinos é outra) e quando o DEDO PEDE (`mapa-enquadrar`).
+
+     🔴 O CROMO COME TELA e a rota tem que caber no que sobra. Aqui é UMA peça
+     só: a barra de vidro do topo (47 + 9 de respiro + 18 pro pino não encostar
+     nela). O transmux e as abas NÃO entram nesta conta porque o palco já para
+     em cima deles (`.plano.com-dock`) — descontá-los de novo seria enquadrar a
+     rota num retângulo menor que o mapa, com meia tela sobrando embaixo. */
+  const PLANO_PAD = { top: 74, right: 34, bottom: 34, left: 34 };
+  const PLANO_ZOOM_TETO = 16;
+
+  function enquadrarGeral(casa) {
+    if (!casa || casa.nome !== 'geral') return;
+    const pontos = [];
+    ((typeof PARADAS !== 'undefined' ? PARADAS : []) || []).forEach((p) => {
+      const la = Number(p.lat); const ln = Number(p.lng);
+      if (Number.isFinite(la) && Number.isFinite(ln)) pontos.push([ln, la]);
+    });
+    const eu = ultimaPos || ultimoFix;
+    if (eu && Number.isFinite(eu.lat) && Number.isFinite(eu.lng)) pontos.push([eu.lng, eu.lat]);
+    // Sem um ponto sequer não há o que enquadrar — e a câmera fica onde está.
+    // Pular pra lugar nenhum seria o mapa "corrigindo" pro meio do oceano.
+    if (!pontos.length) return;
+    const achatar = () => {
+      /* 🔴 2D É REQUISITO, NÃO PREFERÊNCIA. Dois dedos inclinam e giram qualquer
+         mapa do maplibre; enquadrar tem que DEVOLVER a vista de cima, senão o
+         botão devolve o dia numa perspectiva que esta tela não deveria ter. */
+      try {
+        if (casa.mapa.getPitch() || casa.mapa.getBearing()) casa.mapa.jumpTo({ pitch: 0, bearing: 0 });
+      } catch (_) { /* mapa saindo de cena */ }
+    };
+    if (pontos.length === 1) {
+      try { casa.mapa.jumpTo({ center: pontos[0], zoom: 15 }); } catch (_) { return; }
+      achatar();
+      return;
+    }
+    const o = pontos[0].slice(); const n = pontos[0].slice();
+    pontos.forEach((c) => {
+      o[0] = Math.min(o[0], c[0]); o[1] = Math.min(o[1], c[1]);
+      n[0] = Math.max(n[0], c[0]); n[1] = Math.max(n[1], c[1]);
+    });
+    try {
+      casa.mapa.fitBounds([o, n], { padding: PLANO_PAD, maxZoom: PLANO_ZOOM_TETO, duration: 0 });
+    } catch (_) { return; }
+    achatar();
+  }
+
+  /** o botão da beirada do mapa 2D: devolve a rota inteira pra tela */
+  function enquadrarPlano() { enquadrarGeral(GARAGEM.get('geral')); }
+
+  /* 🔴 "ONDE EU ESTOU" NÃO É UM CARIMBO DE BOOT. O marcador do mapa 2D era
+     criado UMA vez, no `load` do mapa, com a posição daquele instante — e nunca
+     mais andava. Passava batido enquanto isto era a tela do botão "Ver mapa"
+     (uma olhada de dois segundos); agora que é A TELA PRINCIPAL DA ROTA, seta
+     parada num quarteirão que ficou pra trás é a tela mentindo o dia inteiro.
+     Aqui ele é UM marcador pela vida do mapa, movido a cada fix — sem repinte,
+     sem câmera, sem nada que brigue com o dedo. */
+  function moverEuNoPlano() {
+    const casa = GARAGEM.get('geral');
+    const eu = ultimaPos || ultimoFix;
+    if (!casa || !eu || !Number.isFinite(eu.lat) || !Number.isFinite(eu.lng)) return;
+    if (!casa.eu) {
+      try {
+        casa.eu = new casa.gl.Marker({ color: '#3d8bff' })
+          .setLngLat([eu.lng, eu.lat]).addTo(casa.mapa);
+      } catch (_) { casa.eu = null; }
+      return;
+    }
+    try { casa.eu.setLngLat([eu.lng, eu.lat]); } catch (_) { /* mapa saindo de cena */ }
   }
 
   /* 🔴 PINO FORA DA TELA NÃO É PINO — é enfeite encostado na moldura. Com a
@@ -1554,7 +2044,12 @@
       palco.classList.add('pronto');
       acertarLuz(casa);
       sincronizarPinos(casa);
-      if (nome === 'gps') { desenharTraco(casa.mapa); cameraDaNavegacao(); }
+      if (nome === 'gps') { desenharTraco(casa.mapa); cameraDaNavegacao(); return; }
+      // 🔴 O TRANSPLANTE NÃO MEXE NA CÂMERA, e é assim que fica: voltar pra aba
+      // Rota devolve o mapa exatamente onde ele estava. Só o traço e a seta se
+      // acertam — os dois são DADO, e dado velho na tela principal é mentira.
+      desenharTraco(casa.mapa);
+      moverEuNoPlano();
       return;
     }
 
@@ -1581,7 +2076,7 @@
       maxZoom: 18,
       attributionControl: false,
     });
-    const nova = { nome, gl, mapa, alvo, pinos: new Map(), chave: null, luz: luzDeAgora() };
+    const nova = { nome, gl, mapa, alvo, pinos: new Map(), chave: null, luz: luzDeAgora(), eu: null };
     GARAGEM.set(nome, nova);
     MONTANDO.delete(nome);
     palco.__hbxMapa = true;
@@ -1595,7 +2090,13 @@
       // seria a segunda seta, e o V4 promete uma. No mapa "geral" (a rota
       // inteira, sem puck) o marcador é justamente o que diz onde ele está.
       if (nome === 'gps') { desenharTraco(mapa); cameraDaNavegacao(); return; }
-      if (ultimaPos) new gl.Marker({ color: '#3d8bff' }).setLngLat([ultimaPos.lng, ultimaPos.lat]).addTo(mapa);
+      // 🔴 O PALCO "geral" É A TELA PRINCIPAL DA ROTA desde 08/08, e ele nascia
+      // com pino e mais nada: sem traço (o caminho existia e ninguém desenhava)
+      // e no zoom de nascimento, com o resto do dia fora da tela. As três peças
+      // do que a tela promete entram juntas aqui.
+      desenharTraco(mapa);
+      moverEuNoPlano();
+      enquadrarGeral(nova);
     });
     // as empresas do corredor não são marcador do maplibre: elas são a peça
     // do desenho, e quem as coloca no chão é a câmera. Ver `posicionarEmpresas`.
@@ -1610,6 +2111,17 @@
       mapa.on('rotatestart', doDedo);
       mapa.on('pitchstart', doDedo);
       mapa.on('zoomstart', doDedo);
+    } else {
+      /* 🔴 "2D" É UMA TRAVA, NÃO UMA POSE INICIAL (dono, 08/08: *"mapa limpo,
+         2d"*). Todo mapa do maplibre gira e inclina com dois dedos — quer dizer
+         que a tela de PLANEJAR podia sair deitada e torta sem ninguém pedir, e
+         sem bússola nenhuma pra dizer onde ficou o norte (a bússola é peça da
+         tela de dirigir). Aqui a rotação e a inclinação são DESLIGADAS: arrastar
+         e pinçar continuam, que é tudo o que se faz num mapa visto de cima. */
+      try { mapa.dragRotate.disable(); } catch (_) { /* versão sem o gesto */ }
+      try { mapa.touchZoomRotate.disableRotation(); } catch (_) { /* idem */ }
+      try { mapa.touchPitch.disable(); } catch (_) { /* idem */ }
+      try { mapa.keyboard.disableRotation(); } catch (_) { /* idem */ }
     }
     /* 🔴 O PUCK SOLTO ANDA COM O MAPA, NÃO COM O GPS. Sincronizá-lo só no fix
        (1 por segundo) deixaria a seta escorregando um quadro atrás do dedo
@@ -2534,11 +3046,16 @@
     } catch (_) { /* estilo ainda trocando: a próxima passada redesenha */ }
   }
 
-  /** o traço chega pela rede; o mapa pode nascer depois dele, e vice-versa */
+  /* o traço chega pela rede; o mapa pode nascer depois dele, e vice-versa.
+     🔴 E ELE É DOS DOIS MAPAS. Isto pintava só o palco da navegação — o mapa 2D
+     da aba Rota, que desde 08/08 é a TELA PRINCIPAL, ficava com os pinos soltos
+     e nenhum caminho entre eles. O caminho já estava no aparelho; faltava
+     desenhá-lo na tela em que o motorista olha o dia. */
   function pintarTraco() {
-    const mapa = mapaDaNavegacao();
-    if (!mapa) return;
-    quandoEstiloPronto(mapa, () => desenharTraco(mapa));
+    [mapaDaNavegacao(), (GARAGEM.get('geral') || {}).mapa].forEach((mapa) => {
+      if (!mapa) return;
+      quandoEstiloPronto(mapa, () => desenharTraco(mapa));
+    });
   }
 
   /* ---- 7d-bis. A DESCIDA: 2D → 3D, o efeito do V4 -------------------------
@@ -3004,6 +3521,17 @@
       precisaoM: Number.isFinite(c.accuracy) ? c.accuracy : null,
     };
     ultimaPos = { lat: c.latitude, lng: c.longitude };
+    /* 🔴 O 1º FIX QUASE SEMPRE CHEGA DEPOIS DA LISTA — numa garagem, bem
+       depois. A montagem abre, busca o dia e pinta antes de existir GPS: se
+       ninguém voltasse aqui, a tela ficaria na ordem do banco justamente na
+       primeira vez que o motorista a abre no dia. Reencadeia com o que já está
+       na memória (nada de rede) e só UMA vez — `previaComGps` fecha a porta;
+       repintar a cada fix seria a lista tremendo debaixo do dedo dele. */
+    if (!previaComGps && telaAtual() === 'montagem') publicarPrevia();
+    // A seta do mapa 2D anda aqui, e só aqui: é um `setLngLat` num marcador que
+    // já existe — nem repinte, nem câmera, nem tile novo. A tela principal da
+    // rota mostrando onde o motorista está AGORA custa isto.
+    moverEuNoPlano();
     // O anel roda em QUALQUER tela: o motorista chega perto do cliente
     // com o app na lista de paradas, não no GPS. `aoMover` é que é só da
     // navegação — por isso o anel vem antes, e fora dele.
@@ -3111,7 +3639,13 @@
       // ...e relê quais dias TÊM cliente: cadastrar gente numa terça vazia tem
       // que devolver a terça pra fila de chips sem fechar o app. Dado igual não
       // repinta (o freio do `usarDados`), então reler aqui não pisca nada.
-      if (tela === 'montagem') { publicarMontarDias(); carregarDiasComCliente(); encherMontagem(); }
+      // ...e GARANTE O GPS: a partir de 08/08 a lista da montagem é encadeada
+      // pela posição do motorista, então aqui a localização passou a fazer
+      // falta — é a mesma régua do "Navegar" (pedir no momento em que serve).
+      // Negada, ninguém leva alerta nesta tela (`avisarSemGps` só fala na
+      // navegação): a lista cai na ordem do servidor e a rota se monta como
+      // antes. Montar rota nunca depende de permissão.
+      if (tela === 'montagem') { garantirGps(); publicarMontarDias(); carregarDiasComCliente(); carregarEspacos(); encherMontagem(); }
       if (tela === 'chat') aoAbrirChat();
       // Cadastro NASCE EM BRANCO, sempre. Formulário que guarda o cliente
       // anterior é a receita de cadastrar duas vezes a mesma pessoa — e aqui
@@ -3256,43 +3790,140 @@
      ------------------------------------------------------------------------ */
   const PARADAS_SALVAR = [];        // as paradas da rota MONTADA, em ordem
 
-  async function salvarRota() {
+  const nomeCurto = (v) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, NOME_MAX);
+
+  /** o que o "Salvar" grava: rota montada manda; ainda por montar, a prévia */
+  const paradasParaSalvar = () => (estadoRota === 'montar' ? PREVIA : PARADAS_SALVAR)
+    .filter((p) => p && p.customerProfileId);
+
+  /* 🔴 O ESPAÇO VAZIO ENSINA (dono, 08/08: "clicou em cima ensina — abre o mini
+     tutorial"). Os dois extremos são ruins: espaço que grava no primeiro toque
+     salva rota por engano, espaço que não faz nada é botão morto. O tutorial
+     explica em 3 passos e já deixa a saída no botão principal. */
+  function tutorialDoEspaco(chave) {
     if (typeof window.portao !== 'function') return;
-    const daPrevia = estadoRota === 'montar';
-    const paradas = (daPrevia ? PREVIA : PARADAS_SALVAR).filter((p) => p && p.customerProfileId);
-    if (!paradas.length) {
-      return avisoErro(new Error('Esta rota não tem parada para salvar.'));
-    }
-    const dia = montarDia || diaDaSemana();
-    const nome = `Rota de ${DIAS_SEMANA[dia]} · ${dataBR(daPrevia && montarDia ? dataDoDia(montarDia) : hojeISO())}`;
+    const n = chave === 's2' ? 2 : 1;
+    const passo = (i, t, s) => `<div class="pt-passo"><b>${i}</b><span><strong>${t}</strong>${s}</span></div>`;
     window.portao({
-      tom: 'info', ico: 'save', titulo: 'Salvar esta rota?',
-      sub: `${esc(nome)} · ${paradas.length} ${paradas.length === 1 ? 'parada' : 'paradas'}`,
-      acoes: [['Agora não', ''], ['Salvar', 'principal']], classe: 'duas',
+      tom: 'info', ico: 'save', titulo: `Espaço ${n} — ainda vazio`,
+      sub: `Cada dia da semana guarda 2 rotas suas, com o nome que você escolher.`,
+      corpo: `${passo(1, 'Deixe a lista na ordem que você dirige', 'arraste as paradas pelo punho')}
+        ${passo(2, 'Salve neste espaço', 'com um nome curto: Manhã, Centro, Bairro…')}
+        ${passo(3, `Na próxima ${ROTULO_DIA[diaDosEspacos()] || 'vez'}`, 'um toque no botão e a ordem volta')}`,
+      acoes: [['Agora não', ''], ['Salvar aqui', 'principal']], classe: 'duas',
     });
     const botao = naCamada('.portao-wrap .principal');
+    if (botao) botao.addEventListener('click', () => pedirNome(n - 1), { once: true });
+  }
+
+  /* O nome é DIGITADO (o botão do seletor mostra o que ele escreveu) e tem teto
+     de 10: cada posição leva 1/3 da largura da tela, e nome que não cabe vira
+     reticência — o motorista deixaria de distinguir os dois espaços. */
+  function pedirNome(idx) {
+    if (typeof window.portao !== 'function') return;
+    if (!paradasParaSalvar().length) return avisoErro(new Error('Esta rota não tem parada para salvar.'));
+    const espaco = ESPACOS[idx];
+    const dia = diaDosEspacos();
+    window.portao({
+      tom: 'info', ico: 'save',
+      titulo: espaco ? 'Regravar este espaço?' : `Salvar no Espaço ${idx + 1}`,
+      sub: espaco
+        ? `"${esc(espaco.nome)}" perde a ordem antiga e fica com a que está na tela.`
+        : 'O nome curto é o que vai aparecer no botão.',
+      corpo: `<div class="campo"><label>Nome</label><input data-campo="nome-espaco" type="text"
+        maxlength="${NOME_MAX}" autocomplete="off" placeholder="Manhã" value="${esc(nomeCurto(espaco && espaco.nome))}"></div>`,
+      acoes: [['Agora não', ''], [espaco ? 'Regravar' : 'Salvar', 'principal']], classe: 'duas',
+    });
+    const campo = naCamada('.portao-wrap [data-campo="nome-espaco"]');
+    const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;
-    botao.addEventListener('click', () => comTrava(async () => {
-      let existente = null;
-      try {
-        const lista = await window.API.get('/logistica/rota-modelos');
-        existente = (Array.isArray(lista) ? lista : []).find((m) => m && m.nome === nome) || null;
-      } catch (_) { /* sem lista: segue pelo POST, e o 400 de duplicado avisa */ }
-      try {
-        if (existente) {
-          await window.API.patch(`/logistica/rota-modelos/${encodeURIComponent(existente.id)}`, { paradas });
-        } else {
-          await window.API.post('/logistica/rota-modelos', { nome, diaSemana: dia, paradas });
-        }
-      } catch (e) { return avisoErro(e); }
-      // A lista de Rotas salvas fica fresca na hora: o dono vai OLHAR lá pra
-      // conferir que "ficou salvo" — e lista velha diria que não ficou.
-      await carregarSalvas();
-      window.portao({
-        tom: 'info', ico: 'check', titulo: 'Rota salva',
-        sub: `${esc(nome)} está em Rotas salvas`, acoes: [['Fechar', 'principal']],
-      });
-    }), { once: true });
+    if (campo) { try { campo.focus(); } catch (_) { /* teclado é enfeite aqui */ } }
+    botao.addEventListener('click', () => {
+      // Lido ANTES de qualquer await: o `data-fechar` do portão tira o campo da
+      // tela assim que o toque sobe.
+      const digitado = nomeCurto(campo ? campo.value : '');
+      // Sem nome não fica sem saída: o dia + o número do espaço é curto, único
+      // dentro do dia e diz de onde veio. Portão fechado com erro na cara seria
+      // obrigar o motorista a começar tudo de novo.
+      const nome = digitado || `${ROTULO_DIA[dia] || 'Rota'} ${idx + 1}`;
+      comTrava(() => salvarNoEspaco(idx, nome));
+    }, { once: true });
+  }
+
+  /** grava a ordem da tela no espaço: POST se está vago, PATCH se já tem rota */
+  async function salvarNoEspaco(idx, nome) {
+    const paradas = paradasParaSalvar();
+    if (!paradas.length) return avisoErro(new Error('Esta rota não tem parada para salvar.'));
+    const dia = diaDosEspacos();
+    const espaco = ESPACOS[idx];
+    try {
+      if (espaco) {
+        await window.API.patch(`/logistica/rota-modelos/${encodeURIComponent(espaco.id)}`, { nome, diaSemana: dia, paradas });
+      } else {
+        await window.API.post('/logistica/rota-modelos', { nome, diaSemana: dia, paradas });
+      }
+    } catch (e) { return avisoErro(e); }
+    await carregarEspacos();
+    // Salvou o que estava vendo ⇒ é ESTE espaço que passa a valer, e o ponto de
+    // "editado" apaga: a ordem da tela e a gravada voltaram a ser a mesma.
+    modoSel = `s${idx + 1}`;
+    previaDoDedo = false;
+    publicarModos();
+    // A lista de Rotas salvas fica fresca na hora: o dono vai OLHAR lá pra
+    // conferir que "ficou salvo" — e lista velha diria que não ficou.
+    await carregarSalvas();
+    window.portao({
+      tom: 'ok', ico: 'check', titulo: 'Rota salva',
+      sub: `${esc(nome)} é o Espaço ${idx + 1} de ${ROTULO_DIA[dia] || 'hoje'}.`,
+      acoes: [['Fechar', 'principal']],
+    });
+  }
+
+  /* 2º toque no espaço que JÁ está aceso abre o que fazer com ele. Renomear e
+     apagar não cabem num gesto novo (a lista já usa punho e deslize pra outra
+     coisa), e o toque repetido num botão já ligado não tinha efeito nenhum —
+     era o lugar vago mais barato da tela. */
+  function gerirEspaco(idx) {
+    const espaco = ESPACOS[idx];
+    if (!espaco || typeof window.portao !== 'function') return;
+    window.portao({
+      tom: 'info', ico: 'route', titulo: esc(espaco.nome),
+      sub: `Espaço ${idx + 1} de ${ROTULO_DIA[diaDosEspacos()] || 'hoje'} · ${(espaco.paradas || []).length} paradas`,
+      acoes: [['Renomear e regravar', 'principal'], ['Apagar este espaço', 'perigo'], ['Fechar', '']],
+    });
+    const renomear = naCamada('.portao-wrap .principal');
+    const apagar = naCamada('.portao-wrap .perigo');
+    if (renomear) renomear.addEventListener('click', () => pedirNome(idx), { once: true });
+    if (apagar) {
+      apagar.addEventListener('click', () => comTrava(async () => {
+        try { await window.API.del(`/logistica/rota-modelos/${encodeURIComponent(espaco.id)}`); }
+        catch (e) { return avisoErro(e); }
+        if (modoSel === `s${idx + 1}`) modoSel = 'dist';
+        await carregarEspacos();
+        await carregarSalvas();
+        publicarPrevia();
+      }), { once: true });
+    }
+  }
+
+  /* O botão azul da montagem. Com um espaço aceso ele grava NAQUELE espaço; em
+     "Distância" não há espaço escolhido — e escolher por ele podia apagar uma
+     rota que ele não estava nem vendo. Então pergunta, e a pergunta já mostra
+     o que tem dentro de cada um. */
+  async function salvarRota() {
+    if (typeof window.portao !== 'function') return;
+    if (!paradasParaSalvar().length) return avisoErro(new Error('Esta rota não tem parada para salvar.'));
+    if (modoSel === 's1' || modoSel === 's2') return pedirNome(modoSel === 's1' ? 0 : 1);
+    const rotulo = (i) => (ESPACOS[i] ? `Espaço ${i + 1}: ${esc(ESPACOS[i].nome)}` : `Espaço ${i + 1} (vazio)`);
+    window.portao({
+      tom: 'info', ico: 'save', titulo: 'Salvar em qual espaço?',
+      sub: `${ROTULO_DIA[diaDosEspacos()] || 'Este dia'} guarda 2 rotas. Espaço com rota dentro é regravado.`,
+      acoes: [[rotulo(0), 'principal'], [rotulo(1), 'azul'], ['Agora não', '']],
+    });
+    const um = naCamada('.portao-wrap .principal');
+    const dois = naCamada('.portao-wrap .azul');
+    if (um) um.addEventListener('click', () => pedirNome(0), { once: true });
+    if (dois) dois.addEventListener('click', () => pedirNome(1), { once: true });
   }
 
   /* ------------------------------------------------------------------------
@@ -5131,6 +5762,10 @@
     // uma câmera que nunca tinha saído do lugar — botão sem trabalho, do lado
     // de um mapa que não obedecia o dedo. Os dois defeitos eram um só.
     'gps-centrar': () => { voltarASeguir(); },
+    // O único botão da beirada do mapa 2D (a tela principal da rota). Ele existe
+    // porque o dedo pode levar o mapa pra qualquer lugar e nada ali o traz de
+    // volta: não há câmera automática no palco "geral", de propósito.
+    'mapa-enquadrar': () => { enquadrarPlano(); },
     'aviso-chegada': () => virarChave('avisoChegandoEnabled'),
     // As 6 do dono. Uma chave = um campo = um PATCH, sem lote: assim o que
     // falhou fica evidente e o resto não volta atrás junto.
@@ -5194,6 +5829,7 @@
       pacoteEscolhido = String(alvo.dataset.pacote || '');
       return carregarAjustes();
     }
+    if (chave === 'modo-rota') return escolherModo(alvo.dataset.modo);
     if (chave === 'montar-dia') {
       const n = Number(alvo.dataset.dia) || 0;
       // 2º toque no mesmo chip volta pra Hoje — chip que só liga prende o
@@ -5201,6 +5837,9 @@
       montarDia = montarDia === n ? 0 : n;
       // o chip acende JÁ (resposta ao dedo); a lista do dia chega em seguida
       window.usarDados('montagem', { diaSel: montarDia });
+      // Os 2 espaços são DO DIA: trocar de chip troca a fileira inteira, senão
+      // o Espaço 1 de sábado ficaria aceso na tela de segunda.
+      carregarEspacos();
       encherMontagem();
       return;
     }

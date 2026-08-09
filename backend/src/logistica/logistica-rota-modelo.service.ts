@@ -17,22 +17,42 @@ import { canonicalRouteDate } from './logistica-route-billing.service';
  * no banco — dados legados podem ter duplicata). `assertNomeUnico` é exportado
  * para o finalizar de logistica-leitura.service.ts reusar a MESMA regra dentro
  * da própria transação (aceita `tx` do Prisma).
+ *
+ * 🔴 08/08 — O ESPAÇO DE NOME PASSOU A SER O DIA (dono: os 2 espaços da tela de
+ * montar são "2 rotas diferentes DO DIA", e o nome é livre: *"se ele por manhã,
+ * vai ser o manhã sempre do sábado"*). Com a unicidade valendo pra empresa
+ * INTEIRA, "Manhã" no sábado impedia "Manhã" na segunda — o motorista batia num
+ * 409 por causa de uma rota de outro dia, que ele nem estava vendo. Agora
+ * disputam nome só as rotas do MESMO `diaSemana` (e as sem dia fixo entre si).
+ * Nenhuma coluna nova: `diaSemana` já existia e é justamente "o dia".
  */
 export const ROTA_NOME_DUPLICADO_CODE = 'ROTA_NOME_DUPLICADO';
-export const ROTA_NOME_DUPLICADO_MESSAGE = 'Já existe uma rota com esse nome.';
+export const ROTA_NOME_DUPLICADO_MESSAGE = 'Já existe uma rota com esse nome neste dia.';
 
 type RotaModeloClient = Pick<PrismaService, 'logisticaRotaModelo'> | { logisticaRotaModelo: any };
 
+/**
+ * `diaSemana` é POSICIONAL e vem antes de `excludeId` de propósito: quem
+ * esquecer de passar não compila. Chamador que continuasse com a assinatura
+ * velha voltaria calado à regra global — e o preço disso é 409 na cara do
+ * motorista no meio da rua.
+ */
 export async function assertNomeUnico(
   client: RotaModeloClient,
   companyId: number,
   nome: string,
+  diaSemana: number | null,
   excludeId?: string,
 ): Promise<void> {
   const alvo = nome.trim().toLowerCase();
   if (!alvo) return;
   const existing = await (client as any).logisticaRotaModelo.findFirst({
-    where: { companyId, tipo: 'LIVRE', nome: { equals: nome.trim(), mode: 'insensitive' } },
+    where: {
+      companyId,
+      tipo: 'LIVRE',
+      diaSemana: diaSemana ?? null,
+      nome: { equals: nome.trim(), mode: 'insensitive' },
+    },
     select: { id: true, nome: true },
   });
   if (existing && existing.id !== excludeId && String(existing.nome ?? '').trim().toLowerCase() === alvo) {
@@ -64,7 +84,7 @@ export class LogisticaRotaModeloService {
     const nome = normalizeNome(input.nome);
     const diaSemana = normalizeDiaSemana(input.diaSemana);
     const paradas = normalizeParadas(input.paradas);
-    await assertNomeUnico(this.prisma, companyId, nome);
+    await assertNomeUnico(this.prisma, companyId, nome, diaSemana);
     const row = await this.prisma.logisticaRotaModelo.create({
       data: { companyId, nome, diaSemana, paradasJson: paradas as any },
     });
@@ -76,17 +96,23 @@ export class LogisticaRotaModeloService {
     if (!companyId || !id) return null;
     const existing = await this.prisma.logisticaRotaModelo.findFirst({
       where: { id: String(id).trim(), companyId, tipo: 'LIVRE' },
-      select: { id: true },
+      select: { id: true, diaSemana: true },
     });
     if (!existing) return null;
 
     const data: Record<string, unknown> = {};
+    // O dia que VAI VALER decide contra quem o nome disputa: renomear e mudar
+    // de dia no mesmo PATCH tem que ser conferido no dia de DESTINO, não no de
+    // origem — senão o nome passa aqui e colide lá.
+    const diaFinal = input.diaSemana !== undefined
+      ? normalizeDiaSemana(input.diaSemana)
+      : (existing.diaSemana ?? null);
     if (input.nome !== undefined) {
       const nome = normalizeNome(input.nome);
-      await assertNomeUnico(this.prisma, companyId, nome, existing.id);
+      await assertNomeUnico(this.prisma, companyId, nome, diaFinal, existing.id);
       data.nome = nome;
     }
-    if (input.diaSemana !== undefined) data.diaSemana = normalizeDiaSemana(input.diaSemana);
+    if (input.diaSemana !== undefined) data.diaSemana = diaFinal;
     if (input.paradas !== undefined) data.paradasJson = normalizeParadas(input.paradas) as any;
 
     const row = await this.prisma.logisticaRotaModelo.update({ where: { id: existing.id }, data });
@@ -842,11 +868,23 @@ export function normalizeParadas(value: unknown): RotaModeloParada[] {
   });
 }
 
-function toDTO(row: { id: string; nome: string; diaSemana: number | null; paradasJson: unknown }): RotaModeloDTO {
+function toDTO(row: {
+  id: string;
+  nome: string;
+  diaSemana: number | null;
+  paradasJson: unknown;
+  createdAt?: Date | null;
+}): RotaModeloDTO {
   return {
     id: row.id,
     nome: row.nome,
     diaSemana: row.diaSemana ?? null,
+    // 08/08 — a ORDEM DE NASCIMENTO é o que dá endereço fixo aos 2 espaços da
+    // tela de montar: o 1º salvo do dia é sempre o Espaço 1. Sem isto o app
+    // teria de ordenar por nome, e renomear "Manhã" pra "Tarde" faria o espaço
+    // trocar de lugar embaixo do dedo do motorista. Campo que já existia na
+    // linha — só não saía pela porta.
+    criadoEm: row.createdAt ? new Date(row.createdAt).toISOString() : null,
     paradas: Array.isArray(row.paradasJson) ? (row.paradasJson as RotaModeloParada[]) : [],
   };
 }
@@ -881,6 +919,8 @@ export interface RotaModeloDTO {
   id: string;
   nome: string;
   diaSemana: number | null;
+  /** ISO de criação — ordem estável dos 2 espaços do dia. */
+  criadoEm: string | null;
   paradas: RotaModeloParada[];
 }
 

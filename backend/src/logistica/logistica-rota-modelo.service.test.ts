@@ -19,18 +19,25 @@ function buildPrisma(seed: any[] = []) {
       },
       // PR20072026 W1 — findFirst também serve o lookup por NOME (case-insensitive)
       // de assertNomeUnico (where.id ausente, where.nome = {equals, mode}).
+      // 08/08 — e agora por DIA junto: `diaSemana: null` é filtro DE VERDADE (as
+      // rotas sem dia fixo disputam nome entre si), então o teste é `in where`,
+      // nunca `!= null` — com `!= null` a bancada ignoraria o filtro exatamente
+      // no caso que o conserto criou.
       findFirst: async (args: any) => {
         const where = args?.where || {};
         let rows = Array.from(store.values());
         if (where.id != null) rows = rows.filter((r) => r.id === where.id);
         if (where.companyId != null) rows = rows.filter((r) => r.companyId === where.companyId);
+        if ('diaSemana' in where) {
+          rows = rows.filter((r) => (r.diaSemana ?? null) === (where.diaSemana ?? null));
+        }
         if (where.nome && typeof where.nome === 'object') {
           const alvo = String(where.nome.equals ?? '').toLowerCase();
           rows = rows.filter((r) => String(r.nome ?? '').toLowerCase() === alvo);
         }
         const row = rows[0];
         if (!row) return null;
-        return { id: row.id, nome: row.nome };
+        return { id: row.id, nome: row.nome, diaSemana: row.diaSemana ?? null };
       },
       create: async (args: any) => {
         const id = `modelo-${nextId++}`;
@@ -161,15 +168,42 @@ test('remove: id inexistente → false', async () => {
 });
 
 // PR20072026 W1 — nome único por empresa (case-insensitive/trim), 409 ROTA_NOME_DUPLICADO.
+// 08/08 — a régua passou a ser POR DIA (os 2 espaços da tela de montar).
 
-test('create: nome duplicado (case-insensitive) na MESMA empresa → 409 ROTA_NOME_DUPLICADO', async () => {
+test('create: nome duplicado (case-insensitive) no MESMO dia → 409 ROTA_NOME_DUPLICADO', async () => {
   const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Segunda — Centro', diaSemana: 1, paradasJson: [] }]);
   const svc = new LogisticaRotaModeloService(prisma);
   await assert.rejects(
-    () => svc.create(7, { nome: '  segunda — centro  ' }),
+    () => svc.create(7, { nome: '  segunda — centro  ', diaSemana: 1 }),
     (err: any) => {
       assert.equal(err.status, 409);
       assert.equal(err.getResponse().code, 'ROTA_NOME_DUPLICADO');
+      return true;
+    },
+  );
+});
+
+/* 🔴 08/08 — O CASO QUE O DONO DESCREVEU: *"se ele por manhã, vai ser o manhã
+   sempre do sábado"*. Nome curto é nome que REPETE entre os dias — "Manhã" no
+   sábado não pode trancar "Manhã" na segunda, senão o 2º espaço de metade dos
+   dias nasce impossível de salvar. */
+test('create: MESMO nome em OUTRO dia da semana não conflita', async () => {
+  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Manhã', diaSemana: 6, paradasJson: [] }]);
+  const svc = new LogisticaRotaModeloService(prisma);
+  const dto = await svc.create(7, { nome: 'Manhã', diaSemana: 1 });
+  assert.equal(dto.nome, 'Manhã');
+  assert.equal(dto.diaSemana, 1);
+});
+
+/* As SEM dia fixo (`diaSemana: null`) formam o próprio espaço de nome — o filtro
+   é `diaSemana: null`, não "sem filtro". */
+test('create: nome duplicado entre duas rotas SEM dia fixo → 409', async () => {
+  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Avulsa', diaSemana: null, paradasJson: [] }]);
+  const svc = new LogisticaRotaModeloService(prisma);
+  await assert.rejects(
+    () => svc.create(7, { nome: 'AVULSA' }),
+    (err: any) => {
+      assert.equal(err.status, 409);
       return true;
     },
   );
@@ -182,17 +216,44 @@ test('create: mesmo nome em OUTRA empresa não conflita', async () => {
   assert.equal(dto.nome, 'Segunda');
 });
 
-test('update: renomear para um nome já usado por OUTRO modelo → 409 ROTA_NOME_DUPLICADO', async () => {
+test('update: renomear para um nome já usado por OUTRO modelo DO MESMO DIA → 409 ROTA_NOME_DUPLICADO', async () => {
   const { prisma } = buildPrisma([
-    { id: 'm1', companyId: 7, nome: 'Segunda', diaSemana: 1, paradasJson: [] },
-    { id: 'm2', companyId: 7, nome: 'Terça', diaSemana: 2, paradasJson: [] },
+    { id: 'm1', companyId: 7, nome: 'Manhã', diaSemana: 1, paradasJson: [] },
+    { id: 'm2', companyId: 7, nome: 'Tarde', diaSemana: 1, paradasJson: [] },
   ]);
   const svc = new LogisticaRotaModeloService(prisma);
   await assert.rejects(
-    () => svc.update(7, 'm2', { nome: 'SEGUNDA' }),
+    () => svc.update(7, 'm2', { nome: 'MANHÃ' }),
     (err: any) => {
       assert.equal(err.status, 409);
       assert.equal(err.getResponse().code, 'ROTA_NOME_DUPLICADO');
+      return true;
+    },
+  );
+});
+
+test('update: renomear pro nome de um modelo de OUTRO dia não conflita', async () => {
+  const { prisma } = buildPrisma([
+    { id: 'm1', companyId: 7, nome: 'Manhã', diaSemana: 6, paradasJson: [] },
+    { id: 'm2', companyId: 7, nome: 'Tarde', diaSemana: 1, paradasJson: [] },
+  ]);
+  const svc = new LogisticaRotaModeloService(prisma);
+  const dto = await svc.update(7, 'm2', { nome: 'Manhã' });
+  assert.equal(dto!.nome, 'Manhã');
+});
+
+/* 🔴 O PATCH QUE MUDA NOME **E** DIA é conferido no dia de DESTINO. Conferir no
+   de origem deixaria o nome passar aqui e colidir lá — duas "Manhã" no sábado. */
+test('update: mudar nome e dia junto confere no dia de DESTINO → 409', async () => {
+  const { prisma } = buildPrisma([
+    { id: 'm1', companyId: 7, nome: 'Manhã', diaSemana: 6, paradasJson: [] },
+    { id: 'm2', companyId: 7, nome: 'Tarde', diaSemana: 1, paradasJson: [] },
+  ]);
+  const svc = new LogisticaRotaModeloService(prisma);
+  await assert.rejects(
+    () => svc.update(7, 'm2', { nome: 'Manhã', diaSemana: 6 }),
+    (err: any) => {
+      assert.equal(err.status, 409);
       return true;
     },
   );

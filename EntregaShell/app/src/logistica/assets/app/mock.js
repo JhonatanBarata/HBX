@@ -140,8 +140,15 @@ function hdr(o={}){
   // O hambúrguer morreu em 08/08: não abria nada desde que a barra de 3 virou a
   // navegação (dono: "os ícones acima do HBX estão mortos"). No lugar dele, a
   // LÂMPADA — a aula da tela que está aberta.
+  /* 🔴 A VOLTA VEM MARCADA (`data-voltar`), NUNCA DEDUZIDA. O Voltar do Android
+     procurava "o primeiro `data-ir` do cabeçalho" — e em TODA tela sem volta
+     (rota, chat, venda, ajustes, folha) o primeiro é o "+". Resultado medido:
+     na Rota, o Voltar do aparelho ABRIA "Cadastrar cliente". Voltar deduzido
+     por posição anda pra frente na hora que alguém mexe na ordem dos ícones;
+     marcado, só o botão de voltar responde. Quem tem volta e NÃO nasce aqui
+     (o × das folhas) carrega a mesma marca — a régua é a marca, não o lugar. */
   const esq = o.voltar
-    ? `<button class="round" data-ir="${o.voltar}" aria-label="Voltar">${ic('back',18)}</button>`
+    ? `<button class="round" data-voltar="1" data-ir="${o.voltar}" aria-label="Voltar">${ic('back',18)}</button>`
     : `<button class="round" data-aula="1" aria-label="Como usar esta tela">${ic('bulb',18)}</button>`;
   // 🔴 O LOGO NÃO ANDA. Os flancos entram EMBRULHADOS com a mesma largura
   // mínima: com 1 ou 2 ícones do lado, o HBX fica cravado no centro em toda
@@ -253,6 +260,14 @@ const ROTA_ESTADOS={
      montagem é botão que mente. Antes disto o sinal era o esqueleto da tela
      inteira, que leva o próprio rodapé embora: o dedo tocava e o botão sumia. */
   montando: {main:{glifo:'route', rotulo:'Montando…'}},
+  /* 🔴 CARREGAR NÃO LEVA O CONTROLE EMBORA — e é o MESMO defeito do `montando`,
+     uma linha acima, na porta ao lado. `carregando` não tinha entrada aqui, e
+     sem entrada o `transmux` devolve vazio: a tela nascia SEM RODAPÉ NENHUM e o
+     botão grande aparecia do nada quando o dado chegava — 120px de controle
+     brotando debaixo do polegar de quem já estava mirando a tela. Mesmo lugar,
+     mesma altura, respirando e SEM ação: enquanto o dia não chegou não há o que
+     fazer, e prometer botão que não faz nada é pior que dizer "espera". */
+  carregando: {main:{glifo:'route', rotulo:'Carregando…'}},
 };
 function transmux(estado){
   const c=ROTA_ESTADOS[estado]; if(!c) return '';
@@ -689,6 +704,9 @@ const DADOS={
     somaParadas:'6', somaProdutos:'20', somaValor:'R$ 336,00',
     iniciarSub:'João da Silva',
     dias:[], diaSel:0, pronta:1, vazio:'Nenhum cliente nesse dia',
+    // Vazios pelo MESMO motivo dos `dias`: nome de espaço é dinheiro do dono na
+    // tela. Maquete aqui faria o motorista ler "Manhã" num espaço que não existe.
+    modos:[], modoSel:'',
     linhas:[
       [1,'08:30','João da Silva','R. das Palmeiras, 145','Santo Amaro',['20L x2','Vasilhame','Chip dia'],'42,00',''],
       [2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890','Brooklin',['20L x4','Vasilhame'],'84,00',''],
@@ -758,21 +776,106 @@ function listaParadas(comPerna){
     return `${comPerna&&p.perna?`<div class="perna${semRota?' alerta':''}"><span>${semRota?p.perna:'↓ '+p.perna}</span></div>`:''}${stop(p)}`;
   }).join('');
 }
+/* 🔴 A LISTA SE ENTRA POR DENTRO, ENTÃO ELA TEM VOLTA. Desde 08/08 quem abre a
+   aba Rota vê o MAPA; a lista é a tela de dentro. Sem o Voltar no header o
+   botão do Android não teria par aqui e o único caminho de saída seria a
+   própria aba — que é a definição de tela sem porta. */
 function shellRota(conteudo,dock){
-  return `${status}${hdr({})}
+  return `${status}${hdr({voltar:'rota'})}
     <div class="body${dock?' com-dock':''}">${conteudo}</div>
     ${dock?`<div class="tmx-dock">${dock}</div>`:''}${nav('rota')}`;
 }
+/* ==========================================================================
+   A TELA PRINCIPAL DA ROTA = O MAPA, 2D E LIMPO (dono, 08/08).
+
+   O que ela mostra é o DIA VISTO DE CIMA: as paradas numeradas na ordem, onde
+   o motorista está e o traço da rota quando o roteador já disse por onde é.
+   Nada mais. Os painéis que moravam aqui (kpis, saldo, dinheiro/pix, barra do
+   dia, filtro, créditos, a lista e a soma) mudaram de casa pra `T.rotalista` —
+   não morreram, andaram UM toque: o botão "Lista" da barra de cima.
+
+   🔴 O DOCK CONTINUA SENDO O DOCK. O transmux é o controle da operação em
+   andamento e a lei dele não mudou de tela: rodapé fixo, logo acima das abas,
+   nunca rolando. Aqui ele fica por cima do mapa — que é o mesmo lugar de
+   sempre, só com outra coisa embaixo.
+
+   🔴 FALHA DE CARREGAR NÃO GANHA MAPA. Dia que não veio do servidor com um
+   mapa bonito por baixo é a tela fingindo que está tudo em ordem: o estado
+   `vazia` continua sendo o aviso, sozinho, como já era.
+   ========================================================================== */
+T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
+  const e=estadoRota, d=DADOS.rota;
+  const emCurso=e==='rodando'||e==='pausada';
+  const dock=transmux(d.montando?'montando':(e==='semsinal'?'pronta':e));
+
+  if(e==='vazia') return `${status}${hdr({})}
+    <div class="body">
+      <div class="vazio">
+        <span class="ico">${ic('route',24)}</span>
+        <strong>Rota indisponível</strong>
+        <span>Não consegui carregar o dia de hoje.</span>
+        <button class="ghost">${ic('refresh',15)} Tentar de novo</button>
+      </div>
+    </div>${nav('rota')}`;
+
+  /* O FATO DO DIA em UMA linha, montado por JOIN — o " · " nasce do join e nunca
+     do template, senão um número sem fonte deixa o separador órfão na barra
+     (a mesma lei do rodapé da navegação). Dia ainda por montar diz isso com
+     PALAVRA ("Sem paradas hoje"): um "0 paradas" pareceria contagem de verdade.
+     E fato nenhum ⇒ nada escrito: ícone sozinho é cromo, mas número inventado
+     numa barra que fala do dia é pior. */
+  /* 🔴 O ESTADO GANHA DA CONTAGEM. Os banners de "Sem sinal" e "Rota pausada"
+     ficaram na lista, e aqui não existe linha pra eles: sem isto o mapa dizia
+     "12 paradas · 6 entregues" e nem uma palavra sobre o dia estar PARADO ou o
+     aparelho estar SEM REDE — que é a informação mais importante das duas. A
+     barra é o fato do dia; quando o dia está num estado, o estado É o fato, e o
+     "entregues" cede a vaga (a linha é uma, e nome de estado + duas contagens
+     não cabe em 412px — este app já perdeu texto por isso). */
+  const aviso = e==='pausada'  ? ['pause','Rota pausada','pausa']
+              : e==='semsinal' ? ['alert','Sem sinal','alerta'] : null;
+  const entregues=emCurso?d.kpiEntregues:d.kpiEntreguesParado;
+  const conta=[aviso?`<b>${aviso[1]}</b>`:'',
+               d.kpiParadas?`<b>${d.kpiParadas}</b> paradas`:'',
+               (aviso||!entregues)?'':`<b>${entregues}</b> entregues`]
+              .filter(Boolean).join(' <small>·</small> ');
+  const fato = e==='carregando'
+    ? '<span class="esq" style="height:15px;width:118px;border-radius:8px"></span>'
+    : `<span>${(PARADAS.length||aviso)&&conta?conta:`<b>${d.vazioTitulo}</b>`}</span>`;
+
+  return `${status}${hdr({})}
+<div class="body flush" style="overflow:hidden;padding:0">
+  <div class="plano${dock?' com-dock':''}">
+    ${mapa()}
+    <div class="plano-bar${aviso?' '+aviso[2]:''}">
+      <span class="f">${ic(aviso?aviso[0]:'route',16)}${fato}</span>
+      <button class="ghost" data-ir="rotalista">${ic('list',15)} Lista</button>
+    </div>
+    <div class="plano-lado">
+      <button data-acao="mapa-enquadrar" aria-label="Enquadrar a rota">${ic('target',18)}</button>
+    </div>
+  </div>
+</div>
+${dock?`<div class="tmx-dock">${dock}</div>`:''}${nav('rota')}`;
+}};
+
 /* Os chips de dia MUDARAM DE TELA em 07/08 — moram na Montagem, ao lado da
    lista que eles trocam. Aqui eles ficavam a uma tela de distância do efeito. */
-T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
+/* 🔴 ESTA ERA A `T.rota` ATÉ 08/08, INTEIRA — mudou de nome e de porta, não de
+   conteúdo: os 7 estados, os kpis, o caixa, a barra do dia, o filtro, os
+   créditos, a lista com os gestos (`data-gestos="rota"`) e a soma continuam
+   byte a byte aqui. O que mudou é quem abre: agora ela é a LISTA por trás do
+   mapa, e o header ganha o Voltar (o botão do Android tem que casar com a
+   porta pela qual se entrou). */
+T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
   const e=estadoRota;
 
+  // O esqueleto é do CONTEÚDO; o rodapé de controle não é conteúdo e por isso
+  // não vira esqueleto nem desaparece — ver `ROTA_ESTADOS.carregando`.
   if(e==='carregando') return shellRota(`
     <div class="kpis"><div class="kpi esq" style="height:47px;border:0"></div><div class="kpi esq" style="height:47px;border:0"></div>
       <div class="kpi esq" style="height:47px;border:0"></div></div>
     <div class="esq" style="height:34px;margin-top:6px"></div>
-    <div style="margin-top:6px">${'<div class="esq esq-linha"></div>'.repeat(5)}</div>`);
+    <div style="margin-top:6px">${'<div class="esq esq-linha"></div>'.repeat(5)}</div>`, transmux('carregando'));
 
   if(e==='vazia') return shellRota(`
     <div class="vazio">
@@ -804,8 +907,12 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
   </div>
   ${e==='semsinal'?`<div class="banner alerta">${ic('alert',16)}<span><b>Sem sinal.</b> A rota está guardada no aparelho.</span><button>Sincronizar</button></div>`:''}
   ${pausada?`<div class="banner pausa">${ic('pause',16)}<span><b>Rota pausada.</b> Os dados ficam guardados.</span></div>`:''}
+  <!-- 🔴 "Ver mapa" AGORA VOLTA PRO MAPA, não abre a navegação. Ele apontava
+       pra tela de DIRIGIR (3D, tela cheia, sem barra): quem só queria olhar o
+       dia caía dentro do GPS. Com o mapa 2D sendo a tela principal, o par certo
+       é o de ida e volta — Lista ↔ Mapa. Quem começa a dirigir é o transmux. -->
   <div class="bar"><span class="t">${ic('list',17)} Sua rota de hoje</span>
-    <button class="ghost" data-ir="mapa">${ic('map',15)} Ver mapa</button></div>
+    <button class="ghost" data-ir="rota">${ic('map',15)} Ver mapa</button></div>
   ${emCurso?`<div class="dia-bar"><small>${DADOS.rota.diaFeitas} de ${DADOS.rota.diaTotal}</small><span class="trilho"><i style="width:${DADOS.rota.diaPct}"></i></span><b>${DADOS.rota.diaMarcado}</b><small>marcado</small></div>`:''}
   ${emCurso?`<div class="filtro">
       <button class="on">Fila <b>${DADOS.rota.filtroFila}</b></button><button>Entregue <b>${DADOS.rota.filtroEntregue}</b></button></div>`:''}
@@ -1180,7 +1287,7 @@ ${hdr({})}
   <div class="sheet">
     <span class="handle"></span>
     <div class="sheet-head"><div><h2>Folha da venda</h2></div>
-      <button class="round sm" data-ir="rota">${ic('close',16)}</button></div>
+      <button class="round sm" data-voltar="1" data-ir="rota">${ic('close',16)}</button></div>
     <div class="box" style="display:flex;align-items:center;gap:10px">
       <span class="num lime" style="width:36px;height:36px">${d.n}</span>
       <span style="flex:1"><span class="box-t">${d.titulo}</span>
@@ -1293,7 +1400,7 @@ ${hdr({})}
   <span class="handle"></span>
   <div style="display:flex;align-items:center;justify-content:center;position:relative;margin-bottom:12px">
     <h2 style="margin:0;font-size:20px;font-weight:500">Histórico da semana</h2>
-    <button class="round sm" style="position:absolute;right:0" data-ir="caderneta">${ic('close',15)}</button></div>
+    <button class="round sm" style="position:absolute;right:0" data-voltar="1" data-ir="caderneta">${ic('close',15)}</button></div>
   ${DADOS.semana.dias.map(l=>dia(l[0],l[1],l[2],l[3],l[4],l[5])).join('')}
   ${DADOS.semana.marcado?`<div class="box" style="margin-top:9px">
     <div class="box-t" style="margin-bottom:7px">Resumo da semana</div>
@@ -1365,6 +1472,19 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
      sabe quais dias existem é a ponte; sem ela — o desenho — a linha some. */
   const chips=Array.isArray(d.dias)&&d.dias.length?`<div class="chips centro">
     ${d.dias.map(x=>`<button class="chip${(d.diaSel||0)===x[0]?' on':''}" data-acao="montar-dia" data-dia="${x[0]}">${x[1]}</button>`).join('')}</div>`:'';
+  /* 🔴 O SELETOR DE ORDEM (dono, 08/08) — o botão do MEIO da montagem. Três
+     posições e uma só na tela por vez: a ordem automática por DISTÂNCIA (a que
+     a lista já nasce) e os 2 ESPAÇOS de rota salva daquele dia da semana. O
+     rótulo do espaço é o nome que o motorista digitou — "Manhã" no sábado é o
+     Manhã do sábado, sempre.
+     Espaço vazio NÃO some da fileira ("Espaço 1"/"Espaço 2"): posição que só
+     aparece depois de existir é função que ninguém descobre sozinho — e no
+     começo o seletor ficaria com uma opção de verdade só, que é botão morto.
+     Quem sabe quais espaços existem é a ponte; sem ela — o desenho — a linha
+     some inteira, mesma lei dos chips de dia acima. */
+  const modos=Array.isArray(d.modos)&&d.modos.length?`<div class="modos">
+    ${d.modos.map((m,i)=>`<button class="modo${(d.modoSel||'')===m[0]?' on':''}${m[1]?'':' vaga'}" data-acao="modo-rota" data-modo="${m[0]}">
+      <b>${m[1]||`Espaço ${i}`}</b>${m[2]?'<i class="ponto"></i>':''}</button>`).join('')}</div>`:'';
   const lista=d.linhas.length
     ? `<div class="stops" data-gestos="rota">${d.linhas.map(x=>l(...x)).join('')}</div>`
     : `<div class="vazio"><span class="ico">${ic('route',24)}</span><strong>${d.vazio}</strong></div>`;
@@ -1393,6 +1513,7 @@ ${hdr({voltar:'rota'})}
 <div class="body${pe?' com-dock-1':''}">
   <h2 style="font-size:23px;font-weight:500;margin:4px 0 2px;letter-spacing:-.4px">${d.titulo}</h2>
   ${chips}
+  ${modos}
   ${miolo(d,'route','recarregar-montagem',5,`${lista}
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('route',17)}</span><span><b>${d.somaParadas}</b><small>paradas</small></span></span>
@@ -2035,7 +2156,7 @@ ${hdr({semChat:1})}
     <div class="sheet-head">
       <div><h2>${naoEntregue?'Não entregue':'Chegada'}</h2>
         ${naoEntregue?'':`<p>${d.cabecalho}</p>`}</div>
-      <button class="round sm" data-ir="rota">${ic('close',16)}</button></div>
+      <button class="round sm" data-voltar="1" data-ir="rota">${ic('close',16)}</button></div>
 
     ${naoEntregue?`
       <div class="box">
@@ -2240,7 +2361,7 @@ ${nav('ajustes')}`;}};
 /* ==========================================================================
    MONTAGEM
    ========================================================================== */
-const ORDEM=['entrada','rota','rotafoto','mapa','mapachegou','mapalista','gerenciador','montagem','conferencia',
+const ORDEM=['entrada','rota','rotalista','rotafoto','mapa','mapachegou','mapalista','gerenciador','montagem','conferencia',
              'venda','folha','folhanao','rapida','salvas','caderneta','semana','clientes','novocliente','ficha','produtos',
              'fichaproduto','chat','ajustes','recarga','financeiro','avancado','sons','historico','consumo',
              'passeio','leitura','portoes'];
@@ -2321,6 +2442,16 @@ let limpezaTimer=null;
    fica). O teto só existe pro caso de nada terminar. */
 const CENA_CHEIA=2200;
 const ENTRADA_COMUM=900;
+/* 🔴 A ENTRADA DA TELA É DA CAMADA, NUNCA DA PEÇA (dono, 08/08: "clico em
+   montar rota, ele pisca, parece que abre 2x").
+   Estes são os `@keyframes` que fazem a TELA entrar — os seis padrões de
+   transição desta folha, mais o da abertura. Eles existem porque a tela está
+   chegando; não porque a peça é nova. Quem chega DEPOIS (a lista que o
+   servidor mandou 289 ms atrás) entra na cena que já está rolando, no relógio
+   dela — nunca começa a cena outra vez. Fora desta lista nada muda: animação
+   PRÓPRIA de peça (a empresa do corredor acendendo no mapa) continua nascendo
+   do zero, que é o certo — ela é notícia, não entrada de tela. */
+const ENTRADA_DA_TELA=new Set(['trFundeEntra','trItem','trDesfoque','trMola','trZEntra','trXFade','trXItem','mvScrim']);
 let cenaTimer=null;
 function fecharCena(){
   document.querySelectorAll('#app .tela.cena').forEach(c=>c.classList.remove('cena'));
@@ -2527,11 +2658,24 @@ function pintar(animar,dir){
       // animação; a nova só carimba enquanto houver contraparte. Quem sobra é
       // peça nova e começa do zero, que é o certo. Navegador sem `animationName`
       // cai no comportamento antigo — perde o refino, nunca a tela.
+      //
+      // 🔴 ...MENOS A ENTRADA DA TELA, QUE NÃO SE REENCENA (dono, 08/08:
+      // "clico em montar rota, ele pisca, parece que abre 2x"). MEDIDO no
+      // mock, abrindo a Montagem: a tela entra vazia, o esqueleto entra aos
+      // 12 ms e a lista real chega aos 289 ms — e nesse repinte eram 56
+      // animações com 54 COMEÇANDO DO ZERO. Contraparte não havia mesmo: o
+      // corpo inteiro é peça nova (52 linhas trocando 5 barras de esqueleto),
+      // então cada linha recomeçava o `trXItem` e a tela deslizava pra dentro
+      // uma SEGUNDA vez, 289 ms depois de já ter entrado. É isso que o olho lê
+      // como "abriu duas vezes".
+      // A regra que faltava: dado que chega atrasado entra na cena que já está
+      // rolando (carimbo `t`, aparece assentado), não recomeça a cena. Vale só
+      // pros `@keyframes` de ENTRADA DA TELA — o resto segue a regra de cima.
       nova.getAnimations({subtree:true}).forEach(a=>{
         const n=a.animationName||a.transitionProperty||'?';
         const resta=antes.get(n)||0;
-        if(resta<=0) return;
-        antes.set(n,resta-1);
+        if(resta<=0 && !ENTRADA_DA_TELA.has(n)) return;
+        if(resta>0) antes.set(n,resta-1);
         try{ a.currentTime=t; }catch(_){}
       });
     }
@@ -3019,7 +3163,7 @@ function ligarLista(camada,lista){
     w.className='conf-wrap';
     w.innerHTML=`<div class="conf"><strong>Retirar ${nome} da rota?</strong>
       <span class="sub">Sai da rota de hoje.</span>
-      <span class="acoes"><button data-nao="1">Não</button>
+      <span class="acoes"><button data-nao="1" data-escape="1">Não</button>
         <button class="principal" data-sim="1">Retirar</button></span></div>`;
     camada.appendChild(w);
     w.addEventListener('click',e=>{
@@ -3065,7 +3209,17 @@ function ligarLista(camada,lista){
    desenhada — a aula é o fiscal do desenho, não o remendo dele.
    ========================================================================== */
 const AULAS={
+  /* 🔴 A AULA SEGUIU A TELA. Ela apontava pra `.kpis`, `.stop` e `.grip` — as
+     três peças que mudaram de casa em 08/08 quando a aba Rota virou o mapa. O
+     filtro do `abrirAula` teria comido 3 dos 4 passos e escrito 3 avisos no
+     console: aula viva apontando pro vazio. Cada tela ensina o que ELA tem. */
   rota:[
+    ['.plano-bar','Seu dia','Quantas paradas você tem hoje e quantas já entregou.'],
+    ['[data-ir="rotalista"]','A lista das paradas','Toque aqui pra ver cada cliente, mudar a ordem e abrir a entrega.'],
+    ['[data-acao="mapa-enquadrar"]','Perdeu a rota de vista','Arrastou o mapa sem querer? Toque aqui que a rota inteira volta.'],
+    ['.tmx-main','O que fazer agora','O botão grande é sempre o próximo passo do dia.'],
+  ],
+  rotalista:[
     ['.kpis','Seu dia','Quantas paradas você tem e quantas já entregou.'],
     ['.stop','Cada cartão é uma parada','Toque no cartão pra abrir a entrega do cliente.'],
     ['.grip','Mudar a ordem','Segure aqui do lado e arraste pra cima ou pra baixo. Pra tirar da rota, deslize o cartão pra esquerda.'],
@@ -3144,8 +3298,8 @@ function abrirAula(){
     cx.innerHTML=`<b>${titulo}</b><span class="txt">${texto}</span>
       <div class="pe"><span class="conta">${i+1} de ${passos.length}</span>
         <span style="display:flex;gap:8px">
-          ${ultimo?'':'<button data-aula-sair="1">Pular</button>'}
-          <button class="principal" data-aula-prox="1">${ultimo?'Entendi':'Próximo'}</button>
+          ${ultimo?'':'<button data-aula-sair="1" data-escape="1">Pular</button>'}
+          <button class="principal" data-aula-prox="1"${ultimo?' data-escape="1"':''}>${ultimo?'Entendi':'Próximo'}</button>
         </span></div>`;
   }
   w.addEventListener('click',e=>{

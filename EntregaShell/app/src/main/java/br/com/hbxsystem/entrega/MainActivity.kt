@@ -290,7 +290,7 @@ class MainActivity : AppCompatActivity() {
                     "Boolean(window.HBXApp && window.HBXApp.handleBack && window.HBXApp.handleBack())",
                 ) backResult@{ handled ->
                     if (saidaEmAndamento || isFinishing || isDestroyed) return@backResult
-                    if (handled == "true") ultimoVoltarEm = 0L else confirmarSaida()
+                    if (handled == "true") ultimoVoltarEm = 0L else avisarOuSair()
                 }
             }
         })
@@ -463,7 +463,23 @@ class MainActivity : AppCompatActivity() {
         }, 420L)
     }
 
-    private fun confirmarSaida() {
+    /**
+     * O ÚLTIMO DEGRAU: na Rota, o app AVISA antes de fechar (dono, 08/08:
+     * *"estou em rota, apertei voltar... era pra avisar q +1 voltar fecha o
+     * APP"*). Chegou aqui é porque a tela não tinha mais nada a fechar nem pra
+     * onde voltar — o `handleBack` devolveu `false`.
+     *
+     * O aviso não é enfeite: fechar por engano tira o motorista do turno no
+     * meio da rua. Então o primeiro toque FALA e o segundo, dentro de 2s,
+     * fecha. Passou de 2s, a contagem zera — quem voltou pro app não fica com
+     * uma saída armada esperando um toque distraído.
+     *
+     * 🔴 A JANELA ZERA A CADA VOLTAR QUE FOI TRATADO (é o `ultimoVoltarEm = 0`
+     * lá em cima, no callback). Sem isso, fechar um pop-up e cair na Rota
+     * dentro dos 2s aproveitaria o aviso de ANTES e o app fecharia com um
+     * toque só, sem ter avisado nada nesta tela.
+     */
+    private fun avisarOuSair() {
         if (saidaEmAndamento || isFinishing || isDestroyed) return
         val agora = System.currentTimeMillis()
         if (agora - ultimoVoltarEm <= 2_000L) {
@@ -476,7 +492,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         ultimoVoltarEm = agora
-        Toast.makeText(this, "Pressione voltar novamente para sair", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Toque em voltar de novo para fechar o app", Toast.LENGTH_SHORT).show()
     }
 
     override fun onResume() {
