@@ -197,10 +197,20 @@ const GRAVAR = (ondas) => {
       // o assentamento: a rua de verdade sobe por OPACIDADE, e a da cena só cai
       // depois. Os dois números abaixo são o que prova que não houve pisca.
       let opMundo = null; let trMundo = null; let trCena = null;
+      /* 🔴 O RESTO DO MUNDO tem régua PRÓPRIA desde 10/08: prédio, POI e NOME
+         (inclusive o rótulo da rua) voltam DURANTE a cena, e só a LINHA da rua
+         espera o fim. São dois relógios e a prova mede os dois — foi confundir
+         um com o outro que deixou passar o "escurece e fica ilegível". */
+      let visResto = null; let opCena = null;
       try {
         opMundo = m.getPaintProperty('roads_minor', 'line-opacity');
         trMundo = m.getPaintProperty('roads_minor', 'line-opacity-transition');
-        if (m.getLayer('hbx-cena-ruas-0')) trCena = m.getPaintProperty('hbx-cena-ruas-0', 'line-opacity-transition');
+        if (m.getLayer('hbx-cena-ruas-0')) {
+          trCena = m.getPaintProperty('hbx-cena-ruas-0', 'line-opacity-transition');
+          opCena = m.getPaintProperty('hbx-cena-ruas-0', 'line-opacity');
+        }
+        const resto = (m.getStyle().layers || []).find((l) => l.type === 'symbol' && l['source-layer'] === 'roads');
+        if (resto) visResto = m.getLayoutProperty(resto.id, 'visibility') || 'visible';
       } catch (_) { /* estilo trocando */ }
       const gs = [];
       let camadas = 0;
@@ -231,7 +241,7 @@ const GRAVAR = (ondas) => {
         t: Math.round(performance.now()),
         vis,
         camadas,
-        opMundo, trMundo, trCena,
+        opMundo, trMundo, trCena, visResto, opCena,
         telas: document.querySelectorAll('.tela').length,
         caixa: `${Math.round(r.width)}x${Math.round(r.height)}@${Math.round(r.y)}`,
         gs,
@@ -410,19 +420,55 @@ const ultimo = (fita, cond) => { const q = [...fita].reverse().find(cond); retur
     eh('1.20 a letra do MAPA anda na mesma régua de 66 ms', deltas.length > 4 && Math.abs(media - LETRA) <= 14,
       `media ${Math.round(media)} ms em ${deltas.length} letras`);
 
-    /* --- O ASSENTAMENTO (dono: *"assim q termina, ele pisca tbm"*) ---------
-       A rua de verdade não pode APARECER: ela tem que subir por baixo da cena.
-       Três marcas provam isso na fita, e nenhuma delas é opinião. */
-    const acendeu = fita.find((q) => q.vis === 'visible' && q.opMundo === 0);
-    eh('1.24 o mundo ACENDE transparente (nada aparece de uma vez)', !!acendeu,
-      acendeu ? `em ${acendeu.t - fita[0].t} ms` : 'apareceu com opacidade cheia');
-    const subiu = fita.find((q) => q.trMundo && q.trMundo.duration >= 400 && q.opMundo === 1);
-    eh('1.25 e SOBE com transicao longa (700 ms)', !!subiu,
-      subiu ? `${subiu.trMundo.duration} ms` : 'sem transicao de subida');
-    const espera = fita.find((q) => q.trCena && q.trCena.delay > 0);
-    eh('1.26 a cena so comeca a sair DEPOIS do mundo comecar a subir',
-      !!espera && espera.trCena.delay >= 300,
-      espera ? `atraso ${espera.trCena.delay} ms` : 'saiu junto');
+    /* --- O DESFECHO (dono, 10/08: *"ruas e nomes escurecem e ficam quase
+       ilegíveis… acende as coisas, preenche os nomes e PARA NO ESTADO"*) -----
+
+       O que havia era um CRUZAMENTO: a rua da cena descendo e a real subindo em
+       700 ms, os nomes da cena saindo 440 ms antes dos reais chegarem. No meio
+       do cruzamento nada está inteiro — é a tela em meia-tinta.
+
+       A lei agora tem duas metades, e a fita mede as duas:
+         · o RESTO do mundo (nome, prédio, POI) volta ENQUANTO a cena cresce;
+         · a LINHA da rua volta no fim, INTEIRA e de uma vez, por baixo da cena
+           opaca — e só então a cena sai. Nunca as duas em meia-tinta. */
+    /* 🔴 AS MARCAS SÃO LIDAS DEPOIS DO NASCIMENTO, e essa distinção custou uma
+       volta: a camada da cena NASCE com `line-opacity: 0` (ela acende quando a
+       onda dela parte), então "opacidade 0" no começo da fita é o berço, não a
+       saída. E "todas as ondas fechadas" é verdade num quadro em que camada
+       nenhuma existe. Toda régua daqui é ancorada no primeiro quadro em que a
+       cena está VIVA. */
+    const iAcesa = fita.findIndex((q) => q.opCena === 1);
+    /* 🔴 "VOLTOU" SÓ EXISTE DEPOIS DE TER SUMIDO. A fita começa com o mundo
+       ainda no ar (ela grava desde antes do `esconderMundo`), então procurar o
+       primeiro `visible` responde ZERO — o estado inicial. A âncora é o quadro
+       em que a camada sumiu; o que interessa é o primeiro `visible` DEPOIS
+       dele. Este descuido fez a régua aprovar o defeito uma vez. */
+    const voltaApos = (campo) => {
+      const sumiu = fita.findIndex((q) => q[campo] === 'none');
+      if (sumiu < 0) return -1;
+      return fita.findIndex((q, i) => i > sumiu && q[campo] === 'visible');
+    };
+    const ruaVoltou = voltaApos('vis');
+    const restoVoltou = voltaApos('visResto');
+    /* A régua do "durante" é a própria LINHA da rua: ela é a última coisa a
+       voltar, no desfecho. Tudo o que a cena não redesenha tem que estar de
+       volta ANTES dela — senão sobra novidade pro último quadro, que é o
+       "pula". (Comparar com "a última onda fechou" seria medir o gradiente, e
+       ele nem sempre chega a 1 na amostragem.) */
+    eh('1.24 o RESTO do mundo (nomes, predios) volta DURANTE a cena, antes da rua',
+      restoVoltou >= 0 && ruaVoltou >= 0 && restoVoltou < ruaVoltou && restoVoltou > iAcesa,
+      restoVoltou < 0 ? 'nunca voltou' : `resto no quadro ${restoVoltou}, rua no ${ruaVoltou}, cena acendeu no ${iAcesa}`);
+    const cenaSaindo = fita.findIndex((q, i) => iAcesa >= 0 && i > iAcesa && q.opCena === 0);
+    eh('1.25 a LINHA da rua acende ANTES de a cena comecar a sair',
+      ruaVoltou >= 0 && cenaSaindo >= 0 && ruaVoltou <= cenaSaindo,
+      `rua no quadro ${ruaVoltou}, cena saindo no ${cenaSaindo}`);
+    /* 🔴 A MEIA-TINTA É O DEFEITO, e ela tem nome na fita: um quadro em que a
+       rua de verdade está subindo (opacidade < 1 com transição no ar) enquanto
+       a da cena também já está descendo. Se existir um só, a tela ficou pálida
+       naquele instante — que é o que o dono fotografou. */
+    const vale = fita.some((q) => q.vis === 'visible' && q.opMundo === 0 && q.opCena === 0);
+    eh('1.26 em NENHUM quadro as duas estao em meia-tinta ao mesmo tempo', !vale,
+      vale ? 'houve cruzamento de opacidades' : 'sem vale');
 
     // --- o desfecho: nada da cena fica pra tras
     const fim = fita[fita.length - 1];

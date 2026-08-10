@@ -3511,14 +3511,27 @@
   const CENA_TETO_FIX = 1400;
   const CENA_TETO_TILE = 2200;
   const CENA_TETO_VIDA = 9000;
-  const CENA_MAX_RUAS = 130;
-  /** e na tela de dirigir, metade (ver o comentário do `maxRuas`) */
+  /* 🔴 130 → 260 NA ENTRADA (10/08 — dono: *"nem todas ruas são preenchidas"*).
+     O teto era um freio de custo, e ele estava cortando CIDADE: a cena
+     escondia o mapa inteiro e redesenhava as 130 maiores, então as outras
+     apareciam de uma vez no fim — o "pula" da fase 3. O custo real de uma rua a
+     mais é uma linha num GeoJSON que já existe (o desenho por quadro é 1
+     `setPaintProperty` por ONDA, não por rua: 7 no total, tetos iguais). O que
+     encarece é a varredura do tile, e ela tem freio próprio (`varredura`).
+     Na tela de dirigir continua baixo: lá o mapa está em perspectiva, cabe
+     menos rua na tela e a cena tem a descida esperando atrás. */
+  const CENA_MAX_RUAS = 260;
+  /** e na tela de dirigir, bem menos (ver o comentário do `maxRuas`) */
   const CENA_MAX_RUAS_NAV = 70;
   const CENA_MAX_NOMES = 16;
   const CENA_VALIDADE = 60000;
   const CENA_SAI = 520;
   /** o assentamento: quanto o mundo de verdade leva pra subir por baixo da cena */
   const CENA_ASSENTA = 700;
+  /** quanto leva o resto do mundo (prédio, nome, POI) voltando DURANTE a cena */
+  const CENA_VOLTA_RESTO = 420;
+  /** e quanto leva a cena a sair, já com a rua de verdade acesa embaixo */
+  const CENA_TROCA = 260;
   /** e quando é o dedo que encerra, ele sobe em 1/3 disso */
   const CENA_ASSENTA_DEDO = 260;
   /** no Navegar o mundo assenta antes de a câmera começar a descer */
@@ -3565,6 +3578,12 @@
   /** apaga o mundo e DEVOLVE o que cada camada era — visibilidade E opacidade.
       Restaurar "visible" (ou opacidade 1) em cima de camada que o estilo já
       escondia seria a cena ligando peça que ninguém pediu. */
+  /* 🔴 QUEM A CENA REDESENHA É SÓ A LINHA DA RUA. Tudo o mais que ela apaga —
+     prédio, ponto de interesse, nome de bairro e o próprio RÓTULO da rua — some
+     e não tem substituto no palco. Essa diferença é o que decide QUANDO cada
+     camada volta (ver `devolverParte`), e por isso ela é carimbada aqui. */
+  const ehLinhaDeRua = (l) => l.type === 'line' && l['source-layer'] === 'roads';
+
   function esconderMundo(mapa) {
     let camadas = [];
     try { camadas = (mapa.getStyle().layers || []); } catch (_) { return null; }
@@ -3575,10 +3594,18 @@
       (CENA_OPACIDADE[l.type] || []).forEach((p) => {
         try { op[p] = mapa.getPaintProperty(l.id, p); } catch (_) { op[p] = undefined; }
       });
-      antes.set(l.id, { vis: (l.layout && l.layout.visibility) || 'visible', op });
+      antes.set(l.id, { vis: (l.layout && l.layout.visibility) || 'visible', op, rua: ehLinhaDeRua(l) });
       try { mapa.setLayoutProperty(l.id, 'visibility', 'none'); } catch (_) { /* estilo trocando */ }
     });
     return antes.size ? antes : null;
+  }
+
+  /** o pedaço do mundo que interessa agora — o resto fica escondido */
+  function fatiaDoMundo(antes, querRua) {
+    if (!antes) return null;
+    const fatia = new Map();
+    antes.forEach((v, id) => { if (!!v.rua === !!querRua) fatia.set(id, v); });
+    return fatia.size ? fatia : null;
   }
 
   /* 🔴 O MUNDO VOLTA POR BAIXO, DESBOTANDO — e a ordem aqui é o assentamento
@@ -3895,6 +3922,7 @@
     cena = {
       casa, motivo, mundo: null, t0: 0, ondas: [], nomes: [],
       cartao: null, eu: null, raf: 0, dedo: null, onda: CENA_ONDA,
+      mundoVoltou: false, nomesSairam: false,
     };
     const daVez = cena;
     /* O mundo sai de cena assim que o estilo existir — ANTES do primeiro tile
@@ -3912,7 +3940,6 @@
   function esperarChao(daVez) {
     const mapa = daVez.casa.mapa;
     const prazo = Date.now() + CENA_TETO_TILE;
-    const prazoFix = Date.now() + CENA_TETO_FIX;
     const olhar = () => {
       if (cena !== daVez) return;
       /* Duas perguntas diferentes, e confundi-las custa a cena: quem SAIU da
@@ -3922,9 +3949,14 @@
       if (!mapaNaTela(daVez.casa)) { encerrarCena('saiu', true); return; }
       let tile = true;
       try { tile = mapa.areTilesLoaded(); } catch (_) { tile = true; }
-      const querFix = daVez.motivo === 'entrada' && Date.now() < prazoFix;
-      const temFix = !!(ultimaPos || ultimoFix);
-      if ((!tile || (querFix && !temFix)) && Date.now() < prazo) { setTimeout(olhar, 120); return; }
+      /* 🔴 O FIX NÃO SEGURA MAIS AS RUAS (10/08). Ele segurava — e MEDIDO no
+         g15 isso era 400 a 1400 ms de MAPA VAZIO entre o mundo apagar e a
+         primeira rua nascer: a fase 2 do "3 telas" que o dono viu. O tile já
+         estava na mão (a cidade tinha acabado de aparecer inteira); quem
+         atrasava era o GPS. O cartão de coordenada continua esperando o fix —
+         mas ele entra quando chegar, sem segurar a cidade. Sem rua não há cena
+         nenhuma; sem fix há cena, só não há cartão. */
+      if (!tile && Date.now() < prazo) { setTimeout(olhar, 120); return; }
       /* 🔴 ERRO NO MEIO DA CENA TAMBÉM DEVOLVE O MUNDO. Sem este laço, uma
          exceção aqui dentro deixaria a cidade escondida pelo resto do dia — e
          foi exatamente o que a prova pegou na primeira volta: um nome de função
@@ -4091,6 +4123,26 @@
     const corpo = daVez.corpo || (daVez.corpo = tinta('--map-cena-rua', '#59677a'));
     const cabeca = daVez.cabeca || (daVez.cabeca = tinta('--map-cabeca', '#e8f4ff'));
 
+    /* 🔴 O RESTO DO MUNDO VOLTA ENQUANTO A CENA AINDA CRESCE (10/08 — dono:
+       *"não pode ter a impressão de pisca e pula de tela… acende as coisas,
+       preenche os nomes e PARA NO ESTADO"*).
+
+       Prédio, ponto de interesse, nome de bairro e o rótulo da rua a cena NÃO
+       redesenha: eles só somem. Devolvendo tudo no fim, o último quadro da cena
+       era o instante em que meia tela APARECIA de uma vez — e MEDIDO no g15 o
+       assentamento arrastava 1,6 s, com a tela ainda mudando muito depois de a
+       última rua fechar. Voltando aqui, junto com a última onda, quando a cena
+       acaba não há mais nada por chegar: o que sobra é a linha da rua trocando
+       de cor por baixo dela, que ninguém vê. */
+    if (!daVez.mundoVoltou && daVez.ondas.length) {
+      const ultima = daVez.ondas[daVez.ondas.length - 1];
+      if (t >= ultima.em) {
+        daVez.mundoVoltou = true;
+        devolverMundo(mapa, fatiaDoMundo(daVez.mundo, false), CENA_VOLTA_RESTO);
+        apagarNomesDaCena(mapa, CENA_VOLTA_RESTO, daVez);
+      }
+    }
+
     let ruasProntas = true;
     for (let i = 0; i < daVez.ondas.length; i += 1) {
       const o = daVez.ondas[i];
@@ -4169,7 +4221,22 @@
        cruzando pela porta dos fundos. */
     let assenta = seco ? 0 : (motivo === 'dedo' ? CENA_ASSENTA_DEDO : CENA_ASSENTA);
     if (!seco && c.motivo === 'navegar' && motivo !== 'dedo') assenta = CENA_ASSENTA_NAV;
-    devolverMundo(mapa, c.mundo, assenta);
+    /* 🔴 A RUA DE VERDADE ACENDE INSTANTÂNEA, POR BAIXO DA CENA — e é isto que
+       mata o "escurece e fica ilegível" (dono, 10/08).
+       O que havia era um CRUZAMENTO de opacidades: a rua da cena descendo e a
+       real subindo em 700 ms, as duas em meio-caminho ao mesmo tempo, e os
+       nomes da cena saindo 440 ms ANTES de os nomes reais chegarem. No meio
+       desse vão a tela inteira fica em meia-tinta — que é exatamente a foto 3.
+       Instantâneo aqui não pisca porque não se vê: a cena está 100% opaca em
+       cima da MESMA geometria, com a mesma largura. O que o olho pega é só a
+       troca de cor quando a cena sai, logo abaixo. */
+    if (seco || motivo === 'dedo') devolverMundo(mapa, c.mundo, assenta);
+    else {
+      // o resto já voltou durante a cena (§ quadroDaCena); se não voltou — cena
+      // cortada antes da última onda — ele vem junto, e aí com o fade dele.
+      if (!c.mundoVoltou) devolverMundo(mapa, fatiaDoMundo(c.mundo, false), CENA_VOLTA_RESTO);
+      devolverMundo(mapa, fatiaDoMundo(c.mundo, true), 0);
+    }
     if (mapa && c.dedo) {
       ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'].forEach((ev) => {
         try { mapa.off(ev, c.dedo); } catch (_) { /* mapa morto */ }
@@ -4182,16 +4249,11 @@
       else { el.classList.add('saindo'); setTimeout(() => { try { el.remove(); } catch (_) { /* já saiu */ } }, CENA_SAI + 60); }
     }
     if (seco) { limparCena(mapa); return; }
-    /* 🔴 A SAÍDA É ESCALONADA, e cada atraso tem motivo:
-       · OS NOMES DA CENA SAEM PRIMEIRO (sem atraso). Os do basemap estão subindo
-         por baixo, em outra posição (eles se repetem ao longo da rua; os nossos
-         ficam no meio dela) — dois rótulos da mesma rua ao mesmo tempo lê como
-         fantasma, não como assentamento.
-       · AS RUAS DA CENA SÓ DEPOIS (atraso de 55% do assentamento), quando a rua
-         de verdade já está opaca embaixo. Aí o que acontece na tela é uma troca
-         de COR na mesma linha — sem vão, sem dobra, sem pisca. */
-    const espera = Math.round(assenta * 0.55);
-    const dura = motivo === 'dedo' ? 200 : CENA_SAI;
+    /* A cena sai com a rua de verdade JÁ ACESA embaixo (acima), então não há
+       mais atraso nenhum a cumprir: o que sobra é a troca de cor, e ela é curta
+       de propósito. No dedo é mais curta ainda — quem tocou quer o mapa. */
+    const dura = motivo === 'dedo' ? 200 : CENA_TROCA;
+    const espera = (seco || motivo === 'dedo') ? Math.round(assenta * 0.55) : 0;
     try {
       for (let i = 0; i < CENA_ONDAS; i += 1) {
         const id = `${CENA_FONTE}-${i}`;
@@ -4199,12 +4261,26 @@
         mapa.setPaintProperty(id, 'line-opacity-transition', { duration: dura, delay: espera });
         mapa.setPaintProperty(id, 'line-opacity', 0);
       }
-      if (mapa.getLayer(CENA_NOMES_L)) {
-        mapa.setPaintProperty(CENA_NOMES_L, 'text-opacity-transition', { duration: Math.min(260, dura), delay: 0 });
-        mapa.setPaintProperty(CENA_NOMES_L, 'text-opacity', 0);
-      }
+      // os nomes da cena já saíram junto com a volta do resto do mundo; se a
+      // cena foi cortada antes disso, eles saem aqui.
+      if (!c.nomesSairam) apagarNomesDaCena(mapa, dura, c);
     } catch (_) { /* estilo trocando: o limpar abaixo resolve */ }
     setTimeout(() => limparCena(mapa), espera + dura + 90);
+  }
+
+  /* 🔴 OS NOMES DA CENA SAEM QUANDO OS DE VERDADE CHEGAM, no MESMO relógio — não
+     antes. Eles saíam 440 ms na frente, e nesse vão a rua ficava sem nome
+     nenhum enquanto o rótulo do basemap ainda subia de 0: é a metade "nomes
+     quase ilegíveis" da queixa. Os dois no ar por um instante é o preço, e é o
+     preço certo — rótulo dobrado por 400 ms lê como assentamento; rótulo
+     nenhum lê como defeito. */
+  function apagarNomesDaCena(mapa, ms, alvo) {
+    if (alvo) alvo.nomesSairam = true;
+    try {
+      if (!mapa.getLayer(CENA_NOMES_L)) return;
+      mapa.setPaintProperty(CENA_NOMES_L, 'text-opacity-transition', { duration: ms, delay: 0 });
+      mapa.setPaintProperty(CENA_NOMES_L, 'text-opacity', 0);
+    } catch (_) { /* estilo trocando */ }
   }
 
 
@@ -4232,17 +4308,21 @@
      existe mais o vão cinza, porque não existe mais espera depois da porta.
 
      🔴 E O MAPA NÃO NASCE NO PRIMEIRO QUADRO DA ABERTURA. As duas hastes voam de
-     0,3 s a 1,25 s e são a parte mais bonita da cena; subir contexto WebGL e
+     0,86 s a 1,80 s e são a parte mais bonita da cena; subir contexto WebGL e
      parsear tile no meio disso é gastar quadro justamente onde ele aparece.
      `ABERTURA_MAPA_EM` põe o mapa pra nascer depois que a marca se forma, no
      trecho de brilho e batida, que é barato.
+     🔴 ESTE NÚMERO ANDA COM A CENA. Ele era 1300 quando as hastes voavam de 0,3 s
+     a 1,41 s; em 10/08 a ordem virou "HB primeiro, X depois" (§ os 6 atos, no
+     mock) e as hastes passaram a pousar em 1,80 s — 1300 caía bem no meio do voo,
+     que é exatamente o quadro que este atraso existe pra proteger.
 
      🔴 O TETO DAQUI É MENOR QUE O DO MOCK (6 s contra 7 s), de propósito: quem
      decide a saída tem que ser o AVISO, não o socorro. Se o meu teto vencer
      primeiro, a abertura sai pela porta da frente ("pronto o que deu") em vez de
      ser arrancada pelo relógio de emergência do desenho.
      ========================================================================== */
-  const ABERTURA_MAPA_EM = 1300;
+  const ABERTURA_MAPA_EM = 1800;
   const ABERTURA_TETO_PONTE = 6000;
   const bootFalta = new Set(['dado', 'mapa', 'fix']);
   let bootAvisou = false;
@@ -4609,7 +4689,17 @@
        quadro antes de sumir: quem esconde o mundo é o `styledata`, que vem antes
        do primeiro tile pintar, e no `load` já é tarde. A cena é UMA por vida do
        app (`cenaJaEntrou`) — voltar pra aba Rota é voltar, não é ligar de novo. */
-    if (nome === 'geral') pedirCena('entrada');
+    /* 🔴 A CENA DA ENTRADA É CHAMADA DIRETO, NÃO PELO `pedirCena` — e isto é a
+       fase 1 do defeito que o dono viu ("o estado final é brevemente exibido").
+       MEDIDO no g15, gravando a tela: a cidade INTEIRA ficava 300 ms na tela e
+       só então apagava pra cena começar. A causa é o pedido passar por
+       `mapaNaTela()`: na abertura as DUAS telas estão no ar (a que sai e a que
+       entra), a resposta é "ainda não", o pedido fica guardado — e quando o
+       transplante seguinte o atende, o `load` já pintou a cidade.
+       Aqui o `esconderMundo` acontece no `styledata`, que vem ANTES do primeiro
+       tile. A espera pela tela continua existindo, dentro de `esperarChao`, que
+       é o lugar dela: lá ela espera SEM deixar o mundo aparecer. */
+    if (nome === 'geral') chamarCena(nova, 'entrada');
     palco.__hbxMapa = true;
     palco.__hbxMapaObj = mapa;
     // existe mapa de verdade: o "você está aqui" de DESENHO sai de cena (ver
