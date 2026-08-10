@@ -149,3 +149,28 @@ test('generateDay: guard anti-dupla-aberta — pendurada de uma sexta anterior b
   // Nenhuma entrega nova entrou no "banco".
   assert.equal(h.entregas.size, 1);
 });
+
+// ROTA v2 F1a (10/08) — o guard `ocorrenciaCanceladaRecente` morreu (só fazia
+// sentido enquanto existia o gerador automático no boot; hoje só GENTE chama
+// generateDay). Decisão humana mais RECENTE (remontar) vence decisão humana
+// mais ANTIGA (cancelar).
+test('generateDay: dia CANCELADO é RECRIADO quando alguém manda gerar de novo — o guard de 24h morreu', async () => {
+  const plano = buildPlano();
+  // TRIPWIRE deliberado (mesmo espírito do updateMany acima): o mock NÃO tem
+  // `logisticaAgendaEvento`. Se o guard morto ainda existisse, ele consultaria
+  // essa tabela (prova da trilha de cancelamento) e o teste quebraria com
+  // "Cannot read properties of undefined" em vez de passar calado.
+  // Nenhuma entrega em `entregasSeed`: o corpo já foi apagado (cancelar apaga
+  // o não-processado) — é exatamente o estado de um dia cancelado.
+  const h = buildHarness([plano]);
+
+  const resultado = await h.service.generateDay(7, SEXTA_31_07);
+
+  assert.equal(resultado.criadas, 1, 'sem o guard, o dia cancelado nasce de novo quando gente manda gerar');
+  assert.equal(resultado.puladas, 0);
+  assert.equal(
+    resultado.avisos.length,
+    0,
+    'nenhum aviso "foi cancelado neste dia — não vou recriar" (a frase do guard morto nunca dispara)',
+  );
+});
