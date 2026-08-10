@@ -118,17 +118,18 @@ type CreditActionItem = {
   effective: { mode: CreditActionMode; cost: number };
 };
 
-// 28/07 — uma linha do painel de controle por empresa: em que plano ela está e
-// quanto da franquia já queimou no mês. É a resposta pra "quem está no crédito
-// puro x quem está num plano fixo", que antes não existia em lugar nenhum.
+// 28/07 — uma linha do painel de controle por empresa: em que plano ela está.
+// É a resposta pra "quem está no crédito puro x quem está num plano fixo".
+// ROTA v2 (10/08): a franquia do mês morreu junto com os claims — o que a
+// linha carrega agora é o teto de MOTORISTAS (assentos do nível ou o override
+// da empresa). Campos opcionais pela mesma razão do NivelRotaItem: rollout.
 type EmpresaPlanoItem = {
   companyId: number;
-  nivel: "BASIC" | "ADVANCED" | "FULL";
+  nivel: "BASIC" | "ADVANCED" | "FULL" | "CREDITO";
   titulo: string;
   precoMensal: number;
-  paradasInclusas: number;
-  paradasUsadas: number;
-  paradasRestantes: number;
+  assentosInclusos?: number;
+  logisticaAssentos?: number | null;
 };
 
 // ROTA v2 (10/08) — a franquia de paradas morreu (rota virou ILIMITADA dentro
@@ -806,7 +807,7 @@ export function JanelaCreditos({ companies, reload }: {
           <div className="tbl-wrap">
             <table className="tbl">
               <thead>
-                <tr><th>Empresa</th><th>Conta HBX</th><th>Plano de Rota</th><th>Franquia do mês</th><th>Saldo</th><th>Ações</th></tr>
+                <tr><th>Empresa</th><th>Conta HBX</th><th>Plano de Rota</th><th>Motoristas/dia</th><th>Saldo</th><th>Ações</th></tr>
               </thead>
               <tbody>
                 {companies === null && (
@@ -820,7 +821,11 @@ export function JanelaCreditos({ companies, reload }: {
                   const isOpen = grantOpenFor === c.id;
                   const isDebitOpen = debitOpenFor === c.id;
                   const plano = planoPorEmpresa.get(c.id);
-                  const franquiaAcabou = !!plano && plano.paradasInclusas > 0 && plano.paradasRestantes === 0;
+                  // override da empresa vence o default do nível — mesma régua
+                  // do gate de assentos no backend (assertAssentoDoDia).
+                  const assentosDia = plano
+                    ? (typeof plano.logisticaAssentos === "number" ? plano.logisticaAssentos : plano.assentosInclusos)
+                    : undefined;
                   return (
                     <React.Fragment key={c.id}>
                       <tr>
@@ -839,6 +844,7 @@ export function JanelaCreditos({ companies, reload }: {
                               <select className="field-dark" style={{ maxWidth: 130 }} value={plano.nivel}
                                 disabled={planoBusy === c.id}
                                 onChange={e => trocarPlano(c.id, e.target.value)}>
+                                <option value="CREDITO">Rota Avulsa</option>
                                 <option value="BASIC">Basic</option>
                                 <option value="ADVANCED">Advanced</option>
                                 <option value="FULL">Full</option>
@@ -848,14 +854,14 @@ export function JanelaCreditos({ companies, reload }: {
                           ) : <span className="muted-note">—</span>}
                         </td>
                         <td>
-                          {plano && plano.paradasInclusas > 0 ? (
+                          {typeof assentosDia === "number" ? (
                             <div className="co">
-                              <strong>{n0(plano.paradasUsadas)} / {n0(plano.paradasInclusas)}</strong>
+                              <strong>{n0(assentosDia)}</strong>
                               <span className="sub2">
-                                {franquiaAcabou ? "esgotada — consumindo crédito" : n0(plano.paradasRestantes) + " paradas restantes"}
+                                {typeof plano?.logisticaAssentos === "number" ? "contratados na ficha" : "inclusos no nível"}
                               </span>
                             </div>
-                          ) : <span className="muted-note">sem franquia</span>}
+                          ) : <span className="muted-note">—</span>}
                         </td>
                         <td>
                           <div className="co">

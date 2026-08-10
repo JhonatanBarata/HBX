@@ -128,7 +128,9 @@ test('setNivel rejeita valor desconhecido antes de gravar', async () => {
 
 test('getNivel devolve o nível gravado', async () => {
   const { service } = setup(row({ logisticaNivel: 'FULL' }));
-  assert.deepEqual(await service.getNivel(7), { nivel: 'FULL' });
+  // `logisticaAssentos` viaja junto (ROTA v2): a PRESENÇA da chave é o sinal
+  // pro /master de que esta ficha aceita o override de assentos.
+  assert.deepEqual(await service.getNivel(7), { nivel: 'FULL', logisticaAssentos: null });
 });
 
 // ── 2) TETO DE USO: financeiro real e cobrança automática são Advanced+ ──────
@@ -232,7 +234,7 @@ test('config existente SEM logisticaNivel (linha pré-migration) é tratada como
   const semNivel = row();
   delete (semNivel as any).logisticaNivel;
   const { service } = setup(semNivel);
-  assert.deepEqual(await service.getNivel(7), { nivel: 'ADVANCED' });
+  assert.deepEqual(await service.getNivel(7), { nivel: 'ADVANCED', logisticaAssentos: null });
 });
 
 test('grandfathering: financeiro real JÁ LIGADO sobrevive sem nível gravado (nada desliga)', async () => {
@@ -246,7 +248,7 @@ test('grandfathering: financeiro real JÁ LIGADO sobrevive sem nível gravado (n
 
 test('grandfathering: valor sujo no banco (não é BASIC/ADVANCED/FULL) também cai em ADVANCED', async () => {
   const { service } = setup(row({ logisticaNivel: 'legacy-lixo' }));
-  assert.deepEqual(await service.getNivel(7), { nivel: 'ADVANCED' });
+  assert.deepEqual(await service.getNivel(7), { nivel: 'ADVANCED', logisticaAssentos: null });
 });
 
 test('config operacional (GET consumido por qualquer ator) inclui logisticaNivel', async () => {

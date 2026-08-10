@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
+import { isBillingOwnerActor } from '../access/actor-kind';
 import { PrismaService } from '../prisma/prisma.service';
 import { type LogisticaActor, LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaService } from './logistica.service';
@@ -121,6 +122,9 @@ export class LogisticaMobileService {
       sourceDates: Array.isArray(input?.sourceDates) ? input.sourceDates : undefined,
       driverUserId,
       actorUserId,
+      // Dono no próprio celular estourando o teto de assentos vê o botão de
+      // comprar o passe; funcionário vê o recado sem botão (LEI DO VENDEDOR).
+      atorEhDono: isBillingOwnerActor(actor as any),
     });
   }
 }

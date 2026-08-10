@@ -8,6 +8,7 @@ import {
 import { createHash, randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
 import { extname, join } from 'path';
+import { isBillingOwnerActor } from '../access/actor-kind';
 import { PrismaService } from '../prisma/prisma.service';
 import { canonicalRouteDate } from './logistica-route-billing.util';
 import { LogisticaRotaCobrancaService } from './logistica-rota-cobranca.service';
@@ -179,6 +180,9 @@ export class LogisticaOperacaoService {
           companyId,
           target.id,
           canonicalRouteDate(undefined, entrega.scheduledAt ?? new Date()),
+          // Quem atribui daqui costuma ser o dono no desktop — se for, o 402
+          // de assentos oferece o botão do passe (LEI DO VENDEDOR).
+          isBillingOwnerActor(actor as any),
         );
       }
     }

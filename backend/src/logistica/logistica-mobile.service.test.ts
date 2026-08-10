@@ -70,6 +70,9 @@ test('materialização móvel separa data operacional das datas recorrentes e at
     sourceDates: ['2026-07-20'],
     driverUserId: 42,
     actorUserId: 42,
+    // motorista comum (role USER) não é dono — o 402 de assentos deste caminho
+    // nunca oferece o botão do passe (LEI DO VENDEDOR).
+    atorEhDono: false,
   });
   assert.deepEqual(result.deliveryIds, ['delivery-1']);
 });

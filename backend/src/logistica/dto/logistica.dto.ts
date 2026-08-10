@@ -870,9 +870,13 @@ export class SetLogisticaNivelDto {
 // motorista+dia (qualquer nível com plano — BASIC/ADVANCED/FULL). `date`
 // ausente = hoje (mesma régua de canonicalRouteDate).
 export class PasseDoDiaDto {
+  // Opcional: o app (popup "Liberar hoje") manda `{}` — o motorista liberado é
+  // o PRÓPRIO ator (o dono comprando o assento extra dele mesmo no celular).
+  // Fluxo de painel (liberar OUTRO motorista) manda o id explícito.
+  @IsOptional()
   @IsInt()
   @Min(1)
-  driverUserId!: number;
+  driverUserId?: number;
 
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date deve estar em YYYY-MM-DD' })

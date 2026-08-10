@@ -59,7 +59,7 @@ export class LogisticaRotaCobrancaService {
     }
     if (definition.mode !== 'debit') return; // master desligou (modo Grátis) — pula a cobrança inteira
 
-    const usageKey = diaDeRotaUsageKey(companyId, routeDate);
+    const baseKey = diaDeRotaUsageKey(companyId, routeDate);
     await this.prisma.$transaction(async (tx) => {
       // CONCORRÊNCIA: CreditLedgerEntry NÃO é único por usageKey sozinha (o
       // unique é [usageKey, parentEntryId] — um débito decimal pode consumir
@@ -67,12 +67,19 @@ export class LogisticaRotaCobrancaService {
       // "iniciar rota" concorrentes do mesmo dia: o 2º espera o 1º terminar de
       // checar+debitar antes de fazer a própria checagem.
       await lockLogisticaRouteTransaction(tx, companyId, `dia:${companyId}:${routeDate}`);
-      const jaPago = await tx.creditLedgerEntry.findFirst({
-        where: { companyId, usageKey, kind: 'debit' },
-        select: { id: true },
-      });
-      if (jaPago) return; // remontar/outro motorista/repetir — já pago, passa
+      const { pago, tentativas } = await chaveJaPaga(tx, companyId, baseKey);
+      if (pago) return; // remontar/outro motorista/repetir — já pago, passa
 
+      // 🔴 CHAVE VERSIONADA POR TENTATIVA (revisão adversarial, 10/08). A
+      // carteira é idempotente por usageKey e serve débito PARCIAL quando o
+      // saldo não cobre: uma tentativa sem saldo deixa no ledger o par
+      // débito-parcial + estorno com a chave BASE. Reusar a mesma chave depois
+      // da recarga replaya o resultado velho (parcial → estorno → 402 pra
+      // sempre); e um "já pago = existe débito" liberaria o dia DE GRAÇA. É a
+      // mesma lição da máquina velha ("toda tentativa posterior a estorno
+      // recebe nova usageKey versionada") — pago de verdade é DÉBITO SEM
+      // ESTORNO, e tentativa nova ganha chave nova.
+      const usageKey = tentativas === 0 ? baseKey : `${baseKey}:t${tentativas + 1}`;
       const result = await this.wallet.debit(companyId, definition.cost, {
         actionKey: CREDIT_ACTION_KEYS.LOGISTICA_DIA_DE_ROTA,
         usageKey,
@@ -109,15 +116,15 @@ export class LogisticaRotaCobrancaService {
     }
     if (definition.mode !== 'debit') return;
 
-    const usageKey = passeDoDiaUsageKey(companyId, driverUserId, dateISO);
+    const baseKey = passeDoDiaUsageKey(companyId, driverUserId, dateISO);
     await this.prisma.$transaction(async (tx) => {
       await lockLogisticaRouteTransaction(tx, companyId, `passe:${companyId}:${driverUserId}:${dateISO}`);
-      const jaPago = await tx.creditLedgerEntry.findFirst({
-        where: { companyId, usageKey, kind: 'debit' },
-        select: { id: true },
-      });
-      if (jaPago) return;
+      // Mesma lei do dia (ver `garantirDiaPago`): pago = débito SEM estorno, e
+      // tentativa nova (pós-saldo-insuficiente) ganha chave versionada.
+      const { pago, tentativas } = await chaveJaPaga(tx, companyId, baseKey);
+      if (pago) return;
 
+      const usageKey = tentativas === 0 ? baseKey : `${baseKey}:t${tentativas + 1}`;
       const result = await this.wallet.debit(companyId, definition.cost, {
         actionKey: CREDIT_ACTION_KEYS.LOGISTICA_PASSE_MOTORISTA_DIA,
         usageKey,
@@ -151,7 +158,18 @@ export class LogisticaRotaCobrancaService {
    * (entregadorId), `iniciarRota` e `atribuirEntrega` — os 4 becos onde um
    * motorista passa a ter (ou pode passar a ter) entrega no dia.
    */
-  async assertAssentoDoDia(companyId: number, driverUserId: number, dateISO: string): Promise<void> {
+  async assertAssentoDoDia(
+    companyId: number,
+    driverUserId: number,
+    dateISO: string,
+    /* 🔴 LEI DO VENDEDOR (revisão adversarial, 10/08): o botão "Liberar hoje
+       (N créditos)" gasta dinheiro da EMPRESA — só pode aparecer pra quem PODE
+       gastar (dono/master, `isBillingOwnerActor`, que é a mesma régua do
+       endpoint do passe). Funcionário estourando o teto recebe o recado sem
+       botão de compra. Default `false` = fail-closed: caminho que não sabe
+       quem é o ator não oferece compra. */
+    podeComprar = false,
+  ): Promise<void> {
     if (!companyId || !driverUserId || !dateISO) return; // sem motorista definido — nada a gatear aqui
     const [cfg, ocupantesRows] = await Promise.all([
       this.prisma.logisticaConfig.findUnique({
@@ -174,13 +192,17 @@ export class LogisticaRotaCobrancaService {
       );
     }
 
-    const passeKey = passeDoDiaUsageKey(companyId, driverUserId, dateISO);
-    const passePago = await this.prisma.creditLedgerEntry.findFirst({
-      where: { companyId, usageKey: passeKey, kind: 'debit' },
-      select: { id: true },
-    });
+    // Mesma régua de "pago" do débito (débito SEM estorno) — o findFirst cru
+    // aceitaria como pago um passe que falhou por saldo e foi estornado.
+    const { pago: passePago } = await chaveJaPaga(this.prisma, companyId, passeDoDiaUsageKey(companyId, driverUserId, dateISO));
     if (passePago) return; // passe já comprado pra ESTE motorista+dia — libera
 
+    if (!podeComprar) {
+      throw assentosEsgotadosError(
+        `Seu plano inclui ${assentos} motorista${assentos === 1 ? '' : 's'} por dia. Peça ao responsável pela conta para liberar este motorista.`,
+        false,
+      );
+    }
     const definition = await this.actionConfig.resolveEffective(CREDIT_ACTION_KEYS.LOGISTICA_PASSE_MOTORISTA_DIA);
     const passeCreditos = definition && definition.mode === 'debit' ? definition.cost : 0;
     throw assentosEsgotadosError(
@@ -223,6 +245,43 @@ function dayRange(dateISO: string): { start: Date; end: Date } {
   const start = new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0);
   const end = new Date(y, (m || 1) - 1, d || 1, 23, 59, 59, 999);
   return { start, end };
+}
+
+/**
+ * "PAGO DE VERDADE" = alguma tentativa com débito e SEM o estorno par (revisão
+ * adversarial, 10/08). As tentativas são a chave base e as versionadas
+ * (`<base>:tN`); o estorno da carteira grava `refund:<chaveDaTentativa>`
+ * (kind 'refund'). `startsWith` é seguro aqui: as duas chaves base terminam na
+ * DATA (formato fixo YYYY-MM-DD) — só o NOSSO sufixo `:tN` estende a base, e
+ * um prefixo parcial de outro id (driver:7 × driver:70) nunca casa porque a
+ * base carrega os segmentos seguintes completos.
+ * `db` é o prisma OU a tx do chamador (dentro do advisory lock).
+ */
+async function chaveJaPaga(
+  db: PrismaService | any,
+  companyId: number,
+  baseKey: string,
+): Promise<{ pago: boolean; tentativas: number }> {
+  const rows: Array<{ usageKey: string | null; kind: string }> = await (db as any).creditLedgerEntry.findMany({
+    where: {
+      companyId,
+      OR: [
+        { kind: 'debit', usageKey: { startsWith: baseKey } },
+        { kind: 'refund', usageKey: { startsWith: `refund:${baseKey}` } },
+      ],
+    },
+    select: { usageKey: true, kind: true },
+  });
+  const debitos = new Set<string>();
+  const estornos = new Set<string>();
+  for (const row of rows) {
+    const key = String(row.usageKey || '');
+    if (!key) continue;
+    if (row.kind === 'debit') debitos.add(key);
+    else if (row.kind === 'refund' && key.startsWith('refund:')) estornos.add(key.slice('refund:'.length));
+  }
+  const pago = [...debitos].some((key) => !estornos.has(key));
+  return { pago, tentativas: debitos.size };
 }
 
 export function diaDeRotaUsageKey(companyId: number, routeDate: string): string {

@@ -450,10 +450,16 @@ export class LogisticaConfigService {
 
   // ── PR27072026 F1 — NÍVEL DO PLANO (Basic/Advanced/Full), SÓ O MASTER ───────
   /** Nível gravado (grandfathering resolvido: ausente/sujo → ADVANCED). */
-  async getNivel(companyId: number): Promise<{ nivel: LogisticaNivel }> {
+  async getNivel(companyId: number): Promise<{ nivel: LogisticaNivel; logisticaAssentos: number | null }> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const cfg = await this.ensureRow(companyId);
-    return { nivel: storedNivel((cfg as any).logisticaNivel) };
+    return {
+      nivel: storedNivel((cfg as any).logisticaNivel),
+      // ROTA v2 (10/08) — a PRESENÇA desta chave é o sinal pro /master de que o
+      // PUT desta ficha já aceita o override de assentos (a ficha só mostra o
+      // campo quando a chave vem; null = herda `assentosInclusos` do nível).
+      logisticaAssentos: typeof (cfg as any).logisticaAssentos === 'number' ? (cfg as any).logisticaAssentos : null,
+    };
   }
 
   /**

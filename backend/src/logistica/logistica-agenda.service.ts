@@ -1540,6 +1540,8 @@ export class LogisticaAgendaService {
       sourceDates?: string[];
       driverUserId?: number | null;
       actorUserId?: number | null;
+      /** dono/master? decide se o 402 de assentos oferece o botão de comprar o passe (LEI DO VENDEDOR). */
+      atorEhDono?: boolean;
     } = {},
   ) {
     this.assertCompany(companyId);
@@ -1565,7 +1567,7 @@ export class LogisticaAgendaService {
     // classe direto sem o serviço de cobrança continuam válidos — materializar
     // sem motorista definido também não tem o que gatear).
     if (this.cobranca && driverId) {
-      await this.cobranca.assertAssentoDoDia(companyId, driverId, dateKey(operationalDate));
+      await this.cobranca.assertAssentoDoDia(companyId, driverId, dateKey(operationalDate), input.atorEhDono === true);
     }
     const deliveryIds = new Set<string>();
     // F0 (27/07) — extrato: ids materializados de uma data de ORIGEM diferente

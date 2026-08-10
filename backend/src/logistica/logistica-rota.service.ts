@@ -29,7 +29,7 @@ import {
   RAIO_PADRAO_M,
   MAX_DIA_PADRAO,
 } from './prospector-corredor.sql';
-import { isAdminTierActor, type ActorKindUserLike } from '../access/actor-kind';
+import { isAdminTierActor, isBillingOwnerActor, type ActorKindUserLike } from '../access/actor-kind';
 import { isLogisticaAdmin } from './logistica-operacao.service';
 import { quemMontouODia, rotaDeOutroMotoristaError } from './logistica-quem-montou.util';
 
@@ -413,6 +413,9 @@ export class LogisticaRotaService {
     //     idempotente: remontar, trocar de motorista ou reabrir o dia nunca
     //     cobra 2×.
     if (plan.paradas.length > 0) {
+      // `podeComprar` fica no default false DE PROPÓSITO: `entregadorId` aqui
+      // só existe quando o ator é motorista ESCOPADO (whereForActor) — e
+      // motorista escopado nunca é dono/master (admin chega sem entregadorId).
       if (entregadorId) await this.cobranca.assertAssentoDoDia(companyId, entregadorId, routeDate);
       await this.cobranca.garantirDiaPago(companyId, routeDate, actorUserId);
     }
@@ -522,7 +525,9 @@ export class LogisticaRotaService {
     // barato e idempotente (cobre quem chega direto no Iniciar sem
     // replanejar por um caminho alternativo).
     const routeDate = canonicalRouteDate(input.date);
-    await this.cobranca.assertAssentoDoDia(companyId, effectiveDriverId, routeDate);
+    // `podeComprar` = dono/master (LEI DO VENDEDOR): só quem pode gastar o
+    // crédito da empresa vê o botão de comprar o passe no 402.
+    await this.cobranca.assertAssentoDoDia(companyId, effectiveDriverId, routeDate, isBillingOwnerActor(actor as any));
     const route = await this.ensureLogisticaRoute(companyId, effectiveDriverId, routeDate);
     await this.congelarStops(companyId, route.id, routeDate, plan.paradas.map((p) => p.id));
 

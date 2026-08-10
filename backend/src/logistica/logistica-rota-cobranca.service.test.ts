@@ -52,6 +52,19 @@ function makeHarness(opts: {
     creditLedgerEntry: {
       findFirst: async ({ where }: any) =>
         ledger.find((row) => row.companyId === where.companyId && row.usageKey === where.usageKey && row.kind === where.kind) || null,
+      // `chaveJaPaga` (revisão adversarial 10/08) lê por PREFIXO: débitos da
+      // chave base + tentativas versionadas, e os estornos pareados.
+      findMany: async ({ where }: any) =>
+        ledger.filter((row) => {
+          if (row.companyId !== where.companyId) return false;
+          const ors = Array.isArray(where.OR) ? where.OR : [where];
+          return ors.some((cond: any) => {
+            if (cond.kind && row.kind !== cond.kind) return false;
+            const sw = cond.usageKey?.startsWith;
+            if (sw && !String(row.usageKey).startsWith(sw)) return false;
+            return true;
+          });
+        }),
     },
     $executeRawUnsafe: async (_sql: string, _companyId: number, key: string) => {
       locksAdquiridos.push(key);
@@ -61,15 +74,22 @@ function makeHarness(opts: {
   };
 
   const wallet: any = {
+    // Fiel à carteira REAL (credit-wallet.service.ts): serve o que couber
+    // (débito PARCIAL deixa linha no ledger) e o refund grava a linha par
+    // `refund:<usageKey>` — é exatamente esse par que a régua "pago = débito
+    // sem estorno" precisa enxergar no dublê pra prova valer alguma coisa.
     debit: async (companyId: number, amount: number, opts2: any) => {
       debitCalls.push({ companyId, amount, ...opts2 });
-      if (available < amount) return { debited: 0, requested: amount, partial: true, balanceAfter: available };
-      available -= amount;
-      ledger.push({ companyId, usageKey: opts2.usageKey, kind: 'debit', amount });
-      return { debited: amount, requested: amount, partial: false, balanceAfter: available };
+      const served = Math.min(available, amount);
+      if (served > 0) {
+        available -= served;
+        ledger.push({ companyId, usageKey: opts2.usageKey, kind: 'debit', amount: served });
+      }
+      return { debited: served, requested: amount, partial: served < amount, balanceAfter: available };
     },
     refund: async (companyId: number, opts2: any) => {
       refundCalls.push({ companyId, ...opts2 });
+      ledger.push({ companyId, usageKey: `refund:${opts2.usageKey}`, kind: 'refund', amount: 0 });
       return { refunded: 0, balanceAfter: available, alreadyProcessed: false };
     },
   };
@@ -146,6 +166,42 @@ test('garantirDiaPago: saldo insuficiente lança 402 LOGISTICA_ROUTE_UNAVAILABLE
   );
 });
 
+/* 🔴 VACINA da revisão adversarial (10/08) — a CHAVE ENVENENADA. A carteira
+   serve débito PARCIAL quando o saldo não cobre, e o estorno fica no ledger
+   com a mesma chave. Sem a régua "pago = débito SEM estorno" + chave nova por
+   tentativa, esse resíduo ou liberava o dia DE GRAÇA (check ingênuo "existe
+   débito") ou trancava o dia em 402 PRA SEMPRE (replay idempotente da
+   carteira). Os dois destinos errados morrem aqui. */
+test('garantirDiaPago: tentativa estornada NÃO marca o dia como pago — e a recarga paga com chave NOVA', async () => {
+  const h = makeHarness({ nivel: 'CREDITO', diaCost: 6 });
+  h.setAvailable(3); // só metade do dia
+  await assert.rejects(h.cobranca.garantirDiaPago(COMPANY, DATE, 1), (err: any) => err.getStatus() === 402);
+  assert.equal(h.refundCalls.length, 1, 'o parcial de 3 foi estornado');
+
+  h.setAvailable(10); // recarregou
+  await h.cobranca.garantirDiaPago(COMPANY, DATE, 1);
+  assert.equal(h.debitCalls.length, 2);
+  assert.equal(
+    h.debitCalls[1].usageKey,
+    `${diaDeRotaUsageKey(COMPANY, DATE)}:t2`,
+    'a 2ª tentativa NUNCA reusa a chave estornada — replay idempotente da carteira devolveria o fracasso antigo',
+  );
+
+  await h.cobranca.garantirDiaPago(COMPANY, DATE, 1); // remontar depois de pago de verdade
+  assert.equal(h.debitCalls.length, 2, 'pago de verdade (débito sem estorno) não redebita');
+});
+
+test('assertAssentoDoDia: passe com débito ESTORNADO não libera o motorista', async () => {
+  const h = makeHarness({ nivel: 'BASIC', passeCost: 8 });
+  h.seedEntrega({ entregadorId: 11 });
+  h.setAvailable(2); // não cobre o passe → parcial + estorno
+  await assert.rejects(h.cobranca.garantirPasseDoDia(COMPANY, 9, DATE, 1), (err: any) => err.getStatus() === 402);
+  await assert.rejects(
+    h.cobranca.assertAssentoDoDia(COMPANY, 9, DATE, true),
+    (err: any) => (err as any).getResponse().code === 'ASSENTOS_ESGOTADOS',
+  );
+});
+
 test('garantirDiaPago: serializa via advisory lock com a chave dia:<empresa>:<data>', async () => {
   const h = makeHarness({ nivel: 'CREDITO' });
   await h.cobranca.garantirDiaPago(COMPANY, DATE, 1);
@@ -196,17 +252,32 @@ test('assertAssentoDoDia: nível CREDITO estourado barra com podeComprarPasse:fa
   );
 });
 
-test('assertAssentoDoDia: 2º motorista estourando plano com plano é barrado, podeComprarPasse:true', async () => {
+test('assertAssentoDoDia: DONO estourando o plano é barrado com podeComprarPasse:true', async () => {
   const h = makeHarness({ nivel: 'BASIC', passeCost: 8 }); // BASIC = 1 assento
   h.seedEntrega({ entregadorId: 11 });
   await assert.rejects(
-    h.cobranca.assertAssentoDoDia(COMPANY, 9, DATE),
+    h.cobranca.assertAssentoDoDia(COMPANY, 9, DATE, true), // podeComprar: é dono/master
     (err: any) => {
       assert.equal(err.getStatus(), 402);
       const body = err.getResponse();
       assert.equal(body.code, 'ASSENTOS_ESGOTADOS');
       assert.equal(body.podeComprarPasse, true);
       assert.equal(body.passeCreditos, 8);
+      return true;
+    },
+  );
+});
+
+test('assertAssentoDoDia: FUNCIONÁRIO estourando o plano NÃO vê botão de compra (LEI DO VENDEDOR)', async () => {
+  const h = makeHarness({ nivel: 'BASIC', passeCost: 8 });
+  h.seedEntrega({ entregadorId: 11 });
+  await assert.rejects(
+    h.cobranca.assertAssentoDoDia(COMPANY, 9, DATE), // sem flag = ator não pode gastar
+    (err: any) => {
+      const body = (err as any).getResponse();
+      assert.equal(body.code, 'ASSENTOS_ESGOTADOS');
+      assert.equal(body.podeComprarPasse, false, 'dinheiro da empresa só aparece pra quem pode gastar');
+      assert.match(String(body.message), /respons[aá]vel/i, 'o recado manda chamar o responsável');
       return true;
     },
   );

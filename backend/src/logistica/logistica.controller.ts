@@ -935,7 +935,10 @@ export class LogisticaController {
     this.ensureBillingOwner(req.user);
     const actorId = this.ensureUserId(req.user);
     const date = canonicalRouteDate(dto.date);
-    await this.cobranca.garantirPasseDoDia(companyId, dto.driverUserId, date, actorId);
+    // Sem driverUserId (o `{}` do popup do app) o passe é pro PRÓPRIO ator —
+    // que aqui já é dono/master (ensureBillingOwner acima) comprando o
+    // assento extra dele mesmo.
+    await this.cobranca.garantirPasseDoDia(companyId, dto.driverUserId ?? actorId, date, actorId);
     return { ok: true };
   }
 
