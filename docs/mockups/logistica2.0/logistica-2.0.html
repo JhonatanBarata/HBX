@@ -4891,16 +4891,101 @@ function ajustarHastes(camada){
   const cRect=splash.getBoundingClientRect();
   const svg=splash.querySelector('.splash-xis');
   if(svg) svg.setAttribute('viewBox',`0 0 ${Math.round(cRect.width)} ${Math.round(cRect.height)}`);
+  /* 🔴 O X CRESCIA NA TROCA (dono, 10/08: *"o X cresce do nada"*) — e a culpa era
+     de DOIS CHUTES nesta função. As hastes desenhavam um X com 68% da largura e
+     60% da altura da CAIXA do glifo (os antigos `.34`/`.30`), com traço fixo de
+     5px contra a perna de ~7px da letra. Medido na bancada: haste de 27px, letra
+     de 40px. Ou seja, no instante em que o glifo assumia, o X engordava e
+     esticava — que é exatamente o "cresce do nada".
+     Caixa de LAYOUT nunca foi a forma da letra: ela carrega o avanço lateral e a
+     entrelinha inteira. Quem tem que casar é a TINTA. Então agora a letra é
+     MEDIDA (`moldeDoX`) e as hastes viram o molde dela: mesma largura, mesma
+     altura, mesma espessura de perna, mesma inclinação. */
+  const molde=moldeDoX(em);
   const eRect=em.getBoundingClientRect();
   const cx=eRect.x-cRect.x+eRect.width/2, cy=eRect.y-cRect.y+eRect.height/2;
-  const hw=eRect.width*.34, hh=eRect.height*.30;
+  let hw,hh,tintaCy;
+  if(molde){
+    hw=molde.larg/2; hh=molde.alt/2;
+    // onde a tinta mora na vertical: da linha de base pra cima, o quanto ela sobe
+    tintaCy=(baseDoGlifo(em)-cRect.y)-molde.sobe+hh;
+  }else{
+    hw=eRect.width*.34; hh=eRect.height*.30; tintaCy=cy;   // rede: o chute de antes
+  }
+  /* A letra é INCLINADA (`skewX(-8deg)`), e a inclinação nasce no centro do
+     elemento — sem repeti-la, as duas pernas da haste ficariam simétricas e a
+     letra não é. São ~2,6px em cada ponta: pouco pra descrever, o bastante pra
+     ler como "trocou de peça". */
+  const inclina=Math.tan(-8*Math.PI/180);
+  const ponto=(dx,dy)=>({ x:cx+dx+(dy)*inclina, y:cy+dy });
+  const dyTopo=(tintaCy-cy)-hh, dyBase=(tintaCy-cy)+hh;
+  /* A ponta REDONDA da haste passa meio traço do fim da linha; a perna da letra
+     acaba cortada. Sem encurtar, o X das hastes nasce mais comprido que o glifo. */
+  const recuo=molde&&molde.perna>1?molde.perna/2:0;
+  const encurtar=(p,q)=>{
+    const dx=q.x-p.x, dy=q.y-p.y, L=Math.hypot(dx,dy)||1;
+    const ux=dx/L*recuo, uy=dy/L*recuo;
+    return [{x:p.x+ux,y:p.y+uy},{x:q.x-ux,y:q.y-uy}];
+  };
   const põe=(sel,x1,y1,x2,y2)=>splash.querySelectorAll(sel).forEach(l=>{
     l.setAttribute('x1',x1.toFixed(1)); l.setAttribute('y1',y1.toFixed(1));
     l.setAttribute('x2',x2.toFixed(1)); l.setAttribute('y2',y2.toFixed(1));});
-  põe('.haste-a', cx-hw, cy-hh, cx+hw, cy+hh);   // desce da esquerda pra direita
-  põe('.haste-b', cx+hw, cy-hh, cx-hw, cy+hh);   // sobe da direita pra esquerda
+  const [a1,a2]=encurtar(ponto(-hw,dyTopo),ponto(hw,dyBase));   // desce da esquerda pra direita
+  const [b1,b2]=encurtar(ponto(hw,dyTopo),ponto(-hw,dyBase));   // sobe da direita pra esquerda
+  põe('.haste-a', a1.x,a1.y,a2.x,a2.y);
+  põe('.haste-b', b1.x,b1.y,b2.x,b2.y);
+  if(molde&&molde.perna>1){
+    splash.querySelectorAll('.splash-xis line:not(.rastro)').forEach(l=>{ l.style.strokeWidth=molde.perna.toFixed(2); });
+    splash.querySelectorAll('.splash-xis line.rastro').forEach(l=>{ l.style.strokeWidth=(molde.perna*.4).toFixed(2); });
+  }
   const fl=splash.querySelector('.splash-flash');
-  if(fl){ fl.style.left=(cx-48)+'px'; fl.style.top=(cy-48)+'px'; fl.style.marginLeft='0'; }
+  const cruz=ponto(0,tintaCy-cy);
+  if(fl){ fl.style.left=(cruz.x-48)+'px'; fl.style.top=(cruz.y-48)+'px'; fl.style.marginLeft='0'; }
+}
+
+/** A LINHA DE BASE do glifo, perguntada ao próprio navegador: uma caixa de altura
+ *  ZERO em linha se apoia EXATAMENTE nela. Vale mais que qualquer conta de fonte,
+ *  porque responde pela fonte que de fato entrou (a de reserva inclusive). */
+function baseDoGlifo(em){
+  const p=document.createElement('i');
+  p.style.cssText='display:inline-block;width:0;height:0;padding:0;margin:0;border:0';
+  em.appendChild(p);
+  const y=p.getBoundingClientRect().top;
+  p.remove();
+  return y;
+}
+
+/** O MOLDE DA LETRA X — largura, altura e espessura da perna, em pixel de tela.
+ *  `actualBoundingBox*` é a caixa da TINTA (não a de layout), e a espessura sai de
+ *  uma varredura de pixel numa faixa alta do desenho, onde as duas pernas ainda
+ *  estão separadas: ali a mordida horizontal vale `perna / sen(ângulo)`.
+ *  Devolve `null` em qualquer imprevisto — quem chama tem o caminho de antes. */
+function moldeDoX(em){
+  try{
+    const cs=getComputedStyle(em);
+    const fonte=`${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const letra=((em.textContent||'X').trim()[0])||'X';
+    const cv=moldeDoX.cv||(moldeDoX.cv=document.createElement('canvas'));
+    let ct=cv.getContext('2d',{willReadFrequently:true});
+    ct.font=fonte;
+    const m=ct.measureText(letra);
+    const larg=m.actualBoundingBoxLeft+m.actualBoundingBoxRight;
+    const alt=m.actualBoundingBoxAscent+m.actualBoundingBoxDescent;
+    if(!(larg>1&&alt>1)) return null;
+    const folga=8;
+    cv.width=Math.ceil(larg)+folga*2; cv.height=Math.ceil(alt)+folga*2;
+    ct=cv.getContext('2d',{willReadFrequently:true});   // redimensionar zera o estado
+    ct.font=fonte; ct.fillStyle='#fff';
+    ct.fillText(letra,folga+m.actualBoundingBoxLeft,folga+m.actualBoundingBoxAscent);
+    const faixa=Math.round(folga+alt*.14);
+    const px=ct.getImageData(0,faixa,cv.width,1).data;
+    let corrida=0,maior=0;
+    for(let i=0;i<cv.width;i+=1){
+      if(px[i*4+3]>90){ corrida+=1; if(corrida>maior) maior=corrida; } else corrida=0;
+    }
+    const perna=maior>0?maior*Math.sin(Math.atan2(alt,larg)):0;
+    return { larg,alt,perna,sobe:m.actualBoundingBoxAscent };
+  }catch(_){ return null; }
 }
 
 /* 0b — SAÍDA (o fechamento do app) ----------------------------------------

@@ -258,8 +258,34 @@ const eh = (nome, cond, medida) => {
     if (!splash || !em || !a || !b) return null;
     const r = (el) => { const q = el.getBoundingClientRect(); return { x: q.x, y: q.y, w: q.width, h: q.height, cx: q.x + q.width / 2, cy: q.y + q.height / 2 }; };
     const svg = splash.querySelector('.splash-xis');
+    /* a caixa de TINTA da letra, medida do mesmo jeito que o desenho mede */
+    const cs = getComputedStyle(em);
+    const ct = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    ct.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const m = ct.measureText('X');
+    const tLarg = m.actualBoundingBoxLeft + m.actualBoundingBoxRight;
+    const tAlt = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+    /* O X QUE SE VÊ, dos dois lados — e "se vê" quer dizer com o que cada peça
+       ACRESCENTA à sua geometria:
+       · a haste: o `getBoundingClientRect` de uma linha SVG devolve o traçado SEM
+         o traço, e a ponta redonda ainda passa meio traço pra fora em toda volta;
+       · a letra: a caixa de tinta do canvas é a da letra DEITADA, e na tela ela
+         está inclinada 8° — a inclinação espalha `altura × tan(8°)` na largura.
+       Comparar cru dos dois lados era comparar coisas diferentes. */
+    const ra = a.getBoundingClientRect(); const rb = b.getBoundingClientRect();
+    const cap = (parseFloat(getComputedStyle(a).strokeWidth) || 0) / 2;
+    const uni = {
+      x1: Math.min(ra.x, rb.x) - cap, y1: Math.min(ra.y, rb.y) - cap,
+      x2: Math.max(ra.x + ra.width, rb.x + rb.width) + cap, y2: Math.max(ra.y + ra.height, rb.y + rb.height) + cap,
+    };
     return {
       em: r(em), a: r(a), b: r(b), splash: r(splash),
+      hasteW: uni.x2 - uni.x1, hasteH: uni.y2 - uni.y1,
+      traco: cap * 2,
+      tinta: {
+        larg: tLarg + tAlt * Math.tan(8 * Math.PI / 180), alt: tAlt,
+        perna: window.moldeDoX ? (window.moldeDoX(em) || {}).perna || 0 : 0,
+      },
       viewBox: svg ? svg.getAttribute('viewBox') : '(sem svg)',
     };
   });
@@ -280,8 +306,19 @@ const eh = (nome, cond, medida) => {
     // como duas peças, que é o "apareceu 2x" do dono.
     eh('A.1 as hastes cruzam EM CIMA do glifo do X', Math.abs(dx) <= 6 && Math.abs(dy) <= 6,
       `desvio ${dx}x${dy} px (glifo em ${Math.round(xis.em.cx)},${Math.round(xis.em.cy)}; cruz em ${Math.round(cruz.x)},${Math.round(cruz.y)})`);
-    eh('A.2 o X das hastes tem o TAMANHO do glifo', Math.abs(xis.a.w - xis.em.w * 0.68) <= 8,
-      `haste ${Math.round(xis.a.w)}px vs glifo ${Math.round(xis.em.w)}px`);
+    /* 🔴 A RÉGUA É A TINTA DA LETRA, NÃO A CAIXA DELA (dono, 10/08: *"o X cresce
+       do nada"*). Enquanto isto cobrava 68% da CAIXA, passava verde com a haste
+       de 27px virando letra de 40px — o teste estava carimbando o defeito.
+       Agora as duas formas são comparadas pelo que aparece: o retângulo que as
+       duas hastes ocupam contra a caixa de TINTA do glifo (`actualBoundingBox*`,
+       a mesma que o desenho passou a usar). Tolerância de 3px porque a ponta
+       redonda e o antialias não fecham no inteiro. */
+    eh('A.2 o X das hastes tem a LARGURA da tinta do glifo', Math.abs(xis.hasteW - xis.tinta.larg) <= 3,
+      `haste ${Math.round(xis.hasteW)}px vs tinta ${Math.round(xis.tinta.larg)}px (caixa do glifo ${Math.round(xis.em.w)}px)`);
+    eh('A.2b e a ALTURA dela', Math.abs(xis.hasteH - xis.tinta.alt) <= 3,
+      `haste ${Math.round(xis.hasteH)}px vs tinta ${Math.round(xis.tinta.alt)}px`);
+    eh('A.2c e a PERNA tem a espessura da perna da letra', Math.abs(xis.traco - xis.tinta.perna) <= 1.5,
+      `traço ${xis.traco.toFixed(1)}px vs perna ${xis.tinta.perna.toFixed(1)}px`);
     eh('A.3 o viewBox do SVG acompanha a tela (nada de esticar medida)',
       xis.viewBox === `0 0 ${Math.round(xis.splash.w)} ${Math.round(xis.splash.h)}`,
       `viewBox="${xis.viewBox}" splash ${Math.round(xis.splash.w)}x${Math.round(xis.splash.h)}`);
