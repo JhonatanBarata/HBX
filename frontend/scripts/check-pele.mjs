@@ -65,9 +65,46 @@
 //      Sem esta isenção a trava nasceria vermelha PARA SEMPRE nos 4 usos
 //      legítimos que já existem, e trava que sempre reprova vira ruído que
 //      todo mundo aprende a ignorar — que é como os 45 hex entraram.
+//      A (d) cobre TAMBÉM a declaração cujo valor é SÓ um token puro
+//      (`style="color:var(--lime)"`): o pecado que o R7 existe pra pegar é a
+//      cor LITERAL cravada no HTML, e token não é literal — é o token, escrito
+//      noutro lugar. Some a isso que a ponte não tem onde pôr classe: a única
+//      folha do app é o `mock.css`, que é GERADO (isenção f), então uma regra
+//      escrita lá some na próxima injeção. Fallback NÃO passa
+//      (`var(--x, #f00)`) — seria contrabandear o literal de volta.
 //  (e) R6+R7: `vendor/` dentro dos assets (maplibre-gl) — biblioteca de
 //      TERCEIRO, entregue minificada. Não é aparência decidida em tela e não
 //      tem como nascer de token; código NOSSO nunca mora em vendor/.
+//  (f) R6+R7: os arquivos GERADOS (lista `ENTREGA_GERADO`, abaixo). O FISCAL
+//      OLHA A FONTE, NUNCA A SAÍDA (decisão do dono, 10/08). Três motivos, e o
+//      terceiro é o que decide:
+//        1. Em arquivo gerado não existe decisão de aparência pra fiscalizar —
+//           a decisão foi tomada na FONTE. `mock.css`/`mock.js`/`index.html`
+//           saem inteiros de `docs/mockups/logistica2.0/logistica-2.0.html`
+//           (`scripts/casca-injetar.js`); `ponte.js` é a costura de
+//           `logistica/ponte-src/*.js` (`scripts/ponte-costurar.js`).
+//        2. O conserto lá NÃO GRUDA: a próxima geração apaga. Regra que aponta
+//           pra um arquivo onde o conserto some é regra que só ensina a ignorar
+//           o fiscal — que é, palavra por palavra, como os 45 hex entraram.
+//        3. O gerado JÁ TEM FISCAL PRÓPRIO, e mais duro que este:
+//           `scripts/casca-conferir.js` abre as 32 telas × 2 modos e compara
+//           PIXEL A PIXEL contra o mock; `scripts/ponte-conferir.js` reprova
+//           quando o gerado deixa de ser a costura exata da fonte.
+//      O que isto NÃO é: um perdão pro mock. O mock tem design system PRÓPRIO
+//      (dicionário em `.app{...}`, não em `:root{}`) e é o front do APK por
+//      ordem do dono de 06/08 — "entra IGUAL, sem uma linha reescrita". A
+//      disciplina de cor dele é a revisão de design, não este script. Medido em
+//      10/08: das 240 linhas com hex do `mock.css`, 81 declaram token e 159 são
+//      uso direto em regra de componente — nem esticar a isenção (a) pro
+//      seletor `.app` resolveria.
+//  (g) R6: hex dentro de COMENTÁRIO `/* … */`, e hex que é o FALLBACK de uma
+//      leitura de token — `tinta('--map-cena-rua', '#59677a')`. Comentário não
+//      pinta nada (os 2 casos da ponte são prosa explicando uma medição de
+//      contraste). E o fallback é o oposto do pecado do R6: a cor NASCE do
+//      token, o hex só existe pro instante em que o token ainda não está no
+//      DOM — canvas e `paint` do MapLibre não aceitam `var()`, então ou tem
+//      fallback ou a rua nasce preta. É a mesma forma que o R11 já chama de
+//      "o jeito CERTO" (`var(--enter-duration, 180ms)`).
 import { readdirSync, readFileSync, statSync, writeFileSync, existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
@@ -131,6 +168,17 @@ const ENTREGA_APP_CSS_RE = /assets[\\/]app[\\/]app\.css$/;
 const ENTREGA_OPENING_HTML_RE = /assets[\\/]app[\\/]opening\.html$/;
 const ENTREGA_TOKEN_BLOCK_OPEN_RE = /^:root(\[data-(?:theme|app)=["'][\w-]+["']\])*\s*\{/;
 const ENTREGA_VENDOR_RE = /[\\/]vendor[\\/]/; // isenção (e) — ver topo
+// Isenção (f) — SAÍDA de gerador, ver topo. Cada linha traz quem a escreve;
+// arquivo novo só entra aqui junto com o gerador dele.
+const ENTREGA_GERADO = [
+  /logistica[\\/]assets[\\/]app[\\/]mock\.css$/,   // scripts/casca-injetar.js
+  /logistica[\\/]assets[\\/]app[\\/]mock\.js$/,    // scripts/casca-injetar.js
+  /logistica[\\/]assets[\\/]app[\\/]index\.html$/, // scripts/casca-injetar.js
+  /logistica[\\/]assets[\\/]app[\\/]ponte\.js$/,   // scripts/ponte-costurar.js
+];
+// Isenção (g) — hex que é FALLBACK de leitura de token. Tira só o hex; o resto
+// da linha continua sendo varrido (um segundo hex solto ao lado ainda reprova).
+const ENTREGA_TOKEN_FALLBACK_RE = /\btinta\(\s*(['"])--[\w-]+\1\s*,\s*['"]#[0-9a-fA-F]{3,8}['"]/g;
 const ENTREGA_META_THEME_RE = /<meta\s+name=["']theme-color["']/;
 const ENTREGA_HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;
 const ENTREGA_STYLE_ATTR_RE = /[\s"'`]style\s*=\s*["']/;
@@ -141,15 +189,20 @@ const ENTREGA_STYLE_ATTR_BODY_RE = /[\s"'`]style\s*=\s*"([^"]*)"|[\s"'`]style\s*
 const ENTREGA_STYLE_DYNAMIC_PROPS = new Set([
   "width", "height", "transform", "stroke-dashoffset", "stroke-dasharray",
 ]);
-// true = todas as declarações do style são valor calculado (variável CSS ou
-// propriedade geométrica de estado). Vazio/ilegível reprova: na dúvida, pega.
+// Token PURO, sem fallback: `var(--lime)` passa, `var(--lime, #f00)` não.
+const ENTREGA_VAR_PURA_RE = /^var\(\s*--[\w-]+\s*\)$/;
+// true = todas as declarações do style são valor calculado (variável CSS,
+// propriedade geométrica de estado) ou um token puro. Vazio/ilegível reprova:
+// na dúvida, pega.
 function entregaStyleIsDynamicOnly(body) {
   const decls = String(body).split(";").map(d => d.trim()).filter(Boolean);
   if (!decls.length) return false;
   return decls.every(decl => {
-    const prop = decl.slice(0, decl.indexOf(":")).trim().toLowerCase();
+    const corte = decl.indexOf(":");
+    const prop = decl.slice(0, corte).trim().toLowerCase();
     if (!prop) return false;
-    return prop.startsWith("--") || ENTREGA_STYLE_DYNAMIC_PROPS.has(prop);
+    if (prop.startsWith("--") || ENTREGA_STYLE_DYNAMIC_PROPS.has(prop)) return true;
+    return ENTREGA_VAR_PURA_RE.test(decl.slice(corte + 1).trim()); // isenção (d), token puro
   });
 }
 
@@ -444,15 +497,22 @@ for (const file of walk(ROOT, [".tsx", ".ts"])) {
 if (existsSync(ENTREGA_ROOT)) {
   for (const file of walk(ENTREGA_ROOT, ENTREGA_EXTS)) {
     if (ENTREGA_VENDOR_RE.test(file)) continue; // isenção (e) — terceiro
+    if (ENTREGA_GERADO.some(re => re.test(file))) continue; // isenção (f) — saída de gerador
     const relFile = rel(file);
     const hasTokenException = ENTREGA_APP_CSS_RE.test(file) || ENTREGA_OPENING_HTML_RE.test(file);
     let depth = 0;
     let exemptDepth = null; // != null enquanto dentro de um bloco de token PURO (isenção a/b)
-    readFileSync(file, "utf8").split(/\r?\n/).forEach((line, i) => {
-      const trimmed = line.trim();
-      const opensTokenBlock = hasTokenException && exemptDepth === null && ENTREGA_TOKEN_BLOCK_OPEN_RE.test(trimmed);
+    // Isenção (g): comentário `/* … */` vira espaço ANTES de qualquer regra —
+    // e não some, pra o número da linha continuar batendo. De quebra conserta
+    // uma armadilha velha: `{` dentro de comentário desalinhava a contagem de
+    // profundidade do bloco de token. O texto ORIGINAL é o que aparece no
+    // recado; quem é julgado é o texto sem comentário.
+    const original = readFileSync(file, "utf8").split(/\r?\n/);
+    semComentario(original.join("\n")).split(/\r?\n/).forEach((linhaLimpa, i) => {
+      const trimmed = (original[i] ?? "").trim();
+      const opensTokenBlock = hasTokenException && exemptDepth === null && ENTREGA_TOKEN_BLOCK_OPEN_RE.test(linhaLimpa.trim());
       const lineIsExempt = opensTokenBlock || exemptDepth !== null;
-      for (const ch of line) {
+      for (const ch of linhaLimpa) {
         if (ch === "{") {
           depth++;
           if (opensTokenBlock && exemptDepth === null) exemptDepth = depth;
@@ -463,15 +523,17 @@ if (existsSync(ENTREGA_ROOT)) {
       }
       // R7 primeiro — style="" inline não tem isenção nenhuma, nem dentro do
       // bloco de token (lá é só declaração de --var, não teria por quê ter).
-      if (ENTREGA_STYLE_ATTR_RE.test(line)) {
+      if (ENTREGA_STYLE_ATTR_RE.test(linhaLimpa)) {
         // Isenção (d): só passa se TODO style= da linha for valor calculado.
-        const corpos = [...line.matchAll(ENTREGA_STYLE_ATTR_BODY_RE)].map(m => m[1] ?? m[2] ?? "");
+        const corpos = [...linhaLimpa.matchAll(ENTREGA_STYLE_ATTR_BODY_RE)].map(m => m[1] ?? m[2] ?? "");
         const soDinamico = corpos.length > 0 && corpos.every(entregaStyleIsDynamicOnly);
         if (!soDinamico) hard.push(`R7 ${relFile}:${i + 1}  ${trimmed.slice(0, 80)}`);
       }
       if (lineIsExempt) return;
-      if (ENTREGA_META_THEME_RE.test(line)) return; // isenção (c) — ver topo do arquivo
-      for (const m of line.matchAll(ENTREGA_HEX_RE)) {
+      if (ENTREGA_META_THEME_RE.test(linhaLimpa)) return; // isenção (c) — ver topo do arquivo
+      // Isenção (g): o hex que é fallback de leitura de token sai da varredura.
+      const semFallback = linhaLimpa.replace(ENTREGA_TOKEN_FALLBACK_RE, "");
+      for (const m of semFallback.matchAll(ENTREGA_HEX_RE)) {
         hard.push(`R6 ${relFile}:${i + 1}  ${trimmed.slice(0, 80)}`);
         break;
       }
