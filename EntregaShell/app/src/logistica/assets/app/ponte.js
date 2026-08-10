@@ -10093,9 +10093,28 @@
       if (!idem) { idem = window.HBX.uuid(); window.HBX.cache.set(chave, idem); }
       const corpo = { idempotencyKey: idem, arrivedAt: carimbarChegada(aberta.id) };
       if (escolhido) corpo.receiptMethod = escolhido;
-      // O GPS da confirmação é o que realimenta o cadastro do cliente — vai
-      // quando existe, e a falta dele NUNCA barra a entrega.
-      if (ultimaPos) { corpo.lat = ultimaPos.lat; corpo.lng = ultimaPos.lng; }
+      /* O GPS da confirmação é o que realimenta o cadastro do cliente — vai
+         quando existe, e a falta dele NUNCA barra a entrega.
+
+         🔴 A PRECISÃO VIAJA JUNTO, E SEM ELA O PINO NUNCA SE CORRIGE (10/08).
+         O servidor só aceita a coordenada como boa com GPS de OURO
+         (`gpsDeOuro` em logistica.service.ts: exige `accuracy` numérico <= 60 m);
+         campo AUSENTE reprova o crivo igual a um fix ruim. Desde a fusão de
+         07/08 o app mandava lat/lng pelados e o backend descartava calado —
+         medido na company 41: 10 pinos `gps_entrega`, o último de 05/08. A
+         porta parou de convergir exatamente quando este campo sumiu.
+
+         Sai do `ultimoFix` INTEIRO de propósito, e não do `ultimaPos` (que só
+         guarda lat/lng): coordenada e precisão têm que ser da MESMA medição.
+         Precisão de um fix carimbando a coordenada de outro é mentira com cara
+         de dado bom — e o que ela suja é o endereço que o cliente paga pra
+         receber. Fix sem `accuracy` (o aparelho pode não informar) manda só o
+         par: o servidor decide, e a decisão dele é não realimentar. */
+      if (ultimoFix) {
+        corpo.lat = ultimoFix.lat;
+        corpo.lng = ultimoFix.lng;
+        if (Number.isFinite(ultimoFix.precisaoM)) corpo.accuracy = ultimoFix.precisaoM;
+      }
       try {
         await window.API.post(`/logistica/entregas/${encodeURIComponent(aberta.id)}/confirmar`, corpo);
       } catch (e) { return avisoErro(e); }
