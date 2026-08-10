@@ -32,12 +32,48 @@ do que nunca aconteceu.
 
 ## §2 — FASES
 
+### F4 · A MONTAGEM ABRE SEM DIA (dono, 10/08, com a foto da tela)
+> *"ao entrar no montagem de rota, não carregar o dia automaticamente, deixe nessa tela"*
+
+A porta de entrada da Montagem passa a ser o estado **Rota avulsa** (chip nenhum
+aceso): "Rota avulsa — adicione as paradas", a semana ("Os dias que você entrega",
+com a contagem de cada dia), o histórico de 14 dias e o dock "Adicionar parada".
+O dia só entra quando o dedo toca o chip — **carregar é decisão, não boas-vindas**.
+É a conclusão natural do que já foi feito hoje ("entrar não grava nada"): agora
+entrar também não *carrega* nada.
+
+### F5 · O HISTÓRICO REGISTRA O QUE NÃO FOI COMPLETADO (dono, 10/08)
+> *"tem q ficar registrado rotas que eu criei e cancelei. Canceladas com 0 registro
+> ficam salvas por apenas 24 horas, junto com os créditos. Rotas q tiveram algum
+> registro de verdade ficam salvas, mas ambas ficam VERMELHAS: não foram completadas."*
+
+O histórico de 14 dias hoje só enxerga dia que teve entrega. Passa a ter três cores,
+e a cor é o desfecho:
+
+| caso | o que é | quanto tempo fica | cor |
+|---|---|---|---|
+| completa | todas as paradas resolvidas | 14 dias | normal |
+| **2b** — incompleta COM registro | alguma coisa aconteceu de verdade (entregue, cobrado, comprovante) | 14 dias | **vermelha** |
+| **2** — cancelada SEM registro NENHUM | criou e cancelou, nada aconteceu | **24 h** (e some junto com o crédito, §F1) | **vermelha** |
+
+**É a mesma lei do §1 vista pela tela:** o caso 2 aparece em vermelho enquanto o
+crédito ainda pode voltar, e some com ele — não é "lixo guardado 24 h", é a janela
+de estorno tendo rosto. O que o histórico mostra dos dois é **o que não foi
+completado** (quantas paradas ficaram), nunca um "dia vazio" mudo.
+
 ### F0 · Medir a janela de estorno (é ELA que dita o relógio)
-A régua "dia de voltar o crédito" já existe no código de crédito
-(`LogisticaTrackedCreditClaim` / PAGAMENTOS): medir qual é (estorno no encerrar? D+1?
-fim do dia?) e cravar `JANELA_EXPURGO = janela de estorno` — a lei usa a régua que o
-dinheiro já usa, nunca uma nova. **Portão:** o número escrito neste doc + teste que lê
-a constante do código de crédito.
+✅ **MEDIDO (10/08).** O estorno fecha em MINUTOS, não em dias:
+- ESSENTIAL — `PREPARED_ROUTE_STALE_MS = 5 min` (`logistica-route-billing.service.ts`):
+  rota PLANNED parada 5 min é estornada pelo `reconcilePendingRefunds`, que roda a
+  cada 5 min.
+- TRACKED — `REFUND_LEASE_MS = 90 s` + reconciliador a cada 5 min
+  (`logistica-offline-reservation-reconciler.service.ts`).
+
+Ou seja: **10 minutos depois, o dinheiro já voltou.** A janela do dono ("24 horas,
+junto com os créditos") é folgada por cima disso — e é ela que vale, porque é a que
+ele vê na tela (§F5). **`JANELA_EXPURGO = 24 h`**, com a trava dura de segurança:
+nenhuma linha some enquanto houver claim em estado não-terminal (DEBITED/PROCESSING/
+REFUNDING) — se o dinheiro ainda está no ar, a linha espera o reconciliador.
 
 ### F1 · O EXPURGO — o "desaparece" de verdade
 Passada diária no cron que já existe (`sweepGerarDiaAutomatico`, 1×/dia + boot —
@@ -96,9 +132,13 @@ pior que pino vazio — a régua de PINO não afrouxa, só a de CEP).
 ---
 
 ## §3 — Ordem de execução e prova
-F0 (medida) → F3 (CEP: independente e visível já) → F2.1/2.2 (carimbo+evento, migration
-aditiva) → F2.4 (cancelar vale) → F1 (expurgo, com F2.1 no lugar — o carimbo preserva a
-história ANTES de a linha sumir) → F2.3/2.5. Cada fase: prova de bancada + medida em
-produção no relatório. Nada atrás de chave.
+F0 (medida) ✅ → F3 (CEP) ✅ `25166875` → **F4** (Montagem abre sem dia — é a foto que o
+dono mandou) → F2.1/2.2 (carimbo+evento, migration aditiva) → F2.4 (cancelar vale) →
+**F5** (histórico vermelho, que já lê o carimbo da F2.1) → F1 (expurgo, por último: só
+depois que a história está preservada é que a linha pode sumir) → F2.3/2.5.
+Cada fase: prova de bancada + medida em produção no relatório. Nada atrás de chave.
+
+**Por que F5 antes de F1:** a tela tem que saber contar o que aconteceu ANTES de o
+expurgo apagar a linha. Invertido, o dono veria sumir o que ele nunca chegou a ver.
 
 *Plano da sessão 10/08 madrugada. Irmão do `LEVANTAMENTO-10082026-LIMPAR-DIA-SEM-RASTRO.md`.*

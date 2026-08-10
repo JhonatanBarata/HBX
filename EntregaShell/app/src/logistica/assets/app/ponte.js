@@ -1566,7 +1566,14 @@
      montada" ficam de pé e inalcançáveis. Quem for tirar o chip da tela de
      novo está tirando "montar a rota de outro dia" junto.
      -------------------------------------------------------------------- */
-  let montarDia = 0;
+  /* 🔴 A MONTAGEM ABRE SEM DIA (dono, 10/08, com a foto da tela: "ao entrar no
+     montagem de rota, não carregar o dia automaticamente, deixe nessa tela").
+     -1 = nenhum chip aceso = a ROTA AVULSA: a tela mostra a semana ("Os dias que
+     você entrega"), o histórico e o "Adicionar parada" — e nenhuma lista chega do
+     servidor até o dedo escolher um dia. É o par do que foi feito hoje de manhã
+     ("entrar não GRAVA nada"): agora entrar também não CARREGA nada. 0 continua
+     sendo HOJE, e é pra ele que o chip de hoje leva. */
+  let montarDia = -1;
 
   /* ------------------------------------------------------------------------
      🔴 ESCOLHER CLIENTE É RASCUNHO ATÉ ALGUÉM MANDAR GRAVAR (dono, 09/08: "se
@@ -2123,10 +2130,12 @@
       });
       novos += 1;
     });
-    // volta pra HOJE: o rascunho vive na lista de hoje, e reutilizar com um
-    // chip de outro dia aceso mostraria a lista errada com o recibo certo.
-    montarDia = 0;
-    window.usarDados('montagem', { diaSel: 0 });
+    /* Volta pro estado SEM DIA: quem reutilizou um dia do histórico quer AQUELA
+       gente, não a agenda de hoje misturada com ela. O rascunho aparece igual (a
+       lista sem dia é feita dele + das avulsas de hoje), e o chip aceso de outro
+       dia mostraria a lista errada com o recibo certo. */
+    montarDia = -1;
+    window.usarDados('montagem', { diaSel: -1 });
     // ESPERA a lista chegar antes do recibo — portão aberto antes do repinte
     // morre com a camada (armadilha 2 da parada avulsa, 09/08).
     await encherMontagem();
@@ -2786,7 +2795,7 @@
       /* A ESCOLHA DE DIA MORRE AQUI. O dia escolhido já foi montado — no dia
          DELE —, e seleção presa deixaria o próximo montar puxando o dia velho
          calado, com o chip aceso mentindo sobre o que está na lista. */
-      if (montarDia > 0) { montarDia = 0; window.usarDados('montagem', { diaSel: 0 }); }
+      if (montarDia > 0) { montarDia = -1; window.usarDados('montagem', { diaSel: -1 }); }
 
       /* 🔴 ROTA DE OUTRO DIA NÃO É A ROTA DE HOJE, E A TELA TEM QUE DIZER ISSO.
          Antes o dia escolhido era despejado em cima de hoje, então o silêncio
@@ -2958,7 +2967,7 @@
       await carregarRota();
       // A escolha "sem dia" morreu no Iniciar: a rota avulsa virou A rota em
       // andamento, e a Montagem seguinte volta a abrir no dia de sempre.
-      if (avulsa) { montarDia = 0; window.usarDados('montagem', { diaSel: 0 }); }
+      if (avulsa) { montarDia = -1; window.usarDados('montagem', { diaSel: -1 }); }
       /* 🔴 INICIAR É UM GESTO SÓ (dono, 10/08: "clico em iniciar, o botão muda
          para navegar NÃO QUERO — é iniciar de uma vez só, ou navegar de uma vez
          só"). Antes o toque deixava o motorista na tela Rota com o dock
@@ -10199,6 +10208,47 @@
     abrirParada(id);
   });
 
+  /* ---- REGISTRAR LOCAL: a porta da RUA (ordem do dono, 10/08) --------------
+     *"registrar local teria q ser aqui, com GPS ativo"* — na tela de dirigir,
+     que é a única em que o motorista está parado NA PORTA com o fix quente.
+
+     Ele não inventa tela nenhuma: é um cruzamento pras três que já existem, e
+     o que ele acrescenta é o FIX no bolso de cada uma. As três cobrem
+     exatamente os buracos que o geofence não alcança — cliente que não está no
+     dia, cliente que não existe no cadastro, e porta com pino errado (essa é a
+     que o geofence NUNCA acha, porque o raio é medido a partir do pino torto).
+
+     🔴 SEM GPS ELE NÃO PROMETE NADA. "Registrar local" sem local é o pior tipo
+     de botão: o que parece ter funcionado. Sem fix, pede a permissão pela mesma
+     porta do Navegar e diz o que houve. */
+  function registrarLocal() {
+    if (!ultimoFix) {
+      garantirGps();
+      return window.portao({
+        tom: 'alerta', ico: 'gps', titulo: 'Ainda sem localização',
+        sub: 'Libere o GPS e espere um instante. O registro precisa saber onde você está.',
+        acoes: [['Fechar', '']],
+      });
+    }
+    const precisao = Number(ultimoFix.precisaoM);
+    const linha = Number.isFinite(precisao)
+      ? `GPS ±${Math.round(precisao)} m${precisao <= 60 ? ' · na porta' : ' · chegue mais perto'}`
+      : 'Local marcado';
+    /* O nome da parada da vez entra no BOTÃO — "Corrigir esta porta" é vago
+       quando ele tem 51 paradas; "Corrigir Gislaine" é a porta que ele está
+       vendo. Sem parada aberta na rota, a terceira saída simplesmente não
+       existe (botão que não sabe quem corrigir é botão que erra o cliente). */
+    const daVez = paradasPendentes()[0] || null;
+    const alvo = daVez && daVez.item && daVez.item.cliente ? daVez.item.cliente : null;
+    const acoes = [
+      ['Cadastrar cliente novo', 'principal', false, 'registrar-cadastrar'],
+      ['Vender pra quem não está no dia', '', false, 'registrar-vender'],
+    ];
+    if (alvo && alvo.id) acoes.push([`Corrigir ${esc(alvo.nome || 'esta porta')}`, '', false, 'registrar-corrigir']);
+    acoes.push(['Fechar', '']);
+    window.portao({ tom: 'info', ico: 'gps', titulo: 'Registrar este local', sub: linha, acoes });
+  }
+
   /** repinta a folha aberta (o seam é a única fonte da marcação selecionada) */
   function repintarFolha() {
     if (!aberta) return;
@@ -10325,6 +10375,22 @@
     'salvar-produto': salvarProduto,
     // o "+" do cabeçalho: cadastrar cliente na porta
     'usar-meu-local': usarMeuLocal,
+    /* As três saídas do "Registrar local". Cada uma REUSA a porta que já
+       existe — nada de fluxo paralelo de cadastro/venda na rua, que é como
+       nasce o cliente que só existe numa das telas.
+       O cadastro já sabe puxar o fix sozinho (`usarMeuLocal` traz CEP, rua e
+       bairro do reverse — o dado que ninguém sabe de cor na frente do cliente),
+       então aqui é literalmente abrir a tela e chamar o que o dedo chamaria. */
+    'registrar-cadastrar': () => { window.ir('novocliente'); usarMeuLocal(); },
+    'registrar-vender': () => window.ir('rapida'),
+    'registrar-corrigir': () => {
+      const daVez = paradasPendentes()[0];
+      const c = daVez && daVez.item && daVez.item.cliente;
+      if (!c || !c.id) return;
+      // A ficha real do cliente, com o Voltar devolvendo pra navegação.
+      abrirCliente(String(c.id), 'mapa');
+    },
+    'registrar-local': registrarLocal,
     'salvar-novo-cliente': salvarNovoCliente,
     'criar-cliente-assim': () => comTrava(() => criarCliente(null)),
     // o "+" da Montagem e da Rota: a parada avulsa

@@ -439,6 +439,15 @@ const SO_MEDIR = process.argv.includes('--antes');
     await p.evaluate((t) => window.ir(t), tela);
     await p.waitForTimeout(ms || 1400);
   };
+  /* 🔴 ENTRAR NÃO CARREGA MAIS O DIA (dono, 10/08, com a foto: "ao entrar no
+     montagem de rota, não carregar o dia automaticamente"). A Montagem abre no
+     estado SEM DIA (a rota avulsa), e a lista do dia é um TOQUE no chip — então a
+     cena que fala do DIA passa a fazer o gesto que o dono faz. Quem fala do
+     rascunho/avulsa continua entrando direto: é lá que ela mora. */
+  const abrirDiaDeHoje = async (ms) => {
+    await irPara('montagem', ms);
+    await tocarChip(0);
+  };
 
   /* ===================================================================
      CENA A — MONTAGEM: 3 avulsas de hoje + os chips de dia
@@ -688,7 +697,7 @@ const SO_MEDIR = process.argv.includes('--antes');
     enderecoLinha: 'Rua M-7, 897', lat: -22.405, lng: -47.555, resolveSozinho: true, itens: [],
   }];
   await cena({ agendaHoje: AGENDA_M7 });
-  await irPara('montagem');
+  await abrirDiaDeHoje();     // a linha medida aqui é a da AGENDA: o dia é um toque (F4)
   const tK0 = await espiar();
   nota(`[K] agenda: ruas=${JSON.stringify(tK0.ruas)}`);
   eh('K1 · AGENDA: o cartao mostra "Rua M-7, 897"', tK0.ruas[0] === 'Rua M-7, 897', tK0.ruas.join(' | '));
@@ -876,7 +885,7 @@ const SO_MEDIR = process.argv.includes('--antes');
     custo: { blocosTotais: 2, blocosJaDebitados: 0, creditosAIniciar: 0.8, saldoAtual: 9340, saldoCobre: true },
     agendaHoje: AGENDA_HOJE,
   });
-  await irPara('montagem');
+  await abrirDiaDeHoje();
   await p.evaluate(() => {
     window.__pinturas = 0; window.__telas = [];
     window.__obs = new MutationObserver((ms) => {
@@ -955,7 +964,8 @@ const SO_MEDIR = process.argv.includes('--antes');
      =================================================================== */
   await cena({ entregas: [], agendaHoje: AGENDA_HOJE, custoComoServidor: true, mesmaBase: true });
   await zerar();
-  await irPara('montagem', 2600);
+  // entrar + TOCAR O CHIP DE HOJE: desde 10/08 é o toque que traz o dia (F4).
+  await abrirDiaDeHoje(2600);
   const tG0 = await espiar();
   const postsG = await posts();
   nota(`[G] dia morto → montagem: stops=${tG0.nStops} · entregas no servidor=${tG0.entregasNoServidor} · pe="${tG0.pe}"`);
@@ -965,11 +975,11 @@ const SO_MEDIR = process.argv.includes('--antes');
      ENTRADA — e foi exatamente o comportamento que o dono reprovou na tela no
      mesmo dia: abrir e voltar deixava rota montada, e cancelar deixava de
      valer (o dia renascia sozinho, "fica piscando"). O materialize é do DEDO. */
-  eh('G1 · entrar na Montagem NAO cria nada no servidor',
+  eh('G1 · entrar + escolher o dia NAO cria nada no servidor',
     postsG.indexOf('/logistica/mobile/materialize') < 0
     && postsG.indexOf('/logistica/rota/planejar') < 0
     && tG0.entregasNoServidor === 0, `posts=${postsG.join(',')} entregas=${tG0.entregasNoServidor}`);
-  eh('G2 · mas a AGENDA aparece na lista pra decidir (prévia, não entrega)',
+  eh('G2 · o dia escolhido mostra a AGENDA pra decidir (prévia, não entrega)',
     tG0.nStops === AGENDA_HOJE.length, `stops=${tG0.nStops}`);
   await zerar();
   await p.waitForSelector('.pe-montagem [data-acao="iniciar-rota"]', { timeout: 8000 });
@@ -1005,9 +1015,12 @@ const SO_MEDIR = process.argv.includes('--antes');
     ],
     agendaHoje: AGENDA_HOJE, mesmaBase: true,
   });
-  await irPara('montagem', 2200);
+  // a tela abre SEM dia (F4); pra provar que o 2º toque DESLIGA, o 1º tem que ligar.
+  await abrirDiaDeHoje(2200);
   const tI0 = await espiar();
   nota(`[I] montagem com agenda: stops=${tI0.nStops} · chips=${tI0.chips.map((c) => c[0] + (c[1] ? '*' : '')).join(' ')}`);
+  eh('I0 · o chip de hoje TRAZ a agenda (o dia é um toque, não a entrada)',
+    tI0.nStops === AGENDA_HOJE.length, `stops=${tI0.nStops}`);
   await zerar();
   await p.evaluate(() => {
     const x = [...document.querySelectorAll('[data-acao="montar-dia"]')].find((e) => Number(e.dataset.dia) === 0);
