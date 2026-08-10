@@ -132,6 +132,16 @@ psql_cnefe -qc "UPDATE cnefe_uf SET status='carregada', linhas=$LINHAS, carregad
 
 echo "[$UF] OK: $LINHAS linhas em ${DUR}s ($(date -Is))"
 
+# ── 5b. AGREGADOS (10/08) — sem eles a UF nova NÃO EXISTE pro backend ──────────
+# `cnefe_porta`/`cnefe_via`/`cnefe_mun_map` são o que o reverso (posição → CEP,
+# botão GPS do cadastro) e a cura por CEP consultam. Até 10/08 eram build à mão
+# (SP, /root/geo/build_sp.sql) e a carga de UF terminava sem eles: o raw entrava,
+# o resolver seguia cego. O rebuild é TRUNCATE+INSERT sobre a base inteira —
+# minutos, na janela noturna do timer (Nice 19), nunca de dia na mão.
+echo "[$UF] reconstruindo agregados (cnefe_porta/cnefe_via/cnefe_mun_map)…"
+psql_cnefe < "$SCRIPT_DIR/agregados.sql" || falha "agregados falharam (a UF carregou, mas o backend não a enxerga — rode agregados.sql à mão)"
+echo "[$UF] agregados prontos."
+
 # ── 6. FREIO DE DISCO (05/08/2026) ─────────────────────────────────────────────
 # O zip da UF é fonte FRIA e RECONSTRUÍVEL: mora no FTP do IBGE e o download é
 # re-executável (basta rodar este script de novo). Depois da carga aceita, ele
