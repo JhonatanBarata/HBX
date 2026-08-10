@@ -131,16 +131,21 @@ type EmpresaPlanoItem = {
   paradasRestantes: number;
 };
 
-// PR28072026 HÍBRIDO (28/07) — um nível vendável de Rota: mensalidade fixa +
-// franquia de paradas do mês. `editado` = o master mexeu (dá pra restaurar).
+// ROTA v2 (10/08) — a franquia de paradas morreu (rota virou ILIMITADA dentro
+// do plano); o que o master edita agora é o Nº DE MOTORISTAS incluso em cada
+// nível (`assentosInclusos`), e a lista ganha o 4º nível vendável CREDITO
+// ("Rota Avulsa", mensalidade 0 — cobra por dia de rota, guia Config).
+// `assentosInclusos` é OPCIONAL no tipo de propósito: o backend que estende o
+// DTO roda em paralelo — campo ausente degrada pra "—" na coluna (Lei "dado
+// sem contrato mostra travessão", docs/Rules/FRONTEND.md) em vez de quebrar.
+// `editado` = o master mexeu (dá pra restaurar).
 type NivelRotaItem = {
-  nivel: "BASIC" | "ADVANCED" | "FULL";
+  nivel: "BASIC" | "ADVANCED" | "FULL" | "CREDITO";
   titulo: string;
   slogan: string;
   precoMensal: number;
-  franquiaParadasMes: number;
-  franquiaBlocos: number;
   editado: boolean;
+  assentosInclusos?: number;
 };
 
 const MODE_OPTIONS: { value: CreditActionMode; label: string }[] = [
@@ -423,16 +428,23 @@ export function JanelaCreditos({ companies, reload }: {
     }
   }
 
-  // ── Rota: os 3 níveis vendáveis (PR28072026 HÍBRIDO — 28/07) ──────────────────────────────
-  // Modelo híbrido decidido pelo dono: mensalidade FIXA + franquia de paradas
-  // inclusa; o que passar disso consome crédito (guia Ações ao lado). Preço e
-  // franquia editáveis aqui — a base de fábrica vive no backend e "Restaurar"
-  // volta pra ela.
+  // ── Rota: os níveis vendáveis (PR28072026 HÍBRIDO 28/07 → ROTA v2 10/08) ──────────────────
+  // A rota virou ILIMITADA em paradas; o que o master edita é a MENSALIDADE e
+  // o Nº DE MOTORISTAS inclusos (`assentosInclusos`) — a base de fábrica vive
+  // no backend e "Restaurar" volta pra ela. `CREDITO` ("Rota Avulsa") entra na
+  // mesma lista com mensalidade 0.
   const [niveis, setNiveis] = useState<NivelRotaItem[] | null>(null);
   const [niveisErro, setNiveisErro] = useState<string | null>(null);
-  const [nivelForms, setNivelForms] = useState<Record<string, { precoMensal: string; franquiaParadasMes: string }>>({});
+  const [nivelForms, setNivelForms] = useState<Record<string, { precoMensal: string; assentosInclusos: string }>>({});
   const [nivelBusy, setNivelBusy] = useState<string | null>(null);
   const [nivelMsg, setNivelMsg] = useState<string | null>(null);
+
+  function formDoNivel(n: NivelRotaItem): { precoMensal: string; assentosInclusos: string } {
+    return {
+      precoMensal: String(n.precoMensal),
+      assentosInclusos: typeof n.assentosInclusos === "number" ? String(n.assentosInclusos) : "",
+    };
+  }
 
   // eslint-disable-next-line react-hooks/preserve-manual-memoization -- setters de useState têm identidade estável; deps [] corretas
   const carregarNiveis = useCallback(() => {
@@ -443,7 +455,7 @@ export function JanelaCreditos({ companies, reload }: {
         setNiveisErro(null);
         setNivelForms(prev => {
           const next = { ...prev };
-          for (const n of list) next[n.nivel] = { precoMensal: String(n.precoMensal), franquiaParadasMes: String(n.franquiaParadasMes) };
+          for (const n of list) next[n.nivel] = formDoNivel(n);
           return next;
         });
       })
@@ -458,22 +470,31 @@ export function JanelaCreditos({ companies, reload }: {
 
   function aplicarNivel(item: NivelRotaItem) {
     setNiveis(prev => (prev || []).map(n => (n.nivel === item.nivel ? item : n)));
-    setNivelForms(prev => ({ ...prev, [item.nivel]: { precoMensal: String(item.precoMensal), franquiaParadasMes: String(item.franquiaParadasMes) } }));
+    setNivelForms(prev => ({ ...prev, [item.nivel]: formDoNivel(item) }));
   }
 
   async function salvarNivel(nivel: string) {
     if (nivelBusy) return;
     const form = nivelForms[nivel];
     const preco = Number(form?.precoMensal);
-    const franquia = Number(form?.franquiaParadasMes);
     if (!Number.isFinite(preco) || preco < 0) { setNivelMsg("Mensalidade inválida."); return; }
-    if (!Number.isFinite(franquia) || franquia < 0) { setNivelMsg("Franquia inválida."); return; }
+    // Backend em rollout paralelo: só valida/envia assentosInclusos quando ESTE
+    // nível já veio com o campo no GET (degrade sem quebrar o Salvar do preço).
+    const atual = (niveis || []).find(n => n.nivel === nivel);
+    const suportaAssentos = typeof atual?.assentosInclusos === "number";
+    let assentos = 0;
+    if (suportaAssentos) {
+      assentos = Number(form?.assentosInclusos);
+      if (!Number.isFinite(assentos) || assentos < 1 || assentos > 999) { setNivelMsg("Motoristas inclusos inválido — use de 1 a 999."); return; }
+    }
     setNivelBusy(nivel);
     setNivelMsg(null);
     try {
+      const body: Record<string, number> = { precoMensal: preco };
+      if (suportaAssentos) body.assentosInclusos = Math.trunc(assentos);
       const res = await apiFetch<{ nivel?: NivelRotaItem }>(`/logistica/master/niveis/${encodeURIComponent(nivel)}`, {
         method: "PUT",
-        body: JSON.stringify({ precoMensal: preco, franquiaParadasMes: Math.trunc(franquia) }),
+        body: JSON.stringify(body),
       });
       if (res?.nivel) aplicarNivel(res.nivel);
       setNivelMsg("✓ Nível salvo.");
@@ -1092,7 +1113,7 @@ export function JanelaCreditos({ companies, reload }: {
         <section className="panel">
           <div className="panel-head">
             <h2>Níveis de Rota</h2>
-            <div className="meta">Mensalidade fixa + paradas inclusas · o excedente consome crédito</div>
+            <div className="meta">Rota ilimitada + motoristas inclusos por plano</div>
           </div>
           {niveisErro && <div className="sc-intro"><div className="sc-msg is-warn">{niveisErro}</div></div>}
           {nivelMsg && <div className="sc-intro"><div className={"sc-msg " + (nivelMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{nivelMsg}</div></div>}
@@ -1100,7 +1121,7 @@ export function JanelaCreditos({ companies, reload }: {
             {/* --acoes: cada linha é DINHEIRO — nome e unidade nunca truncam. */}
             <table className="tbl tbl--acoes">
               <thead>
-                <tr><th>Nível</th><th>Mensalidade</th><th>Paradas inclusas/mês</th><th>Status</th><th aria-label="Editar"></th></tr>
+                <tr><th>Nível</th><th>Mensalidade</th><th>Motoristas inclusos</th><th>Status</th><th aria-label="Editar"></th></tr>
               </thead>
               <tbody>
                 {niveis === null && (
@@ -1110,8 +1131,9 @@ export function JanelaCreditos({ companies, reload }: {
                   <tr><td colSpan={5} className="muted-note">{niveisErro || "Nenhum nível encontrado."}</td></tr>
                 )}
                 {(niveis || []).map(n => {
-                  const form = nivelForms[n.nivel] || { precoMensal: String(n.precoMensal), franquiaParadasMes: String(n.franquiaParadasMes) };
+                  const form = nivelForms[n.nivel] || formDoNivel(n);
                   const busy = nivelBusy === n.nivel;
+                  const temAssentos = typeof n.assentosInclusos === "number";
                   return (
                     <tr key={n.nivel}>
                       <td>
@@ -1126,12 +1148,13 @@ export function JanelaCreditos({ companies, reload }: {
                           onChange={e => setNivelForms(prev => ({ ...prev, [n.nivel]: { ...form, precoMensal: e.target.value } }))} />
                       </td>
                       <td>
-                        <div className="co">
-                          <input className="field-dark" style={{ maxWidth: 110 }} type="number" min={0} step={5} inputMode="numeric"
-                            value={form.franquiaParadasMes}
-                            onChange={e => setNivelForms(prev => ({ ...prev, [n.nivel]: { ...form, franquiaParadasMes: e.target.value } }))} />
-                          <span className="sub2">{n.franquiaBlocos} blocos de 5 paradas</span>
-                        </div>
+                        {temAssentos ? (
+                          <input className="field-dark" style={{ maxWidth: 90 }} type="number" min={1} max={999} step={1} inputMode="numeric"
+                            value={form.assentosInclusos}
+                            onChange={e => setNivelForms(prev => ({ ...prev, [n.nivel]: { ...form, assentosInclusos: e.target.value } }))} />
+                        ) : (
+                          <span className="muted-note">—</span>
+                        )}
                       </td>
                       <td>
                         <span className={n.editado ? "tag teal" : "tag"}>{n.editado ? "editado" : "padrão"}</span>
@@ -1152,9 +1175,10 @@ export function JanelaCreditos({ companies, reload }: {
           </div>
           <div className="sc-intro">
             <span className="sc-hint">
-              A empresa gasta a franquia do mês primeiro; ao estourar, cada bloco de 5 paradas
-              (ou cada entrega rastreada) volta a consumir crédito pelo custo da guia Ações.
-              O nível de cada empresa é escolhido na ficha dela, aba Comercial.
+              Cada plano dá rota ilimitada em paradas — o limite é o número de motoristas
+              simultâneos, editável acima. O nível Rota Avulsa (sem plano) cobra por dia de
+              rota rodado, 1 motorista. O nível de cada empresa é escolhido na ficha dela,
+              aba Comercial.
             </span>
           </div>
         </section>
