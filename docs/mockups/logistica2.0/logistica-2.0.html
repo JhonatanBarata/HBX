@@ -1885,19 +1885,29 @@ button,input{font:inherit;color:inherit}
   color:var(--ink);font-size:12.5px;white-space:nowrap;cursor:pointer}
 .chip.on{border-color:var(--lime);color:var(--lime);background:var(--sel-bg)}
 
-/* ---------- seletor de ORDEM da montagem (08/08) ----------
-   3 posições: a ordem automática por DISTÂNCIA e os 2 espaços de rota salva
-   DAQUELE dia. Peça SOLDADA (fundo único, 3 fatias) de propósito — os chips do
-   dia logo acima são pílulas soltas, e duas fileiras de pílula empilhadas viram
-   a mesma coisa aos olhos do motorista. Cada fatia leva 1/3 da largura: é por
-   isso que o nome tem teto (10 caracteres na ponte) e ainda assim corta com
-   reticência — `min-width:0` é o que faz o corte acontecer dentro do flex em
-   vez de estourar a linha. */
+/* ---------- seletor de ORDEM da montagem (08/08; 4ª fatia em 10/08) ----------
+   4 posições: a ordem automática por DISTÂNCIA e os 3 espaços de rota salva
+   DAQUELE dia (o 3º entrou por ordem do dono: "crie mais um slot, vai ser 1 2 e
+   3, igualzinho os outros"). Peça SOLDADA (fundo único, 4 fatias) de propósito —
+   os chips do dia logo acima são pílulas soltas, e duas fileiras de pílula
+   empilhadas viram a mesma coisa aos olhos do motorista. Cada fatia leva 1/4 da
+   largura: é por isso que o nome tem teto (10 caracteres na ponte) e ainda assim
+   corta com reticência — `min-width:0` é o que faz o corte acontecer dentro do
+   flex em vez de estourar a linha.
+   🔴 A 4ª FATIA COBROU FOLGA — E SÓ ELA (`.fino`). O respiro lateral de 6px e o
+   vão de 3px deixavam "Distância" com 62px de texto num aparelho de 360, e a
+   palavra virava "Distân…". Mas `.modos` é peça COMPARTILHADA: a parada avulsa
+   usa a mesma fileira com 2 fatias, e apertar a régua base mexeria numa tela que
+   ninguém pediu pra mexer (o portão do antes-e-depois pegou isto). Então quem
+   aperta é a classe que só a fileira de 4 recebe; a altura do alvo do dedo (8px
+   em cima e embaixo) fica intocada nas duas. */
 .modos{display:flex;gap:3px;margin-top:9px;background:var(--card);border:.7px solid var(--line);
   border-radius:12px;padding:3px}
 .modos .modo{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:5px;
   border:0;background:transparent;color:var(--ink-2);padding:8px 6px;border-radius:9px;
   font-size:12.5px;cursor:pointer}
+.modos.fino{gap:2px}
+.modos.fino .modo{padding:8px 3px;gap:4px}
 .modos .modo b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
 .modos .modo.vaga b{color:var(--ink-3);font-weight:400}
 .modos .modo.on{background:var(--sel-bg);box-shadow:inset 0 0 0 .7px var(--lime);color:var(--lime)}
@@ -4643,17 +4653,17 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
      na mesma faxina foi a linha de crédito e o cabeçalho "Rota avulsa". */
   const chips=Array.isArray(d.dias)&&d.dias.length?`<div class="chips centro">
     ${d.dias.map(x=>`<button class="chip${(d.diaSel||0)===x[0]?' on':''}" data-acao="montar-dia" data-dia="${x[0]}">${x[1]}</button>`).join('')}</div>`:'';
-  /* 🔴 O SELETOR DE ORDEM (dono, 08/08) — o botão do MEIO da montagem. Três
-     posições e uma só na tela por vez: a ordem automática por DISTÂNCIA (a que
-     a lista já nasce) e os 2 ESPAÇOS de rota salva daquele dia da semana. O
-     rótulo do espaço é o nome que o motorista digitou — "Manhã" no sábado é o
-     Manhã do sábado, sempre.
-     Espaço vazio NÃO some da fileira ("Espaço 1"/"Espaço 2"): posição que só
+  /* 🔴 O SELETOR DE ORDEM (dono, 08/08; o 3º espaço em 10/08) — o botão do MEIO
+     da montagem. Quatro posições e uma só acesa por vez: a ordem automática por
+     DISTÂNCIA (a que a lista já nasce) e os 3 ESPAÇOS de rota salva daquele dia
+     da semana. O rótulo do espaço é o nome que o motorista digitou — "Manhã" no
+     sábado é o Manhã do sábado, sempre.
+     Espaço vazio NÃO some da fileira ("Espaço 1"…"Espaço 3"): posição que só
      aparece depois de existir é função que ninguém descobre sozinho — e no
      começo o seletor ficaria com uma opção de verdade só, que é botão morto.
      Quem sabe quais espaços existem é a ponte; sem ela — o desenho — a linha
      some inteira, mesma lei dos chips de dia acima. */
-  const modos=Array.isArray(d.modos)&&d.modos.length?`<div class="modos">
+  const modos=Array.isArray(d.modos)&&d.modos.length?`<div class="modos${d.modos.length>3?' fino':''}">
     ${d.modos.map((m,i)=>`<button class="modo${(d.modoSel||'')===m[0]?' on':''}${m[1]?'':' vaga'}" data-acao="modo-rota" data-modo="${m[0]}">
       <b>${m[1]||`Espaço ${i}`}</b>${m[2]?'<i class="ponto"></i>':''}</button>`).join('')}</div>`:'';
   /* 🔴 A SEMANA CHEGOU AQUI COM A MORTE DO MODO AGENDA (dono, 09/08). Ela

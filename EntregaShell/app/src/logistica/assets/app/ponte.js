@@ -123,6 +123,12 @@
     // fechava por Voltar em lugar nenhum. Voltar deduzido por POSIÇÃO anda pra
     // frente no dia em que alguém troca a ordem dos ícones; marcado, não.
     const tela = telaAtual();
+    /* 🔴 NA MONTAGEM, O 1º VOLTAR SOLTA O DIA (dono, 10/08). Com um chip aceso a
+       tela está mostrando a agenda daquele dia; o Voltar desfaz ESSA escolha
+       antes de desfazer a tela — mesmo degrau do portão que fecha antes de a
+       tela trocar. Sem dia aceso ele não tem o que soltar e cai pro caminho de
+       sempre (Montagem → Rota → sair). */
+    if (tela === 'montagem' && soltarDia()) return true;
     if (camada && typeof window.ir === 'function') {
       const volta = camada.querySelector('[data-voltar][data-ir]');
       const destino = volta && volta.dataset ? volta.dataset.ir : '';
@@ -2282,6 +2288,13 @@
     else if (ESPACOS[0]) modoSel = 's1';
     else modoSel = 'dist';
     publicarModos();
+    /* 🔴 E A LISTA SE REPINTA COM O QUE ACABOU DE CHEGAR. O toque no chip dispara
+       DUAS idas à rede em paralelo (esta e a `dia-preview`), e nada garante a
+       ordem de chegada: com a prévia primeiro, a lista era publicada com os
+       espaços do dia ANTERIOR na mão — o botão acendia com o nome certo e as
+       paradas embaixo dele na ordem de outro dia. `publicarPrevia` volta na hora
+       se ainda não há lista, e o freio do `usarDados` engole o repinte igual. */
+    publicarPrevia();
   }
 
   /* A ordem gravada num espaço, aplicada por cima da lista de hoje. O elo é
@@ -2571,6 +2584,24 @@
       .map((c, i) => ({ c, p: (naRotaMontada(mapas, c) || { pos: FIM }).pos, i }))
       .sort((a, b) => (a.p - b.p) || (a.i - b.i))
       .map((x) => x.c);
+  }
+
+  /* ------------------------------------------------------------------------
+     SOLTAR O DIA — o mesmo gesto por três portas: o 2º toque no chip aceso, o
+     Voltar do Android e a seta do cabeçalho (dono, 10/08: "ao clicar em voltar
+     1x, se tiver algum dia selecionado, ele remove a seleção; caso não tenha
+     nada selecionado, só sai").
+     Sem dia (`-1`) a Montagem é a ROTA AVULSA — o estado em que ela abre desde
+     10/08. Escrito UMA vez porque as três portas têm que soltar o dia do mesmo
+     jeito: chip apagado com a lista do dia ainda na tela é a tela mentindo.
+     ------------------------------------------------------------------------ */
+  function soltarDia() {
+    if (montarDia === -1) return false;
+    montarDia = -1;
+    if (typeof window.usarDados === 'function') window.usarDados('montagem', { diaSel: -1 });
+    carregarEspacos();
+    encherMontagem();
+    return true;
   }
 
   /** o botão do meio da Rota: abre a tela de montar, sem tocar no servidor */
@@ -7446,27 +7477,43 @@
       // dentro do dia e diz de onde veio. Portão fechado com erro na cara seria
       // obrigar o motorista a começar tudo de novo.
       const nome = digitado || `${ROTULO_DIA[dia] || 'Rota'} ${idx + 1}`;
-      comTrava(() => salvarNoEspaco(idx, nome, e.depois));
+      /* 🔴 O `depois` CORRE FORA DA TRAVA. `comTrava` joga fora quem chega com
+         ela levantada — e Montar/Iniciar levantam a sua própria. Chamado aqui
+         dentro, o toque de montar morria em silêncio depois de um salvar que
+         deu certo: o pior dos mundos, gravado e sem rota. */
+      let salvou = false;
+      comTrava(async () => { salvou = await salvarNoEspaco(idx, nome, !!e.depois); })
+        .then(() => { if (salvou && typeof e.depois === 'function') e.depois(); });
     }, { once: true });
   }
 
   /** grava a ordem da tela no espaço: POST se está vago, PATCH se já tem rota */
-  async function salvarNoEspaco(idx, nome, depois) {
+  async function salvarNoEspaco(idx, nome, semRecibo) {
     const paradas = paradasParaSalvar();
     if (!paradas.length) return avisoErro(new Error('Esta rota não tem parada para salvar.'));
     const dia = diaDosEspacos();
     const espaco = ESPACOS[idx];
+    let idSalvo = espaco ? String(espaco.id) : '';
     try {
       if (espaco) {
         await window.API.patch(`/logistica/rota-modelos/${encodeURIComponent(espaco.id)}`, { nome, diaSemana: dia, paradas });
       } else {
-        await window.API.post('/logistica/rota-modelos', { nome, diaSemana: dia, paradas });
+        const novo = await window.API.post('/logistica/rota-modelos', { nome, diaSemana: dia, paradas });
+        idSalvo = novo && novo.id ? String(novo.id) : '';
       }
     } catch (e) { return avisoErro(e); }
     await carregarEspacos();
+    /* 🔴 A POSIÇÃO QUEM DÁ É O NASCIMENTO, NÃO O BOTÃO TOCADO (achado na prova
+       de 10/08). Salvar no "Espaço 3" com o 2 vazio cria o SEGUNDO modelo do
+       dia — e a fileira, que ordena por `criadoEm`, o mostra na posição 2. O
+       código acendia a posição do botão: ficava o Espaço 3 aceso e VAZIO, com a
+       rota do dono desenhada no Espaço 2 ao lado. Agora o espaço é reencontrado
+       pelo ID depois do recarregamento. */
+    const pos = idSalvo ? ESPACOS.findIndex((m) => String(m.id) === idSalvo) : -1;
+    const naFileira = pos >= 0 ? pos : idx;
     // Salvou o que estava vendo ⇒ é ESTE espaço que passa a valer, e o ponto de
     // "editado" apaga: a ordem da tela e a gravada voltaram a ser a mesma.
-    modoSel = `s${idx + 1}`;
+    modoSel = `s${naFileira + 1}`;
     // …e é ele que o dia lembra: salvar É a escolha mais forte que existe.
     lembrarEspaco(modoSel);
     previaDoDedo = false;
@@ -7474,16 +7521,18 @@
     // A lista de Rotas salvas fica fresca na hora: o dono vai OLHAR lá pra
     // conferir que "ficou salvo" — e lista velha diria que não ficou.
     await carregarSalvas();
-    /* Salvou pra poder MONTAR (a trava da ordem alterada)? Então segue o toque
-       que ele deu: um recibo "Rota salva" no meio seria um segundo "ok" entre o
-       dedo e a rua, e o pedido era de UMA tela só. A prova de que salvou fica na
-       fileira: o espaço acende com o nome dele. */
-    if (typeof depois === 'function') return depois();
-    window.portao({
-      tom: 'ok', ico: 'check', titulo: 'Rota salva',
-      sub: `${esc(nome)} é o Espaço ${idx + 1} de ${ROTULO_DIA[dia] || 'hoje'}.`,
-      acoes: [['Fechar', 'principal']],
-    });
+    /* Salvou pra poder MONTAR (a trava da ordem alterada)? Então o recibo "Rota
+       salva" fica de fora: ele seria um segundo "ok" entre o dedo e a rua, e o
+       pedido era de UMA tela só. A prova de que salvou fica na fileira — o
+       espaço acende com o nome dele. */
+    if (!semRecibo) {
+      window.portao({
+        tom: 'ok', ico: 'check', titulo: 'Rota salva',
+        sub: `${esc(nome)} é o Espaço ${naFileira + 1} de ${ROTULO_DIA[dia] || 'hoje'}.`,
+        acoes: [['Fechar', 'principal']],
+      });
+    }
+    return true;
   }
 
   /* 2º toque no espaço que JÁ está aceso abre o que fazer com ele. Renomear e
@@ -7593,9 +7642,12 @@
     botao.addEventListener('click', () => comTrava(async () => {
       try { await window.API.del(`/logistica/rota-modelos/${encodeURIComponent(velho.id)}`); }
       catch (e) { return avisoErro(e); }
-      // A fileira encolhe: quem era Espaço 2 vira 1, e o vago é o ÚLTIMO.
+      // A fileira encolhe: quem era Espaço 2 vira 1, e o vago é o ÚLTIMO. O
+      // alvo aqui é o VAGO e não `alvoDaTrava()`: o `carregarEspacos` acabou de
+      // reacender um espaço pela memória do dia, e regravar ELE seria apagar a
+      // segunda rota logo depois de o dono ter apagado a primeira.
       await carregarEspacos();
-      const vago = alvoDaTrava();
+      const vago = primeiroVago();
       if (vago < 0) return avisoErro(new Error('Não consegui liberar um espaço agora.'));
       abrirSalvar(vago);
     }), { once: true });
@@ -10515,12 +10567,18 @@
        doença que este arquivo persegue. Hoje ele reaparece na tela no único
        caso em que faz sentido: dia futuro escolhido no chip, onde "Iniciar" não
        existe. Sem esta linha o toque morreria no vidro. */
-    'montar-agora': montarRota,
+    /* 🔴 OS TRÊS PASSAM PELA TRAVA DA ORDEM ALTERADA (dono, 10/08). Ela só
+       morde na tela de Montagem e só com o dedo tendo mexido na sequência —
+       fora disso `comOrdemSalva` é um repasse. Aqui e não dentro de
+       `montarRota`/`iniciarRota` porque o que se barra é o TOQUE: as duas
+       funções também são chamadas por dentro (retomada, erro), e ali a
+       pergunta não teria a quem falar. */
+    'montar-agora': () => comOrdemSalva(montarRota),
     // rota rodando: o botão do meio leva pra navegação (é o que se faz andando)
     navegar: () => window.ir('mapa'),
     'salvar-rota': salvarRota,
-    'iniciar-rota': iniciarRota,
-    iniciar: iniciarRota,
+    'iniciar-rota': () => comOrdemSalva(iniciarRota),
+    iniciar: () => comOrdemSalva(iniciarRota),
     'cancelar-rota': cancelarRota,
     'entregue-pagou': () => confirmarEntrega(''),
     'entregue-marcou': () => confirmarEntrega('fiado'),
@@ -10688,6 +10746,21 @@
       if (el) el.focus();
     },
   };
+  /* 🔴 A SETA DO CABEÇALHO É O MESMO VOLTAR (dono, 10/08). O item 4 do pedido
+     fala de "voltar", e nesta tela ele tem duas portas: a tecla do Android e a
+     seta do topo. Regra que vale numa porta só não é regra — é armadilha.
+     Fase de CAPTURA, e só aqui: o roteador do mock escuta `[data-ir]` na subida
+     e mandaria a tela pra Rota antes de qualquer coisa. `stopPropagation` no
+     documento em captura impede que ele veja o toque; sem dia aceso a linha nem
+     morde, e a seta volta a ser a seta. */
+  document.addEventListener('click', (e) => {
+    if (!temPonte() || telaAtual() !== 'montagem' || montarDia === -1) return;
+    if (!e.target.closest('[data-voltar][data-ir]')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    soltarDia();
+  }, true);
+
   // captura na fase de subida, DEPOIS do mock: quem não é meu segue o caminho dele.
   document.addEventListener('click', (e) => {
     const alvo = e.target.closest('[data-acao], [data-estado]');
@@ -10748,10 +10821,11 @@
          (`montarDia = -1`) a Montagem é a ROTA AVULSA — a lista fica só com o
          que o dedo pôs (rascunho e avulsas de hoje) e o Iniciar sai só com
          elas, sem varrer a agenda junto. Tocar qualquer chip devolve o dia. */
-      montarDia = montarDia === n ? -1 : n;
+      if (montarDia === n) return void soltarDia();
+      montarDia = n;
       // o chip acende JÁ (resposta ao dedo); a lista do dia chega em seguida
       window.usarDados('montagem', { diaSel: montarDia });
-      // Os 2 espaços são DO DIA: trocar de chip troca a fileira inteira, senão
+      // Os 3 espaços são DO DIA: trocar de chip troca a fileira inteira, senão
       // o Espaço 1 de sábado ficaria aceso na tela de segunda.
       carregarEspacos();
       encherMontagem();

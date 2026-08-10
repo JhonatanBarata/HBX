@@ -1914,17 +1914,17 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
      na mesma faxina foi a linha de crédito e o cabeçalho "Rota avulsa". */
   const chips=Array.isArray(d.dias)&&d.dias.length?`<div class="chips centro">
     ${d.dias.map(x=>`<button class="chip${(d.diaSel||0)===x[0]?' on':''}" data-acao="montar-dia" data-dia="${x[0]}">${x[1]}</button>`).join('')}</div>`:'';
-  /* 🔴 O SELETOR DE ORDEM (dono, 08/08) — o botão do MEIO da montagem. Três
-     posições e uma só na tela por vez: a ordem automática por DISTÂNCIA (a que
-     a lista já nasce) e os 2 ESPAÇOS de rota salva daquele dia da semana. O
-     rótulo do espaço é o nome que o motorista digitou — "Manhã" no sábado é o
-     Manhã do sábado, sempre.
-     Espaço vazio NÃO some da fileira ("Espaço 1"/"Espaço 2"): posição que só
+  /* 🔴 O SELETOR DE ORDEM (dono, 08/08; o 3º espaço em 10/08) — o botão do MEIO
+     da montagem. Quatro posições e uma só acesa por vez: a ordem automática por
+     DISTÂNCIA (a que a lista já nasce) e os 3 ESPAÇOS de rota salva daquele dia
+     da semana. O rótulo do espaço é o nome que o motorista digitou — "Manhã" no
+     sábado é o Manhã do sábado, sempre.
+     Espaço vazio NÃO some da fileira ("Espaço 1"…"Espaço 3"): posição que só
      aparece depois de existir é função que ninguém descobre sozinho — e no
      começo o seletor ficaria com uma opção de verdade só, que é botão morto.
      Quem sabe quais espaços existem é a ponte; sem ela — o desenho — a linha
      some inteira, mesma lei dos chips de dia acima. */
-  const modos=Array.isArray(d.modos)&&d.modos.length?`<div class="modos">
+  const modos=Array.isArray(d.modos)&&d.modos.length?`<div class="modos${d.modos.length>3?' fino':''}">
     ${d.modos.map((m,i)=>`<button class="modo${(d.modoSel||'')===m[0]?' on':''}${m[1]?'':' vaga'}" data-acao="modo-rota" data-modo="${m[0]}">
       <b>${m[1]||`Espaço ${i}`}</b>${m[2]?'<i class="ponto"></i>':''}</button>`).join('')}</div>`:'';
   /* 🔴 A SEMANA CHEGOU AQUI COM A MORTE DO MODO AGENDA (dono, 09/08). Ela
