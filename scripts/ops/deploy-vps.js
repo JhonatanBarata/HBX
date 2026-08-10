@@ -320,6 +320,26 @@ function resolveAndroidVersion(config) {
   return { versionCode, versionName: gradle.versionName, fingerprint, bumped: true };
 }
 
+// ---------------------------------------------------------------------------
+// A PONTE DO APP É GERADA — costura ANTES de tudo
+// ---------------------------------------------------------------------------
+// `assets/app/ponte.js` deixou de ser escrito à mão em 10/08: a fonte é
+// `assets/app/ponte/src/*.js` (≤1.000 linhas cada) e o arquivo embarcado sai de
+// `scripts/ponte-costurar.js`. A costura roda AQUI, no começo do publish, por
+// dois motivos que não são opinião:
+//   · o commit do publish (`commitEverything`) precisa levar o gerado junto;
+//   · a digital do APK (resolveAndroidVersion) lê `app/src` — costurar depois
+//     dela publicaria um APK com ponte velha e versão de ponte nova.
+// Com `HBX_PUBLISH_COMMITTED_ONLY=1` ninguém commita nada, então gerar seria
+// publicar arquivo não-commitado: nesse modo só CONFERE e reprova alto.
+function costurarPonteDoApp(committedOnly) {
+  const costurar = path.join(repoRoot, 'scripts', 'ponte-costurar.js');
+  const conferir = path.join(repoRoot, 'scripts', 'ponte-conferir.js');
+  if (!fs.existsSync(costurar) || !fs.existsSync(conferir)) return;
+  if (!committedOnly) runStep(process.execPath, [costurar]);
+  runStep(process.execPath, [conferir]);
+}
+
 function buildAndroidApk(version) {
   const versionArg = version && version.versionCode
     ? [`-PhbxLogisticaVersionCode=${version.versionCode}`]
@@ -594,8 +614,14 @@ function main(requestedMode) {
 
   if (committedOnly) {
     syncCommittedHead();
+    // sem commit nenhum nesta rota: aqui a ponte só é CONFERIDA (gerar agora
+    // deixaria arquivo fora do HEAD que vai publicar).
+    costurarPonteDoApp(true);
   } else {
     syncMaster(mode === 'full');
+    // depois do pull (a fonte pode ter chegado de fora) e ANTES do commit —
+    // o gerado tem que entrar no mesmo commit da fonte.
+    costurarPonteDoApp(false);
     commitEverything(mode === 'full' ? 'publish' : 'new');
   }
   const changedFiles = changedFilesAheadOfRemote();
