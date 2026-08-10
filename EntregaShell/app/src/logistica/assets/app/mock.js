@@ -3418,7 +3418,29 @@ function pintar(animar,dir){
         origem.style.setProperty('--esc',(rA.width/rO.width).toFixed(3));
       }
       espera=520;
+      /* 🔴 NA SAÍDA A MEDIDA ESPERA O VOO ACABAR (10/08, visto numa grade de
+         prova: a haste saía do logotipo 42px ACIMA dele). `ajustarHastes` mede o
+         glifo com `getBoundingClientRect`, e no primeiro quadro da saída a marca
+         ainda está VOANDO do cabeçalho pro meio da tela — o retângulo é o do meio
+         do caminho, e a haste ficava cravada onde a marca só passou.
+         Na entrada isso não acontece porque lá a marca já nasce parada no centro.
+         O `animationend` do próprio `.splash-logo` é o instante exato do pouso, e
+         ele chega ANTES de a haste ter tinta (o grupo só começa a aparecer em
+         0,62s e leva 0,18s) — ninguém vê a correção.
+         O `e.target` é obrigatório: as letras e o glifo são FILHOS e os
+         `animationend` deles borbulham por aqui. E o relógio de reserva cobre o
+         aparelho que entrega a cena sem evento (reduced-motion); medir duas vezes
+         não custa nada, a função só reescreve as mesmas coordenadas. */
+      const marca=nova.querySelector('.splash-logo');
+      if(marca){
+        marca.addEventListener('animationend',function pousou(e){
+          if(e.target!==marca) return;
+          marca.removeEventListener('animationend',pousou);
+          ajustarHastes(nova);
+        });
+      }
       requestAnimationFrame(()=>ajustarHastes(nova));
+      setTimeout(()=>ajustarHastes(nova),660);
     }
     // Marca de quando a entrada COMEÇOU. É o único jeito de um repinte que
     // chega no meio saber de onde continuar — a duração da própria camada não

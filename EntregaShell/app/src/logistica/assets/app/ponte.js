@@ -3540,6 +3540,11 @@
   const CENA_RUAS_NAV = 120;
   const CENA_TETO_FIX = 1400;
   const CENA_TETO_TILE = 2200;
+  /* 🔴 O TETO DA ENTRADA É O DA ABERTURA, não o do tile. A cena de entrada
+     espera o app ser ENTREGUE (§ `esperarChao`), e a abertura tem teto próprio
+     de 6 s na ponte / 7 s no desenho. 9 s cobre os dois com folga — e se nem
+     assim a luz verde acender, a cena começa mesmo, que é melhor que sumir. */
+  const CENA_TETO_ABERTURA = 9000;
   const CENA_TETO_VIDA = 9000;
   /* 🔴 130 → 260 NA ENTRADA (10/08 — dono: *"nem todas ruas são preenchidas"*).
      O teto era um freio de custo, e ele estava cortando CIDADE: a cena
@@ -3966,16 +3971,32 @@
     });
   }
 
-  /** o teto que nunca falha: tile na mão (e fix, na entrada) ou o relógio */
+  /** o teto que nunca falha: tile na mão (e o app entregue, na entrada) ou o relógio */
   function esperarChao(daVez) {
     const mapa = daVez.casa.mapa;
-    const prazo = Date.now() + CENA_TETO_TILE;
+    const entrada = daVez.motivo === 'entrada';
+    const prazo = Date.now() + (entrada ? CENA_TETO_ABERTURA : CENA_TETO_TILE);
     const olhar = () => {
       if (cena !== daVez) return;
+      /* 🔴 A CENA DA ENTRADA ESPERA O APP SER ENTREGUE — e este é o defeito que
+         nasceu do conserto anterior (10/08). Escondendo o mundo já no
+         NASCIMENTO do mapa (que acontece aos 1,8 s, num palco FANTASMA fora da
+         tela, § `prepararMapaCedo`), a cena passou a rodar ATRÁS do splash:
+         MEDIDO no g15, quando a tela da Rota finalmente apareceu — aos 11,4 s,
+         com a abertura nova do HBX — as ruas já estavam desenhadas e só os
+         nomes chegaram depois. O efeito acontecia para ninguém.
+         Esconder cedo continua certo (é o que mata a "cidade inteira" da fase
+         1); quem tem que esperar é o COMEÇO. `bootAvisou` é a mesma luz verde
+         que solta a abertura (§ 7a-ter), então cena e app aparecem juntos. */
+      if (entrada && !bootAvisou && Date.now() < prazo) { setTimeout(olhar, 120); return; }
       /* Duas perguntas diferentes, e confundi-las custa a cena: quem SAIU da
          tela encerra; quem ainda não CHEGOU (a tela anterior está saindo por
          cima) espera. */
       if (telaSaindo() && Date.now() < prazo) { setTimeout(olhar, 120); return; }
+      /* E na entrada o mapa mora no palco fantasma até o transplante: cobrar
+         "está na tela" antes disso encerraria a cena por um motivo que ainda
+         nem podia ser verdade. */
+      if (entrada && !mapaNaTela(daVez.casa) && Date.now() < prazo) { setTimeout(olhar, 120); return; }
       if (!mapaNaTela(daVez.casa)) { encerrarCena('saiu', true); return; }
       let tile = true;
       try { tile = mapa.areTilesLoaded(); } catch (_) { tile = true; }

@@ -110,6 +110,24 @@ const RUAS_FALSAS = (eu) => {
 /** a armadilha no `window.maplibregl` (roda ANTES de qualquer script da página) */
 const ARMADILHA = (ruas) => {
   window.__ruas = ruas;
+  /* 🔴 A LUZ VERDE DA ABERTURA É CARIMBADA ANTES DO BOOT, pela mesma razão do
+     dublê do basemap: o mock define `window.aberturaPronta` no carregamento, e
+     um hook instalado junto com o gravador chega quando ela JÁ foi chamada — a
+     prova então diz "nunca avisou" e não mede nada. Aqui a propriedade é
+     interceptada por setter: quem escrever nela depois fica embrulhado. */
+  window.__aberturaEm = null;
+  let porta;
+  Object.defineProperty(window, 'aberturaPronta', {
+    configurable: true,
+    get() {
+      return function (...a) {
+        if (window.__aberturaEm === null) window.__aberturaEm = Math.round(performance.now());
+        if (typeof porta === 'function') return porta.apply(this, a);
+        return undefined;
+      };
+    },
+    set(v) { porta = v; },
+  });
   let real;
   Object.defineProperty(window, 'maplibregl', {
     configurable: true,
@@ -162,6 +180,7 @@ const PONTE = ({ itens, estado }) => {
 const GRAVAR = (ondas) => {
   window.__fita = [];
   window.__gravando = true;
+  // (a luz verde da abertura é carimbada lá na ARMADILHA, antes do boot)
   const palco = () => document.querySelector('.mapa-palco[data-mapa="geral"]');
   const dado = (m, id) => {
     try {
@@ -290,7 +309,11 @@ async function abrir(navegador, pele, porta, { itens, ruas, pouco, estado, luz }
 async function fitaDe(p, esperaMs) {
   await p.waitForTimeout(esperaMs);
   await p.evaluate(() => { window.__gravando = false; });
-  return p.evaluate(() => window.__fita);
+  /* 🔴 A LUZ VERDE VIAJA DENTRO DE CADA QUADRO, e não pendurada no array: o
+     Playwright serializa o retorno como JSON, e propriedade extra em ARRAY se
+     perde no caminho (só os índices atravessam). A prova dizia "a abertura
+     nunca avisou" com o carimbo feito e guardado. */
+  return p.evaluate(() => window.__fita.map((q) => Object.assign(q, { aberturaEm: window.__aberturaEm })));
 }
 
 const primeiro = (fita, cond) => { const q = fita.find(cond); return q ? q.t : null; };
@@ -438,6 +461,17 @@ const ultimo = (fita, cond) => { const q = [...fita].reverse().find(cond); retur
        nenhuma existe. Toda régua daqui é ancorada no primeiro quadro em que a
        cena está VIVA. */
     const iAcesa = fita.findIndex((q) => q.opCena === 1);
+    /* 🔴 A CENA NÃO COMEÇA ANTES DE O APP SER ENTREGUE. O mundo é escondido no
+       NASCIMENTO do mapa (cedo, e de propósito: é o que mata a "cidade inteira"
+       aparecendo antes da cena) — mas o COMEÇO tem que esperar a luz verde da
+       abertura, senão o espetáculo roda atrás do splash e o dono vê a tela já
+       pronta, que foi o defeito que o conserto anterior criou. */
+    const acendeuEm = iAcesa >= 0 ? fita[iAcesa].t : null;
+    const aberturaEm = fita.length ? fita[0].aberturaEm : null;
+    eh('1.27 a cena NAO comeca antes de a abertura entregar o app',
+      aberturaEm != null && acendeuEm != null && acendeuEm >= aberturaEm,
+      aberturaEm == null ? 'a abertura nunca avisou'
+        : `abertura em ${aberturaEm}, cena acendeu em ${acendeuEm}`);
     /* 🔴 "VOLTOU" SÓ EXISTE DEPOIS DE TER SUMIDO. A fita começa com o mundo
        ainda no ar (ela grava desde antes do `esconderMundo`), então procurar o
        primeiro `visible` responde ZERO — o estado inicial. A âncora é o quadro

@@ -369,6 +369,120 @@ const eh = (nome, cond, medida) => {
     fita.length > 0 && fita[fita.length - 1].vis === 'visible' && fita[fita.length - 1].camadas === 0,
     `fim=${fimCena && fimCena - t0} ms`);
 
+  /* ---- A) DE NOVO, AGORA A FILA — "abre apenas HB, aí o X vem" -------------
+     A régua não é a folha, é a FITA: quadro a quadro, quanto de cada peça está
+     na tela. Três perguntas, e nenhuma delas o CSS responde sozinho. */
+  const comMarca = fita.filter((q) => q.marca && q.relogio !== null);
+  const primeiro = (c) => { const q = comMarca.find(c); return q ? q.relogio : null; };
+  const hbInteiro = primeiro((q) => q.marca.h >= .95 && q.marca.b >= .95);
+  const hasteNaTela = primeiro((q) => (q.marca.a || 0) > .05 || (q.marca.hb || 0) > .05);
+  const xNaTela = primeiro((q) => (q.marca.x || 0) > .05);
+  const hasteA = primeiro((q) => (q.marca.a || 0) > .05);
+  const hasteB = primeiro((q) => (q.marca.hb || 0) > .05);
+  /* O trecho que o dono descreveu: HB inteiro na tela e NENHUM traço do X — nem
+     o glifo, nem haste. Se ele não existe, o X "já veio carregado". */
+  const soHB = comMarca.filter((q) => q.marca.h >= .95 && q.marca.b >= .95
+    && (q.marca.x || 0) <= .05 && (q.marca.a || 0) <= .05 && (q.marca.hb || 0) <= .05);
+  eh('A.4 existe o momento "só HB na tela, sem X nenhum"', soHB.length >= 3,
+    `${soHB.length} quadros (de ${comMarca.length}) — HB inteiro em ${hbInteiro} ms`);
+  eh('A.5 as hastes só entram DEPOIS do HB',
+    hbInteiro !== null && hasteNaTela !== null && hasteNaTela > hbInteiro,
+    `HB=${hbInteiro} ms · 1a haste=${hasteNaTela} ms`);
+  eh('A.6 e o glifo do X só acende DEPOIS das hastes',
+    hasteNaTela !== null && xNaTela !== null && xNaTela > hasteNaTela,
+    `1a haste=${hasteNaTela} ms · glifo=${xNaTela} ms`);
+  eh('A.7 a haste de cima vem primeiro, a de baixo depois',
+    hasteA !== null && hasteB !== null && hasteB > hasteA,
+    `haste-a=${hasteA} ms · haste-b=${hasteB} ms`);
+
+  /* ---- E) A SAÍDA É A ENTRADA AO CONTRÁRIO --------------------------------
+     Dono (10/08): *"ajuste fino na entrada e na saída, tem q ser IDÊNTICOS"*.
+     "Idêntico" aqui é a FILA: a entrada monta H → B → haste-a → haste-b → X; a
+     saída tem que desmontar na ordem exata de trás pra frente. Medido do mesmo
+     jeito da entrada — em tinta, quadro a quadro — e não lendo o CSS, que só
+     diria o que eu mesmo escrevi. */
+  const saida = await p.evaluate(async () => {
+    const fim = [];
+    let gravando = true;
+    const tick = () => {
+      if (!gravando) return;
+      const s = document.querySelector('.splash');
+      if (s) {
+        const op = (sel) => { const el = s.querySelector(sel); return el ? Number(getComputedStyle(el).opacity) : null; };
+        const grupo = op('.splash-xis');
+        const haste = (sel) => { const v = op(sel); return (v === null || grupo === null) ? null : v * grupo; };
+        const meio = (sel) => {
+          const el = s.querySelector(sel); if (!el) return null;
+          const r = el.getBoundingClientRect();
+          return { cx: r.x + r.width / 2, cy: r.y + r.height / 2, w: r.width };
+        };
+        fim.push({
+          t: Math.round(performance.now()),
+          x: op('.splash-logo .w em'),
+          a: haste('line.haste-a:not(.rastro)'),
+          hb: haste('line.haste-b:not(.rastro)'),
+          h: op('.splash-logo .w b:nth-of-type(1)'),
+          b: op('.splash-logo .w b:nth-of-type(2)'),
+          /* ONDE as duas coisas estão: o glifo que se desfaz e o cruzamento das
+             hastes que o substituem. Na saída elas trocam de lugar no MESMO
+             ponto — se não trocam, o motorista vê o X pular pra fora da marca. */
+          glifo: meio('.splash-logo .w em'),
+          cruzA: meio('line.haste-a:not(.rastro)'),
+          cruzB: meio('line.haste-b:not(.rastro)'),
+        });
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    // é a MESMA porta que o Kotlin aperta ao fechar o app
+    if (typeof window.HBXSaida === 'function') window.HBXSaida();
+    else window.ir('saida');
+    await new Promise((ok) => setTimeout(ok, 3200));
+    gravando = false;
+    return fim;
+  });
+  /* "sumiu" = o último quadro em que a peça ainda tinha tinta. É o instante que
+     o olho registra como "essa foi embora". */
+  const sumiu = (chave) => {
+    const q = [...saida].reverse().find((r) => (r[chave] || 0) > .05);
+    return q ? q.t - (saida.length ? saida[0].t : 0) : null;
+  };
+  const oX = sumiu('x'); const oB = sumiu('hb'); const oA = sumiu('a');
+  const letraB = sumiu('b'); const letraH = sumiu('h');
+  const teve = (chave) => saida.some((r) => (r[chave] || 0) > .5);
+  eh('E.0 a cena de saída toca de verdade (marca e hastes na tela)',
+    saida.length > 12 && teve('h') && teve('b') && teve('a') && teve('hb'),
+    `${saida.length} quadros`);
+  eh('E.1 o X se desfaz ANTES das hastes irem embora',
+    oX !== null && oB !== null && oX < oB, `X=${oX} ms · haste-b=${oB} ms`);
+  eh('E.2 sai primeiro a haste que chegou por ÚLTIMO (b antes de a)',
+    oA !== null && oB !== null && oB < oA, `haste-b=${oB} ms · haste-a=${oA} ms`);
+  eh('E.3 as letras só descem com as hastes JÁ fora',
+    oA !== null && letraB !== null && letraB > oA, `haste-a=${oA} ms · B=${letraB} ms`);
+  eh('E.4 e o H é o último, porque foi o primeiro a subir',
+    letraB !== null && letraH !== null && letraH > letraB, `B=${letraB} ms · H=${letraH} ms`);
+  /* 🔴 O TETO DA SAÍDA É DO KOTLIN: `MainActivity.avisarOuSair` fecha o app
+     2,7 s depois de pedir a cena, e o reverso do mapa come até 1,0 s antes dela
+     começar. Cena que passa de 1,7 s é cena cortada pelo processo morrendo. */
+  eh('E.5 a saída inteira cabe no relógio do Kotlin (1,7 s)',
+    letraH !== null && letraH <= 1700, `${letraH} ms ate o ultimo traço`);
+  /* 🔴 E O X TEM QUE SE DESFAZER EM CIMA DE SI MESMO. É a irmã da A.1, do lado
+     da saída — e ela nasceu de uma FOTO: na grade de prova a haste aparecia
+     acima e à direita do logotipo, porque a medida (`ajustarHastes`) era feita
+     no primeiro quadro, com a marca ainda VOANDO do cabeçalho pro meio. Medir
+     peça em movimento é medir onde ela não vai ficar. */
+  const troca = saida.filter((r) => r.glifo && r.cruzA && r.cruzB && (r.a || 0) > .3 && (r.hb || 0) > .3);
+  if (!troca.length) {
+    eh('E.6 o X se desfaz EM CIMA do próprio glifo', false, 'nao peguei as hastes na fita');
+  } else {
+    const q = troca[0];
+    const cruz = { x: (q.cruzA.cx + q.cruzB.cx) / 2, y: (q.cruzA.cy + q.cruzB.cy) / 2 };
+    const dx = Math.round(cruz.x - q.glifo.cx);
+    const dy = Math.round(cruz.y - q.glifo.cy);
+    eh('E.6 o X se desfaz EM CIMA do próprio glifo', Math.abs(dx) <= 6 && Math.abs(dy) <= 6,
+      `desvio ${dx}x${dy} px`);
+  }
+
   await ctx.close();
   await navegador.close();
   srv.close();

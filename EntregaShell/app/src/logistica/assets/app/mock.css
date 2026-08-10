@@ -679,25 +679,25 @@ button,input{font:inherit;color:inherit}
 .tela.saida .splash-anel,.tela.saida .splash-barra{animation:mvSai .3s var(--cv-sai) reverse both}
 /* AGORA o inverso do 1: o X larga o glifo e vira as duas hastes de novo, que
    voam pra fora pelos mesmos caminhos por onde vieram. */
-.tela.saida .splash-logo small{animation:spLetras .42s var(--cv-entra) .60s reverse both}
-.tela.saida .splash-logo .w em{animation:spAcende .26s ease .66s reverse both}
-.tela.saida .splash-xis{animation:spHastesSaem .22s var(--cv-sai) .66s reverse both}
-.tela.saida .splash-flash{animation:spFlash .44s ease-out .74s both}
+.tela.saida .splash-logo small{animation:spLetras .34s var(--cv-entra) .58s reverse both}
+.tela.saida .splash-logo .w em{animation:spAcende .22s ease .62s reverse both}
+.tela.saida .splash-xis{animation:spHastesSaem .18s var(--cv-sai) .62s reverse both}
+.tela.saida .splash-flash{animation:spFlash .38s ease-out .7s both}
 /* a haste-b chegou POR ÚLTIMO na entrada, então é a PRIMEIRA a ir embora */
-.tela.saida .splash-xis .haste-b{animation:spHasteB .42s var(--cv-entra) .86s reverse both}
-.tela.saida .splash-xis .haste-a{animation:spHasteA .42s var(--cv-entra) .92s reverse both}
+.tela.saida .splash-xis .haste-b{animation:spHasteB .3s var(--cv-entra) .86s reverse both}
+.tela.saida .splash-xis .haste-a{animation:spHasteA .3s var(--cv-entra) .94s reverse both}
 .tela.saida .splash-xis .rastro.haste-b{animation-delay:.92s}
-.tela.saida .splash-xis .rastro.haste-a{animation-delay:.98s}
+.tela.saida .splash-xis .rastro.haste-a{animation-delay:1s}
 /* e só com o X desfeito as letras descem — o B primeiro, que subiu por último */
-.tela.saida .splash-logo .w b:nth-of-type(2){animation:spSobe .28s var(--cv-mola) 1.06s reverse both}
-.tela.saida .splash-logo .w b:nth-of-type(1){animation:spSobe .28s var(--cv-mola) 1.14s reverse both}
+.tela.saida .splash-logo .w b:nth-of-type(2){animation:spSobe .24s var(--cv-mola) 1.26s reverse both}
+.tela.saida .splash-logo .w b:nth-of-type(1){animation:spSobe .24s var(--cv-mola) 1.34s reverse both}
 .tela.saida .splash-barra i{animation:spCarrega .8s var(--cv-entra) .6s reverse both}
 /* e o palco apaga por último, quando não sobrou marca nenhuma.
    🔴 O FIM CONTINUA EM 1,66 s, e isso é um TETO, não um gosto: o Kotlin fecha o
    app 2,7 s depois de pedir a saída (`MainActivity.avisarOuSair`) e o reverso do
    mapa come até 1,0 s antes desta cena começar. Cena de saída que passa daqui é
    cena cortada no meio pelo processo morrendo. */
-.tela.saida .splash{animation:trApaga .32s ease 1.34s both}
+.tela.saida .splash{animation:trApaga .26s ease 1.4s both}
 
 /* ==========================================================================
    FOLHA (bottom sheet) — sobe de baixo, o fundo escurece junto (lei 6).
