@@ -9157,6 +9157,68 @@
     };
     ligar(CAMPOS_FICHA, () => ficha);
     ligar(CAMPOS_PRODUTO, () => produto);
+    ligarCamposDeCep(camada);
+  }
+
+  /* 🔴 CEP É REGRA (10/08, ordem do dono): máscara #####-### em TODO campo de
+     CEP, e CEP completo puxa o resto SOZINHO (geo/cep → rua e bairro entram na
+     hora). O CEP manda no nome da rua — o que ele diz SOBRESCREVE o que estava
+     no campo; quem digita CEP está pedindo exatamente isso. */
+  const mascaraCep = (v) => {
+    const d = String(v || '').replace(/\D/g, '').slice(0, 8);
+    return d.length > 5 ? `${d.slice(0, 5)}-${d.slice(5)}` : d;
+  };
+  async function preencherPeloCep(digitos, aplicar) {
+    let r = null;
+    try { r = await window.API.get(`/logistica/geo/cep?cep=${encodeURIComponent(digitos)}`); }
+    catch (_) { r = null; }
+    if (r && (r.endereco || r.bairro)) aplicar(r);
+  }
+  /** escreve os campos no DOM da camada viva e no rascunho do dono (se houver) */
+  function aplicarEnderecoDoCep(porCampo, rascunhoDono) {
+    for (const nome of Object.keys(porCampo)) {
+      const valor = String(porCampo[nome] || '').trim();
+      if (!valor) continue;
+      const el = naCamada(`[data-campo="${nome}"]`);
+      if (el) el.value = valor;
+      if (rascunhoDono) {
+        const alvo = rascunhoDono();
+        if (alvo) { alvo.rascunho = alvo.rascunho || {}; alvo.rascunho[nome.replace(/^novo-/, '')] = valor; }
+      }
+    }
+  }
+  function ligarCamposDeCep(camada) {
+    const ligarCep = (nomeCampo, aoCompletar, rascunhoDono) => {
+      const el = camada.querySelector(`[data-campo="${nomeCampo}"]`);
+      if (!el || el.__hbxCep) return;
+      el.__hbxCep = true;
+      el.addEventListener('input', () => {
+        const mascarado = mascaraCep(el.value);
+        if (el.value !== mascarado) el.value = mascarado;
+        // o listener genérico do rascunho rodou ANTES com o valor cru — corrige
+        // pro mascarado, senão o repinte devolveria o CEP sem máscara.
+        if (rascunhoDono) {
+          const alvo = rascunhoDono();
+          if (alvo && alvo.rascunho && alvo.rascunho[nomeCampo] !== undefined) alvo.rascunho[nomeCampo] = mascarado;
+        }
+        const digitos = mascarado.replace(/\D/g, '');
+        if (digitos.length === 8 && el.__hbxCepFeito !== digitos) {
+          el.__hbxCepFeito = digitos;
+          aoCompletar(digitos);
+        }
+      });
+      // valor que chegou do servidor sem máscara ganha a máscara na hora
+      const pronto = mascaraCep(el.value);
+      if (pronto && pronto !== el.value) el.value = pronto;
+    };
+    ligarCep('cep', (digitos) => preencherPeloCep(digitos, (r) => {
+      aplicarEnderecoDoCep({ rua: r.endereco, bairro: r.bairro }, () => ficha);
+      if (ficha) ficha.cepInfo = { cidade: r.cidade || '', uf: r.uf || '' };
+    }), () => ficha);
+    ligarCep('novo-cep', (digitos) => preencherPeloCep(digitos, (r) => {
+      aplicarEnderecoDoCep({ 'novo-rua': r.endereco, 'novo-bairro': r.bairro }, null);
+      novoCepInfo = { cidade: r.cidade || '', uf: r.uf || '' };
+    }), null);
   }
   /** valor a mostrar: o que ele digitou, senão o que o servidor mandou */
   const valorFicha = (nome, doServidor) => {
@@ -9193,6 +9255,9 @@
       numero: valorFicha('numero', loc.numero != null ? loc.numero : d.numero),
       bairro: valorFicha('bairro', loc.bairro || d.bairro),
       numeroPendente: pend.indexOf('numero') >= 0 ? 1 : 0,
+      // banner do "GPS — usar onde estou" (10/08): só existe depois do toque.
+      local: (ficha.gpsAviso && ficha.gpsAviso.local) || '',
+      localOk: ficha.gpsAviso ? ficha.gpsAviso.ok : 0,
       observacoes: valorFicha('observacoes', d.observacoes || it.observacoes),
       dias: [1, 2, 3, 4, 5, 6, 7].map((n) => (dias.indexOf(n) >= 0 ? 1 : 0)),
       produtos: (ficha.produtos || []).map((v) => {
@@ -9233,9 +9298,11 @@
      conta o que mediu. App que se autodeclara preciso é app que mente.
      ========================================================================== */
   let novoLocal = null;      // {lat,lng,precisaoM} do "Usar meu local"
+  let novoCepInfo = null;    // {cidade,uf} que o geo/cep devolveu pro CEP digitado
 
   const novoEmBranco = () => {
     novoLocal = null;
+    novoCepInfo = null;
     if (typeof window.usarDados === 'function') {
       window.usarDados('novocliente', {
         nome: '', telefone: '', cep: '', rua: '', numero: '', bairro: '',
@@ -9283,13 +9350,50 @@
       bairro: rascunho.bairro || esc(s.bairro || ''),
       // O CEP é OBRIGATÓRIO no servidor (lei de 06/08) e é justamente o que
       // ninguém sabe de cor na porta do cliente — vir de graça aqui é o que
-      // torna o cadastro na rua possível.
-      cep: rascunho.cep || esc(s.cep || ''),
+      // torna o cadastro na rua possível. Já mascarado: máscara é regra (10/08).
+      cep: rascunho.cep || esc(mascaraCep(s.cep || '')),
       local: ok
         ? `Local marcado aqui${Number.isFinite(precisao) ? ` (${Math.round(precisao)} m)` : ''}.`
         : `Local marcado, mas fraco${Number.isFinite(precisao) ? ` (${Math.round(precisao)} m)` : ''} — chegue mais perto da porta e toque de novo.`,
       localOk: ok ? 1 : 0,
     });
+  }
+
+  /** "GPS — usar onde estou" NA FICHA (10/08, ordem literal do dono: "injetar o
+      GPS que pega o endereço que a pessoa está, não estou vendo!"). Mesmo motor
+      do novocliente: fix do aparelho → geo/reverse (o Censo responde primeiro,
+      com o CEP da porta) → CEP/rua/bairro entram sozinhos; o pino viaja no
+      Salvar como `gps_cadastro`, nunca antes (salvar é o único verbo que grava). */
+  async function usarLocalFicha() {
+    if (!ficha) return;
+    if (!ultimoFix) {
+      garantirGps();
+      return window.portao({
+        tom: 'alerta', ico: 'gps', titulo: 'Ainda sem localização',
+        sub: 'Libere o GPS e espere um instante do lado de fora. Você pode digitar o endereço à mão enquanto isso.',
+        acoes: [['Fechar', '']],
+      });
+    }
+    const precisao = Number(ultimoFix.precisaoM);
+    const ok = Number.isFinite(precisao) && precisao <= 60;
+    ficha.gpsLocal = { lat: ultimoFix.lat, lng: ultimoFix.lng, precisaoM: Number.isFinite(precisao) ? precisao : null };
+    let s = null;
+    try {
+      s = await window.API.get(`/logistica/geo/reverse?lat=${encodeURIComponent(ultimoFix.lat)}&lng=${encodeURIComponent(ultimoFix.lng)}`);
+    } catch (_) { s = null; }
+    s = s || {};
+    ficha.rascunho = ficha.rascunho || {};
+    if (s.cep) ficha.rascunho.cep = mascaraCep(s.cep);
+    if (s.endereco) ficha.rascunho.rua = String(s.endereco);
+    if (s.bairro) ficha.rascunho.bairro = String(s.bairro);
+    if (s.cidade || s.uf) ficha.cepInfo = { cidade: s.cidade || '', uf: s.uf || '' };
+    ficha.gpsAviso = {
+      local: ok
+        ? `Local marcado aqui${Number.isFinite(precisao) ? ` (${Math.round(precisao)} m)` : ''}.`
+        : `Local marcado, mas fraco${Number.isFinite(precisao) ? ` (${Math.round(precisao)} m)` : ''} — chegue mais perto da porta e toque de novo.`,
+      ok: ok ? 1 : 0,
+    };
+    encherFicha();
   }
 
   /** Salvar o cliente novo. Confere porta repetida ANTES de criar. */
@@ -9347,6 +9451,10 @@
     if (d.rua) corpo.endereco = d.rua;
     if (d.numero) corpo.numero = d.numero;
     if (d.bairro) corpo.bairro = d.bairro;
+    // cidade/UF que o CEP digitado trouxe (geo/cep): viajam junto, o cadastro
+    // nasce completo sem campo novo na tela.
+    if (novoCepInfo && novoCepInfo.cidade) corpo.cidade = novoCepInfo.cidade;
+    if (novoCepInfo && novoCepInfo.uf) corpo.uf = novoCepInfo.uf;
     if (novoLocal) {
       corpo.lat = novoLocal.lat; corpo.lng = novoLocal.lng;
       corpo.geoFonte = 'gps_cadastro';
@@ -10074,7 +10182,11 @@
       const soDigitos = (v) => String(v || '').replace(/\D/g, '');
       if (soDigitos(cpf) !== soDigitos(d.document)) conta.document = cpf;
 
-      const mudouEndereco = cep !== String(loc.cep || '')
+      // O toque no GPS da ficha conta como mudança de endereço mesmo que o texto
+      // não mude: o que ele traz de novo é o PINO (e o pino viaja no salvar).
+      const g = ficha.gpsLocal || null;
+      const mudouEndereco = !!g
+        || cep !== String(loc.cep || '')
         || rua !== String(loc.endereco || '')
         || numero !== String(loc.numero == null ? '' : loc.numero)
         || bairro !== String(loc.bairro || '');
@@ -10100,11 +10212,23 @@
             { whatsapp: conta.phone, phone: conta.phone, isPrincipal: true });
         }
         if (mudouEndereco && loc.id) {
+          const info = ficha.cepInfo || {};
           await window.API.patch(`/nucleo/locais/${encodeURIComponent(loc.id)}`, {
             endereco: rua, numero, bairro, cep,
-            cidade: loc.cidade || '', uf: loc.uf || '',
-            // 🔴 O PINO MORRE COM O ENDEREÇO VELHO. Ver o bloco no topo.
-            lat: null, lng: null,
+            cidade: info.cidade || loc.cidade || '', uf: info.uf || loc.uf || '',
+            // 🔴 O PINO MORRE COM O ENDEREÇO VELHO — SALVO quando o GPS da ficha
+            // acabou de marcar a porta: aí o pino novo é o do dedo (10/08).
+            ...(g
+              ? { lat: g.lat, lng: g.lng, geoFonte: 'gps_cadastro',
+                  ...(Number.isFinite(g.precisaoM) ? { gpsAccuracy: g.precisaoM } : {}) }
+              : { lat: null, lng: null }),
+          });
+        } else if (g) {
+          // sem LocalEntrega, o pino do GPS entra pela CONTA (mesma porta do
+          // cadastro novo) — updateConta decide a fonte com o mesmo freio.
+          await window.API.patch(`/nucleo/contas/${encodeURIComponent(ficha.id)}`, {
+            lat: g.lat, lng: g.lng, geoFonte: 'gps_cadastro',
+            ...(Number.isFinite(g.precisaoM) ? { gpsAccuracy: g.precisaoM } : {}),
           });
         }
         if (mudouDias) {
@@ -10643,6 +10767,8 @@
     'salvar-produto': salvarProduto,
     // o "+" do cabeçalho: cadastrar cliente na porta
     'usar-meu-local': usarMeuLocal,
+    // o GPS da FICHA (10/08): mesmo motor, cliente que já existe
+    'usar-local-ficha': usarLocalFicha,
     /* As três saídas do "Registrar local". Cada uma REUSA a porta que já
        existe — nada de fluxo paralelo de cadastro/venda na rua, que é como
        nasce o cliente que só existe numa das telas.

@@ -3451,6 +3451,9 @@ const DADOS={
        403 — que o tradutor de erro do app vira "sua sessão expirou", mentira
        pior que o botão morto que este slot veio matar (08/08). */
     admin:1,
+    /* GPS da ficha (10/08, ordem do dono: "injetar o GPS que pega o endereço") —
+       mesmo par local/localOk do novocliente; a ponte preenche ao tocar. */
+    local:'', localOk:0,
     observacoes:'Portão azul · deixar na área · cachorro solto',
     dias:[0,1,0,1,0,0,0],
     produtos:[
@@ -4899,21 +4902,23 @@ ${hdr({voltar:'clientes',semChat:1})}
     <label class="campo"><label>Telefone / WhatsApp</label><input placeholder="(19) 99999-0000" value="${n.telefone}" data-campo="novo-telefone"></label>
   </div>
 
-  <!-- 🔴 CEP E NÚMERO SÃO OBRIGATÓRIOS (lei do dono, 06/08 — o servidor recusa
-       sem eles: "sem CEP não dá pra achar a casa"). Medido no aparelho em
-       08/08: sem o campo, o cadastro na rua era impossível. "SN" é resposta
-       válida pro número, e o lugar de ensinar isso é o próprio campo. -->
+  <!-- 🔴 O CEP MANDA EM TUDO (lei do dono, 10/08): sem CEP o servidor recusa;
+       digitou o CEP completo, rua e bairro entram SOZINHOS (a ponte consulta
+       geo/cep); número em branco o servidor preenche com S/N. Layout na ordem
+       da lei: CEP e Número numa linha, Rua e Bairro embaixo. -->
   <div class="grupo">Onde é</div>
   <div class="campos">
-    <label class="campo"><label>CEP</label><input placeholder="00000-000" value="${n.cep}" data-campo="novo-cep"></label>
-    <div class="tripla">
-      <label class="campo"><label>Rua</label><input value="${n.rua}" data-campo="novo-rua"></label>
+    <div class="dupla">
+      <label class="campo"><label>CEP</label><input inputmode="numeric" placeholder="00000-000" value="${n.cep}" data-campo="novo-cep"></label>
       <label class="campo"><label>Número</label><input placeholder="nº ou SN" value="${n.numero}" data-campo="novo-numero"></label>
+    </div>
+    <div class="dupla">
+      <label class="campo"><label>Rua</label><input value="${n.rua}" data-campo="novo-rua"></label>
       <label class="campo"><label>Bairro</label><input value="${n.bairro}" data-campo="novo-bairro"></label>
     </div>
   </div>
   <button class="act full" style="margin-top:7px;justify-content:center" data-acao="usar-meu-local">
-    ${ic('gps',17)}<b>Usar meu local</b></button>
+    ${ic('gps',17)}<b>GPS — usar onde estou</b></button>
   <!-- azul = local pego; âmbar = pego mas impreciso. Sem os dois tons o
        entregador não saberia que precisa chegar mais perto da porta. -->
   ${n.local?`<div class="banner ${n.localOk?'pausa':'alerta'}" style="margin-top:7px">${ic(n.localOk?'check':'alert',15)}
@@ -5608,17 +5613,28 @@ ${hdr({voltar:f.volta||'clientes',semChat:1})}
     </div>
   </div>
 
+  <!-- 🔴 O CEP MANDA EM TUDO (10/08): CEP e Número numa linha, Rua e Bairro
+       embaixo; digitou o CEP completo, a ponte preenche o resto sozinha. O
+       botão GPS é a ordem literal do dono ("injetar o GPS que pega o endereço
+       que a pessoa está — não estou vendo!"): parado na porta, CEP/rua/bairro
+       entram do Censo, e o pino fica onde o dedo tocou. -->
   <div class="grupo">Onde é</div>
   <div class="campos">
-    <label class="campo"><label>CEP</label><input value="${f.cep}" data-campo="cep"></label>
-    <div class="tripla">
+    <div class="dupla">
+      <label class="campo"><label>CEP</label><input inputmode="numeric" placeholder="00000-000" value="${f.cep}" data-campo="cep"></label>
+      <label class="campo${f.numeroPendente?' erro':''}"><label>Número ${f.numeroPendente?'<span class="pend">· pendente</span>':''}</label><input placeholder="nº ou SN" value="${f.numero}" data-campo="numero"></label>
+    </div>
+    <div class="dupla">
       <label class="campo"><label>Rua</label><input value="${f.rua}" data-campo="rua"></label>
-      <label class="campo${f.numeroPendente?' erro':''}"><label>Número ${f.numeroPendente?'<span class="pend">· pendente</span>':''}</label><input placeholder="—" value="${f.numero}" data-campo="numero"></label>
       <label class="campo"><label>Bairro</label><input value="${f.bairro}" data-campo="bairro"></label>
     </div>
     <label class="campo"><label>Observações da porta</label>
       <textarea data-campo="observacoes">${f.observacoes}</textarea></label>
   </div>
+  <button class="act full" style="margin-top:7px;justify-content:center" data-acao="usar-local-ficha">
+    ${ic('gps',17)}<b>GPS — usar onde estou</b></button>
+  ${f.local?`<div class="banner ${f.localOk?'pausa':'alerta'}" style="margin-top:7px">${ic(f.localOk?'check':'alert',15)}
+    <span>${f.local}</span></div>`:''}
 
   <div class="grupo">Dias de entrega</div>
   <div class="dias">

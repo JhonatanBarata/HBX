@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { resolverCnefe, resolverCnefeCep } from '../nucleo/cnefe-resolver.util';
+import { resolverCnefe, resolverCnefeCep, resolverCnefeReverso } from '../nucleo/cnefe-resolver.util';
 import { resolveServerGeo } from '../nucleo/nucleo-geo.util';
 import { consultarCepPublico } from './logistica-cep.util';
 import {
@@ -61,7 +61,9 @@ export interface ReverseGeoResult {
   cidade: string;
   uf: string;
   cep: string;
-  fonte: 'geocode' | 'nenhum';
+  /** `cnefe` (10/08) = o CEP saiu da porta do Censo mais próxima — é o caminho do
+   *  botão GPS do cadastro ("o CEP manda em tudo"). */
+  fonte: 'cnefe' | 'geocode' | 'nenhum';
 }
 
 const VAZIO: ReverseGeoResult = { endereco: '', numero: '', bairro: '', cidade: '', uf: '', cep: '', fonte: 'nenhum' };
@@ -142,12 +144,33 @@ export class LogisticaGeoService {
       throw new BadRequestException('lng deve estar entre -180 e 180.');
     }
 
-    if (!this.networkEnabled()) return { ...VAZIO };
-
     const key = this.cacheKey(lat, lng);
     const cached = this.cache.get(key);
     const now = Date.now();
     if (cached && cached.expiresAt > now) return { ...cached.result };
+
+    /* 🔴 10/08 — O CEP MANDA: a porta do Censo mais próxima responde PRIMEIRO
+       (banco local, zero rede, zero rate-limit) e o resto do endereço sai do
+       PRÓPRIO CEP (ViaCEP). É o motor do botão GPS do cadastro: parado na porta,
+       o CEP entra sozinho — o Nominatim vira só o plano B de onde o Censo não
+       alcança. O reverso roda ANTES do kill-switch de rede porque é local. */
+    const porta = await resolverCnefeReverso({ lat, lng });
+    if (porta) {
+      const viaCep = this.networkEnabled() ? await consultarCepPublico(porta.cep) : null;
+      const result: ReverseGeoResult = {
+        endereco: viaCep?.logradouro ?? '',
+        numero: '',
+        bairro: viaCep?.bairro ?? '',
+        cidade: viaCep?.localidade ?? '',
+        uf: viaCep?.uf ?? '',
+        cep: porta.cep,
+        fonte: 'cnefe',
+      };
+      this.cache.set(key, { result, expiresAt: now + CACHE_TTL_MS });
+      return { ...result };
+    }
+
+    if (!this.networkEnabled()) return { ...VAZIO };
 
     const result = await this.geocodeViaNominatim(lat, lng);
     this.cache.set(key, { result, expiresAt: now + CACHE_TTL_MS });
