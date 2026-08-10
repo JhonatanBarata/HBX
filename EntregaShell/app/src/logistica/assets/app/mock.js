@@ -546,6 +546,14 @@ const DADOS={
        com medo de perder o dia. A CHAVE segue `encerrar` porque é o nome do
        slot no seam (a ponte não a reescreve); o que o motorista lê é o valor. */
     encerrar:'Sair',
+    /* Os dois atalhos que dividem a linha de baixo com o Sair (10/08). São COPY
+       fixa como o `encerrar`: a ponte não os reescreve, e por isso eles nunca
+       "somem por falta de dado" — botão de saída e botão de registro não podem
+       depender do que o servidor respondeu.
+       "Registrar" é o verbo curto de "registrar o local onde eu estou": é dele
+       que saem o cadastro na porta, a venda avulsa e a correção do endereço,
+       todos com o GPS carimbado no toque (a folha da rua). */
+    registrar:'Registrar', fechar:'Fechamento',
     chegouTitulo:'Você chegou', chegouEndereco:'R. São Judas, 142',
     chegouPrecisao:'GPS ±6 m, você está na porta',
     /* `chegouFaltamVerbo` é COPY com CONCORDÂNCIA: "faltam 5 paradas" mas
@@ -1631,6 +1639,19 @@ function telaGps(chegou){
         ${num(g.chegada,g.chegadaRotulo,1,'chegada')}
         ${num(g.restante,g.restanteRotulo,0,'restante')}
         ${num(g.distancia,g.distanciaRotulo,0,'distancia')}
+      </div>
+      <!-- 🔴 OS NUMEROS SUBIRAM E A LINHA DE BAIXO VIROU DAS ACOES (10/08,
+           ordem do dono: "abaixo de chegada, restante e distancia crie os
+           botoes, 3 opcoes"). O "Sair" estava espremido ao lado de tres
+           numeros que ele nao tem nada a ver: numero se LE, botao se APERTA,
+           e misturar os dois na mesma fila deixa o polegar decidindo entre
+           coisas de natureza diferente. Agora a barra tem duas leituras: em
+           cima o CONTRATO da viagem, embaixo o que da pra FAZER.
+           O Sair fica na DIREITA, no mesmo canto do polegar de sempre — a
+           tela mudou, o gesto que ele ja tem na memoria nao. -->
+      <div class="linha acoes">
+        <button class="atalho" data-acao="registrar-local">${ic('gps',16)}<b>${g.registrar||''}</b></button>
+        <button class="atalho" data-ir="fechamento">${ic('note',16)}<b>${g.fechar||''}</b></button>
         <button class="sair" data-ir="rota">${g.encerrar||''}</button>
       </div>
     </div>
@@ -3938,7 +3959,7 @@ function portao(chave){
     <h3>${p.titulo}</h3>${p.sub?`<span class="sub">${p.sub}</span>`:''}
     ${p.corpo?`<div class="corpo">${p.corpo}</div>`:''}
     <div class="acoes ${p.classe||(p.acoes.length===2?'duas':'')}">
-      ${p.acoes.map(([t,c,marcado])=>{
+      ${p.acoes.map(([t,c,marcado,acaoPropria])=>{
         // ESCAPE ≠ AÇÃO. "Agora não", "Cancelar", "Fechar" são escapes: saem sem
         // resolver. O botão principal fecha porque RESOLVE. Portão obrigatório
         // não tem escape — sobra só a ação, e é isso que o prende ali.
@@ -3949,7 +3970,14 @@ function portao(chave){
            dá um `data-acao` ao botão principal: o portão fecha (o `data-fechar`
            continua) e a ação corre por cima. Sem isto o "sim" era botão morto —
            a mesma doença do sino que não abria nada. */
-        const acao = (c==='principal'&&p.acaoPrincipal) ? ` data-acao="${p.acaoPrincipal}"` : '';
+        /* 🔴 E QUANDO O PORTÃO É UMA ESCOLHA, CADA BOTÃO TEM O SEU DESTINO
+           (10/08). O `acaoPrincipal` resolve o portão que PERGUNTA (um sim, um
+           não); não resolve o que OFERECE — "Registrar local" abre três portas
+           e nenhuma delas é "a principal". O 4º campo da ação dá `data-acao`
+           a QUALQUER botão. É aditivo: quem passa três campos (todos os
+           portões de antes) continua byte a byte igual. */
+        const acao = acaoPropria ? ` data-acao="${acaoPropria}"`
+          : ((c==='principal'&&p.acaoPrincipal) ? ` data-acao="${p.acaoPrincipal}"` : '');
         return `<button class="${c}" data-fechar="1"${escape?' data-escape="1"':''}${acao}>${t}</button>`;
       }).join('')}
     </div></div>`;

@@ -86,7 +86,19 @@ const PONTE = ({ hoje, entregas, routeStatus, raioChegadaM, financeiro }) => {
       }
       if (caminho.indexOf('/credits/me') === 0) return R({ saldo: 9340 });
       if (caminho.indexOf('/logistica/agenda') === 0) return R({ dias: [] });
+      /* A ficha do cliente: o `abrirCliente` pede o detalhe por id. Dublê que
+         responde vazio deixaria a tela abrir em branco e a prova mediria o
+         MEU buraco em vez do app. */
+      const mCli = /^\/nucleo\/clientes\/([^/?]+)/.exec(caminho);
+      if (mCli) {
+        const dono = S.entregas.map((e) => e.cliente).find((c) => c && c.id === mCli[1]);
+        return R(dono ? {
+          id: dono.id, name: dono.nome, isCliente: true,
+          endereco: dono.endereco, cidade: dono.cidade, lat: dono.lat, lng: dono.lng,
+        } : {});
+      }
       if (caminho.indexOf('/nucleo/clientes') === 0) return R({ items: [] });
+      if (caminho.indexOf('/logistica/cliente-produtos') === 0) return R({ items: [] });
 
       // o desfecho: fecha a entrega no servidor dublado (o corpo já foi guardado)
       const mConf = /^\/logistica\/entregas\/([^/]+)\/confirmar/.exec(caminho);
@@ -330,6 +342,92 @@ const SO_MEDIR = process.argv.includes('--antes');
   await p.waitForTimeout(500);
   const erros = await p.evaluate(() => window.__erros);
   eh('F3.6 · chegada de parada fantasma nao quebra o app', erros.length === 0, erros.join(' | '));
+
+  /* ===================================================================
+     F4 - A BARRA DA NAVEGACAO: numeros em cima, acoes embaixo
+     Ordem do dono (10/08). O "Registrar" e a porta da RUA: os tres casos
+     que o geofence nao alcanca - cliente fora do dia, cliente que nao
+     existe no cadastro, e a porta com PINO ERRADO (essa o raio nunca
+     acha, porque ele e medido a partir do pino torto).
+     =================================================================== */
+  await cena({ entregas: [P1, P2], routeStatus: 'ACTIVE' });
+  await irPara('mapa', 1200);
+  /* Os numeros da viagem saem do OSRM, que aqui nao existe - e pela Lei do IF
+     slot sem fonte SOME da tela. Injetar pelo seam e o unico jeito honesto de
+     medir ONDE eles ficam: sem isto a assercao passaria verde numa barra que
+     nao tem numero nenhum. */
+  await p.evaluate(() => window.usarDados('gps', {
+    chegada: '05:08', chegadaRotulo: 'chegada',
+    restante: '2 h 10', restanteRotulo: 'restante',
+    distancia: '73,5 km', distanciaRotulo: 'distancia',
+  }));
+  await p.waitForTimeout(500);
+  const barra = await p.evaluate(() => ({
+    atalhos: [...document.querySelectorAll('.gps-rodape .acoes button')].map((e) => (e.textContent || '').trim()),
+    numerosForaDasAcoes: document.querySelectorAll('.gps-rodape .linha:not(.acoes) .n').length,
+    numerosDentroDasAcoes: document.querySelectorAll('.gps-rodape .acoes .n').length,
+    sairNaDireita: (() => {
+      const l = [...document.querySelectorAll('.gps-rodape .acoes button')];
+      return l.length ? l[l.length - 1].classList.contains('sair') : false;
+    })(),
+    mortos: [...document.querySelectorAll('.gps-rodape .acoes button')]
+      .filter((e) => !e.dataset.acao && !e.dataset.ir).length,
+  }));
+  nota(`[F4] barra: ${JSON.stringify(barra.atalhos)} - numeros fora das acoes=${barra.numerosForaDasAcoes}`);
+  eh('F4.1 . a linha de baixo tem as TRES opcoes', barra.atalhos.length === 3, JSON.stringify(barra.atalhos));
+  eh('F4.2 . os numeros ficam na linha de CIMA (numero se le, botao se aperta)',
+    barra.numerosForaDasAcoes === 3 && barra.numerosDentroDasAcoes === 0,
+    `fora=${barra.numerosForaDasAcoes} dentro=${barra.numerosDentroDasAcoes}`);
+  eh('F4.3 . o Sair continua no canto do polegar (direita)', barra.sairNaDireita);
+  // A LEI DO ARQUIVO: botao desenhado sem gancho e pior que botao ausente.
+  eh('F4.4 . nenhum dos tres e botao MORTO', barra.mortos === 0, `mortos=${barra.mortos}`);
+
+  await p.evaluate(() => document.querySelector('[data-acao="registrar-local"]').click());
+  await p.waitForTimeout(700);
+  const port = await p.evaluate(() => ({
+    titulo: (document.querySelector('.portao h3') || {}).textContent || '',
+    sub: (document.querySelector('.portao .sub, .portao p') || {}).textContent || '',
+    botoes: [...document.querySelectorAll('.portao .acoes button')].map((e) => [(e.textContent || '').trim(), e.dataset.acao || '']),
+  }));
+  nota(`[F4] portao: "${port.titulo}" - sub="${port.sub}" - ${JSON.stringify(port.botoes)}`);
+  eh('F4.5 . o Registrar abre a escolha', /Registrar este local/i.test(port.titulo), port.titulo);
+  eh('F4.6 . a precisao do GPS aparece (registro sem local nao promete nada)',
+    /GPS/i.test(port.sub), port.sub);
+  eh('F4.7 . a escolha oferece as tres saidas com acao PROPRIA',
+    port.botoes.filter((b) => b[1]).length === 3, JSON.stringify(port.botoes));
+  eh('F4.8 . a saida de corrigir diz o NOME da porta da vez',
+    port.botoes.some((b) => /Gislaine/.test(b[0])), JSON.stringify(port.botoes.map((b) => b[0])));
+
+  await p.evaluate(() => document.querySelector('[data-acao="registrar-cadastrar"]').click());
+  await p.waitForTimeout(1400);
+  const t7 = await espiar();
+  nota(`[F4] cadastrar -> tela=${t7.tela}`);
+  eh('F4.9 . "Cadastrar cliente novo" cai no cadastro de verdade', t7.tela === 'novocliente', `tela=${t7.tela}`);
+
+  await cena({ entregas: [P1, P2], routeStatus: 'ACTIVE' });
+  await irPara('mapa', 1200);
+  await p.evaluate(() => document.querySelector('[data-acao="registrar-local"]').click());
+  await p.waitForTimeout(600);
+  await p.evaluate(() => document.querySelector('[data-acao="registrar-corrigir"]').click());
+  await p.waitForTimeout(1600);
+  const t8 = await espiar();
+  /* O nome mora no CAMPO do formulario, nao no texto solto da tela: a ficha e
+     um editor, e e o valor do input que prova que abriu no cliente certo. */
+  const nomeNaFicha = await p.evaluate(() => {
+    const c = document.querySelector('[data-campo="nome"]');
+    return c ? String(c.value || '') : '';
+  });
+  nota(`[F4] corrigir -> tela=${t8.tela} - nome no campo="${nomeNaFicha}"`);
+  eh('F4.10 . "Corrigir" abre a FICHA do cliente da porta',
+    t8.tela === 'ficha' && /Gislaine/.test(nomeNaFicha), `tela=${t8.tela} nome=${nomeNaFicha}`);
+
+  await cena({ entregas: [P1, P2], routeStatus: 'ACTIVE' });
+  await irPara('mapa', 1200);
+  await p.evaluate(() => document.querySelector('.gps-rodape .acoes [data-ir="fechamento"]').click());
+  await p.waitForTimeout(1000);
+  const t9 = await espiar();
+  nota(`[F4] fechamento -> tela=${t9.tela}`);
+  eh('F4.11 . o botao do meio abre o Fechamento que ja existe', t9.tela === 'fechamento', `tela=${t9.tela}`);
 
   await b.close();
   console.log('\n=== MEDIDAS ===');

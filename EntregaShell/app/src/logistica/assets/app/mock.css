@@ -1625,6 +1625,16 @@ button,input{font:inherit;color:inherit}
 .gps-rodape .n.destaque b{color:var(--lime)}
 .gps-rodape .sair{height:42px;padding:0 15px;border-radius:12px;border:.7px solid var(--red-line-2);background:var(--red-bg);
   color:#ff8b85;font-size:13.5px;cursor:pointer}
+/* A LINHA DAS AÇÕES (10/08). Os números ficam na linha de cima; aqui embaixo
+   só o que se aperta. Os dois atalhos dividem o espaço por igual e o Sair
+   mantém a largura do texto dele — ele não é "mais um atalho", é a saída, e
+   continua com a cara vermelha que já tinha. */
+.gps-rodape .linha.acoes{margin-top:9px;gap:8px}
+.gps-rodape .atalho{flex:1;min-width:0;height:42px;display:flex;align-items:center;justify-content:center;gap:7px;
+  border-radius:12px;border:.7px solid var(--line-2);background:var(--card);color:var(--ink);
+  font-size:13.5px;cursor:pointer;padding:0 10px}
+.gps-rodape .atalho b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gps-rodape .atalho svg{flex:none;color:var(--ink-2)}
 
 /* ==========================================================================
    AS EMPRESAS DO CORREDOR — o prospector desenhado na tela de navegação.
