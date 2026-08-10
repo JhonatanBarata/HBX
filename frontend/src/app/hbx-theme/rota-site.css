@@ -111,7 +111,20 @@
 .rt-planos strong { font-size: var(--fz-n3); font-weight: var(--weight-extrabold); }
 .rt-planos span { color: var(--f1-text); font-size: var(--fz-t8); font-weight: var(--weight-extrabold); white-space: nowrap; }
 .rt-planos span small { color: var(--f1-text-soft); font-size: var(--fz-m1); font-weight: var(--weight-semibold); }
-.rt-planos em { overflow: hidden; color: var(--f1-text-soft); font-size: var(--fz-m1); font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+/* ROTA v2 (10/08): "Paradas ilimitadas · N motorista(s) incluso(s)" é mais
+   longo que a antiga "N paradas" — nowrap cortaria "motoristas inclusos",
+   exatamente o dado novo. Quebra em até 2 linhas (Lei do texto que não cabe,
+   nº2 — texto corrido com contexto) em vez de truncar o valor que decide. */
+.rt-planos em { color: var(--f1-text-soft); font-size: var(--fz-m1); font-style: normal; line-height: 1.25; white-space: normal; }
+
+/* ROTA v2 (10/08) — berço da "Rota Avulsa" (nível CREDITO): linha curta abaixo
+   dos 3 planos, mesma régua tipográfica do link de baixar o app. */
+.rt-planos__avulso {
+  margin: var(--space-1) 0 0;
+  color: var(--f1-text-soft);
+  font-size: var(--fz-m1);
+  font-weight: var(--weight-semibold);
+}
 
 .rt-demo {
   display: grid;
@@ -202,7 +215,6 @@
   .rt-planos { width: 100%; grid-template-columns: 1fr; }
   .rt-planos button { grid-template-columns: 1fr auto; align-items: center; }
   .rt-planos span { grid-row: 1 / 3; grid-column: 2; }
-  .rt-planos em { white-space: normal; }
   .rt-demo__nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

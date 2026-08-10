@@ -18,16 +18,28 @@ interface NivelPublico {
   nivel: NivelKey;
   titulo: string;
   precoMensal: number;
-  franquiaParadasMes: number;
+  // ROTA v2 (10/08) — franquia de paradas morreu, rota virou ILIMITADA; o que
+  // diferencia os planos agora é o Nº de motoristas incluso.
+  assentosInclusos: number;
 }
 
 const ORDEM: NivelKey[] = ["BASIC", "ADVANCED", "FULL"];
 
+// Mesma verdade comercial do backend (paridade com FALLBACK de janela-creditos):
+// Basic 1 / Advanced 2 / Full 3 motoristas, rota sempre ilimitada. Fallback só
+// aparece com a API fora — não é o mock, é o preço real congelado no build.
 const FALLBACK: Record<NivelKey, NivelPublico> = {
-  BASIC: { nivel: "BASIC", titulo: "Rota Basic", precoMensal: 99, franquiaParadasMes: 300 },
-  ADVANCED: { nivel: "ADVANCED", titulo: "Rota Advanced", precoMensal: 199, franquiaParadasMes: 600 },
-  FULL: { nivel: "FULL", titulo: "Rota Full", precoMensal: 299, franquiaParadasMes: 1000 },
+  BASIC: { nivel: "BASIC", titulo: "Rota Basic", precoMensal: 99, assentosInclusos: 1 },
+  ADVANCED: { nivel: "ADVANCED", titulo: "Rota Advanced", precoMensal: 199, assentosInclusos: 2 },
+  FULL: { nivel: "FULL", titulo: "Rota Full", precoMensal: 299, assentosInclusos: 3 },
 };
+
+// "Rota Avulsa" (nível CREDITO) — sem plano, cobra por dia de rota rodado.
+const FALLBACK_DIA_AVULSO_CREDITOS = 6;
+
+function motoristasTexto(n: number): string {
+  return `${n} motorista${n === 1 ? "" : "s"} incluso${n === 1 ? "" : "s"}`;
+}
 
 const NIVEL_LABEL: Record<NivelKey, string> = {
   BASIC: "Basic",
@@ -69,23 +81,31 @@ function moeda(valor: number): string {
 export function RotaSiteClient() {
   const [niveis, setNiveis] = useState<Record<NivelKey, NivelPublico>>(FALLBACK);
   const [nivel, setNivel] = useState<NivelKey>("ADVANCED");
+  const [diaAvulsoCreditos, setDiaAvulsoCreditos] = useState<number>(FALLBACK_DIA_AVULSO_CREDITOS);
   const [demo, setDemo] = useState<LogisticaRealScreen>("prospector");
   const [themeMode, setThemeModeState] = useState<"dark" | "light">("light");
 
   useEffect(() => {
     let vivo = true;
-    void apiFetch<{ niveis?: NivelPublico[] }>("/public/logistica/planos")
+    void apiFetch<{ niveis?: NivelPublico[]; diaDeRotaCreditos?: number }>("/public/logistica/planos")
       .then((res) => {
+        if (!vivo) return;
         const recebidos = res?.niveis;
-        if (!vivo || !Array.isArray(recebidos)) return;
-        setNiveis((atual) => {
-          const proximo = { ...atual };
-          for (const item of recebidos) {
-            if (item?.nivel !== "BASIC" && item?.nivel !== "ADVANCED" && item?.nivel !== "FULL") continue;
-            proximo[item.nivel] = { ...atual[item.nivel], ...item };
-          }
-          return proximo;
-        });
+        if (Array.isArray(recebidos)) {
+          setNiveis((atual) => {
+            const proximo = { ...atual };
+            for (const item of recebidos) {
+              if (item?.nivel !== "BASIC" && item?.nivel !== "ADVANCED" && item?.nivel !== "FULL") continue;
+              // campo ausente (backend em rollout) preserva o valor local em vez
+              // de virar `undefined` — {...item} só sobrescreve o que veio.
+              proximo[item.nivel] = { ...atual[item.nivel], ...item };
+            }
+            return proximo;
+          });
+        }
+        if (typeof res?.diaDeRotaCreditos === "number" && res.diaDeRotaCreditos > 0) {
+          setDiaAvulsoCreditos(res.diaDeRotaCreditos);
+        }
       })
       .catch(() => { /* O catálogo local mantém os preços visíveis sem a API. */ });
     return () => { vivo = false; };
@@ -153,11 +173,12 @@ export function RotaSiteClient() {
                 >
                   <strong>{NIVEL_LABEL[chave]}</strong>
                   <span>R$ {moeda(plano.precoMensal)}<small>/mês</small></span>
-                  <em>{plano.franquiaParadasMes.toLocaleString("pt-BR")} paradas</em>
+                  <em>Paradas ilimitadas · {motoristasTexto(plano.assentosInclusos)}</em>
                 </button>
               );
             })}
           </div>
+          <p className="rt-planos__avulso">Sem plano: {diaAvulsoCreditos} créditos por dia de rota · 1 motorista</p>
         </div>
 
         <div className="rt-demo">
