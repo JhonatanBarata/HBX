@@ -1198,18 +1198,32 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
      Só no vazio LIMPO: com aviso (GPS, pausa, sem sinal) o estado é OUTRO e ele
      é que manda na barra — duas explicações empilhadas seria a barra falando
      por cima de si mesma. */
-  const vazioNoMapa = !temRota && !aviso && e!=='carregando' && !PARADAS.length;
+  const abertas = paradasAbertasNaTela();
+  const vazioNoMapa = !temRota && !aviso && e!=='carregando' && !abertas;
+  /* 🔴 O DIA QUE EXISTE APARECE (dono, 10/08: *"rota que se auto cria e eu não
+     vejo ela criada"*). Company 41 tinha 51 paradas agendadas esperando e esta
+     barra dizia "Sem paradas hoje" do mesmo jeito, porque `conta` só nasce com
+     `temRota` (a lei duas telas acima) — o dia por montar caía direto no
+     `vazioTitulo` mesmo com o servidor cheio. A régua que separa os dois
+     vazios é a mesma de sempre, `paradasAbertasNaTela()`: zero é vazio DE
+     VERDADE (frase intacta, linha de cima); uma ou mais é dia esperando
+     montagem, e ganha a MESMA moldura de duas linhas — mas com "agendadas",
+     nunca "paradas" seco, que pareceria rota pronta e ressuscitaria a mentira
+     que a lei de cima matou. */
+  const diaPorMontar = !temRota && !aviso && e!=='carregando' && !!abertas;
   const fato = e==='carregando'
     ? '<span class="esq" style="height:15px;width:118px;border-radius:8px"></span>'
     : vazioNoMapa
       ? `<span class="txt"><span><b>${d.vazioTitulo}</b></span><em>${d.vazioDica}</em></span>`
-      : `<span>${(PARADAS.length||aviso)&&conta?conta:`<b>${d.vazioTitulo}</b>`}</span>`;
+      : diaPorMontar
+        ? `<span class="txt"><span><b>${abertas} paradas agendadas</b></span><em>${d.vazioDica}</em></span>`
+        : `<span>${(PARADAS.length||aviso)&&conta?conta:`<b>${d.vazioTitulo}</b>`}</span>`;
 
   return `${status}${hdr({})}
 <div class="body flush" style="overflow:hidden;padding:0">
   <div class="plano${dock?' com-dock':''}">
     ${mapa()}
-    <div class="plano-bar${aviso&&aviso[2]?' '+aviso[2]:''}${vazioNoMapa?' estado':''}">
+    <div class="plano-bar${aviso&&aviso[2]?' '+aviso[2]:''}${(vazioNoMapa||diaPorMontar)?' estado':''}">
       ${aviso&&aviso[3]
         ? `<button class="f" data-acao="${aviso[3]}">${ic(aviso[0],16)}${fato}</button>`
         : `<span class="f">${ic(aviso?aviso[0]:'route',16)}${fato}</span>`}
