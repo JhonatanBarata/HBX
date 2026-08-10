@@ -1,0 +1,148 @@
+# PR10082026 — A CHEGADA AUTOMÁTICA VOLTA (religar, não construir)
+
+**Status: aguardando GO.**
+
+## A cena (o critério de aceite)
+
+> O André inicia a rota e dirige. Ao entrar no raio da porta do cliente, o celular
+> apita e **a folha de venda abre sozinha** com o nome, o que entregar e quanto cobrar
+> — mesmo com o app em segundo plano (aí vem notificação + alarme, e o toque abre a
+> folha). Ele confirma como sempre; **o endereço do cliente se corrige sozinho** a
+> cada entrega confirmada na porta. No fim do dia, o **Fechamento** bate o caixa —
+> como hoje, sem tela nova.
+
+Era assim que o app velho trabalhava. A fusão de 07/08 (`8a491ffe`) matou os
+CHAMADORES e deixou o motor nativo inteiro — é o padrão conhecido de
+`o-padrao-da-fusao` (capacidade viva, fio cortado).
+
+## O que já existe e NÃO se toca
+
+| Peça | Onde | Estado |
+|---|---|---|
+| Serviço de GPS + geofence + som + notificação + tela de alarme | `RotaService.kt`, `ChegadaActivity.kt`, `RotaState.kt` | vivo, intacto |
+| Porta de entrada `H.activateRoute` / `H.stopRoute` | `native.js:440-441` → `HBXShellBridge.setRota/clearRota` | exposta, sem chamador |
+| Pedido de permissão (localização + notificação, com explicação) | `MainActivity.solicitarAtivacaoRota` | vivo — roda sozinho no 1º `activateRoute` |
+| Evento `hbx:arrival` quando chega | `MainActivity.entregarChegada:641` | disparado pra um ouvinte que não existe |
+| Correção do pino no servidor (`gps_entrega`, teto 60 m) | `logistica.service.ts` `realimentarCoordenadaPorta` | vivo — mas nunca recebe `accuracy` |
+| Folha de venda / folha completa | telas `venda`/`folha` do mock, `abrirParada()` em `ponte.js` | vivas — hoje só abrem no TOQUE |
+| Fechamento do dia | tela `fechamento` | vivo — não muda NADA |
+
+**Kotlin: zero mudança. Mock: zero mudança. Backend: zero mudança.**
+Todo o trabalho é em `EntregaShell/app/src/logistica/assets/app/ponte.js`.
+
+## O modo Fechamento — como entra nisso
+
+Ele **já é** o destino do dinheiro. A chegada automática só troca o *gatilho* de
+abrir a folha (toque → raio); o resto do rio é o de hoje:
+
+```
+chegou no raio → folha de VENDA abre (a mesma do toque)
+→ confirma (pix/dinheiro/cartão/fiado) → soma no resumo do dia
+→ fim do dia: tela FECHAMENTO bate o caixa (intocada)
+```
+
+Nenhuma tela nasce, nenhuma morre. O toque manual continua funcionando igual —
+a chegada é um segundo caminho pra MESMA porta (`abrirParada`).
+
+## F1 — A precisão viaja no confirmar (o maior retorno, a menor mudança)
+
+**Defeito:** `confirmarEntrega` manda `lat/lng` sem `accuracy` (`ponte.js:10033`).
+O servidor exige `accuracy <= 60` (`gpsDeOuro`) pra aceitar a coordenada — sem o
+campo, **nenhuma entrega corrige endereço nenhum** desde a fusão. Na 41: só 10
+pinos `gps_entrega`, o último de 05/08 (medido no VPS hoje).
+
+**Cura:** onde vai `corpo.lat/lng`, vai junto `accuracy: ultimoFix.precisaoM`
+(quando finito). O `ultimoFix` já guarda a precisão desde 07/08 — ela morre a um
+passo do corpo.
+
+- Só no `confirmar` (é ele que realimenta; o `cancelar` não corrige pino).
+- Fila offline: `logistica-offline.service.ts` repassa por LISTA BRANCA — conferir
+  que `accuracy` está na lista; se não estiver, é 1 linha ADITIVA no backend (a
+  única exceção ao "backend zero" deste plano, e só se a medição mandar).
+
+## F2 — Religar o geofence (o sync mora no `carregarRota`)
+
+**Um ponto só de sincronização**, dentro do `carregarRota` — ele já roda no boot,
+em todo toque, em todo desfecho e na virada do dia. Fonte única, sempre verdade:
+
+- `estadoRota` **rodando/pausada** e há pendente com pino →
+  `H.activateRoute({ raioM, paradas, routeId, mode, trackingSessionId })`
+  - `paradas` = pendentes com `pinoValido` (id, nome, lat, lng) — a régua de pino
+    que o app já usa (`pinoDa`)
+  - `raioM` = `config.raioChegadaM` (o `config` já vive na ponte via
+    `carregarBarra`; ausente → 60; o Kotlin clampa 20–1000)
+  - `routeId`/`trackingSessionId` = do payload do `GET /logistica/rota` (já vêm);
+    `mode` = `trackingRequired ? 'TRACKED' : 'ESSENTIAL'` — a MESMA régua do app
+    velho; TRACKED sem routeId o Kotlin rebaixa sozinho pra ESSENTIAL
+- Qualquer outro estado → `H.stopRoute()` (mata o serviço; rota encerrada no
+  desktop não pode deixar GPS ligado no bolso — o `requestStop` do Kotlin tem
+  debounce, rajada não pisca)
+
+**Ordem no Iniciar:** o `activateRoute` acontece via `carregarRota` que roda ANTES
+do `ir('mapa')` no fim do `iniciarRota` — o diálogo nativo de permissão
+(localização + notificação) resolve primeiro, e o `armarGps` do WebView encontra a
+permissão já na mão. Um pedido só, na hora certa.
+
+**Desfecho re-sincroniza de graça:** confirmar/não-entregue já chamam
+`carregarRota` → a parada fechada sai dos alvos sozinha. O dedupe de disparo é do
+`RotaState` (`disparados`), não nosso — reabrir parada não re-apita, por desenho.
+
+## F3 — O ouvinte do `hbx:arrival` (a folha abre sozinha)
+
+```js
+document.addEventListener('hbx:arrival', (ev) => { ... });
+```
+
+- Acha a entrega em `ENTREGAS` pelo `deliveryId`. Não achou, ou status já
+  fechado → **ignora calado** (chegada atrasada de parada morta).
+- Já tem folha aberta (`aberta != null`) → ignora — nunca roubar a tela no meio
+  de outra venda; o alvo continua nos `disparados` do nativo e a notificação fica.
+- Rota não está na rua → ignora.
+- Passou pelos portões → `abrirParada(id)`: é a MESMA função do toque — carimba a
+  chegada (`arrivedAt`), escolhe venda × folha pela config e navega. Zero caminho
+  novo de dinheiro.
+- **Sem `H.speak` no JS**: o `RotaService.falar()` já diz "Chegou: Fulano" — duas
+  vozes é eco (armadilha documentada dos sons do Iniciar).
+
+## O que NÃO entra (de propósito)
+
+- **Aviso WhatsApp "estou chegando" da 41** — desligado pelo dono em 04/08
+  (decisão registrada). O anel de 500 m (`anelDeChegada`) já obedece a chave;
+  nada a fazer.
+- **Raio da 41 = 20 m** — knob do dono no desktop (`raioChegadaM`). Com GPS de
+  celular, 20 m quase não dispara; **recomendo 60**. Ele muda sozinho no /logistica,
+  não é código.
+- **Telas novas / Kotlin / endpoints** — nada.
+
+## Riscos e freios
+
+| Risco | Freio |
+|---|---|
+| Folha abrindo em cima de venda em andamento | portão `aberta != null` (F3) |
+| GPS ligado pra sempre com rota fechada | `H.stopRoute()` no ramo "não rodando" do sync (F2) |
+| Voz dupla na chegada | JS não fala; só o nativo (F3) |
+| Rota de 97 paradas | teto nativo `MAX_STOPS = 100` — cabe; acima disso o corte é do Kotlin |
+| `routeActivated()` do Kotlin gritando pra ninguém | sem ouvinte JS = no-op seguro (era fonte de som duplo no app velho — NÃO criar ouvinte) |
+| Chegada com app fechado | já resolvido pelo nativo (notificação + `ChegadaActivity`); o `hbx:arrival` chega quando o app volta à frente |
+
+## Provas (portões antes do publish)
+
+1. **Bancada (Playwright, padrão `casca-conferir`):** stub de `window.HBX` conta
+   chamadas — rota rodando → 1 `activateRoute` com os pendentes certos; desfecho →
+   alvos encolhem; rota encerrada → `stopRoute`; `dispatchEvent('hbx:arrival')` →
+   tela vira `venda` do cliente certo, 1 vez; com folha aberta → nada.
+2. **g15, build real:** parada de teste com pino NO MEU local (company 39/bancada)
+   → Iniciar → diálogo de permissão → parado dentro do raio, o alarme toca e a
+   folha abre sem toque. Confirmar → conferir no banco `geoFonte='gps_entrega'`
+   com o accuracy chegando.
+3. **Regressão:** toque manual continua abrindo folha; Fechamento intocado
+   (mesmos números antes/depois); `cd Webwhats`-style não se aplica — gates são
+   typecheck do repo + provas acima.
+
+## Fases e entrega
+
+- F1 → F2 → F3, **um commit por fase**, prova antes do seguinte (menor caminho
+  até resultado visível).
+- Publish sobe o piso do APK sozinho (ponte.js entra na digital) — motoristas
+  recebem pelo aviso. Depois do publish: prova no g15 NO BUILD PUBLICADO (§1 do
+  hbxapk).
