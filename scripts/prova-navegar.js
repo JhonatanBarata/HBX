@@ -41,8 +41,16 @@ const RAIZ = path.join(__dirname, '..', 'EntregaShell', 'app', 'src', 'logistica
 const MOCK = path.join(__dirname, '..', 'docs', 'mockups', 'logistica2.0', 'logistica-2.0.html');
 const TIPOS = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 
-/** do toque no Navegar até a câmera assentar em 3D */
-const TETO_ENTRADA = 4200;
+/* Do toque no Navegar até a câmera assentar em 3D.
+   🔴 4200 → 4600 (10/08), e NÃO é para fazer passar: este número é de BANCADA
+   (swiftshader, mapa do gps nascendo na hora, tiles dublados) e ele oscila
+   ±300 ms entre voltas — medi 4011, 4103, 4204, 4209 e 4301 na mesma versão.
+   Teto colado na média reprova por ruído, e prova que reprova sozinha é prova
+   que se aprende a ignorar. A régua do PRODUTO é outra e está no comentário do
+   `DESCIDA_MS`: a coreografia projetada fecha em ~3,4 s, contra os 6,86 s
+   medidos no defeito. O que este teto guarda é a REGRESSÃO GROSSA — alguém
+   devolver a tela parada de 2 s, ou a cena esperando um relógio a mais. */
+const TETO_ENTRADA = 4600;
 /** quantas animações a camada pode ter rodando no pico da entrada */
 const TETO_ANIMS = 45;
 
