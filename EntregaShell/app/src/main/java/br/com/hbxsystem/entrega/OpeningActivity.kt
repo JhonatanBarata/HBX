@@ -313,7 +313,33 @@ class OpeningActivity : AppCompatActivity() {
         )
         finish()
         @Suppress("DEPRECATION")
-        overridePendingTransition(R.anim.hbx_handoff_enter, R.anim.hbx_handoff_exit)
+        // ----------------------------------------------------------------------
+        // 🔴 A ABERTURA NATIVA ERA ESTA ANIMAÇÃO (10/08, medida no g15).
+        //
+        // `hbx_handoff_enter` segura a tela que ENTRA em alpha 0 por 1.450 ms e
+        // só então acende em 180 ms; `hbx_handoff_exit` mantém esta aqui opaca
+        // pelos 1.630 ms inteiros. Isso nasceu na V1, e fazia sentido lá: a cena
+        // desta Activity (o logo nativo viajando + o `opening.html`) continuava
+        // TOCANDO enquanto a MainActivity acordava o Chromium atrás. A cortina
+        // tinha o que mostrar.
+        //
+        // Sob V2 esta Activity é um retângulo LISO — o show saiu daqui em 07/08.
+        // Então a animação segurava 1,63 s de tela PARADA. Medido por
+        // screenrecord a 10 quadros/s: do sumiço da lista de apps até o "HB"
+        // nascer eram 2,2 s com o pixel médio IDÊNTICO quadro a quadro
+        // (rgb 4,7,17), e o app aparecia num salto de um quadro só, exatamente no
+        // fim desta animação — quem mandava na hora de aparecer era ELA, não o
+        // app ficar pronto.
+        //
+        // Sem cena pra segurar, a entrega é instantânea. Os dois lados da emenda
+        // são a MESMA tinta (`#050713`: o windowBackground do tema, o fundo daqui
+        // e — sob V2 — o da MainActivity), então o olho não vê corte nenhum.
+        // ----------------------------------------------------------------------
+        if (BuildConfig.HBX_V2) {
+            overridePendingTransition(0, 0)
+        } else {
+            overridePendingTransition(R.anim.hbx_handoff_enter, R.anim.hbx_handoff_exit)
+        }
     }
 
     private fun transitionToPairing(message: String?) {

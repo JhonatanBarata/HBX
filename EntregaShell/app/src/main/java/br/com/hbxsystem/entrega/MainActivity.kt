@@ -52,6 +52,11 @@ class MainActivity : AppCompatActivity() {
         private const val LOCAL_ENTRY = "$LOCAL_ORIGIN/assets/app/index.html"
         private const val TRACKING_DISCLOSURE_PREFS = "hbx_tracking_disclosure"
         private const val TRACKING_DISCLOSURE_V1 = "accepted_v1"
+        /** Fundo da casca depois que o app aparece (a tinta de sempre). */
+        private const val COR_CASCA = "#0B1020"
+        /** A tinta da ESPERA — a mesma do `windowBackground` do tema e da
+         *  OpeningActivity. Enquanto o app não acendeu, os três são um só fundo. */
+        private const val COR_ABERTURA = "#050713"
     }
 
     private lateinit var webView: WebView
@@ -131,7 +136,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        mainHandoffVisibleAt = SystemClock.uptimeMillis() + 1_630L
+        // Sob V2 a entrega da OpeningActivity é INSTANTÂNEA (ver o corte da
+        // abertura nativa lá, em `launchMain`): esta janela de 1,63 s não existe
+        // mais, e deixar o número cravado faria a coreografia da V1 mirar num
+        // instante que já passou.
+        mainHandoffVisibleAt = SystemClock.uptimeMillis() + if (BuildConfig.HBX_V2) 0L else 1_630L
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
 
         val assetLoader = WebViewAssetLoader.Builder()
@@ -257,13 +266,20 @@ class MainActivity : AppCompatActivity() {
         )
         webView.addJavascriptInterface(nativeBridge, "HBXAndroid")
 
+        // 🔴 A COR DA EMENDA. Sob V2 esta tela nasce JÁ VISÍVEL (a cortina de
+        // 1,63 s da OpeningActivity foi cortada), então o fundo dela precisa ser
+        // o MESMO da Activity que acabou de sair: `#0B1020` aqui acenderia um
+        // degrau de cor no exato quadro da troca — um pisca onde antes não havia
+        // emenda nenhuma pra ver. Volta a ser `#0B1020` no fim da revelação
+        // (`performReadyReveal`), com a casca do app já por cima.
+        val corDaEspera = if (BuildConfig.HBX_V2) COR_ABERTURA else COR_CASCA
         val appHost = FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#0B1020"))
+            setBackgroundColor(Color.parseColor(corDaEspera))
             addView(webView, FrameLayout.LayoutParams(-1, -1))
         }
         this.appHost = appHost
         root = FrameLayout(this).apply {
-            setBackgroundColor(Color.parseColor("#0B1020"))
+            setBackgroundColor(Color.parseColor(corDaEspera))
             addView(appHost, FrameLayout.LayoutParams(-1, -1))
         }
         ViewCompat.setOnApplyWindowInsetsListener(appHost) { view, insets ->
@@ -439,8 +455,8 @@ class MainActivity : AppCompatActivity() {
             "window.HBXOpening&&window.HBXOpening.complete('app','${if (theme == "light") "light" else "dark"}')",
             null,
         )
-        openingHandler.postDelayed({
-            if (isFinishing || isDestroyed) return@postDelayed
+        val abrirCena = Runnable {
+            if (isFinishing || isDestroyed) return@Runnable
             /* 🔴 A CENA DO HBX COMEÇA AQUI, NÃO NO LOAD DA PÁGINA (10/08 — medido
                no g15 com screenrecord a 20 quadros/s: no primeiro quadro em que o
                app aparecia, as hastes do X JÁ estavam voando). O `.splash` do app
@@ -459,6 +475,10 @@ class MainActivity : AppCompatActivity() {
                 .translationX(0f)
                 .setInterpolator(android.view.animation.DecelerateInterpolator(1.7f))
                 .setDuration(920L)
+                // Sob V2 a casca fica com a tinta da ESPERA até aqui (ver `corDaEspera`);
+                // com o app já opaco por cima, ela volta a ser a de sempre. No caminho
+                // da V1 quem faz isso é o fim da cortina, logo abaixo.
+                .withEndAction { if (BuildConfig.HBX_V2) vestirCascaDeSempre() }
                 .start()
             openingWebView?.animate()
                 ?.alpha(0f)
@@ -467,13 +487,25 @@ class MainActivity : AppCompatActivity() {
                 ?.setDuration(760L)
                 ?.withEndAction {
                     val overlay = openingWebView ?: return@withEndAction
-                    root.setBackgroundColor(Color.parseColor("#0B1020"))
+                    root.setBackgroundColor(Color.parseColor(COR_CASCA))
                     (overlay.parent as? FrameLayout)?.removeView(overlay)
                     overlay.destroy()
                     openingWebView = null
                 }
                 ?.start()
-        }, 420L)
+        }
+        // 🔴 OS 420 ms SÃO O TEMPO DO CRUZAMENTO COM A CORTINA — o "HB" sobe
+        // enquanto a marca dela se apaga. Sob V2 não existe cortina nenhuma pra
+        // cruzar (`mountOpeningOverlay` nem é chamado), então isto virava 420 ms
+        // de tela parada antes da cena começar. Some junto com a cortina.
+        if (BuildConfig.HBX_V2) abrirCena.run() else openingHandler.postDelayed(abrirCena, 420L)
+    }
+
+    /** A casca volta à tinta de sempre — ver `corDaEspera` no `onCreate`. */
+    private fun vestirCascaDeSempre() {
+        if (isFinishing || isDestroyed) return
+        root.setBackgroundColor(Color.parseColor(COR_CASCA))
+        appHost?.setBackgroundColor(Color.parseColor(COR_CASCA))
     }
 
     /**

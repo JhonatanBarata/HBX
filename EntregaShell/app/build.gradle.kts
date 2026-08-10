@@ -147,7 +147,15 @@ plugins {
 // 241 → 244 na mesma noite: a cena de saída (o reverso começando pelo mapa)
 // custou mais duas builds no g15 (242 publicada e 243 sideloadada). Piso ACIMA
 // do maior número que existe em qualquer celular — a lei de sempre.
-val hbxLogisticaVersionCodeFloor = 244
+// 244 → 258 em 10/08 — A SEXTA COBRANÇA, paga no mesmo commit. O corte da
+// abertura nativa (o `hbx_handoff` que segurava 1,63 s de tela parada) só se
+// prova COMPARANDO boot com boot no aparelho, e comparar exigiu alternar duas
+// builds RELEASE no g15: 253 (debug de sanidade), 254 e 256 (base, sem o corte),
+// 255 e 257 (com o corte). O publicado era 252. Sem subir o piso, o próximo
+// publish carimbaria 253 — número que o g15 JÁ RODOU — e o aparelho de prova
+// ficaria cego pro aviso de atualização. Piso ACIMA do maior número que existe
+// em qualquer celular: a lei de sempre.
+val hbxLogisticaVersionCodeFloor = 258
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
