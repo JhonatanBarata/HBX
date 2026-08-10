@@ -54,6 +54,7 @@ import { allowsAdminMultiSession, MAX_ADMIN_WEB_SESSIONS } from './session-polic
 import {
   buildProvisioningLedger,
   seedConversasOptOutTx,
+  seedLogisticaConfigTx,
   seedTenantDefaultProductsTx,
   serializeProvisioningLedger,
 } from '../master-provisioning/tenant-provisioning.pipeline';
@@ -682,6 +683,10 @@ export class AuthService implements OnModuleInit {
     // SystemModule.defaultEnabled — e o pedido do dono é "empresa nova nasce
     // OFF". Grava o post-it explícito aqui (ver seedConversasOptOutTx).
     await seedConversasOptOutTx(tx, companyId);
+    // ROTA v2 F2b (10/08) — empresa nova nasce no nível CREDITO (ver
+    // seedLogisticaConfigTx). Cobre as 2 portas self_service (Google + e-mail)
+    // num gesto só, porque as duas chamam este método privado.
+    await seedLogisticaConfigTx(tx, companyId);
   }
 
   private async seedDefaultTenantProductsTx(tx: any, companyId: number) {

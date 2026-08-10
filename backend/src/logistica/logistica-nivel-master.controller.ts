@@ -43,7 +43,15 @@ export class LogisticaNivelMasterController {
   @Put(':nivel')
   async atualizar(
     @Param('nivel') nivel: string,
-    @Body() body: { precoMensal?: number; franquiaParadasMes?: number; titulo?: string; slogan?: string },
+    @Body() body: {
+      precoMensal?: number;
+      franquiaParadasMes?: number;
+      titulo?: string;
+      slogan?: string;
+      // ROTA v2 F2b (10/08) — assentos inclusos do nível (1–999, sanitizado em
+      // sanitizeLogisticaNivelOverride).
+      assentosInclusos?: number;
+    },
   ) {
     const atualizado = await this.service.setOverride(nivel, body || {});
     return { ok: true, nivel: atualizado };

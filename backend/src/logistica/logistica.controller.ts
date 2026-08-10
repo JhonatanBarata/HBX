@@ -1555,7 +1555,7 @@ export class LogisticaController {
     @Param('companyId', ParseIntPipe) companyId: number,
     @Body() dto: SetLogisticaNivelDto,
   ) {
-    return this.config.setNivel(companyId, dto.nivel, req.user);
+    return this.config.setNivel(companyId, dto.nivel, req.user, dto.logisticaAssentos);
   }
 
   /**

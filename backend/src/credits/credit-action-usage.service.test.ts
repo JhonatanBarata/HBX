@@ -106,42 +106,44 @@ test('override do master muda o valor efetivamente debitado', async () => {
     { isEnforceActiveForCompany: async () => true } as any,
   );
 
-  // Sem override: vale o custo do catálogo — 0,4 por PARADA desde 28/07.
+  // Sem override: vale o custo do catálogo — 6 por DIA DE ROTA (ROTA v2, 10/08;
+  // LOGISTICA_ESSENTIAL_BLOCK aposentou e travou nesta mesma onda, ver
+  // credit-action-catalog.test.ts — este teste trocou pro débito que ficou editável).
   const padrao = await service.authorize({
     companyId: 7,
-    actionKey: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
-    refId: 'bloco-1',
+    actionKey: CREDIT_ACTION_KEYS.LOGISTICA_DIA_DE_ROTA,
+    refId: 'dia-1',
   });
-  assert.equal(padrao.charged, 0.4);
+  assert.equal(padrao.charged, 6);
 
-  // Master sobe 0,4 → 2: a carteira PRECISA debitar 2.
-  await config.setOverride(CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK, { mode: 'debit', cost: 2 });
+  // Master sobe 6 → 10: a carteira PRECISA debitar 10.
+  await config.setOverride(CREDIT_ACTION_KEYS.LOGISTICA_DIA_DE_ROTA, { mode: 'debit', cost: 10 });
   const editado = await service.authorize({
     companyId: 7,
-    actionKey: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
-    refId: 'bloco-2',
+    actionKey: CREDIT_ACTION_KEYS.LOGISTICA_DIA_DE_ROTA,
+    refId: 'dia-2',
   });
-  assert.equal(editado.charged, 2);
-  assert.deepEqual(debits, [0.4, 2]);
+  assert.equal(editado.charged, 10);
+  assert.deepEqual(debits, [6, 10]);
 
   // Master desativa (Grátis): para de debitar, sem apagar a ação do catálogo.
-  await config.setOverride(CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK, { mode: 'free', cost: 0 });
+  await config.setOverride(CREDIT_ACTION_KEYS.LOGISTICA_DIA_DE_ROTA, { mode: 'free', cost: 0 });
   const desligado = await service.authorize({
     companyId: 7,
-    actionKey: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
-    refId: 'bloco-3',
+    actionKey: CREDIT_ACTION_KEYS.LOGISTICA_DIA_DE_ROTA,
+    refId: 'dia-3',
   });
   assert.equal(desligado.applied, false);
   assert.equal(desligado.charged, 0);
-  assert.deepEqual(debits, [0.4, 2], 'modo Grátis não acrescenta débito nenhum');
+  assert.deepEqual(debits, [6, 10], 'modo Grátis não acrescenta débito nenhum');
 
   // Restaurar padrão volta ao custo do catálogo.
-  await config.clearOverride(CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK);
+  await config.clearOverride(CREDIT_ACTION_KEYS.LOGISTICA_DIA_DE_ROTA);
   const restaurado = await service.authorize({
     companyId: 7,
-    actionKey: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
-    refId: 'bloco-4',
+    actionKey: CREDIT_ACTION_KEYS.LOGISTICA_DIA_DE_ROTA,
+    refId: 'dia-4',
   });
-  assert.equal(restaurado.charged, 0.4, 'Restaurar padrão volta pro preço por parada do catálogo');
+  assert.equal(restaurado.charged, 6, 'Restaurar padrão volta pro preço do dia no catálogo');
   clearCreditActionOverrides();
 });

@@ -17,10 +17,26 @@ export const CREDIT_ACTION_KEYS = {
   AI_REALTIME: 'ai_realtime',
   AI_BATCH: 'ai_batch',
   // Chave legada mantida para compatibilidade de ledger/callers. O custo da
-  // logística vive exclusivamente nos modos Essencial e Rastreado abaixo.
+  // logística vivia nos modos Essencial e Rastreado — ROTA v2 (10/08)
+  // aposentou os dois: ver LOGISTICA_ESSENTIAL_BLOCK/LOGISTICA_TRACKED_DELIVERY
+  // abaixo e os 2 novos que os substituem.
   LOGISTICA_DELIVERY: 'logistica_delivery',
+  // ⛔ APOSENTADAS (ROTA v2, 10/08 — "PICAR A PONTE"): plano com nível
+  // (BASIC/ADVANCED/FULL) virou rota ILIMITADA (limite é de ASSENTO, não mais
+  // de bloco/parada/entrega cobrada); nível CREDITO paga o DIA, não a parada.
+  // Chaves mantidas — ledger histórico aponta pra elas — mas travadas em
+  // 'free' (ver OVERRIDE_LOCKED_ACTIONS) pra nunca mais cobrar por cima do
+  // débito novo do dia/passe.
   LOGISTICA_ESSENTIAL_BLOCK: 'logistica_essential_block',
   LOGISTICA_TRACKED_DELIVERY: 'logistica_tracked_delivery',
+  // ROTA v2 (10/08) — os 2 débitos novos do modelo híbrido por NÍVEL:
+  //   - nível CREDITO: 1 débito por EMPRESA+DATA quando o dia tem paradas
+  //     (planejarRota garante o dia pago antes de persistir rotaOrdem).
+  //   - qualquer nível com plano (BASIC/ADVANCED/FULL): 1 débito por
+  //     MOTORISTA+DATA só quando ele PASSA do teto de assentos incluso
+  //     (`assertAssentoDoDia`/POST /logistica/rota/passe-do-dia).
+  LOGISTICA_DIA_DE_ROTA: 'logistica_dia_de_rota',
+  LOGISTICA_PASSE_MOTORISTA_DIA: 'logistica_passe_motorista_dia',
   // MODO PASSEIO (29/07) — 1 débito por passeio INICIADO no APK (usageKey por
   // tourId, idempotente). Preço editável no /master como as demais ações.
   PASSEIO_TOUR: 'passeio_tour',
@@ -34,6 +50,8 @@ export type CreditActionKey =
   | 'logistica_delivery'
   | 'logistica_essential_block'
   | 'logistica_tracked_delivery'
+  | 'logistica_dia_de_rota'
+  | 'logistica_passe_motorista_dia'
   | 'passeio_tour';
 
 export type CreditActionDefinition = {
@@ -60,23 +78,40 @@ const CREDIT_ACTION_BASE: Record<CreditActionKey, CreditActionDefinition> = {
     cost: 0,
     label: 'Entrega avulsa — absorvida pela rota',
   },
-  // Rótulos comerciais (dono 26/07). As CHAVES continuam as mesmas —
-  // ledger e extrato históricos apontam para elas.
-  // 28/07 (dono) — deixou de cobrar "1× por bloco iniciado de até 5 entregas"
-  // e passou a cobrar POR PARADA. O preço do bloco (2) foi dividido pelas 5
-  // paradas que ele cobria: 2/5 = 0,4. Cinco paradas custam o mesmo de antes;
-  // seis param de custar dois blocos. A CHAVE não muda (ledger histórico).
+  // ⛔ APOSENTADAS (ROTA v2, 10/08) — mode 'free' TRAVADO (OVERRIDE_LOCKED_ACTIONS
+  // abaixo): a máquina de cobrar por bloco/parada/entrega morreu com o
+  // billing antigo (logistica-route-billing.service.ts). Cost fica só de
+  // registro histórico do que já foi cobrado no passado.
   [CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK]: {
     key: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
-    mode: 'debit',
+    mode: 'free',
     cost: 0.4,
-    label: 'Logística Simples',
+    label: 'Logística Simples (aposentada)',
   },
   [CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY]: {
     key: CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY,
-    mode: 'debit',
+    mode: 'free',
     cost: 2,
-    label: 'Logística Rastreada',
+    label: 'Logística Rastreada (aposentada)',
+  },
+  // ROTA v2 (10/08) — nível CREDITO: 1 débito por EMPRESA+DATA (usageKey
+  // `logistica:dia:company:<id>:date:<routeDate>`), lançado por planejarRota
+  // antes de persistir rotaOrdem. Custo 6 é decisão do dono — editável no
+  // /master como qualquer ação.
+  [CREDIT_ACTION_KEYS.LOGISTICA_DIA_DE_ROTA]: {
+    key: CREDIT_ACTION_KEYS.LOGISTICA_DIA_DE_ROTA,
+    mode: 'debit',
+    cost: 6,
+    label: 'Dia de rota (avulso) — 1× por empresa+dia',
+  },
+  // ROTA v2 (10/08) — qualquer nível com plano: 1 débito por MOTORISTA+DATA
+  // (usageKey `logistica:passe:company:<id>:driver:<uid>:date:<d>`) quando
+  // ele passa do teto de assentos inclusos do nível/empresa.
+  [CREDIT_ACTION_KEYS.LOGISTICA_PASSE_MOTORISTA_DIA]: {
+    key: CREDIT_ACTION_KEYS.LOGISTICA_PASSE_MOTORISTA_DIA,
+    mode: 'debit',
+    cost: 8,
+    label: 'Passe do dia — motorista além dos assentos (1× por motorista+dia)',
   },
   [CREDIT_ACTION_KEYS.PASSEIO_TOUR]: {
     key: CREDIT_ACTION_KEYS.PASSEIO_TOUR,
@@ -94,16 +129,26 @@ const ACTION_KEYS: CreditActionKey[] = [
   'logistica_delivery',
   'logistica_essential_block',
   'logistica_tracked_delivery',
+  'logistica_dia_de_rota',
+  'logistica_passe_motorista_dia',
   'passeio_tour',
 ];
 
 /**
  * A ação legada de criação da entrega é imutavelmente grátis. Mesmo que exista
  * override antigo no banco, ele não pode reativar o débito de 0,2 e somar com a
- * cobrança canônica da rota Essencial/Rastreada.
+ * cobrança canônica do dia/passe.
+ *
+ * ⛔ ROTA v2 (10/08) — LOGISTICA_ESSENTIAL_BLOCK e LOGISTICA_TRACKED_DELIVERY
+ * entram no MESMO cadeado: a máquina que as cobrava morreu
+ * (logistica-route-billing.service.ts), e um override antigo no banco (preço
+ * ainda de 0,4/2 de quando elas cobravam de verdade) NUNCA pode religar
+ * cobrança por bloco/parada/entrega por cima do débito novo do dia/passe.
  */
 const OVERRIDE_LOCKED_ACTIONS = new Set<CreditActionKey>([
   CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY,
+  CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
+  CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY,
 ]);
 
 /**
@@ -113,8 +158,17 @@ const OVERRIDE_LOCKED_ACTIONS = new Set<CreditActionKey>([
 export const CREDIT_ACTION_LOCK_REASON =
   'A entrega avulsa é absorvida pela cobrança da rota e não aceita débito próprio. O preço editável é o da Logística Simples (por parada) ou o da Logística Rastreada.';
 
+/** Mesmo cadeado, motivo PRÓPRIO pras 2 ações aposentadas (ROTA v2, 10/08). */
+export const CREDIT_ACTION_RETIRED_REASON =
+  'Esta ação foi aposentada pela ROTA v2 — o preço editável agora é o "Dia de rota (avulso)" ou o "Passe do dia" (assentos).';
+
 export function getCreditActionLockReason(actionKey: unknown): string | null {
-  return isCreditActionOverrideLocked(actionKey) ? CREDIT_ACTION_LOCK_REASON : null;
+  if (!isCreditActionOverrideLocked(actionKey)) return null;
+  const key = normalizeCreditActionKey(actionKey);
+  if (key === 'logistica_essential_block' || key === 'logistica_tracked_delivery') {
+    return CREDIT_ACTION_RETIRED_REASON;
+  }
+  return CREDIT_ACTION_LOCK_REASON;
 }
 
 export function normalizeCreditActionKey(value: unknown): CreditActionKey | null {

@@ -162,6 +162,30 @@ export async function seedConversasOptOutTx(tx: any, companyId: number): Promise
   });
 }
 
+// ROTA v2 F2b (10/08, "PICAR A PONTE" — refundação da cobrança) — passo
+// COMPARTILHADO pelas 4 portas de nascimento de tenant (master_invite em
+// companies.service.ts, self_service em auth.service.ts — Google e e-mail —,
+// master_full em master-provisioning.service.ts). Cria a LogisticaConfig da
+// empresa já com `logisticaNivel: 'CREDITO'` EXPLÍCITO — o único caminho de
+// código que faz uma empresa nascer nesse nível. Sem isto, o primeiro `GET
+// /logistica/config` a tocar a empresa criaria a linha sozinho
+// (LogisticaConfigService.ensureRow) usando o DEFAULT do schema, que
+// continua 'ADVANCED' de propósito (é o valor de GRANDFATHERING pra empresa
+// existente/linha corrompida — nunca pode ser o nível de quem nasce agora).
+// Idempotente (`create` puro, sem `update`): se a linha já existir por
+// qualquer motivo, este passo não pisa em cima dela.
+export async function seedLogisticaConfigTx(tx: any, companyId: number): Promise<void> {
+  const existing = await tx.logisticaConfig.findUnique({ where: { companyId }, select: { id: true } });
+  if (existing) return;
+  try {
+    await tx.logisticaConfig.create({ data: { companyId, logisticaNivel: 'CREDITO' } });
+  } catch (e: any) {
+    // corrida com outra requisição criando a mesma linha (P2002) — quem
+    // chegou primeiro já resolveu; nunca derruba o nascimento do tenant.
+    if (String(e?.code) !== 'P2002') throw e;
+  }
+}
+
 // Concede os entitlements comerciais do plano em modo 'manual' (cortesia master).
 // Só roda no preset full quando é acesso manual e o preço não é zero — mesmo gate
 // que o provisionamento tinha inline.

@@ -22,15 +22,30 @@ function limparOverlay() {
   applyLogisticaNivelOverrides([]);
 }
 
-test('catálogo de fábrica: os 3 preços batidos pelo dono (28/07) e as franquias', () => {
+test('catálogo de fábrica: os 4 preços (CREDITO entrou na ROTA v2) e as franquias', () => {
   limparOverlay();
   const catalogo = listLogisticaNiveisCatalog();
   assert.deepEqual(
     catalogo.map((n) => [n.nivel, n.precoMensal, n.franquiaParadasMes]),
     [
+      ['CREDITO', 0, 0],
       ['BASIC', 99, 300],
       ['ADVANCED', 199, 600],
       ['FULL', 299, 1000],
+    ],
+  );
+});
+
+test('ROTA v2: assentosInclusos por nível — CREDITO/BASIC=1, ADVANCED=2, FULL=3', () => {
+  limparOverlay();
+  const catalogo = listLogisticaNiveisCatalog();
+  assert.deepEqual(
+    catalogo.map((n) => [n.nivel, n.assentosInclusos]),
+    [
+      ['CREDITO', 1],
+      ['BASIC', 1],
+      ['ADVANCED', 2],
+      ['FULL', 3],
     ],
   );
 });
@@ -217,16 +232,21 @@ test('painel do master: empresa sem claim nenhum aparece com a franquia inteira'
 // A página do site lê GET /public/logistica/planos. O ponto do endpoint é NÃO
 // existir preço escrito à mão no HTML: mudou no Master, muda no site.
 
-test('vitrine pública: os 3 níveis com preço, franquia, título e slogan', () => {
+test('vitrine pública: os 4 níveis com preço, franquia, título, slogan e assentos', () => {
   limparOverlay();
   const { service } = makeService({});
   const niveis = service.listPublico();
-  assert.deepEqual(niveis.map((n) => n.nivel), ['BASIC', 'ADVANCED', 'FULL']);
-  const advanced = niveis[1];
+  assert.deepEqual(niveis.map((n) => n.nivel), ['CREDITO', 'BASIC', 'ADVANCED', 'FULL']);
+  const credito = niveis[0];
+  assert.equal(credito.precoMensal, 0);
+  assert.equal(credito.titulo, 'Rota Avulsa');
+  assert.equal(credito.assentosInclusos, 1);
+  const advanced = niveis[2];
   assert.equal(advanced.precoMensal, 199);
   assert.equal(advanced.franquiaParadasMes, 600);
   assert.equal(advanced.titulo, 'Rota Advanced');
   assert.equal(advanced.slogan, 'O app cobra por você');
+  assert.equal(advanced.assentosInclusos, 2);
 });
 
 test('vitrine pública: preço editado no Master aparece no site (é o motivo do endpoint)', () => {
@@ -247,7 +267,7 @@ test('vitrine pública: só material de anúncio — nada de dado interno vaza',
   for (const nivel of service.listPublico()) {
     assert.deepEqual(
       Object.keys(nivel).sort(),
-      ['franquiaParadasMes', 'nivel', 'precoMensal', 'slogan', 'titulo'],
+      ['assentosInclusos', 'franquiaParadasMes', 'nivel', 'precoMensal', 'slogan', 'titulo'],
       'campo novo no catálogo entrou na vitrine pública sem ninguém decidir',
     );
   }

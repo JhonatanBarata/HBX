@@ -9,6 +9,7 @@ import {
   CreditActionOverride,
   getCreditActionBaseDefinition,
   getCreditActionDefinition,
+  getCreditActionLockReason,
   getCreditActionOverride,
   isCreditActionOverrideLocked,
   listCreditActionKeys,
@@ -81,7 +82,7 @@ export class CreditActionConfigService implements OnModuleInit {
       actionKey: key,
       label: base.label,
       locked,
-      lockedReason: locked ? CREDIT_ACTION_LOCK_REASON : null,
+      lockedReason: getCreditActionLockReason(key),
       base: { mode: base.mode, cost: base.cost },
       override: override ? { mode: override.mode ?? base.mode, cost: override.cost ?? base.cost } : null,
       effective: { mode: effective.mode, cost: effective.cost },
@@ -118,7 +119,7 @@ export class CreditActionConfigService implements OnModuleInit {
     const key = normalizeCreditActionKey(actionKeyInput);
     if (!key) throw new BadRequestException('actionKey desconhecida');
     if (isCreditActionOverrideLocked(key)) {
-      throw new BadRequestException(CREDIT_ACTION_LOCK_REASON);
+      throw new BadRequestException(getCreditActionLockReason(key) ?? CREDIT_ACTION_LOCK_REASON);
     }
     if (typeof patch?.mode !== 'string' || !VALID_MODES.has(patch.mode as CreditActionMode)) {
       throw new BadRequestException('mode deve ser free ou debit');

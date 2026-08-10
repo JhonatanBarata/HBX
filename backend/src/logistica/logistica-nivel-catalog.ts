@@ -38,7 +38,10 @@
 
 import type { LogisticaNivel } from './logistica-config.service';
 
-export const LOGISTICA_NIVEIS: LogisticaNivel[] = ['BASIC', 'ADVANCED', 'FULL'];
+// ROTA v2 F2b (10/08) — CREDITO entra na lista: o 4º nível ("Rota Avulsa"),
+// berço de toda empresa nova. Ordem importa pras telas (master/site) que
+// iteram este array — CREDITO primeiro, é o degrau mais barato da escada.
+export const LOGISTICA_NIVEIS: LogisticaNivel[] = ['CREDITO', 'BASIC', 'ADVANCED', 'FULL'];
 
 /**
  * 28/07 (dono) — A UNIDADE DE COBRANÇA DA ROTA SIMPLES É A PARADA, não mais um
@@ -61,15 +64,36 @@ export type LogisticaNivelDefinition = {
   precoMensal: number;
   /** Paradas inclusas por mês. 0 = sem franquia (tudo consome crédito). */
   franquiaParadasMes: number;
+  /**
+   * ROTA v2 F2b (10/08) — quantos motoristas simultâneos o nível inclui SEM
+   * pagar passe extra (ver `assertAssentoDoDia`, logistica-nivel-plano.service.ts
+   * ou o util correspondente da onda 3). Plano com nível (BASIC/ADVANCED/FULL)
+   * é rota ILIMITADA — o limite é só de ASSENTO; CREDITO paga o dia inteiro,
+   * então 1 assento já é folgado pra quem começa sozinho.
+   */
+  assentosInclusos: number;
 };
 
 const BASE: Record<LogisticaNivel, LogisticaNivelDefinition> = {
+  // ROTA v2 F2b (10/08) — o nível novo: sem mensalidade, sem franquia — só o
+  // débito único "dia de rota" por empresa+data (logistica_dia_de_rota no
+  // catálogo de crédito). É o berço de toda empresa nova (grandfathering
+  // continua ADVANCED pra quem já tinha linha antes disto existir).
+  CREDITO: {
+    nivel: 'CREDITO',
+    titulo: 'Rota Avulsa',
+    slogan: 'Pague só o dia que rodar',
+    precoMensal: 0,
+    franquiaParadasMes: 0,
+    assentosInclusos: 1,
+  },
   BASIC: {
     nivel: 'BASIC',
     titulo: 'Rota Basic',
     slogan: 'Anota o dia inteiro e te leva até a porta',
     precoMensal: 99,
     franquiaParadasMes: 300,
+    assentosInclusos: 1,
   },
   ADVANCED: {
     nivel: 'ADVANCED',
@@ -77,6 +101,7 @@ const BASE: Record<LogisticaNivel, LogisticaNivelDefinition> = {
     slogan: 'O app cobra por você',
     precoMensal: 199,
     franquiaParadasMes: 600,
+    assentosInclusos: 2,
   },
   FULL: {
     nivel: 'FULL',
@@ -84,6 +109,7 @@ const BASE: Record<LogisticaNivel, LogisticaNivelDefinition> = {
     slogan: 'iFood da sua distribuidora',
     precoMensal: 299,
     franquiaParadasMes: 1000,
+    assentosInclusos: 3,
   },
 };
 
@@ -92,13 +118,14 @@ export type LogisticaNivelOverride = {
   slogan?: string;
   precoMensal?: number;
   franquiaParadasMes?: number;
+  assentosInclusos?: number;
 };
 
 const OVERRIDES = new Map<LogisticaNivel, LogisticaNivelOverride>();
 
 export function normalizeLogisticaNivelKey(value: unknown): LogisticaNivel | null {
   const v = String(value || '').trim().toUpperCase();
-  return v === 'BASIC' || v === 'ADVANCED' || v === 'FULL' ? v : null;
+  return v === 'BASIC' || v === 'ADVANCED' || v === 'FULL' || v === 'CREDITO' ? v : null;
 }
 
 /**
@@ -116,6 +143,13 @@ export function sanitizeLogisticaNivelOverride(raw: unknown): LogisticaNivelOver
   const franquia = Number(ov.franquiaParadasMes);
   if (Number.isFinite(franquia) && franquia >= 0 && franquia <= 1000000) {
     clean.franquiaParadasMes = Math.trunc(franquia);
+  }
+  // ROTA v2 F2b (10/08) — assentos inclusos do nível. 1–999: zero/negativo não
+  // existe (motorista precisa de PELO MENOS 1 assento pra rodar) e 999 é teto
+  // de digitação, não limite de produto real.
+  const assentos = Number(ov.assentosInclusos);
+  if (Number.isFinite(assentos) && assentos >= 1 && assentos <= 999) {
+    clean.assentosInclusos = Math.trunc(assentos);
   }
   return clean;
 }
@@ -147,6 +181,7 @@ export function getLogisticaNivelDefinition(value: unknown): LogisticaNivelDefin
     ...(ov.slogan !== undefined ? { slogan: ov.slogan } : {}),
     ...(ov.precoMensal !== undefined ? { precoMensal: ov.precoMensal } : {}),
     ...(ov.franquiaParadasMes !== undefined ? { franquiaParadasMes: ov.franquiaParadasMes } : {}),
+    ...(ov.assentosInclusos !== undefined ? { assentosInclusos: ov.assentosInclusos } : {}),
   };
 }
 

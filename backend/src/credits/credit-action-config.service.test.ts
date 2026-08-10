@@ -40,8 +40,11 @@ test('ações públicas são editáveis em modo grátis ou débito decimal', asy
     [CREDIT_ACTION_KEYS.AUTOMATION, 0.1],
     [CREDIT_ACTION_KEYS.AI_REALTIME, 0.125],
     [CREDIT_ACTION_KEYS.AI_BATCH, 0.5],
-    [CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK, 1],
-    [CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY, 2],
+    // ROTA v2 (10/08) — LOGISTICA_ESSENTIAL_BLOCK/LOGISTICA_TRACKED_DELIVERY
+    // aposentaram e travaram (ver teste "aposentadas..." abaixo); os 2 preços
+    // editáveis da logística agora são estes.
+    [CREDIT_ACTION_KEYS.LOGISTICA_DIA_DE_ROTA, 5],
+    [CREDIT_ACTION_KEYS.LOGISTICA_PASSE_MOTORISTA_DIA, 9],
   ]);
   for (const [key, cost] of costs) {
     const result = await service.setOverride(key, { mode: 'debit', cost });
@@ -57,17 +60,21 @@ test('listagem relê o banco e mostra defaults pedidos', async () => {
   const fake = createFakePrisma();
   const service = new CreditActionConfigService(fake as any);
   const list = await service.listForMaster();
-  // 29/07 — 8ª ação: passeio_tour (Modo Passeio do APK).
-  assert.equal(list.length, 8);
+  // ROTA v2 (10/08) — 10 ações: as 8 de sempre + logistica_dia_de_rota +
+  // logistica_passe_motorista_dia.
+  assert.equal(list.length, 10);
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LEAD_DELIVERY)?.effective, { mode: 'debit', cost: 1 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.AUTOMATION)?.effective, { mode: 'debit', cost: 0.1 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.AI_REALTIME)?.effective, { mode: 'debit', cost: 0.1 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.AI_BATCH)?.effective, { mode: 'free', cost: 0 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY)?.effective, { mode: 'free', cost: 0 });
-  // 28/07 (dono) — Logística Simples cobra POR PARADA: o preço do bloco de 5 (2)
-  // dividido pelas paradas que ele cobria = 0,4.
-  assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK)?.effective, { mode: 'debit', cost: 0.4 });
-  assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY)?.effective, { mode: 'debit', cost: 2 });
+  // ⛔ ROTA v2 (10/08) — aposentadas: mode virou 'free', travado (cost sobra
+  // só como registro histórico do que já foi cobrado no passado).
+  assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK)?.effective, { mode: 'free', cost: 0.4 });
+  assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY)?.effective, { mode: 'free', cost: 2 });
+  // ROTA v2 (10/08) — os 2 débitos novos do modelo híbrido por nível.
+  assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_DIA_DE_ROTA)?.effective, { mode: 'debit', cost: 6 });
+  assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_PASSE_MOTORISTA_DIA)?.effective, { mode: 'debit', cost: 8 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.PASSEIO_TOUR)?.effective, { mode: 'debit', cost: 2 });
 });
 
@@ -91,13 +98,25 @@ test('entrega avulsa legada é sempre grátis e não aceita override de débito'
   // a linha vira leitura em vez de oferecer campo que o backend recusa.
   assert.equal(legacy?.locked, true);
   assert.match(String(legacy?.lockedReason), /absorvida pela cobrança da rota/);
-  for (const item of listed.filter((row) => row.actionKey !== CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY)) {
+  // ⛔ ROTA v2 (10/08) — as 2 aposentadas ficam travadas TAMBÉM, com um motivo
+  // PRÓPRIO (não o da entrega avulsa) — o cadeado não é mais exclusivo dela.
+  const aposentadas = [CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK, CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY];
+  for (const key of aposentadas) {
+    const item = listed.find((row) => row.actionKey === key);
+    assert.equal(item?.locked, true, `${key} precisa continuar travada (aposentada)`);
+    assert.match(String(item?.lockedReason), /aposentada/);
+  }
+  for (const item of listed.filter((row) => row.actionKey !== CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY && !aposentadas.includes(row.actionKey as any))) {
     assert.equal(item.locked, false, `${item.actionKey} não pode aparecer travada`);
     assert.equal(item.lockedReason, null);
   }
   await assert.rejects(
     service.setOverride(CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY, { mode: 'debit', cost: 0.2 }),
     /absorvida pela cobrança da rota/,
+  );
+  await assert.rejects(
+    service.setOverride(CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK, { mode: 'debit', cost: 1 }),
+    /aposentada/,
   );
 });
 

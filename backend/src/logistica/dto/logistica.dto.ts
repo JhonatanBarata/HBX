@@ -849,8 +849,20 @@ export class IniciarPasseioDto {
 // do plano (LogisticaConfigService.setNivel) num gesto só — a UI segue livre
 // pra ajustar toggle a toggle depois (preset é atalho, não algema).
 export class SetLogisticaNivelDto {
-  @IsIn(['BASIC', 'ADVANCED', 'FULL'])
+  // ROTA v2 F2b (10/08) — CREDITO é o 4º nível: "Rota Avulsa" (débito por dia
+  // rodado, sem mensalidade), o berço de toda empresa nova.
+  @IsIn(['BASIC', 'ADVANCED', 'FULL', 'CREDITO'])
   nivel!: string;
+
+  // ROTA v2 F2c (10/08) — override de ASSENTOS por empresa, na MESMA ficha que
+  // já troca o nível (1 PUT, 1 tela). Ausente = não mexe (mantém o que já tinha
+  // ou o default do nível); presente = grava o override. Range 1–999 é a mesma
+  // régua do sanitize do catálogo de níveis (logistica-nivel-catalog.ts).
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(999)
+  logisticaAssentos?: number;
 }
 
 // ── PROSPECTOR: AUTOMAÇÃO COBRADA (PR07082026, decisão nº8 do dono) ──────────

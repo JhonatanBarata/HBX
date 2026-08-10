@@ -2204,9 +2204,18 @@ model LogisticaConfig {
   // 27/07). DEFAULT 'ADVANCED' = GRANDFATHERING: toda linha JÁ GRAVADA (empresa
   // existente) nasce Advanced sem UPDATE nenhum — ninguém perde recurso em uso
   // (ex.: financeiro real da cia 41) quando os níveis ligarem. Empresa nova só
-  // nasce BASIC por um caminho de criação explícito que passe o valor; sem
-  // isso, cai em Advanced também, até o Master mexer.
-  logisticaNivel        String   @default("ADVANCED") @db.VarChar(10) // BASIC | ADVANCED | FULL
+  // nasce CREDITO por um caminho de criação explícito que passe o valor (ver
+  // seedLogisticaConfigTx, tenant-provisioning.pipeline.ts); sem isso, cai em
+  // Advanced também, até o Master mexer.
+  logisticaNivel        String   @default("ADVANCED") @db.VarChar(10) // CREDITO | BASIC | ADVANCED | FULL
+  // ROTA v2 F2c (10/08, "PICAR A PONTE" — refundação da cobrança) — override de
+  // ASSENTOS por empresa. Plano com nível (BASIC/ADVANCED/FULL) virou rota
+  // ILIMITADA: o que limita é quantos motoristas rodam AO MESMO TEMPO no
+  // mesmo dia, não mais quantas paradas o mês inclui. null = herda
+  // `assentosInclusos` do nível (logistica-nivel-catalog.ts); um número aqui
+  // SOBRESCREVE o default do nível pra esta empresa só (ex.: dono comprou 1
+  // assento extra sem subir de plano). Migration ADITIVA — nunca dropar.
+  logisticaAssentos     Int?
   // PR27072026 F2 (27/07) — PARADA AMARELA DE DEVEDOR: o que fazer com a parada de
   // um cliente devedor na montagem/leitura da rota de hoje (docs/PLANEJAMENTOS/
   // PR27072026-ROTA-3-NIVEIS.md, decisão do dono: "parada AMARELA 'só cobrar' como

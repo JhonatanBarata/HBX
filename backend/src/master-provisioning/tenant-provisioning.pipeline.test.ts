@@ -4,6 +4,7 @@ import {
   TENANT_PROVISIONING_PRESETS,
   buildProvisioningLedger,
   getTenantProvisioningPreset,
+  seedLogisticaConfigTx,
   seedTenantDefaultProductsTx,
   seedTenantModulesTx,
   serializeProvisioningLedger,
@@ -92,6 +93,56 @@ test('seedTenantDefaultProductsTx COM produtos explícitos ainda semeia (caminho
   assert.equal(creates.length, 1);
   assert.equal(creates[0].name, 'Água 500ml');
   assert.equal(creates[0].companyId, 5);
+});
+
+// ── ROTA v2 F2b (10/08) — empresa nova nasce no nível CREDITO ────────────────
+test('seedLogisticaConfigTx: cria a LogisticaConfig com logisticaNivel CREDITO explícito', async () => {
+  const creates: any[] = [];
+  const tx = {
+    logisticaConfig: {
+      findUnique: async () => null,
+      create: async ({ data }: any) => { creates.push(data); return { id: 'lc1', ...data }; },
+    },
+  };
+  await seedLogisticaConfigTx(tx as any, 41);
+  assert.equal(creates.length, 1);
+  assert.deepEqual(creates[0], { companyId: 41, logisticaNivel: 'CREDITO' });
+});
+
+test('seedLogisticaConfigTx: idempotente — linha já existente não é tocada', async () => {
+  let createCalled = false;
+  const tx = {
+    logisticaConfig: {
+      findUnique: async () => ({ id: 'lc1' }),
+      create: async () => { createCalled = true; return {}; },
+    },
+  };
+  await seedLogisticaConfigTx(tx as any, 41);
+  assert.equal(createCalled, false, 'linha já existe — create nunca deveria rodar');
+});
+
+test('seedLogisticaConfigTx: corrida (P2002) nunca derruba o nascimento do tenant', async () => {
+  const tx = {
+    logisticaConfig: {
+      findUnique: async () => null,
+      create: async () => {
+        const err: any = new Error('unique constraint');
+        err.code = 'P2002';
+        throw err;
+      },
+    },
+  };
+  await assert.doesNotReject(() => seedLogisticaConfigTx(tx as any, 41));
+});
+
+test('seedLogisticaConfigTx: erro que NÃO é P2002 propaga (não engole erro real)', async () => {
+  const tx = {
+    logisticaConfig: {
+      findUnique: async () => null,
+      create: async () => { throw new Error('conexão caiu'); },
+    },
+  };
+  await assert.rejects(() => seedLogisticaConfigTx(tx as any, 41), /conexão caiu/);
 });
 
 test('buildProvisioningLedger serializa versão/preset/passos', () => {

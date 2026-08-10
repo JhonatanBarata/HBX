@@ -462,14 +462,30 @@ export class LogisticaConfigService {
    * Guard de acesso (MasterGuard) fica no controller; aqui só valida o valor.
    * Preset é ATALHO, não algema: depois de aplicado, o Master segue ajustando
    * toggle a toggle pelo updateConfig/updateRouteMode normais.
+   *
+   * ROTA v2 F2c (10/08) — `logisticaAssentosInput` é o override de assentos da
+   * MESMA ficha (1 PUT, 1 tela: trocar nível e assentos juntos). `undefined` =
+   * não mexe no override existente; número = grava (sanitize 1–999, mesma
+   * régua do catálogo de níveis). Sem suporte a "limpar" por aqui de propósito
+   * — o override nasce sempre null (herda do nível) e só o master grava um
+   * valor; se um dia precisar voltar a herdar, o PATCH genérico da config
+   * ganha a porta.
    */
-  async setNivel(companyId: number, nivel: string, actor?: ActorKindUserLike): Promise<LogisticaConfigDTO> {
+  async setNivel(
+    companyId: number,
+    nivel: string,
+    actor?: ActorKindUserLike,
+    logisticaAssentosInput?: number,
+  ): Promise<LogisticaConfigDTO> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const alvo = String(nivel || '').trim().toUpperCase();
-    if (alvo !== 'BASIC' && alvo !== 'ADVANCED' && alvo !== 'FULL') {
-      throw new BadRequestException('Nível inválido — use BASIC, ADVANCED ou FULL.');
+    if (alvo !== 'BASIC' && alvo !== 'ADVANCED' && alvo !== 'FULL' && alvo !== 'CREDITO') {
+      throw new BadRequestException('Nível inválido — use BASIC, ADVANCED, FULL ou CREDITO.');
     }
     const data: Record<string, unknown> = { logisticaNivel: alvo, ...nivelPresetPatch(alvo as LogisticaNivel) };
+    if (logisticaAssentosInput !== undefined) {
+      data.logisticaAssentos = clampInt(logisticaAssentosInput, 1, 999, 1);
+    }
     const cfg = await this.prisma.logisticaConfig.upsert({
       where: { companyId },
       update: data,
@@ -830,6 +846,10 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     // ator lê, inclusive motorista/vendedor): o front usa pra acinzentar os
     // recursos que o nível não cobre ("ver-mas-não-usar" — decisão do dono).
     logisticaNivel: storedNivel(c.logisticaNivel),
+    // ROTA v2 F2c (10/08) — override de ASSENTOS por empresa. OPERACIONAL (é o
+    // portão que decide se ESTE motorista pode entrar na rota, ver
+    // `assertAssentoDoDia`) — null = herda `assentosInclusos` do nível.
+    logisticaAssentos: typeof c.logisticaAssentos === 'number' ? c.logisticaAssentos : null,
     // PR27072026 F2 — modo do tratamento do devedor na rota de hoje. OPERACIONAL
     // (todo ator lê, mesmo padrão do logisticaNivel acima): o chip por parada em
     // si (`somenteCobranca`) já é operacional no payload de /logistica/rota; este
@@ -904,17 +924,22 @@ function storedRouteMode(value: unknown): LogisticaRouteMode {
 }
 
 // ── PR27072026 F1 — NÍVEL DO PLANO (Basic/Advanced/Full) ─────────────────────
-export type LogisticaNivel = 'BASIC' | 'ADVANCED' | 'FULL';
+// ROTA v2 F2b (10/08) — CREDITO entra na união: o 4º nível, "Rota Avulsa"
+// (débito por dia rodado, sem mensalidade nem franquia) — o berço de toda
+// empresa nova (ver seedLogisticaConfigTx, tenant-provisioning.pipeline.ts).
+export type LogisticaNivel = 'BASIC' | 'ADVANCED' | 'FULL' | 'CREDITO';
 
 /**
  * Nível cru do banco → tipo válido. GRANDFATHERING: ausente/sujo cai em
- * ADVANCED, NUNCA em BASIC — um valor corrompido/linha antiga (pré-migration)
- * jamais pode derrubar recurso de quem já usa financeiro real (mesma regra do
- * default da coluna no schema).
+ * ADVANCED, NUNCA em BASIC nem CREDITO — um valor corrompido/linha antiga
+ * (pré-migration) jamais pode derrubar recurso de quem já usa financeiro real
+ * (mesma regra do default da coluna no schema). CREDITO só existe quando
+ * ALGUÉM gravou explicitamente (setNivel do master ou o nascimento da empresa
+ * nova) — nunca é o pouso de um valor sujo.
  */
 export function storedNivel(value: unknown): LogisticaNivel {
   const v = String(value || '').trim().toUpperCase();
-  if (v === 'BASIC' || v === 'FULL') return v;
+  if (v === 'BASIC' || v === 'FULL' || v === 'CREDITO') return v;
   return 'ADVANCED';
 }
 
@@ -924,6 +949,9 @@ export function storedNivel(value: unknown): LogisticaNivel {
  * NUM SÓ gesto. Preset é ATALHO, não algema (decisão do dono 27/07) — depois
  * de aplicado, o Master segue ajustando toggle a toggle pelo PATCH normal de
  * config; isto aqui só roda na hora de TROCAR o nível.
+ *  - CREDITO: o mais conservador de todos — sem financeiro real, sem cobrança
+ *    automática, sem tracking. É o nível "pague só o dia que rodar": nenhum
+ *    módulo comercial pago por assinatura nasce ligado.
  *  - BASIC: financeiro real e cobrança automática OFF (registro de recebimento
  *    na entrega continua — não passa por moduloFinanceiroAtivo); tracking OFF.
  *  - ADVANCED: liga o financeiro real (o carro-chefe — "o app cobra por
@@ -931,6 +959,15 @@ export function storedNivel(value: unknown): LogisticaNivel {
  *  - FULL: tudo ligado, incluindo o modo TRACKED por padrão de rota (F1 item 4).
  */
 function nivelPresetPatch(nivel: LogisticaNivel): Record<string, unknown> {
+  if (nivel === 'CREDITO') {
+    return {
+      moduloFinanceiroAtivo: false,
+      cobrancaWhatsAtiva: false,
+      cobrancaAutomatica: false,
+      trackingAtivo: false,
+      modoRotaPadrao: 'ESSENTIAL',
+    };
+  }
   if (nivel === 'BASIC') {
     return {
       moduloFinanceiroAtivo: false,
@@ -1105,8 +1142,10 @@ export interface LogisticaConfigDTO {
   // ROTA-CONFERIDA — tela de conferência no APK. Coluna real desde 26/07
   // (migration logistica_flags_ligadas), ligada pra todas as empresas.
   rotaConferidaAtiva: boolean;
-  // PR27072026 F1 — nível do plano (Basic/Advanced/Full); ver serializeConfig.
+  // PR27072026 F1 — nível do plano (Basic/Advanced/Full/Credito); ver serializeConfig.
   logisticaNivel: LogisticaNivel;
+  // ROTA v2 F2c (10/08) — override de assentos por empresa; null = herda do nível.
+  logisticaAssentos: number | null;
   // PR27072026 F2 — modo de tratamento do devedor na rota. OPERACIONAL (todo
   // ator lê, mesmo padrão do logisticaNivel acima); ver serializeConfig.
   devedorNaRota: DevedorNaRotaModo;
