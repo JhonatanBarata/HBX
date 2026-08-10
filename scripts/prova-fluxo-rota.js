@@ -150,7 +150,11 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
     api(caminho, opcoes) {
       const metodo = (opcoes && opcoes.method) || 'GET';
       const corpo = (opcoes && opcoes.body) || null;
-      window.__chamadas.push([metodo, String(caminho).split('?')[0], corpo]);
+      /* O 4º campo é o caminho INTEIRO, com querystring. O 2º continua sem ela
+         (todas as cenas comparam rota por igualdade), mas quem precisa provar
+         que um GET saiu SEM recorte — o `custo-preview` da cena P — não tem
+         outro lugar pra olhar: o `deliveryIds` dele viaja na URL. */
+      window.__chamadas.push([metodo, String(caminho).split('?')[0], corpo, String(caminho)]);
       const q = (nome) => {
         const m = new RegExp(`[?&]${nome}=([^&]*)`).exec(caminho);
         return m ? decodeURIComponent(m[1]) : '';
@@ -1166,6 +1170,84 @@ const SO_MEDIR = process.argv.includes('--antes');
   eh('M10 · a rota do outro dia inicia HOJE e cai na navegacao',
     tM2.routeStatus === 'ACTIVE' && tM2.tela === 'mapa', `tela=${tM2.tela} status=${tM2.routeStatus}`);
   eh('M11 · e a agenda de hoje segue intocada depois de sair pra rua', agendaIntocadaM2);
+
+  /* ===================================================================
+     CENA P — A PORTA SUJA: o Iniciar do MAPA não é o da MONTAGEM (10/08).
+
+     Medido em produção hoje, company 41: 51 paradas `agendada` no dia, dia por
+     montar, e o Iniciar do dock do MAPA respondia *"A rota avulsa está vazia.
+     Adicione uma parada antes de iniciar."* — com o dia CHEIO do outro lado do
+     fio. A causa não era a rota: era a PORTA. O `iniciarRota` decidia se a rota
+     era avulsa lendo `montarDia`, estado da tela MONTAGEM, cujo default é -1
+     desde que "a Montagem abre sem dia". Quem nunca abriu a Montagem herdava
+     o -1 de uma tela que não visitou.
+
+     Esta cena entra na Rota e toca o Iniciar SEM PASSAR PELA MONTAGEM — é o
+     gesto exato do dono. O que ela cobra é a lei nova (INTENÇÃO VIAJA COMO
+     ARGUMENTO): a porta do mapa manda `{escopo:'dia'}`, então o dia inteiro
+     materializa, planeja e sai pra rua SEM RECORTE NENHUM — planejar, custo e
+     iniciar, os três sem `deliveryIds`.
+
+     🔴 E a asserção de AUSÊNCIA é o coração dela (mesma lei do M2/M3): o erro
+     de avulsa não é comportamento que some sozinho, é o sintoma da leitura
+     suja. Enquanto ele não puder aparecer por esta porta, a regressão não
+     volta calada.
+     =================================================================== */
+  await cena({
+    // o dia que o servidor já tem: paradas ABERTAS e SEM ordem = "por montar".
+    entregas: [
+      { id: 'ag1', status: 'agendada', rotaOrdem: null, origem: 'recorrente', cliente: CLI_C1 },
+      { id: 'ag2', status: 'agendada', rotaOrdem: null, origem: 'recorrente', cliente: CLI_C5 },
+    ],
+    agendaHoje: AGENDA_HOJE, mesmaBase: true, custoComoServidor: true,
+  });
+  // A MONTAGEM NUNCA É ABERTA nesta cena: é isso que deixa `montarDia` em -1 e
+  // a prévia vazia. Ir pra lá pra "preparar" o estado seria apagar o defeito.
+  await irPara('rota', 1500);
+  await zerar();
+  const tP0 = await espiar();
+  const dockP = await p.evaluate(() => {
+    const b2 = document.querySelector('.tmx-main button[data-estado]');
+    return b2 ? [b2.dataset.estado, (b2.textContent || '').trim()] : ['(sem dock)', ''];
+  });
+  nota(`[P] rota por montar, Montagem nunca aberta: tela=${tP0.tela} · stops=${tP0.nStops} · dock=${JSON.stringify(dockP)}`);
+  eh('P0 · o dock do MAPA oferece "Iniciar" no dia por montar',
+    dockP[0] === 'iniciar' && /Iniciar/i.test(dockP[1]), JSON.stringify(dockP));
+
+  await p.evaluate(() => {
+    const b2 = document.querySelector('.tmx-main button[data-estado="iniciar"]');
+    if (!b2) throw new Error('sem o Iniciar no dock da rota');
+    b2.click();
+  });
+  await p.waitForTimeout(2800);
+  const tP1 = await espiar();
+  const postsP = await posts();
+  const planejarP = (await postsDe('/logistica/rota/planejar'))[0] || {};
+  const iniciarP = (await postsDe('/logistica/rota/iniciar'))[0] || {};
+  const custoP = await p.evaluate(() => (window.__chamadas
+    .filter((c) => c[0] === 'GET' && c[1] === '/logistica/rota/custo-preview')
+    .map((c) => c[3])[0] || ''));
+  nota(`[P] iniciar pelo MAPA: POSTs=${postsP.join(' , ') || '(nenhum)'}`);
+  nota(`    portao="${tP1.portao || '(nenhum)'}" · sub="${tP1.portaoSub || '(nenhum)'}" · aviso="${tP1.aviso || '(nenhum)'}"`);
+  nota(`    planejar=${JSON.stringify(planejarP)} · iniciar=${JSON.stringify(iniciarP)}`);
+  nota(`    custo-preview="${custoP}" · tela=${tP1.tela} · status=${tP1.routeStatus}`);
+  /* 🔴 A ASSERÇÃO QUE NOMEIA O DEFEITO. O erro de avulsa é do verbo da
+     Montagem com a lista vazia — nunca desta porta, que fala do DIA. */
+  eh('P1 · o erro "A rota avulsa está vazia" NAO existe por esta porta',
+    !/rota avulsa está vazia|rota avulsa esta vazia/i.test(
+      `${tP1.portao} ${tP1.portaoSub} ${tP1.aviso}`),
+    `${tP1.portao} · ${tP1.portaoSub} · ${tP1.aviso}`);
+  eh('P2 · o Iniciar do MAPA materializa o dia',
+    postsP.indexOf('/logistica/mobile/materialize') >= 0, postsP.join(','));
+  eh('P3 · e planeja SEM recorte (o dia inteiro, não a prévia de ninguém)',
+    postsP.indexOf('/logistica/rota/planejar') >= 0 && !('deliveryIds' in planejarP),
+    JSON.stringify(planejarP));
+  eh('P4 · o custo-preview tambem vai SEM recorte',
+    !!custoP && custoP.indexOf('deliveryIds') < 0, custoP);
+  eh('P5 · o iniciar sai SEM recorte', postsP.indexOf('/logistica/rota/iniciar') >= 0 && !('deliveryIds' in iniciarP),
+    JSON.stringify(iniciarP));
+  eh('P6 · a rota do dia ficou ACTIVE e o toque caiu na navegacao',
+    tP1.routeStatus === 'ACTIVE' && tP1.tela === 'mapa', `tela=${tP1.tela} status=${tP1.routeStatus}`);
 
   await b.close();
   console.log('\n=== MEDIDAS ===');
