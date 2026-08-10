@@ -619,31 +619,30 @@ button,input{font:inherit;color:inherit}
 @keyframes mvMapaFoco{from{transform:scale(1.1)}}
 @keyframes mvMapaAcende{from{opacity:0}}
 .m-corpo{stroke-dasharray:var(--l);stroke-dashoffset:0}
-/* 🔴 A CABEÇA NÃO TEM FILTRO. `drop-shadow` era o item mais caro da cena
-   inteira (4,8 → 6,9 fps só tirando ele, medido no g15 em 3 voltas), porque o
-   filtro reprocessa o mundo em perspectiva a cada quadro. O que faz a ponta
-   ler como ponta é o CONTRASTE dela, não o halo — e contraste é de graça. */
 .m-cabeca{stroke:var(--map-cabeca);opacity:0;
   stroke-dasharray:var(--h) var(--l);stroke-dashoffset:calc(var(--h) - var(--l))}
-.tela.cena.cheio .dirigindo .m-corpo{animation:mvCresce var(--t) linear var(--d) both}
-.tela.cena.cheio .dirigindo .m-cabeca{animation:mvCabeca var(--t) linear var(--d) both}
-@keyframes mvCresce{from{stroke-dashoffset:var(--l)}}
-/* A cabeça POUSA: acende no primeiro quadro e apaga nos últimos 18% do
-   percurso, pra ela chegar no fim do traço e sumir, em vez de dar um corte. */
-@keyframes mvCabeca{from{stroke-dashoffset:var(--h);opacity:1}82%{opacity:1}}
-.tela.cena.cheio .dirigindo .m-pontilhado{animation:mvSurge .16s ease-out 1.20s both}
-@keyframes mvSurge{from{opacity:0}}
 
-/* 🔴 O MAPA DE VERDADE ESPERA A COBRA — ordem do dono: *"só quando a cobra
-   termina, o mapa real assenta por baixo"*. O maplibre fica `pronto` quando
-   quiser (na bancada, às vezes em 300 ms) e o cruzamento dele CORTAVA a cena
-   no meio. Enquanto há `cena` o desenho fica e o mapa vivo espera; quando a
-   marca cai — no teto de 2,2 s, com ou sem mapa — as duas transições que já
-   existem fazem a troca sozinhas.
-   Isto NÃO é trava: nada aqui espera dado nenhum. É o contrário — é o mapa
-   que espera o relógio, e o relógio nunca falha. */
-.tela.cena.cheio .dirigindo .mapa-palco.pronto>svg{opacity:1}
-.tela.cena.cheio .dirigindo .mapa-palco.pronto .mapa-vivo{opacity:0}
+/* 🔴 A COBRA MORREU, E O MOTIVO É MEDIÇÃO (dono, 09/08: *"ao clicar no navegar
+   está bagunçado, 2 efeitos se cruzando, pisca, trava"*).
+
+   Ela desenhava uma rota DE MENTIRA (este SVG) enquanto o mapa de verdade —
+   montado, com a fita da rota real já traçada — esperava escondido debaixo
+   dela. MEDIDO na bancada, no toque do Navegar: o mapa vivo com opacidade ZERO
+   até 2,31 s e o fundido de troca em 2,31 → 2,61 s. Ou seja: o motorista via
+   uma rota se desenhar, ela sumia, e OUTRA rota aparecia pronta no lugar. São
+   dois mapas contando a mesma história em cima um do outro — é literalmente o
+   "2 efeitos se cruzando".
+
+   O que entra no lugar é a lei que esta casa já tinha escrito uma tela antes
+   (§ `cenaDasRuas`, ordem do dono em 09/08: *"não remonte coisas, crie DENTRO
+   do mapa mesmo"*): as ruas que crescem agora são as ruas DE VERDADE dos
+   tiles, no mapa real, por `line-gradient`. Uma cidade só, uma rota só, e nada
+   pra cruzar.
+
+   O SVG continua aqui — parado — porque ele é o PALCO DE ESPERA: enquanto o
+   maplibre não fica `pronto` (na garagem isso demora), o desenho é o que
+   segura a tela em vez do preto do canvas. Sem `pronto` ele aparece; com
+   `pronto`, as duas transições de sempre trocam um pelo outro. */
 
 /* 4 — E SÓ ENTÃO a informação. Enquanto o mapa não está legível a tela tem UM
    assunto; a manobra descendo antes disso seria texto no vazio.
@@ -880,11 +879,9 @@ button,input{font:inherit;color:inherit}
      declara só o `from`. */
   .app .tela.entra.cheio,.app .tela.sai.cheio,.app .tela.cena.cheio,
   .app .tela.entra.cheio.voltando,.app .tela.sai.cheio.voltando{animation:none!important}
-  /* E o mapa de verdade não espera cobra nenhuma: sem cena não há o que
-     esperar, e segurar o mapa 1,4 s por um espetáculo que não vai acontecer
-     seria a lei virando atraso. Seis classes contra as cinco de lá em cima. */
-  .app .tela.cena.cheio .dirigindo .mapa-palco.pronto>svg{opacity:0}
-  .app .tela.cena.cheio .dirigindo .mapa-palco.pronto .mapa-vivo{opacity:1}
+  /* (a dupla que segurava o mapa vivo enquanto a cobra corria saiu junto com a
+     cobra — hoje o mapa de verdade já é quem aparece desde o primeiro quadro,
+     em qualquer modo, e não há o que desfazer aqui.) */
 }
 
 /* barra de status */
@@ -5742,21 +5739,25 @@ let limpezaTimer=null;
    🔴 SÃO DOIS NÚMEROS PORQUE SÃO DUAS ENTRADAS, e a lei é a mesma nas duas:
    "o relógio herdado vale exatamente enquanto a entrada roda". Uma tela comum
    entra em ~740 ms (o eixo X fecha em 150 ms e as linhas escalonadas seguem
-   até lá) — pra ela o teto é `ENTRADA_COMUM`. A tela cheia do GPS tem a CENA
-   DA COBRA: pra ela o teto é `CENA_CHEIA`. Um teto de 2,2 s aplicado a TODA
-   tela seria reabrir o buraco do "nasce terminada" por 1,3 s de brinde.
+   até lá) — pra ela o teto é `ENTRADA_COMUM`. A tela cheia do GPS tem a cena
+   de entrar na rota: pra ela o teto é `CENA_CHEIA`. Um teto grande aplicado a
+   TODA tela seria reabrir o buraco do "nasce terminada" de brinde.
 
    🔴 `CENA_CHEIA` É TETO, NÃO É A DURAÇÃO — e a diferença custou uma medição.
-   A cobra dura 1,36 s de RELÓGIO DA ANIMAÇÃO; este número é de RELÓGIO DE
-   PAREDE, e os dois não coincidem. MEDIDO no g15 (07/08): ao entrar na rota a
-   thread trava ~490 ms subindo o mapa, então no instante em que a parede
-   marcava 519 ms o relógio do véu marcava 33. Com o teto colado na duração
-   (1,4 s) a marca caía com a animação ainda em ~950 ms e a ROTA era CORTADA
-   no meio de se desenhar — o motorista via o traço sumir e o mapa pronto
-   aparecer de estalo. A folga cobre a travada; quem termina a cena continua
-   sendo a própria animação (todo `@keyframes` daqui é `both`, o estado final
-   fica). O teto só existe pro caso de nada terminar. */
-const CENA_CHEIA=2200;
+   As peças da cena fecham antes; este número é de RELÓGIO DE PAREDE, e os dois
+   não coincidem. MEDIDO no g15 (07/08): ao entrar na rota a thread trava
+   ~490 ms subindo o mapa, então no instante em que a parede marcava 519 ms o
+   relógio do véu marcava 33. Teto colado na duração corta a cena no meio; a
+   folga cobre a travada, e quem termina continua sendo a própria animação
+   (todo `@keyframes` daqui é `both`, o estado final fica).
+
+   🔴 CAIU DE 2200 PRA 1200 COM A COBRA (09/08). O teto era o da rota de
+   mentira se desenhando (1,36 s de animação + folga). Sem ela, o que sobra na
+   camada é o véu (fecha aos 620 ms) e as folhas (a última entra aos 580 ms):
+   1,2 s já é folga de quase o dobro. E este número é ORQUESTRA — a descida da
+   câmera espera esta marca cair (§ `entrarNaDescida` na ponte), então segurar
+   2,2 s aqui era 1 segundo de tela parada esperando um show que acabou. */
+const CENA_CHEIA=1200;
 const ENTRADA_COMUM=900;
 /* 🔴 A ENTRADA DA TELA É DA CAMADA, NUNCA DA PEÇA (dono, 08/08: "clico em
    montar rota, ele pisca, parece que abre 2x").
@@ -6103,8 +6104,8 @@ function pintar(animar,dir){
     // animações da cena nasciam TERMINADAS — o motorista via o desfecho sem
     // nunca ver o prédio acender. Passada a entrada não existe o que
     // continuar, e carimbar vira só estrago. O teto é a ENTRADA DA CAMADA: a
-    // tela cheia carrega a marca `cena` e vale `CENA_CHEIA` (a cobra fecha em
-    // 1,36 s); qualquer outra vale `ENTRADA_COMUM`. É O MESMO NÚMERO que tira
+    // tela cheia carrega a marca `cena` e vale `CENA_CHEIA` (as folhas fecham
+    // aos 580 ms); qualquer outra vale `ENTRADA_COMUM`. É O MESMO NÚMERO que tira
     // a marca `cena` lá em cima, e tem que continuar sendo: enquanto vale o
     // relógio herdado existe cena pra continuar; passado ele, não existe.
     const t=performance.now()-entradaEm;

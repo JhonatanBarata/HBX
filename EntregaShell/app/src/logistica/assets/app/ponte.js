@@ -3496,10 +3496,24 @@
   const CENA_RUAS_ENTRADA = 700;
   /** na rota nova o mapa JÁ está na cara do motorista: nada de tela parada */
   const CENA_RUAS_ROTA = 140;
+  /* 🔴 O RITMO DO NAVEGAR É OUTRO, E É POR ORQUESTRA (09/08). Na tela da Rota a
+     cena é o assunto e pode respirar 1,84 s; na tela de DIRIGIR ela é só a
+     entrada — depois dela ainda vem a descida pro 3D, e quem está no volante
+     está esperando o GPS, não um show. Passo 90 e onda 520 fecham a frente
+     inteira em ~1,06 s, que é o mesmo relógio da camada (`CENA_CHEIA` = 1,2 s):
+     as duas acabam juntas e a câmera desce em seguida, sem tela parada.
+     🔴 E ELA NÃO ESCREVE NOME DE RUA. As letras são da tela que se apresenta;
+     aqui elas seriam texto nascendo no exato momento em que a manobra desce —
+     dois textos disputando o olho de quem vai dirigir. */
+  const CENA_PASSO_NAV = 90;
+  const CENA_ONDA_NAV = 520;
+  const CENA_RUAS_NAV = 120;
   const CENA_TETO_FIX = 1400;
   const CENA_TETO_TILE = 2200;
   const CENA_TETO_VIDA = 9000;
   const CENA_MAX_RUAS = 130;
+  /** e na tela de dirigir, metade (ver o comentário do `maxRuas`) */
+  const CENA_MAX_RUAS_NAV = 70;
   const CENA_MAX_NOMES = 16;
   const CENA_VALIDADE = 60000;
   const CENA_SAI = 520;
@@ -3507,6 +3521,8 @@
   const CENA_ASSENTA = 700;
   /** e quando é o dedo que encerra, ele sobe em 1/3 disso */
   const CENA_ASSENTA_DEDO = 260;
+  /** no Navegar o mundo assenta antes de a câmera começar a descer */
+  const CENA_ASSENTA_NAV = 300;
   const CENA_INVISIVEL = 'rgba(0,0,0,0)';
   /* A largura é a MESMA do basemap (`roads_*` no style), classe por classe. Não
      é capricho: no fim a camada da cena se apaga por cima da rua de verdade, e
@@ -3656,7 +3672,7 @@
     };
   }
 
-  function ruasDaCena(mapa) {
+  function ruasDaCena(mapa, teto) {
     let L; let A;
     try { const c = mapa.getContainer(); L = c.clientWidth; A = c.clientHeight; } catch (_) { return []; }
     if (!L || !A) return [];
@@ -3665,10 +3681,16 @@
     catch (_) { return []; }
     const vistas = new Set();
     const ruas = [];
+    /* quantas ruas a cena aceita. 🔴 A DE DIRIGIR PEDE MENOS, e é medição: com
+       130 ruas o `comecarCena` (varrer o tile, criar a fonte, sete camadas)
+       custou uma TAREFA LONGA de 372 ms na entrada da navegação — a tela mais
+       cara do app engasgando justo no toque do dono. Com 70 a cidade continua
+       fechada (o corte é pelas MAIORES, ver o sort abaixo) e o quadro volta. */
+    const maxRuas = teto || CENA_MAX_RUAS;
     // teto de varredura: o zoom da cidade traz milhares de feições e a conta é
     // por PONTO. Este laço roda UMA vez na vida da cena e mesmo assim tem freio.
-    const teto = Math.min(brutas.length, 2600);
-    for (let i = 0; i < teto; i += 1) {
+    const varredura = Math.min(brutas.length, 2600);
+    for (let i = 0; i < varredura; i += 1) {
       const f = brutas[i];
       const g = f && f.geometry;
       if (!g) continue;
@@ -3689,12 +3711,12 @@
         rua.nome = nome.slice(0, 34); rua.classe = classe;
         ruas.push(rua);
       }
-      if (ruas.length >= CENA_MAX_RUAS * 3) break;
+      if (ruas.length >= maxRuas * 3) break;
     }
     // as maiores primeiro: se houver corte, que sobre o desenho da cidade e não
     // um punhado de vielas.
     ruas.sort((a, b) => b.px - a.px);
-    return ruas.slice(0, CENA_MAX_RUAS);
+    return ruas.slice(0, maxRuas);
   }
 
   /* ---- de vários pontos aleatórios -------------------------------------------
@@ -3838,17 +3860,23 @@
      Enquanto houver alguém saindo de cena, a cena espera. */
   const telaSaindo = () => !!document.querySelector('#app .tela.sai');
 
+  /** de qual palco é cada cena — 'navegar' mora na tela de dirigir */
+  const palcoDaCena = (motivo) => (motivo === 'navegar' ? 'gps' : 'geral');
+
   /** o pedido: a cena acontece quando o palco estiver na tela, nunca antes */
   function pedirCena(motivo) {
     if (semMovimento()) return;
     cenaPedido = { motivo, em: Date.now() };
-    const casa = GARAGEM.get('geral');
+    const casa = GARAGEM.get(palcoDaCena(motivo));
     if (mapaNaTela(casa)) atenderCena(casa);
   }
 
   function atenderCena(casa) {
     const p = cenaPedido;
     if (!p) return;
+    // cada cena tem o palco dela: a da rota nova não pode ser servida pelo mapa
+    // de dirigir que passou na frente, nem o contrário.
+    if (!casa || casa.nome !== palcoDaCena(p.motivo)) return;
     // pedido velho não vira cena: montar a rota de manhã e abrir o mapa à tarde
     // não é "rota nova", é o dia em andamento.
     if (Date.now() - p.em > CENA_VALIDADE) { cenaPedido = null; return; }
@@ -3857,14 +3885,17 @@
   }
 
   function chamarCena(casa, motivo) {
-    if (!casa || casa.nome !== 'geral' || !casa.mapa) return;
+    if (!casa || casa.nome !== palcoDaCena(motivo) || !casa.mapa) return;
     if (cena || semMovimento()) return;
     if (motivo === 'entrada') {
       if (cenaJaEntrou) return;
       cenaJaEntrou = true;
     }
     const mapa = casa.mapa;
-    cena = { casa, motivo, mundo: null, t0: 0, ondas: [], nomes: [], cartao: null, eu: null, raf: 0, dedo: null };
+    cena = {
+      casa, motivo, mundo: null, t0: 0, ondas: [], nomes: [],
+      cartao: null, eu: null, raf: 0, dedo: null, onda: CENA_ONDA,
+    };
     const daVez = cena;
     /* O mundo sai de cena assim que o estilo existir — ANTES do primeiro tile
        pintar. Escondê-lo no `load` deixaria a cidade aparecer por um quadro e
@@ -3906,12 +3937,14 @@
   function comecarCena(daVez) {
     const casa = daVez.casa;
     const mapa = casa.mapa;
-    const ruas = ruasDaCena(mapa);
+    const ruas = ruasDaCena(mapa, daVez.motivo === 'navegar' ? CENA_MAX_RUAS_NAV : CENA_MAX_RUAS);
     /* Sem rua nenhuma não há cena — e isso é comum e normal: tile que não chegou,
        mapa fora da área coberta, aparelho sem o pacote. O mundo volta na hora. */
     if (!ruas.length) { encerrarCena('sem-rua', true); return; }
     ondasDasRuas(casa, ruas);
-    const nomes = nomesDaCena(ruas);
+    // na tela de dirigir a cena é só a cidade nascendo: nome de rua ali brigaria
+    // com a manobra, que desce no mesmo instante (§ CENA_PASSO_NAV).
+    const nomes = daVez.motivo === 'navegar' ? [] : nomesDaCena(ruas);
 
     const corpo = tinta('--map-cena-rua', '#59677a');
     const cabeca = tinta('--map-cabeca', '#e8f4ff');
@@ -3986,15 +4019,24 @@
       });
     } catch (_) { /* sem glyph: a cena roda só com as ruas */ }
 
-    const ruasEm = daVez.motivo === 'entrada' ? CENA_RUAS_ENTRADA : CENA_RUAS_ROTA;
-    daVez.ondas.forEach((o, i) => { o.em = ruasEm + (i * CENA_PASSO); });
+    /* O relógio da cena sai daqui, e ele é POR MOTIVO: a da entrada espera o
+       pino e a coordenada, a da rota nova entra quase junto, e a do Navegar
+       corre — ela tem a descida da câmera esperando atrás. */
+    const nav = daVez.motivo === 'navegar';
+    const passo = nav ? CENA_PASSO_NAV : CENA_PASSO;
+    const onda = nav ? CENA_ONDA_NAV : CENA_ONDA;
+    daVez.onda = onda;
+    let ruasEm = CENA_RUAS_ROTA;
+    if (daVez.motivo === 'entrada') ruasEm = CENA_RUAS_ENTRADA;
+    else if (nav) ruasEm = CENA_RUAS_NAV;
+    daVez.ondas.forEach((o, i) => { o.em = ruasEm + (i * passo); });
     daVez.nomes = nomes.map((r) => ({
       nome: r.nome,
       pontos: r.pontos,
       // 🔴 A LETRA COMEÇA QUANDO A RUA FECHA — ordem literal do dono. A onda é
       // quem fecha, e o tremorzinho de 0 a 160 ms evita que doze nomes comecem
       // a ser escritos no mesmo quadro.
-      em: ruasEm + (r.onda * CENA_PASSO) + CENA_ONDA + Math.round(Math.random() * 160),
+      em: ruasEm + (r.onda * passo) + onda + Math.round(Math.random() * 160),
       q: -1,
     }));
 
@@ -4053,7 +4095,7 @@
     for (let i = 0; i < daVez.ondas.length; i += 1) {
       const o = daVez.ondas[i];
       if (o.pronta) continue;
-      const p = (t - o.em) / CENA_ONDA;
+      const p = (t - o.em) / (daVez.onda || CENA_ONDA);
       if (p <= 0) { ruasProntas = false; continue; }
       const id = `${CENA_FONTE}-${i}`;
       try {
@@ -4121,7 +4163,12 @@
        assentamento de 1,2 s ali seria a cena continuando depois de ser mandada
        embora. Fim natural assenta com calma; dedo assenta em 1/3 do tempo; seco
        (tela trocou, estilo novo, erro) é imediato. */
-    const assenta = seco ? 0 : (motivo === 'dedo' ? CENA_ASSENTA_DEDO : CENA_ASSENTA);
+    /* 🔴 E A DO NAVEGAR ASSENTA RÁPIDO, PORQUE TEM FILA ATRÁS DELA: a descida
+       pro 3D começa 400 ms depois do fim. Um assentamento de 700 ms ainda
+       estaria subindo a cidade com a câmera já em movimento — dois efeitos se
+       cruzando pela porta dos fundos. */
+    let assenta = seco ? 0 : (motivo === 'dedo' ? CENA_ASSENTA_DEDO : CENA_ASSENTA);
+    if (!seco && c.motivo === 'navegar' && motivo !== 'dedo') assenta = CENA_ASSENTA_NAV;
     devolverMundo(mapa, c.mundo, assenta);
     if (mapa && c.dedo) {
       ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'].forEach((ev) => {
@@ -4516,7 +4563,7 @@
       palco.classList.add('com-mapa');
       acertarLuz(casa);
       sincronizarPinos(casa);
-      if (nome === 'gps') { desenharTraco(casa.mapa); cameraDaNavegacao(); return; }
+      if (nome === 'gps') { desenharTraco(casa.mapa); pedirCamera(); atenderCena(casa); return; }
       // 🔴 O TRANSPLANTE NÃO MEXE NA CÂMERA, e é assim que fica: voltar pra aba
       // Rota devolve o mapa exatamente onde ele estava. Só o traço e a seta se
       // acertam — os dois são DADO, e dado velho na tela principal é mentira.
@@ -4588,7 +4635,9 @@
       // desenho, parado a 68% da tela — um marcador do maplibre no mesmo lugar
       // seria a segunda seta, e o V4 promete uma. No mapa "geral" (a rota
       // inteira, sem puck) o marcador é justamente o que diz onde ele está.
-      if (nome === 'gps') { desenharTraco(mapa); cameraDaNavegacao(); return; }
+      // e a cena da entrada da navegação espera o mapa NASCER, não só o palco:
+      // sem estilo no ar não há rua nenhuma pra crescer (§ `atenderCena`).
+      if (nome === 'gps') { desenharTraco(mapa); pedirCamera(); atenderCena(nova); return; }
       // 🔴 O PALCO "geral" É A TELA PRINCIPAL DA ROTA desde 08/08, e ele nascia
       // com pino e mais nada: sem traço (o caminho existia e ninguém desenhava)
       // e no zoom de nascimento, com o resto do dia fora da tela. As três peças
@@ -4712,36 +4761,135 @@
   const EMP_ESC_TETO = 1.8;
   const EMP_DIST_CHEIA = 300;
 
-  /* 🔴 A RÉGUA DO MOCK ROTA (§2.3 do plano, correção do dono): a empresa vale
-     À FRENTE do veículo; "depois que passou já era" — o motorista não pode
-     ser avisado de algo que ficou pra trás. Passou é PRA SEMPRE no dia (Set
-     por identidade). Rumo só existe em movimento (`rumoConfiavel`, ≥9 km/h):
-     sem rumo NADA muda — parado ou a pé, a tela continua mostrando tudo. */
-  const empresasPassadas = new Set();
-  const EMP_PASSOU_M = 40;      // atrás disso, apaga o convite (v4: despede 40-90 m)
-  const EMP_SOME_M = 250;       // bem pra trás, sai da tela (v4: some 150-320 m)
-  function reguaDaFrente(el, lat, lng) {
-    const chave = el.dataset.empresa || `${lat},${lng}`;
-    if (empresasPassadas.has(chave)) {
-      el.classList.add('passou');
-      return;
-    }
+  /* ------------------------------------------------------------------------
+     🔴 A EMPRESA NASCE PELO TEMPO DE VIAGEM, E SÓ COM O MUNDO JÁ DEITADO
+     (ordem do dono, 09/08: *"as empresas do prospect não têm q aparecer nesse
+     gráfico, elas aparecem quando CHEGA no 3d, e chega PERTO da empresa"*).
+
+     O que havia aqui era meia régua: a empresa nascia no ar no MESMO quadro em
+     que o dado chegava e a única pergunta era "já passou?". MEDIDO na bancada,
+     no toque do Navegar: 16 prédios no DOM e **12 na tela aos 233 ms** — em
+     cima da maquete da cena, com o mapa de verdade ainda invisível, e
+     atravessando a vista de cima inteira e os 2,4 s da descida. Eram também
+     **51 das 88 animações** do pico da entrada (sem eles: 37, e a tela assenta
+     em 60 fps aos 1,4 s em vez de dar buracos de 0 fps).
+
+     Agora são as DUAS travas que a V4 tem e a fusão não trouxe:
+
+     1. A TRAVA DA CÂMERA (`cameraEntrando`) — com o mundo em pé ou descendo,
+        NENHUM prédio existe. A moldura de tela sozinha nunca resolveria isto:
+        na vista de cima o dia inteiro cabe na tela, então "quem está na
+        moldura" é TODO MUNDO. O prospector é peça do 3D.
+     2. A RÉGUA DE TEMPO (`REGUA`/`TRAVA`, cópia fiel da V4:784) — o prédio
+        nasce ~34 s à frente, é varrido aos 22 s, ACENDE aos 20 s, se despede
+        5 s depois de ficar pra trás e some aos 22 s. Em metros isso vira
+        170-320 m (a `TRAVA`), que é o "chega perto da empresa" — parado ou a
+        pé, o piso de 8 m/s faz a régua virar distância pura.
+
+     A fase só ANDA PRA FRENTE e mora num Map por identidade, não no elemento:
+     todo repinte troca o `.emp` por um nó novo, e estado guardado no nó morre
+     junto (é a mesma lei do `empresasPassadas` que este bloco substitui).
+
+     🔴 QUEM ACENDE CONTINUA SENDO O SERVIDOR. A régua decide QUANDO; o `aceso`
+     do payload decide QUEM (§ `aplicarProspector`). Prédio sem `aceso` faz o
+     caminho todo e fica no ar apagado — nunca ganha rótulo.
+     ------------------------------------------------------------------------ */
+  const REGUA = { nasce: 34, varre: 22, acende: 20, despede: -5, some: -22 };  // segundos
+  const TRAVA = { min: 170, max: 320 };                                        // metros
+  const EMP_VREF_MIN = 8;        // m/s — o piso da V4: parado, a régua é distância
+  /** identidade da empresa → fase 0..5 (0 = nem nasceu, 5 = já sumiu) */
+  const empresasFase = new Map();
+
+  /** true = a câmera ainda está ENTRANDO na tela (em pé, ou descendo pro 3D) */
+  function cameraEntrando() {
+    // `camFase` é declarado adiante (§7d-bis): antes dele existir, ninguém
+    // entrou em tela nenhuma — e a resposta honesta é "não estou entrando".
+    try { return camFase === 'cima' || camFase === 'descendo'; } catch (_) { return false; }
+  }
+
+  /** os limiares desta passada — `null` quando não dá pra saber onde é a frente */
+  function reguaDaViagem() {
     const fix = ultimoFix;
-    const rumo = rumoConfiavel(fix);
-    if (rumo == null || !fix || !Number.isFinite(fix.lat) || !Number.isFinite(fix.lng)) return;
-    // equiretangular basta nesta escala (corredor de 150 m)
-    const kx = 111320 * Math.cos((fix.lat * Math.PI) / 180);
-    const dx = (lng - fix.lng) * kx;
-    const dy = (lat - fix.lat) * 110540;
-    const dist = Math.hypot(dx, dy);
-    if (dist < EMP_PASSOU_M) return;                    // do lado: ainda é agora
-    const aoAlvo = (Math.atan2(dx, dy) * 180) / Math.PI; // 0° = norte, como o rumo
-    let dif = Math.abs(aoAlvo - rumo) % 360;
-    if (dif > 180) dif = 360 - dif;
-    if (dif <= 100) return;                             // à frente (com folga de esquina)
-    empresasPassadas.add(chave);
-    el.classList.add('passou');
-    if (dist > EMP_SOME_M) el.classList.remove('no-ar');
+    if (!fix || !Number.isFinite(fix.lat) || !Number.isFinite(fix.lng)) return null;
+    // 🔴 O RUMO É O DA TELA, não o `rumoConfiavel` cru: andando é o aparelho,
+    // parado é a ROTA (§ rumoDaTela). Com o cru, o carro no farol perdia a
+    // noção de frente e a régua congelava até ele arrancar.
+    const rumo = rumoDaTela();
+    if (rumo == null) return null;
+    const v = Math.max(EMP_VREF_MIN, Number.isFinite(fix.velMps) && fix.velMps > 0 ? fix.velMps : 0);
+    const lim = (s) => Math.max(TRAVA.min, Math.min(TRAVA.max, v * s));
+    return {
+      fix,
+      rad: (rumo * Math.PI) / 180,
+      kx: 111320 * Math.cos((fix.lat * Math.PI) / 180),
+      nasce: lim(REGUA.nasce), varre: lim(REGUA.varre), acende: lim(REGUA.acende),
+      // despedir e sumir têm régua própria na V4 (40-90 m e 150-320 m)
+      despede: -Math.max(40, Math.min(90, v * -REGUA.despede)),
+      some: -Math.max(150, Math.min(320, v * -REGUA.some)),
+    };
+  }
+
+  /** a fase de agora — ela só ANDA PRA FRENTE, nunca volta */
+  function faseDaEmpresa(el, lat, lng, r) {
+    const chave = el.dataset.empresa || `${lat},${lng}`;
+    let fase = empresasFase.get(chave) || 0;
+    if (r) {
+      // equiretangular basta nesta escala; `d` é a distância À FRENTE, com
+      // sinal: positiva ainda por chegar, negativa já pra trás.
+      const dx = (lng - r.fix.lng) * r.kx;
+      const dy = (lat - r.fix.lat) * 110540;
+      const d = (dx * Math.sin(r.rad)) + (dy * Math.cos(r.rad));
+      /* 🔴 A FASE É A QUE A DISTÂNCIA MANDA, NÃO A PRÓXIMA DA FILA. A V4 anda um
+         degrau por quadro porque lá toda empresa entra pela frente do corredor,
+         sempre longe. Aqui a lista chega DE UMA VEZ, com metade já ao lado ou
+         atrás — e subir de um em um fazia essas passarem por "acesa" durante um
+         quadro cada antes de sumir. Um quadro de convite pra uma empresa que
+         ficou pra trás é exatamente o pisca que esta leva veio matar. Quem vem
+         de longe continua vendo os degraus na ordem: eles ficam segundos de
+         distância um do outro. */
+      let alvo = 0;
+      if (d <= r.some) alvo = 5;
+      else if (d <= r.despede) alvo = 4;
+      else if (d <= r.acende) alvo = 3;
+      else if (d <= r.varre) alvo = 2;
+      else if (d <= r.nasce) alvo = 1;
+      if (alvo > fase) fase = alvo;
+      empresasFase.set(chave, fase);
+    }
+    return fase;
+  }
+
+  /* O `aceso` do servidor chega no elemento como a classe `on` do template, e
+     a régua tira essa classe até a hora certa — então ele é lido UMA vez, no
+     primeiro contato com o nó (que é sempre antes do primeiro quadro: o
+     observador roda em microtarefa, antes de o navegador pintar). */
+  function empresaAcesa(el) {
+    if (!el.__hbxAceso) el.__hbxAceso = el.classList.contains('on') ? 1 : -1;
+    return el.__hbxAceso === 1;
+  }
+
+  /** veste o prédio com o estado da fase — nada aqui pinta, só classifica */
+  function vestirFase(el, fase, aceso) {
+    el.classList.toggle('no-ar', fase >= 1 && fase < 5);
+    el.classList.toggle('nasce', fase >= 1);
+    el.classList.toggle('varrendo', fase >= 2);
+    el.classList.toggle('on', fase >= 3 && aceso);
+    el.classList.toggle('passou', fase >= 4);
+  }
+
+  /** tira TODO prédio da tela — a entrada da navegação não tem prospector */
+  function recolherEmpresas(alvos) {
+    alvos.forEach((el) => {
+      /* 🔴 LER O `aceso` ANTES DE APAGAR A CLASSE QUE O CARREGA. O template
+         escreve o `aceso` do servidor como a classe `on`, e é dela que sai o
+         `__hbxAceso`. Recolhendo primeiro, o primeiro contato com o nó já o via
+         sem `on` e o gravava como "não acende" PRA SEMPRE: a empresa fazia o
+         caminho inteiro da régua e chegava muda na frente do motorista.
+         Pego pela prova (1.4), não pela tela — na tela ela só some. */
+      empresaAcesa(el);
+      el.classList.remove('no-ar', 'nasce', 'varrendo', 'on', 'passou', 'mudo');
+      if (el.style.visibility !== 'hidden') el.style.visibility = 'hidden';
+    });
   }
 
   /* ------------------------------------------------------------------------
@@ -4861,6 +5009,23 @@
     // afetado por nada daqui, e o portão de pixel segue byte a byte.
     const alvos = cena.querySelectorAll('.emp[data-lat]');
     if (!alvos.length) return;
+    /* 🔴 A RÉGUA DE VIAGEM É DE QUEM ESTÁ VIAJANDO. Ela vale no palco do GPS —
+       lá existe rumo, velocidade e "à frente". No mapa de planejar (o palco
+       `geral`, visto de cima e sem motorista) não existe frente nenhuma: quem
+       manda ali continua sendo só a moldura da tela. Sem esta pergunta, uma
+       empresa desenhada na tela da Rota nasceria em fase 0 e não apareceria
+       nunca — sumida sem que nada na tela explicasse por quê. */
+    const naNavegacaoAqui = palco.dataset && palco.dataset.mapa === 'gps';
+    /* 🔴 A ENTRADA DA TELA NÃO TEM PROSPECTOR (dono, 09/08). Sai ANTES de
+       projetar: a conta cara desta função não é a matemática, é medir chip,
+       escrever estilo e brigar por rótulo — e nos 4,5 s de cena + vista de
+       cima + descida isso rodava a cada quadro, por 16 prédios que nem podiam
+       estar ali. */
+    if (naNavegacaoAqui && cameraEntrando()) {
+      recolherEmpresas(alvos);
+      cromoDoProspector(cena, 0);
+      return;
+    }
     let zoom;
     try { zoom = mapa.getZoom(); } catch (_) { return; }
     if (!Number.isFinite(zoom)) return;
@@ -4876,9 +5041,22 @@
     const alt = cena.clientHeight || 0;
     const dentroDaMoldura = [];
     const esconder = [];
+    /* 🔴 A FASE É DA VIAGEM, NÃO DA TELA — e por isso ela anda pra TODO prédio,
+       inclusive o que está fora da moldura. Amarrar a fase à moldura deixaria o
+       prédio que ficou pra trás congelado em "aceso": ele voltaria pra tela
+       numa curva ainda convidando, como se o motorista não tivesse passado. */
+    const regua = naNavegacaoAqui ? reguaDaViagem() : null;
     alvos.forEach((el) => {
       const lat = Number(el.dataset.lat); const lng = Number(el.dataset.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      if (naNavegacaoAqui) {
+        const fase = faseDaEmpresa(el, lat, lng, regua);
+        vestirFase(el, fase, empresaAcesa(el));
+        // o filtro da V4:1312 (`fase>0 && fase<5`): quem ainda não nasceu não
+        // ocupa quadro nenhum. Quem já sumiu ainda é projetado UM ciclo — é o
+        // fade de saída acontecendo no lugar certo, não um corte.
+        if (fase === 0) { if (el.style.visibility !== 'hidden') esconder.push(el); return; }
+      }
       let ponto;
       try { ponto = mapa.project([lng, lat]); } catch (_) { return; }
       const fora = ponto.x < -110 || ponto.x > larg + 110 || ponto.y < -70 || ponto.y > alt + 80;
@@ -4900,10 +5078,27 @@
       el.style.setProperty('--x', `${ponto.x.toFixed(1)}px`);
       el.style.setProperty('--y', `${ponto.y.toFixed(1)}px`);
       el.style.setProperty('--esc', esc.toFixed(3));
-      reguaDaFrente(el, lat, lng);
       postos.push({ el, x: ponto.x, y: ponto.y, esc });
     });
     deconflitarRotulos(postos, larg);
+    if (naNavegacaoAqui) cromoDoProspector(cena, postos.length);
+  }
+
+  /* 🔴 "EMPRESAS POR PERTO" SÓ EXISTE QUANDO HÁ EMPRESA POR PERTO. O chip, a
+     linha de varredura e o radar do ponteiro nasciam de `empresas.length` — a
+     LISTA do dia, que tem 16 e não muda o dia inteiro. Com a régua de viagem
+     isso virou promessa falsa na cara do motorista: o app dizendo "por perto"
+     com a tela vazia, porque as 16 ainda estavam a quilômetros. Agora os três
+     seguem o mesmo fato que os prédios seguem — quantos estão NO AR. */
+  function cromoDoProspector(cena, quantas) {
+    const some = (el) => {
+      if (!el) return;
+      const alvo = quantas > 0 ? '' : 'hidden';
+      if (el.style.visibility !== alvo) el.style.visibility = alvo;
+    };
+    some(cena.querySelector('.emp-chip'));
+    some(cena.querySelector('.emp-scan'));
+    some(cena.querySelector('.emp-radar'));
   }
 
   /* 🔴 REPINTE NÃO RECOMEÇA A CENA DE QUEM JÁ ACENDEU — é a Lei nº10 desta
@@ -4945,6 +5140,11 @@
        gesto. Pior ainda no caso da empresa que JÁ ESTAVA acesa e calada: o
        `return` abaixo saía sem fazer NADA, e o toque virava um clique morto. */
     empresaDoDedo = String(id);
+    /* 🔴 O DEDO TAMBÉM ADIANTA A RÉGUA. Sem esta linha, encostar num prédio que
+       a viagem ainda não acendeu (fase 1 ou 2) mandava `aceso` pro seam e a
+       fase seguinte tirava a classe `on` de volta no quadro seguinte: o toque
+       acendia e apagava. Quem o motorista escolhe está aceso, ponto. */
+    if ((empresasFase.get(String(id)) || 0) < 3) empresasFase.set(String(id), 3);
     if (antes.has(String(id))) {
       // já acesa: o toque não re-encena a cena (Lei nº10) — mas re-decide QUEM
       // fala, que é a única coisa que ele ainda pode entregar.
@@ -5739,7 +5939,13 @@
      ela NÃO manda passo nenhum (o `easeTo` da descida está no ar e dois
      comandos brigando é a tela pinotando). Ela só segue aparando a fita, que é
      de graça e tem que continuar saindo da seta. */
-  const DESCIDA_MS = 2400;
+  /* 🔴 2400 → 1800 (09/08). A coreografia inteira do toque no "Navegar" foi
+     MEDIDA na bancada e dava 6,8 s até a tela virar GPS: 2,3 s de cena + 1,9 s
+     de tela parada + 2,4 s de descida. Ninguém que aperta "Navegar" está
+     pedindo sete segundos de espetáculo — ele está pedindo a rua. Os 1,8 s
+     continuam sendo movimento (o corte, que é o que o V4 mata, seria zero) e
+     agora fecham a entrada inteira em ~3,3 s. */
+  const DESCIDA_MS = 1800;
   /* 🔴 A VISTA DE CIMA É A MOLDURA DA ROTA (08/08 — dono: "não mostra o mapa
      2d antes do 3d"). Ela era um DEGRAU FIXO de 1,8 nível, e o degrau tinha
      uma razão boa: dia real abre 8 km numa parada e 200 m na seguinte, e a
@@ -5758,7 +5964,13 @@
      motorista, então não há região nova pra baixar) e virou só o limite de
      bom senso: abaixo disso a rota vira um risco e o mapa, um borrão. */
   const GERAL_ZOOM_PISO = 9.5;
-  const GERAL_MS = 2200;
+  /* 🔴 2200 → 400 (09/08). Estes 2,2 s eram "tempo de leitura" da vista de
+     cima — e MEDIDO na bancada eram 1,9 s de tela PARADA no meio da entrada,
+     justamente onde os prédios do prospector ficavam mais visíveis (a tela sem
+     movimento é onde o olho vai procurar o que se mexe). A vista de cima agora
+     é lida DURANTE a cena das ruas, que dura 1,06 s e acontece nela: o que
+     falta depois é só o respiro entre um movimento e o outro. */
+  const GERAL_MS = 400;
   /* a curva do V4, `suave` — cúbica nas duas pontas: sai devagar, ganha corpo
      no meio e assenta sem batida. É ela que faz "descer" em vez de "cortar". */
   const suave = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (((-2 * t) + 2) ** 3) / 2);
@@ -5784,6 +5996,8 @@
      quarteirão que ficou pra trás. 12 s é o repouso padrão do mercado. */
   const VOLTA_MS = 12000;
   const emCena = () => !!document.querySelector('#app .tela.cena');
+  /** a cidade ainda está nascendo no mapa de dirigir? (§ 7a-bis, motivo 'navegar') */
+  const cenaDasRuasNoAr = () => !!(cena && cena.casa && cena.casa.nome === 'gps');
 
   /** o encaixe do puck é o mesmo nas três fases — por isso mora sozinho aqui */
   const recuoDoPuck = (mapa) => {
@@ -5887,9 +6101,24 @@
      nada e morre sozinha. Sem cena nenhuma (o app abrindo direto na navegação)
      a descida começa na hora: o efeito é o mesmo, só não tem cobra antes. */
   function entrarNaDescida() {
+    /* 🔴 ENTRAR É UM VERBO SÓ, E ELE JÁ ESTAVA SENDO DITO DUAS VEZES. O toque
+       do "Navegar" passa pelo `ir` (que chama isto) e a troca de tela passa
+       pelo observador (que chama isto de novo, uma microtarefa depois) — as
+       duas portas existem de propósito, porque o app também pode SUBIR direto
+       na tela de dirigir. O que não podia é a segunda desmanchar a primeira:
+       MEDIDO no maplibre, no clique, `jumpTo` em t=31 ms e outro em t=37 ms, e
+       o vigia da cena recomeçando do zero no meio. Entrar de novo em quem já
+       está entrando não é entrar — é gaguejar. */
+    if (camFase === 'cima' && (vigiaCena || geralTimer)) return;
     if (vigiaCena) { clearInterval(vigiaCena); vigiaCena = null; }
     if (geralTimer) { clearTimeout(geralTimer); geralTimer = null; }
     camFase = 'cima';
+    /* 🔴 ENTRAR NA NAVEGAÇÃO É A CIDADE NASCENDO NO MAPA DE VERDADE (09/08, no
+       lugar da cobra). Pedido aqui e não no `ir` porque esta função é a porta
+       única do "entrei na tela de dirigir" — vale pro toque do Navegar e pro
+       app que sobe direto nela. Quem toca é o transplante, quando o palco do
+       gps aparece: cena em palco fora da tela é cena que ninguém vê. */
+    pedirCena('navegar');
     poseGeral = null;
     vistaGeral();
     const desistirEm = Date.now() + 3000;
@@ -5899,7 +6128,12 @@
         if (telaAtual() !== 'mapa') camFase = 'dirigindo';
         return;
       }
-      if (emCena() && Date.now() < desistirEm) return;
+      /* 🔴 SÃO DUAS CENAS ESPERANDO, E ELAS TERMINAM QUASE JUNTAS: a da CAMADA
+         (o véu e as folhas entrando, marca `cena`, teto de 1,2 s) e a das RUAS
+         crescendo DENTRO do mapa (~1,06 s). Descer com a cidade ainda nascendo
+         seria a câmera se mexendo por cima de um desenho em curso — o cruzamento
+         que esta leva inteira existe pra matar. Quem chegar por último manda. */
+      if ((emCena() || cenaDasRuasNoAr()) && Date.now() < desistirEm) return;
       clearInterval(vigiaCena); vigiaCena = null;
       // 🔴 A CENA SAIU: SÓ AGORA A VISTA DE CIMA É VISÍVEL. Descer aqui era o
       // defeito — a moldura vivia inteira atrás do véu e o motorista só via o
@@ -6030,7 +6264,44 @@
     // a câmera fazia outra. Sem rumo nenhum (fora da rota) NÃO gira.
     const rumo = rumoDaTela();
     if (rumo != null) passo.bearing = rumo;
+    /* 🔴 REMANDAR A CÂMERA PRO LUGAR ONDE ELA JÁ ESTÁ INDO É UM SOLAVANCO. O
+       `easeTo` não continua o movimento anterior: ele COMEÇA OUTRO, do ponto em
+       que a interpolação estava, e com os 900 ms de novo. Com o carro parado no
+       farol (o GPS balança metro pra cá, metro pra lá) isso era um easeTo por
+       segundo pra ficar no mesmo lugar — a tremida que o dono lê como "pisca".
+       Nada mudou de verdade? não se manda nada. */
+    if (mesmaPose(mapa, passo)) return;
     try { mapa.easeTo(passo); } catch (_) { /* mapa saindo de cena */ }
+  }
+
+  /** true = a câmera já está (ou já vai) nesta pose — dentro do que o olho vê */
+  const POSE_METRO = 1.5;      // o tremor do GPS parado
+  const POSE_GRAU = 1;         // 1° de bússola não vira pixel nenhum
+  function mesmaPose(mapa, passo) {
+    let c; let z; let p; let b;
+    try {
+      c = mapa.getCenter(); z = mapa.getZoom(); p = mapa.getPitch(); b = mapa.getBearing();
+    } catch (_) { return false; }
+    if (!c || Math.abs(z - passo.zoom) > 0.01 || Math.abs(p - passo.pitch) > 0.5) return false;
+    if (passo.bearing != null) {
+      let dif = Math.abs(b - passo.bearing) % 360;
+      if (dif > 180) dif = 360 - dif;
+      if (dif > POSE_GRAU) return false;
+    }
+    return metrosEntre({ lat: c.lat, lng: c.lng }, { lat: passo.center[1], lng: passo.center[0] }) <= POSE_METRO;
+  }
+
+  /* 🔴 UM QUADRO = UMA ORDEM DE CÂMERA. São QUATRO portas que mandam a câmera
+     se acertar (o fix, o transplante do mapa, o nascimento dele e a volta do
+     dedo), e no fix elas coincidem: MEDIDO no maplibre, `jumpTo`/`easeTo` DOIS
+     no mesmo milissegundo, uma vez por segundo, o segundo reiniciando a
+     interpolação do primeiro. É a mesma cura do `acompanharCamera`: o rAF
+     junta o que caiu no mesmo quadro numa ordem só. */
+  let camQuadro = false;
+  function pedirCamera() {
+    if (camQuadro) return;
+    camQuadro = true;
+    requestAnimationFrame(() => { camQuadro = false; cameraDaNavegacao(); });
   }
 
   /* ---- A VOZ DA MANOBRA --------------------------------------------------
@@ -6121,7 +6392,7 @@
     if (!naNavegacao()) return;
     pintarNavegacao();
     if (telaAtual() === 'mapa') {
-      pedirRota(); cameraDaNavegacao();
+      pedirRota(); pedirCamera();
       // a voz mora AQUI, no fix — não no repinte: quem entra na tela não pode
       // levar um "vire à direita" na cara só por ter aberto o mapa.
       vozDaManobra(manobraDaVez());
@@ -6511,12 +6782,12 @@
       // boot do app seria pedir fora de hora; não pedir nunca era a tela muda.
       if (tela === 'mapa' || tela === 'mapachegou') {
         garantirGps(); pintarNavegacao();
-        // 🔴 ENTRAR NA NAVEGAÇÃO É DESCER (§7d-bis). A câmera é posta em pé por
-        // baixo da cena da cobra e desce 2,4 s depois que o véu abre — é o
-        // movimento do V4. Voltar pra cá com o mapa já na garagem passa pelo
-        // mesmo caminho: ele está estacionado deitado, em 3D, e sem endireitar
-        // antes a tela abriria já dirigindo, sem descida nenhuma.
-        if (tela === 'mapa') { pedirRota(); entrarNaDescida(); }
+        /* 🔴 ENTRAR NA NAVEGAÇÃO É DESCER (§7d-bis) — mas quem diz "entrei" é o
+           OBSERVADOR, não este toque. Eram duas portas mandando a mesma coisa
+           (medido: dois `jumpTo` com 6 ms de diferença), e só uma delas sabe de
+           ONDE o motorista veio — que é o que separa entrar na rota de voltar
+           do "Você chegou". Aqui fica só o pedido de rota, que é dado. */
+        if (tela === 'mapa') pedirRota();
         // saindo de "dirigindo" a câmera volta a ter dono nenhum esperando
         if (tela === 'mapachegou') pararDescida();
       }
@@ -6535,8 +6806,17 @@
     // a FASE da câmera antes do mapa: `montarMapa` já manda a câmera pro lugar,
     // e ela precisa saber que a tela está entrando (2D) e não dirigindo (3D).
     if (telaAtual() !== telaVistaAqui) {
+      const veioDe = telaVistaAqui;
       telaVistaAqui = telaAtual();
-      if (telaVistaAqui === 'mapa') entrarNaDescida(); else pararDescida();
+      /* 🔴 VOLTAR DO "VOCÊ CHEGOU" NÃO É ENTRAR NA ROTA. A tela de chegada é um
+         degrau DENTRO da navegação: o motorista entrega, confirma e volta pro
+         mapa — e repetir ali a cidade nascendo + a descida de 1,8 s seria o
+         show inteiro a cada parada, dezenas de vezes por dia, sempre no meio da
+         rua. Ele já está dirigindo; a câmera continua de onde estava. */
+      if (telaVistaAqui === 'mapa') {
+        if (veioDe === 'mapachegou') { camFase = 'dirigindo'; pedirCamera(); }
+        else entrarNaDescida();
+      } else pararDescida();
     }
     const palco = naCamada('[data-mapa]');
     if (palco) montarMapa(palco);

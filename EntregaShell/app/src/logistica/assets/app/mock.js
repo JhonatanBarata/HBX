@@ -3099,21 +3099,25 @@ let limpezaTimer=null;
    🔴 SÃO DOIS NÚMEROS PORQUE SÃO DUAS ENTRADAS, e a lei é a mesma nas duas:
    "o relógio herdado vale exatamente enquanto a entrada roda". Uma tela comum
    entra em ~740 ms (o eixo X fecha em 150 ms e as linhas escalonadas seguem
-   até lá) — pra ela o teto é `ENTRADA_COMUM`. A tela cheia do GPS tem a CENA
-   DA COBRA: pra ela o teto é `CENA_CHEIA`. Um teto de 2,2 s aplicado a TODA
-   tela seria reabrir o buraco do "nasce terminada" por 1,3 s de brinde.
+   até lá) — pra ela o teto é `ENTRADA_COMUM`. A tela cheia do GPS tem a cena
+   de entrar na rota: pra ela o teto é `CENA_CHEIA`. Um teto grande aplicado a
+   TODA tela seria reabrir o buraco do "nasce terminada" de brinde.
 
    🔴 `CENA_CHEIA` É TETO, NÃO É A DURAÇÃO — e a diferença custou uma medição.
-   A cobra dura 1,36 s de RELÓGIO DA ANIMAÇÃO; este número é de RELÓGIO DE
-   PAREDE, e os dois não coincidem. MEDIDO no g15 (07/08): ao entrar na rota a
-   thread trava ~490 ms subindo o mapa, então no instante em que a parede
-   marcava 519 ms o relógio do véu marcava 33. Com o teto colado na duração
-   (1,4 s) a marca caía com a animação ainda em ~950 ms e a ROTA era CORTADA
-   no meio de se desenhar — o motorista via o traço sumir e o mapa pronto
-   aparecer de estalo. A folga cobre a travada; quem termina a cena continua
-   sendo a própria animação (todo `@keyframes` daqui é `both`, o estado final
-   fica). O teto só existe pro caso de nada terminar. */
-const CENA_CHEIA=2200;
+   As peças da cena fecham antes; este número é de RELÓGIO DE PAREDE, e os dois
+   não coincidem. MEDIDO no g15 (07/08): ao entrar na rota a thread trava
+   ~490 ms subindo o mapa, então no instante em que a parede marcava 519 ms o
+   relógio do véu marcava 33. Teto colado na duração corta a cena no meio; a
+   folga cobre a travada, e quem termina continua sendo a própria animação
+   (todo `@keyframes` daqui é `both`, o estado final fica).
+
+   🔴 CAIU DE 2200 PRA 1200 COM A COBRA (09/08). O teto era o da rota de
+   mentira se desenhando (1,36 s de animação + folga). Sem ela, o que sobra na
+   camada é o véu (fecha aos 620 ms) e as folhas (a última entra aos 580 ms):
+   1,2 s já é folga de quase o dobro. E este número é ORQUESTRA — a descida da
+   câmera espera esta marca cair (§ `entrarNaDescida` na ponte), então segurar
+   2,2 s aqui era 1 segundo de tela parada esperando um show que acabou. */
+const CENA_CHEIA=1200;
 const ENTRADA_COMUM=900;
 /* 🔴 A ENTRADA DA TELA É DA CAMADA, NUNCA DA PEÇA (dono, 08/08: "clico em
    montar rota, ele pisca, parece que abre 2x").
@@ -3460,8 +3464,8 @@ function pintar(animar,dir){
     // animações da cena nasciam TERMINADAS — o motorista via o desfecho sem
     // nunca ver o prédio acender. Passada a entrada não existe o que
     // continuar, e carimbar vira só estrago. O teto é a ENTRADA DA CAMADA: a
-    // tela cheia carrega a marca `cena` e vale `CENA_CHEIA` (a cobra fecha em
-    // 1,36 s); qualquer outra vale `ENTRADA_COMUM`. É O MESMO NÚMERO que tira
+    // tela cheia carrega a marca `cena` e vale `CENA_CHEIA` (as folhas fecham
+    // aos 580 ms); qualquer outra vale `ENTRADA_COMUM`. É O MESMO NÚMERO que tira
     // a marca `cena` lá em cima, e tem que continuar sendo: enquanto vale o
     // relógio herdado existe cena pra continuar; passado ele, não existe.
     const t=performance.now()-entradaEm;
