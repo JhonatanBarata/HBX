@@ -58,7 +58,7 @@ if (!embarcado.equals(costura.buffer)) {
     `     gerado : ${JSON.stringify((a[i] || '').slice(0, 110))}\n` +
     `     fonte  : ${JSON.stringify((b[i] || '').slice(0, 110))}\n\n` +
     `   sha256 gerado ${sha(embarcado).slice(0, 16)}… × fonte ${sha(costura.buffer).slice(0, 16)}…\n\n` +
-    '   O GERADO NÃO SE EDITA. Leve a mudança para ponte/src/ e rode:\n' +
+    `   O GERADO NÃO SE EDITA. Leve a mudança para ${rel(SRC)}/ e rode:\n` +
     '     node scripts/ponte-costurar.js',
   );
 }

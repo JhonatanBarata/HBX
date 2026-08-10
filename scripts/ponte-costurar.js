@@ -1,14 +1,21 @@
 #!/usr/bin/env node
 /**
- * COSTURA A PONTE — `ponte/src/*.js` (a FONTE) vira o `ponte.js` do APK.
+ * COSTURA A PONTE — `logistica/ponte-src/*.js` (a FONTE) vira o `ponte.js` do APK.
  *
  *     node scripts/ponte-costurar.js
  *
  * Mesmo desenho da casca (mock HTML é a fonte, `mock.js` é gerado): quem se
- * edita é `ponte/src/`; `assets/app/ponte.js` é SAÍDA. A costura é concatenação
+ * edita é `ponte-src/`; `assets/app/ponte.js` é SAÍDA. A costura é concatenação
  * pura, na ordem do NOME do arquivo (00, 10, 20, … A0, B0 …) — nada de wrapper,
  * nada de cabeçalho, nada de linha inventada. Os pedaços são fatias contíguas
  * do mesmo IIFE, então o escopo léxico volta inteiro.
+ *
+ * 🔴 A FONTE MORA FORA DE `assets/` DE PROPÓSITO (10/08). Tudo que está em
+ * `src/logistica/assets/**` é EMBARCADO no APK: com a fonte lá dentro, o
+ * motorista baixava 589 KB de código que ninguém carrega (o `index.html` só
+ * puxa o `ponte.js` costurado) — o dobro da ponte, por nada. Em `src/logistica/`
+ * ela continua contando na digital do APK (o `deploy-vps` varre `app/src`
+ * inteiro, então mexer só na fonte já carimba versão nova) sem viajar junto.
  *
  * 🔴 Editar o `ponte.js` gerado é perder o trabalho no próximo `costurar` — foi
  * o que já custou duas vezes o cordão de update no `index.html`. O
@@ -20,9 +27,9 @@ const path = require('path');
 const crypto = require('crypto');
 
 const raiz = path.join(__dirname, '..');
-const APP = path.join(raiz, 'EntregaShell/app/src/logistica/assets/app');
-const PONTE = path.join(APP, 'ponte.js');
-const SRC = path.join(APP, 'ponte', 'src');
+const LOGISTICA = path.join(raiz, 'EntregaShell/app/src/logistica');
+const PONTE = path.join(LOGISTICA, 'assets', 'app', 'ponte.js'); // GERADO, vai no APK
+const SRC = path.join(LOGISTICA, 'ponte-src');                   // FONTE, fica fora do APK
 
 const NOME_VALIDO = /^[0-9A-Z]{2}-[a-z0-9-]+\.js$/;
 const TETO = 1000; // ordem do dono (10/08): fonte JS não passa de 1.000 linhas

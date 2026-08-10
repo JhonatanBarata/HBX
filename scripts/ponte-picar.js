@@ -2,12 +2,12 @@
 /**
  * PICA A PONTE — de UM arquivo de 11 mil linhas para módulos com dono.
  *
- *     node scripts/ponte-picar.js            (recusa se ponte/src já existe)
+ *     node scripts/ponte-picar.js            (recusa se ponte-src já existe)
  *     node scripts/ponte-picar.js --forcar   (repica por cima)
  *
- * USO ÚNICO. Depois do primeiro corte a FONTE é `ponte/src/` e o `ponte.js`
- * embarcado é GERADO por `scripts/ponte-costurar.js`. Rodar isto de novo
- * repicaria o gerado — por isso o portão do `--forcar`.
+ * USO ÚNICO. Depois do primeiro corte a FONTE é `logistica/ponte-src/` e o
+ * `ponte.js` embarcado é GERADO por `scripts/ponte-costurar.js`. Rodar isto de
+ * novo repicaria o gerado — por isso o portão do `--forcar`.
  *
  * 🔴 NINGUÉM MOVE CÓDIGO À MÃO. O corte é por LINHA INTEIRA: cada segmento é
  * uma fatia contígua de bytes do original, sem wrapper, sem cabeçalho, sem uma
@@ -27,9 +27,11 @@ const path = require('path');
 const crypto = require('crypto');
 
 const raiz = path.join(__dirname, '..');
-const APP = path.join(raiz, 'EntregaShell/app/src/logistica/assets/app');
-const PONTE = path.join(APP, 'ponte.js');
-const SRC = path.join(APP, 'ponte', 'src');
+const LOGISTICA = path.join(raiz, 'EntregaShell/app/src/logistica');
+const PONTE = path.join(LOGISTICA, 'assets', 'app', 'ponte.js'); // GERADO, vai no APK
+// A FONTE mora FORA de `assets/` (10/08): o que está em assets é embarcado, e
+// 589 KB de fonte que ninguém carrega dobrariam a ponte dentro do APK à toa.
+const SRC = path.join(LOGISTICA, 'ponte-src');
 
 /* O MAPA DO CORTE. `linha` é a PRIMEIRA linha (1-based) do pedaço; o pedaço vai
    até a linha anterior ao próximo. Os nomes saem da ordem física do conteúdo —
