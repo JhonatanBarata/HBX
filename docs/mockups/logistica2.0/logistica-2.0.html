@@ -770,8 +770,11 @@ button,input{font:inherit;color:inherit}
    layout (a tela inteira recalcula a CADA um dos 7 quadros do sacode) e o
    transform já tem dono aqui (`mvErro` escala o cartão até 320 ms, e o sacode
    parte aos 300). `translate` compõe com o transform sem brigar e roda no
-   compositor — mesmos deslocamentos, mesmo relógio, zero reflow. */
-@keyframes mvSacode{0%,100%{translate:0}15%{translate:-7px}35%{translate:6px}55%{translate:-4px}75%{translate:2px}}
+   compositor — mesmos deslocamentos, mesmo relógio, zero reflow.
+   🔴 Os números são a METADE dos que o margin declarava: item de largura 100%
+   centrado por grid só andava MEIO margin (o centro redistribui a sobra) — a
+   tela aprovada sempre tremeu 3,5px, e é a tela que manda, não o keyframe. */
+@keyframes mvSacode{0%,100%{translate:0}15%{translate:-3.5px}35%{translate:3px}55%{translate:-2px}75%{translate:1px}}
 
 /* ==========================================================================
    CONFIRMAÇÃO — cartão central, sem drama: cresce 6% e assenta.
