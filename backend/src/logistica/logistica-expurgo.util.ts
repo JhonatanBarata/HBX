@@ -1,4 +1,6 @@
 import type { PrismaService } from '../prisma/prisma.service';
+import { formatDDMM } from './logistica-agenda-evento.util';
+import { planIdFromOccurrenceKey, sourceDateFromOccurrenceKey } from './logistica-agenda-cursor.util';
 
 /**
  * ⛔ A LEI DO DESAPARECER (10/08/2026, lei ABSOLUTA do dono)
@@ -41,6 +43,83 @@ export const JANELA_EXPURGO_MS = 24 * 60 * 60 * 1000;
 
 /** Claims nestes estados = dinheiro AINDA NO AR. Enquanto houver um, a linha fica. */
 const CLAIM_NAO_TERMINAL = ['DEBITED', 'PROCESSING', 'REFUNDING'] as const;
+
+/**
+ * 🔴 A FRONTEIRA DO DELETE, EM UM LUGAR SÓ (10/08 — o dono, refinando a lei:
+ * *"não é para deletar históricos por 24 hrs; o cliente pode querer reaproveitar,
+ * ou saber o quanto gastou, ou até mesmo reaproveitar as rotas já gastas"*).
+ *
+ * Cada linha aqui é a MESMA pergunta — *"isso aqui chegou a existir pra alguém?"* —
+ * e basta UMA responder sim pra linha ficar. É a régua do expurgo de 24 h **e** a do
+ * cancelar que apaga na hora: duas leis com a mesma fronteira não podem ter duas
+ * cópias do `where` (cópia que diverge é como o não-processado volta a sobrar).
+ *
+ * O que NÃO está aqui de propósito: `status`. Quem chama diz de que estado está
+ * falando — 'cancelada' velha (expurgo) ou aberta do dia que acabou de ser cancelada
+ * (limparDia) —, e a régua de "nunca aconteceu" é a mesma nos dois.
+ */
+export const SEM_SINAL_DE_VIDA = {
+  // nunca saiu, nunca chegou, nunca foi confirmada, ninguém pagou
+  startedAt: null,
+  arrivedAt: null,
+  deliveredAt: null,
+  comprovanteConfirmadoAt: null,
+  receiptMethod: null,
+  cobrancaStatus: 'pendente',
+  // e ninguém pendurou nada nela: foto, parada congelada de rota, trilha de GPS,
+  // claim de crédito. Cada um destes é história ou dinheiro — e história/dinheiro
+  // NUNCA some (é a linha que o dono desenhou hoje).
+  comprovantes: { none: {} },
+  logisticaRouteStop: { is: null },
+  logisticaTrackingPoints: { none: {} },
+  logisticaTrackingEvents: { none: {} },
+  logisticaTrackedCreditClaims: { none: {} },
+} as const;
+
+/** Tipos de evento que provam CANCELAMENTO POR GENTE (a trilha que substitui o corpo). */
+export const TIPOS_CANCELAMENTO_HUMANO = ['CANCELADA_LIMPAR_DIA'] as const;
+
+/**
+ * APAGA o que nunca virou trabalho, dentro do recorte que o chamador mandar.
+ *
+ * Devolve os ids que REALMENTE sumiram — quem chama compara com o que pediu e trata
+ * a diferença (a linha que tinha sinal de vida) pela regra dele. Nunca lança por
+ * "não deu pra apagar": linha com história é linha que fica, não erro.
+ *
+ * `db` é o prisma OU uma tx — o cancelar apaga dentro da transação dele.
+ */
+export async function apagarNaoProcessadas(
+  db: PrismaService | any,
+  companyId: number,
+  recorte: Record<string, unknown>,
+  take?: number,
+): Promise<string[]> {
+  if (!companyId) return [];
+  const p = db as any;
+  const candidatas = await p.entrega.findMany({
+    where: { companyId, ...SEM_SINAL_DE_VIDA, ...recorte },
+    select: { id: true },
+    ...(take ? { take } : {}),
+  });
+  if (!candidatas.length) return [];
+  const ids = candidatas.map((row: { id: string }) => row.id);
+  /* 🔴 A COBRANÇA NÃO TEM FK (é chave de idempotência, `FinanceiroCharge.entregaId`
+     sem relação dura): o Prisma não a enxerga no `where` acima, e uma entrega com
+     cobrança lançada É processada. Sem esta consulta o delete apagaria a ponta de um
+     dinheiro que continua no banco. */
+  const comCobranca = await p.financeiroCharge.findMany({
+    where: { companyId, entregaId: { in: ids } },
+    select: { entregaId: true },
+  });
+  const proibidos = new Set(
+    (comCobranca ?? []).map((c: { entregaId: string | null }) => String(c.entregaId || '')),
+  );
+  const livres = ids.filter((id: string) => !proibidos.has(id));
+  if (!livres.length) return [];
+  // itens e comprovantes são Cascade; histórico do cliente é SetNull.
+  await p.entrega.deleteMany({ where: { companyId, id: { in: livres } } });
+  return livres;
+}
 
 export interface ExpurgoResumo {
   entregasApagadas: number;
@@ -101,15 +180,23 @@ async function umLote(
   const corte = new Date(agora.getTime() - JANELA_EXPURGO_MS);
   const p = prisma as any;
 
-  /* 1. ROTA QUE NUNCA RODOU. Nenhuma parada dela virou entrega ('entregue'), nenhum
-     claim de crédito existe (claim = dinheiro tocou nela; ali a rota é história e
-     fica). `createdAt` e não `routeDate`: a régua é "quando ela foi criada", que é o
-     que o relógio do estorno mede. */
+  /* 1. ROTA VAZIA QUE NUNCA RODOU. Nenhuma parada dela virou entrega ('entregue'),
+     nenhum claim de crédito existe (claim = dinheiro tocou nela; ali a rota é
+     história e fica). `createdAt` e não `routeDate`: a régua é "quando ela foi
+     criada", que é o que o relógio do estorno mede.
+
+     🔴 E ELA PRECISA ESTAR VAZIA (10/08, ordem do dono refinando a lei: *"o cliente
+     pode querer reaproveitar, ou saber o quanto gastou, ou até mesmo reaproveitar as
+     rotas já gastas"*). Até aqui esta passada apagava os `LogisticaRouteStop` da rota
+     pra depois apagar a rota — isto é, jogava fora A SEQUÊNCIA DE PARADAS, que é
+     exatamente o material do "remontar a rota de ontem". Some agora só a CASCA: rota
+     sem nenhuma parada congelada, sem claim, sem nada entregue — a que não guarda nem
+     gasto nem reuso. Rota com parada FICA, com o snapshot inteiro. */
   const rotasMortas = await p.logisticaRoute.findMany({
     where: {
       companyId,
       createdAt: { lt: corte },
-      stops: { none: { delivery: { status: 'entregue' } } },
+      stops: { none: {} },
       // as DUAS famílias de claim (o modo essencial e o rastreado): claim é o
       // registro do débito, e apagar rota com claim apagaria a ponta do dinheiro.
       essentialClaims: { none: {} },
@@ -120,55 +207,19 @@ async function umLote(
   });
   if (rotasMortas.length) {
     const ids = rotasMortas.map((r: { id: string }) => r.id);
-    // stops primeiro: eles seguram a entrega por Restrict.
-    await p.logisticaRouteStop.deleteMany({ where: { companyId, routeId: { in: ids } } });
     const apagadas = await p.logisticaRoute.deleteMany({ where: { companyId, id: { in: ids } } });
     resumo.rotasApagadas = apagadas.count;
   }
 
   /* 2. ENTREGA QUE NUNCA ACONTECEU. Cancelada, velha o bastante, e sem UM ÚNICO
-     sinal de vida. Cada linha do `where` é uma pergunta do tipo "isso aqui chegou a
-     existir pra alguém?" — basta uma responder sim pra ela ficar. */
-  const mortas = await p.entrega.findMany({
-    where: {
-      companyId,
-      status: 'cancelada',
-      updatedAt: { lt: corte },
-      // nunca saiu, nunca chegou, nunca foi confirmada
-      startedAt: null,
-      arrivedAt: null,
-      deliveredAt: null,
-      comprovanteConfirmadoAt: null,
-      receiptMethod: null,
-      cobrancaStatus: 'pendente',
-      // e ninguém pendurou nada nela
-      comprovantes: { none: {} },
-      logisticaRouteStop: { is: null },
-      logisticaTrackingPoints: { none: {} },
-      logisticaTrackingEvents: { none: {} },
-      logisticaTrackedCreditClaims: { none: {} },
-    },
-    select: { id: true },
-    take: EXPURGO_LOTE,
-  });
-  if (mortas.length) {
-    const ids = mortas.map((e: { id: string }) => e.id);
-    /* 🔴 A COBRANÇA NÃO TEM FK (é chave de idempotência, `FinanceiroCharge.entregaId`
-       sem relação dura): o Prisma não a enxerga no `where` acima, e uma entrega com
-       cobrança lançada É processada. Sem esta consulta o expurgo apagaria a ponta
-       de um dinheiro que continua no banco. */
-    const comCobranca = await p.financeiroCharge.findMany({
-      where: { companyId, entregaId: { in: ids } },
-      select: { entregaId: true },
-    });
-    const proibidos = new Set(comCobranca.map((c: { entregaId: string | null }) => String(c.entregaId || '')));
-    const livres = ids.filter((id: string) => !proibidos.has(id));
-    if (livres.length) {
-      // itens e comprovantes são Cascade; histórico do cliente é SetNull.
-      const apagadas = await p.entrega.deleteMany({ where: { companyId, id: { in: livres } } });
-      resumo.entregasApagadas = apagadas.count;
-    }
-  }
+     sinal de vida (`SEM_SINAL_DE_VIDA` — a mesma fronteira que o cancelar usa pra
+     apagar na hora; ver o comentário dela). */
+  resumo.entregasApagadas = (await apagarNaoProcessadas(
+    p,
+    companyId,
+    { status: 'cancelada', updatedAt: { lt: corte } },
+    EXPURGO_LOTE,
+  )).length;
 
   /* 3. SESSÃO DE RASTREAMENTO PENDURADA. Aqui é CARIMBO, não delete: a sessão tem
      trilha (pontos, eventos) e a trilha é história de onde o motorista andou. O que
@@ -194,9 +245,19 @@ async function umLote(
  * 00:44, o deploy das 03:08 recriou as 51, e a conclusão natural pra quem está na
  * tela é "o app não obedece".
  *
- * A régua é a MESMA janela do expurgo, de propósito: enquanto a cancelada existe (24
- * h, em vermelho no histórico), a decisão humana vale; passada a janela ela some do
- * banco e a agenda volta a poder gerar aquele dia — que a essa altura já é passado.
+ * A régua é a MESMA janela do expurgo, de propósito: enquanto a decisão é recente (24
+ * h) ela vale; passada a janela, a agenda volta a poder gerar aquele dia — que a essa
+ * altura já é passado.
+ *
+ * 🔴 A PROVA MUDOU DE LUGAR (10/08, "o cancelar q não deleta, essa patifaria"). Ela
+ * era o CORPO: a entrega cancelada com `agendaOcorrenciaKeyOrigem`. Agora o cancelar
+ * APAGA o não-processado, e um guard que depende do defunto morre junto com ele — o
+ * dia voltaria a renascer no `generateDay` seguinte, que é o bug de origem.
+ * Então são DUAS provas, nesta ordem:
+ *   1. o corpo, quando ele sobreviveu (linha com sinal de vida não é apagada);
+ *   2. a TRILHA (`LogisticaAgendaEvento`) — que é história de DECISÃO e não some
+ *      NUNCA. Ela guarda plano + dia de origem (`deTexto`), que é a chave inteira
+ *      desmontada nas duas partes que o evento sabe carregar.
  */
 export async function ocorrenciaCanceladaRecente(
   prisma: PrismaService,
@@ -206,7 +267,8 @@ export async function ocorrenciaCanceladaRecente(
 ): Promise<boolean> {
   if (!companyId || !occurrenceKey) return false;
   const corte = new Date(agora.getTime() - JANELA_EXPURGO_MS);
-  const achada = await (prisma as any).entrega.findFirst({
+  const p = prisma as any;
+  const achada = await p.entrega.findFirst({
     where: {
       companyId,
       agendaOcorrenciaKeyOrigem: occurrenceKey,
@@ -215,7 +277,28 @@ export async function ocorrenciaCanceladaRecente(
     },
     select: { id: true },
   });
-  return !!achada;
+  if (achada) return true;
+
+  const planoEntregaId = planIdFromOccurrenceKey(occurrenceKey);
+  const origem = formatDDMM(sourceDateFromOccurrenceKey(occurrenceKey));
+  if (!planoEntregaId || !origem) return false;
+  try {
+    const evento = await p.logisticaAgendaEvento.findFirst({
+      where: {
+        companyId,
+        planoEntregaId,
+        deTexto: origem,
+        tipo: { in: [...TIPOS_CANCELAMENTO_HUMANO] },
+        createdAt: { gte: corte },
+      },
+      select: { id: true },
+    });
+    return !!evento;
+  } catch {
+    // Trilha indisponível (migration/dublê) nunca pode virar "pode gerar de novo"
+    // por acidente nem derrubar a geração: sem prova, segue a resposta do corpo.
+    return false;
+  }
 }
 
 export { CLAIM_NAO_TERMINAL };

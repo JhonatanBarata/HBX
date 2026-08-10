@@ -23,6 +23,18 @@ export function sourceDateFromOccurrenceKey(key: string | null | undefined): str
 }
 
 /**
+ * `agenda:<planoId>:<YYYY-MM-DD>` → o `<planoId>`. Mesma régua da função acima, e
+ * pelo mesmo motivo de morar aqui: desde 10/08 a prova de "esta ocorrência foi
+ * cancelada por gente" não vem mais do CORPO da entrega (que agora some no
+ * cancelar), e sim da TRILHA — e a trilha guarda plano + dia, nunca a chave
+ * inteira. Sem plano não há trilha pra procurar.
+ */
+export function planIdFromOccurrenceKey(key: string | null | undefined): string | null {
+  const m = /^agenda:(.+):\d{4}-\d{2}-\d{2}$/.exec(String(key ?? '').trim());
+  return m ? m[1] : null;
+}
+
+/**
  * Meia-noite do dia civil de SÃO PAULO — o MESMO carimbo que a Agenda grava em
  * `proximaData` (`logistica-agenda.service.ts`, `startOfDay`). Usar a meia-noite
  * do fuso do processo (UTC no container) faz a Agenda ler o dia ANTERIOR.

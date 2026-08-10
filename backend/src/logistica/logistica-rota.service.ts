@@ -17,6 +17,7 @@ import { diagnosticarMotoristaUnico } from './logistica-motorista-unico.util';
 import { LogisticaOsrmService } from './logistica-osrm.service';
 import { LogisticaEstoqueService } from './logistica-estoque.service';
 import { sourceDateFromOccurrenceKey, saoPauloMidnight } from './logistica-agenda-cursor.util';
+import { apagarNaoProcessadas, TIPOS_CANCELAMENTO_HUMANO } from './logistica-expurgo.util';
 import { saoPauloDateKey } from './logistica-dia.util';
 import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
 import { ProspectorCorredorService } from './prospector-corredor.service';
@@ -1113,16 +1114,70 @@ export class LogisticaRotaService {
           customerProfileId: true, scheduledAt: true,
         },
       });
+      const alvoIds = alvos.map((row: any) => row.id);
+
+      /* A rota carregada do dia (montada, inicializando ou rodando) — o recorte
+         usado tanto pelas paradas congeladas (logo abaixo) quanto pelo carimbo de
+         encerramento no fim. Ver o bloco comentado lá embaixo: a LINHA da rota
+         nunca é apagada, ela só morre. */
+      const rotaCarregada = {
+        companyId,
+        routeDate,
+        ...(entregadorId ? { entregadorId } : {}),
+        status: { in: ['PLANNED', 'INITIALIZING', 'ACTIVE'] },
+      };
+
+      /* 🔴 O SNAPSHOT DA ROTA SAI ANTES DAS ENTREGAS (a ordem é obrigatória, não
+         estilo): `LogisticaRouteStop.deliveryId` é `onDelete: Restrict` — parada
+         congelada SEGURA a entrega. Este `deleteMany` é o mesmo de 09/08 ("cancelar
+         apaga a rota inteira, inclusive a que só estava montada"), palavra por
+         palavra; só subiu de lugar. O filtro `status != 'entregue'` continua valendo
+         igual: aqui as alvo ainda estão 'agendada'/'em_rota', e a entregue segue
+         guardando o stop dela — é o comprovante do que a rota cobrou de verdade. */
+      const paradas = await tx.logisticaRouteStop.deleteMany({
+        where: {
+          companyId,
+          route: rotaCarregada,
+          delivery: { status: { not: 'entregue' } },
+        },
+      });
+
+      /* 🔴 CANCELAR APAGA — ESSA É A ORDEM (10/08, dono: *"o cancelar q não deleta,
+         essa patifaria"*). A entrega que nunca virou trabalho SOME do banco; ela não
+         vira defunto carimbado 'cancelada' esperando 24 h pelo expurgo. Foi assim que
+         um dia só juntou 770 canceladas na empresa 41.
+
+         A fronteira é `SEM_SINAL_DE_VIDA` (logistica-expurgo.util) — a MESMA do
+         expurgo, num lugar só: some quem nunca saiu, nunca chegou, não tem foto, nem
+         trilha, nem claim de crédito, nem cobrança lançada. Quem tiver QUALQUER um
+         desses volta pelo caminho de sempre logo abaixo (carimbo 'cancelada'), porque
+         história e dinheiro não se apagam — mesmo cancelando.
+         💰 Nada de estorno/crédito muda aqui: continua sem encostar em
+         `FinanceiroCharge` nem nos claims (o teste guarda isso). */
+      const apagadas = await apagarNaoProcessadas(tx, companyId, {
+        id: { in: alvoIds },
+        status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
+      });
+      const sumiram = new Set<string>(apagadas);
+      const sobreviventes = alvos.filter((row: any) => !sumiram.has(row.id));
 
       // 🔴 29/07 — SOLTA O MOTORISTA junto. Este é o caminho do botão CANCELAR
       // do aparelho ("bati a porra do caminhão, não vai ter entrega, limpa
       // pendência"): a entrega morre cancelada e não pode deixar dono pendurado,
       // senão o dia seguinte nasce dividido entre motoristas e o
       // `resolveSingleDriver` trava tudo — foi o bug que o dono viveu hoje.
-      const canceladas = await tx.entrega.updateMany({
-        where: escopoAberto,
-        data: { status: 'cancelada', rotaOrdem: null, etaAt: null, startedAt: null, entregadorId: null },
-      });
+      // Só chega aqui quem NÃO pôde ser apagada (tem sinal de vida).
+      let canceladas = { count: 0 };
+      if (sobreviventes.length) {
+        canceladas = await tx.entrega.updateMany({
+          where: {
+            companyId,
+            id: { in: sobreviventes.map((row: any) => row.id) },
+            status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
+          },
+          data: { status: 'cancelada', rotaOrdem: null, etaAt: null, startedAt: null, entregadorId: null },
+        });
+      }
 
       // A chave da ocorrência é ÚNICA por empresa. Presa na entrega cancelada,
       // `generateDay` acha "já existe" e pula o cliente PARA SEMPRE. Soltar a
@@ -1132,8 +1187,10 @@ export class LogisticaRotaService {
          viva sai — é ela que trava o cliente —, mas a ORIGEM fica gravada: sem
          isso a cancelada não sabia de que visita veio, e nem o histórico nem a
          idempotência do cancelar tinham em que se apoiar. Uma escrita por chave
-         (updateMany não copia coluna em coluna) e são poucas por dia. */
-      const comChave = alvos.filter((row: any) => row.agendaOcorrenciaKey);
+         (updateMany não copia coluna em coluna) e são poucas por dia.
+         Quem foi APAGADA não precisa disto (linha inteira sumiu, chave junto) — a
+         prova de "isto foi cancelado por gente" dela é o EVENTO, ver o fim do método. */
+      const comChave = sobreviventes.filter((row: any) => row.agendaOcorrenciaKey);
       for (const row of comChave) {
         await tx.entrega.updateMany({
           where: { companyId, id: row.id },
@@ -1209,24 +1266,10 @@ export class LogisticaRotaService {
          dia reaproveita o que já foi debitado: nem devolve, nem cobra duas
          vezes. Apagar a `LogisticaRoute` em si está FORA de questão — os claims
          são `onDelete: Cascade` nela, e apagar rota apagaria o registro do
-         débito. Ela fica morta, não sumida. */
-      const rotaCarregada = {
-        companyId,
-        routeDate,
-        ...(entregadorId ? { entregadorId } : {}),
-        status: { in: ['PLANNED', 'INITIALIZING', 'ACTIVE'] },
-      };
-
-      // A entrega ENTREGUE mantém o stop dela: é o comprovante do que a rota
-      // cobrou de verdade. `delivery` é relação to-one — o filtro enxerga o
-      // status JÁ atualizado logo acima, dentro desta mesma transação.
-      const paradas = await tx.logisticaRouteStop.deleteMany({
-        where: {
-          companyId,
-          route: rotaCarregada,
-          delivery: { status: { not: 'entregue' } },
-        },
-      });
+         débito. Ela fica morta, não sumida — e é ela o registro de "quanto
+         gastei" que o dono cobrou em 10/08. */
+      // (o `deleteMany` das paradas subiu pro topo da transação: `Restrict` na
+      //  entrega obriga o stop a sair ANTES do delete — ver lá.)
 
       // Encerra a rota OPERACIONALMENTE (campo decoupled — mesmo comentário do
       // encerrarRota): NÃO altera `status` de cobrança. Zerado sozinho quando o
@@ -1237,14 +1280,19 @@ export class LogisticaRotaService {
       });
 
       return {
-        canceladas: canceladas.count,
+        /* CONTRATO DO APP: `canceladas` continua sendo QUANTAS PARADAS SAÍRAM DO
+           DIA — apagadas + carimbadas. O aparelho mostra este número desde 18/07;
+           trocar o significado dele por "só as que sobraram" faria a tela dizer 0
+           num dia inteiro cancelado. `apagadas` é o detalhe novo, aditivo. */
+        canceladas: apagadas.length + canceladas.count,
+        apagadas: apagadas.length,
         planosLiberados,
         rotasEncerradas: rotas.count,
         paradasApagadas: paradas.count,
         // o que gravar no extrato DEPOIS do commit — ver abaixo. Sai do `resumo`
         // logo na desestruturação: isto é matéria-prima do evento, NUNCA resposta
         // da API (o app lê este objeto, e teste guarda o formato dele).
-        alvosDoEvento: alvos as Array<{ id: string; customerProfileId: string; planoEntregaId: string | null; scheduledAt: Date | null }>,
+        alvosDoEvento: alvos as Array<{ id: string; customerProfileId: string; planoEntregaId: string | null; scheduledAt: Date | null; agendaOcorrenciaKey: string | null }>,
       };
     });
     const { alvosDoEvento, ...resumo } = resumoBruto;
@@ -1255,7 +1303,15 @@ export class LogisticaRotaService {
        derrubar a operação que ele descreve.
        Uma linha por entrega, com o ATOR: até 10/08 este caminho era MUDO, e quando
        o dono perguntou "quem cancelou meu dia?" a resposta só existia no log do
-       container — que o publish daquela madrugada já tinha levado embora. */
+       container — que o publish daquela madrugada já tinha levado embora.
+
+       🔴 E AGORA ELE É A ÚNICA HISTÓRIA QUE SOBRA. Com o cancelar apagando o
+       não-processado, este evento passa de telemetria a REGISTRO: é dele que saem
+       (1) o dia vermelho do histórico de 14 dias (`historicoDeRotas`) e (2) a prova
+       de "esta ocorrência foi cancelada por gente" que segura o `generateDay`
+       (`ocorrenciaCanceladaRecente`). Por isso o `deTexto` agora vai: ele carrega o
+       DIA DE ORIGEM da ocorrência (o mesmo que está na chave), e sem ele a prova (2)
+       não sabe de qual visita o cancelamento falava. */
     for (const row of alvosDoEvento) {
       await registrarEventoAgenda(this.prisma as any, {
         companyId,
@@ -1263,6 +1319,7 @@ export class LogisticaRotaService {
         entregaId: row.id,
         planoEntregaId: row.planoEntregaId,
         tipo: 'CANCELADA_LIMPAR_DIA',
+        deTexto: formatDDMM(sourceDateFromOccurrenceKey(row.agendaOcorrenciaKey)),
         paraTexto: formatDDMM(saoPauloDateKey(row.scheduledAt) || dayISO),
         origem: 'app',
         actorUserId: actorUserId ?? null,
@@ -1272,7 +1329,8 @@ export class LogisticaRotaService {
     this.logger.log(
       `[logistica] limpar-dia ${dayISO} company=${companyId}` +
         (entregadorId ? ` entregador=${entregadorId}` : '') +
-        `: canceladas=${resumo.canceladas} planosLiberados=${resumo.planosLiberados}` +
+        `: canceladas=${resumo.canceladas} apagadas=${resumo.apagadas}` +
+        ` planosLiberados=${resumo.planosLiberados}` +
         ` rotasEncerradas=${resumo.rotasEncerradas} paradasApagadas=${resumo.paradasApagadas}` +
         (input.motivo ? ` motivo="${String(input.motivo).slice(0, 200)}"` : ''),
     );
@@ -1470,6 +1528,28 @@ export class LogisticaRotaService {
         status: true, deliveredAt: true, comprovanteConfirmadoAt: true,
       },
     });
+    /* 🔴 O DIA CANCELADO INTEIRO VEM DA TRILHA (10/08). Antes, o que pintava esse
+       dia de vermelho eram as PRÓPRIAS entregas canceladas — e desde que o cancelar
+       APAGA o não-processado, um dia 100% cancelado não tem mais nenhuma linha pra
+       contar: ele sumia da tela como se nunca tivesse existido, que é justamente o
+       que o dono mandou não acontecer ("tem q ficar registrado rotas que eu criei e
+       cancelei").
+       O registro passa a ser o EVENTO com ator (`CANCELADA_LIMPAR_DIA`) — que é
+       história de DECISÃO e não some nunca. Ele entra SÓ nos dias que ficaram sem
+       nenhuma linha: onde sobrou entrega (entregue, ou cancelada com sinal de vida),
+       quem manda continua sendo ela, e assim uma parada nunca é contada duas vezes.
+       Bônus pedido hoje: agora o dia cancelado dura os 14 dias, não 24 h. */
+    const eventosCancelamento: Array<{ customerProfileId: string; paraTexto: string | null }> =
+      await Promise.resolve(
+        (this.prisma as any).logisticaAgendaEvento?.findMany({
+          where: {
+            companyId,
+            tipo: { in: [...TIPOS_CANCELAMENTO_HUMANO] },
+            createdAt: { gte: inicio },
+          },
+          select: { customerProfileId: true, paraTexto: true },
+        }),
+      ).catch(() => []) ?? [];
     // agrupa pela MESMA régua de dia do resolveDayRange (fuso local do
     // servidor, via toDayISO) — segunda régua de dia é como as telas começam
     // a discordar da rota.
@@ -1491,6 +1571,29 @@ export class LogisticaRotaService {
          de ter sido feito porque o status mudou depois. */
       if (r.status === 'entregue' || r.deliveredAt || r.comprovanteConfirmadoAt) bucket.entregues.add(chave);
     });
+    // DD/MM → dia do recorte. Em 14 dias nenhum DD/MM se repete, então o texto do
+    // evento basta pra casar com a MESMA régua de dia usada acima (`toDayISO`).
+    const diaPorDDMM = new Map<string, string>();
+    for (let t = inicio.getTime(); t <= fim.getTime(); t += 24 * 60 * 60 * 1000) {
+      const diaISO = toDayISO(new Date(t));
+      const ddmm = formatDDMM(diaISO);
+      if (ddmm && !diaPorDDMM.has(ddmm)) diaPorDDMM.set(ddmm, diaISO);
+    }
+    const diasDaTrilha = new Set<string>();
+    for (const evento of eventosCancelamento) {
+      const dia = diaPorDDMM.get(String(evento.paraTexto || ''));
+      if (!dia) continue;
+      // dia que ainda tem linha viva: ela manda (e conta a porta, que o evento não
+      // sabe) — a trilha só reconstrói o dia que ficou VAZIO.
+      if (porDia.has(dia) && !diasDaTrilha.has(dia)) continue;
+      let bucket = porDia.get(dia);
+      if (!bucket) {
+        bucket = { paradas: new Set(), entregues: new Set() };
+        porDia.set(dia, bucket);
+        diasDaTrilha.add(dia);
+      }
+      bucket.paradas.add(`${evento.customerProfileId}|`);
+    }
     const dias = [...porDia.entries()]
       .map(([data, { paradas, entregues }]) => {
         const naoCompletadas = Math.max(0, paradas.size - entregues.size);
@@ -2350,7 +2453,10 @@ export interface DescartarMontagemResult {
 
 // ── LIMPAR DIA (PR18072026 Onda 1) ────────────────────────────────────────────
 export interface LimparDiaResumo {
+  /** Paradas que saíram do dia: as APAGADAS + as que só puderam ser carimbadas. */
   canceladas: number;
+  /** Quantas SUMIRAM de verdade (10/08, "o cancelar q não deleta, essa patifaria"). */
+  apagadas: number;
   /** Planos recorrentes cuja `proximaData` voltou pro dia limpo (25/07). */
   planosLiberados: number;
   /** Rotas do dia (montada, inicializando ou rodando) que morreram (09/08). */

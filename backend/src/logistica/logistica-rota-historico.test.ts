@@ -64,14 +64,20 @@ function local(over: any = {}) {
   };
 }
 
-function buildService(rows: any[]) {
+function buildService(rows: any[], eventos: any[] = []) {
   const chamadas: any[] = [];
+  const chamadasEvento: any[] = [];
   const prisma: any = {
     entrega: {
       findMany: async (args: any) => { chamadas.push(args); return rows; },
     },
+    // 10/08 — a TRILHA. Com o cancelar apagando o não-processado, é dela que sai
+    // o dia 100% cancelado (o corpo não existe mais pra ser contado).
+    logisticaAgendaEvento: {
+      findMany: async (args: any) => { chamadasEvento.push(args); return eventos; },
+    },
   };
-  return { chamadas, service: new LogisticaRotaService(prisma, {} as any) };
+  return { chamadas, chamadasEvento, service: new LogisticaRotaService(prisma, {} as any) };
 }
 
 test('local COM pino e perfil SEM pino → a linha nasce na porta do LOCAL (endereço junto)', async () => {
@@ -254,6 +260,61 @@ test('F5: a CANCELADA entra na lista de dias (era ela que sumia da tela)', async
     where.OR.some((o: any) => o.status === 'cancelada'),
     'a cancelada precisa entrar no OR da lista de dias',
   );
+});
+
+/* 🔴 10/08 — O DIA CANCELADO INTEIRO AGORA VEM DA TRILHA.
+   O cancelar passou a APAGAR o não-processado (ordem do dono: "o cancelar q não
+   deleta, essa patifaria"). Um dia 100% cancelado não tem mais NENHUMA linha pra
+   contar — se o histórico continuasse lendo só `Entrega`, o dia sumiria da tela,
+   que é exatamente o que a F5 existe pra impedir. Quem responde por ele é o evento
+   com ator (`CANCELADA_LIMPAR_DIA`), que é história e não some nunca. */
+function ddmm(iso: string): string {
+  const [, m, d] = iso.split('-');
+  return `${d}/${m}`;
+}
+
+test('F5+: dia cujas entregas foram APAGADAS ainda aparece vermelho — a trilha responde por ele', async () => {
+  const { service } = buildService([], [
+    { customerProfileId: 'c1', paraTexto: ddmm('2026-08-06') },
+    { customerProfileId: 'c2', paraTexto: ddmm('2026-08-06') },
+    // mesma parada cancelada 2× no dia não vira 2 paradas
+    { customerProfileId: 'c2', paraTexto: ddmm('2026-08-06') },
+  ]);
+
+  const { dias } = (await service.historicoDeRotas(COMPANY)) as any;
+  assert.deepEqual(dias, [
+    { data: '2026-08-06', paradas: 2, entregues: 0, naoCompletadas: 2, desfecho: 'cancelada' },
+  ]);
+});
+
+test('F5+: dia que AINDA TEM linha viva ignora a trilha (a parada nunca conta duas vezes)', async () => {
+  const quando = new Date(2026, 7, 6, 9, 0, 0, 0);
+  const { service } = buildService(
+    [
+      { scheduledAt: quando, customerProfileId: 'c1', localId: 'l1', status: 'entregue', deliveredAt: quando },
+      { scheduledAt: quando, customerProfileId: 'c2', localId: 'l2', status: 'cancelada' },
+    ],
+    [
+      // o evento das duas existe (toda saída do dia gera evento) — e não pode
+      // somar por cima de quem sobreviveu, senão o dia dobra de tamanho.
+      { customerProfileId: 'c1', paraTexto: ddmm('2026-08-06') },
+      { customerProfileId: 'c2', paraTexto: ddmm('2026-08-06') },
+    ],
+  );
+
+  const { dias } = (await service.historicoDeRotas(COMPANY)) as any;
+  assert.deepEqual(dias, [
+    { data: '2026-08-06', paradas: 2, entregues: 1, naoCompletadas: 1, desfecho: 'incompleta' },
+  ]);
+});
+
+test('F5+: evento de fora da janela de 14 dias não inventa dia na lista', async () => {
+  const { service } = buildService([], [
+    { customerProfileId: 'c1', paraTexto: '01/01' },
+    { customerProfileId: 'c1', paraTexto: null },
+  ]);
+  const { dias } = (await service.historicoDeRotas(COMPANY)) as any;
+  assert.deepEqual(dias, []);
 });
 
 test('a CONTA do dia usa a mesma chave (cliente|porta) das linhas — chip e rascunho não discordam', async () => {

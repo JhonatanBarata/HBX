@@ -22,6 +22,7 @@ function prismaDublê(opts: {
   entregas?: any[];
   cobrancas?: any[];
   canceladas?: any[];
+  eventos?: any[];
 } = {}) {
   const chamadas: any[] = [];
   /* 🔴 O DUBLÊ TEM QUE ESQUECER O QUE JÁ FOI APAGADO. O expurgo varre em LOTES até
@@ -54,6 +55,9 @@ function prismaDublê(opts: {
     },
     financeiroCharge: {
       findMany: async (args: any) => { chamadas.push(['charge.findMany', args]); return opts.cobrancas ?? []; },
+    },
+    logisticaAgendaEvento: {
+      findFirst: async (args: any) => { chamadas.push(['evento.findFirst', args]); return (opts.eventos ?? [])[0] ?? null; },
     },
     logisticaTrackingSession: {
       updateMany: async (args: any) => { chamadas.push(['sessao.updateMany', args]); return { count: 3 }; },
@@ -104,18 +108,24 @@ test('expurgo: entrega COM COBRANÇA não some — mesmo passando por todo o res
   assert.equal(r.entregasApagadas, 1);
 });
 
-test('expurgo: rota só some sem entrega ENTREGUE e sem NENHUM claim (as duas famílias)', async () => {
+/* 🔴 10/08 — A ROTA SÓ SOME SE FOR CASCA VAZIA (ordem do dono refinando a lei:
+   *"o cliente pode querer reaproveitar… ou até mesmo reaproveitar as rotas já
+   gastas"*). Até hoje esta passada apagava os `LogisticaRouteStop` da rota pra
+   poder apagá-la — isto é, jogava fora A SEQUÊNCIA DE PARADAS, que é o material do
+   "remontar a rota de ontem". Agora rota COM parada fica, com o snapshot inteiro;
+   some só a que não guarda nem gasto nem reuso. */
+test('expurgo: rota só some VAZIA — com parada congelada ela FICA (é reuso)', async () => {
   const { p, chamadas } = prismaDublê({ rotas: [{ id: 'r1' }] });
   await expurgarNaoProcessado(p, 41);
   const where = acharChamada(chamadas, 'route.findMany').where;
-  assert.deepEqual(where.stops, { none: { delivery: { status: 'entregue' } } });
+  assert.deepEqual(where.stops, { none: {} }, 'rota com QUALQUER parada é reuso — fica');
   assert.deepEqual(where.essentialClaims, { none: {} });
   assert.deepEqual(where.trackedCreditClaims, { none: {} });
-  // e os stops saem ANTES da rota: eles seguram a entrega por Restrict.
-  const ordem = chamadas.map((c) => c[0]);
-  assert.ok(
-    ordem.indexOf('stop.deleteMany') < ordem.indexOf('route.deleteMany'),
-    'stop tem que sair antes da rota',
+  // e ninguém apaga parada congelada pra conseguir apagar a rota.
+  assert.equal(
+    chamadas.some((c) => c[0] === 'stop.deleteMany'),
+    false,
+    'o expurgo não pode mais apagar LogisticaRouteStop',
   );
 });
 
@@ -175,4 +185,31 @@ test('ocorrenciaCanceladaRecente: sem chave não pergunta nada (e não bloqueia 
   const { p, chamadas } = prismaDublê({ canceladas: [{ id: 'e9' }] });
   assert.equal(await ocorrenciaCanceladaRecente(p, 41, ''), false);
   assert.equal(chamadas.length, 0);
+});
+
+/* 🔴 10/08 — A PROVA MUDOU DE LUGAR. O cancelar agora APAGA o não-processado, e um
+   guard que depende do defunto morre junto com ele: o dia voltaria a renascer no
+   primeiro generateDay, que é o bug de origem ("cancelou 00:44, o publish das 03:08
+   recriou as 51"). Sem corpo, a prova é a TRILHA — história de DECISÃO, que não some. */
+test('ocorrenciaCanceladaRecente: sem corpo, a TRILHA responde (plano + dia de origem, na janela)', async () => {
+  const { p, chamadas } = prismaDublê({ eventos: [{ id: 'ev1' }] });
+  const achou = await ocorrenciaCanceladaRecente(p, 41, 'agenda:plano1:2026-08-10');
+  assert.equal(achou, true, 'cancelar tem que valer mesmo com a linha apagada');
+  const where = acharChamada(chamadas, 'evento.findFirst').where;
+  assert.equal(where.companyId, 41);
+  assert.equal(where.planoEntregaId, 'plano1', 'a chave desmontada: o PLANO');
+  assert.equal(where.deTexto, '10/08', 'e o DIA DE ORIGEM (é ele que o generateDay pergunta)');
+  assert.deepEqual(where.tipo, { in: ['CANCELADA_LIMPAR_DIA'] });
+  assert.ok(where.createdAt.gte instanceof Date, 'só vale DENTRO da janela');
+});
+
+test('ocorrenciaCanceladaRecente: sem corpo e sem trilha, a geração segue livre', async () => {
+  const { p } = prismaDublê();
+  assert.equal(await ocorrenciaCanceladaRecente(p, 41, 'agenda:plano1:2026-08-10'), false);
+});
+
+test('ocorrenciaCanceladaRecente: o CORPO ainda responde primeiro (linha que sobreviveu)', async () => {
+  const { p, chamadas } = prismaDublê({ canceladas: [{ id: 'e9' }] });
+  assert.equal(await ocorrenciaCanceladaRecente(p, 41, 'agenda:plano1:2026-08-10'), true);
+  assert.equal(chamadas.some((c) => c[0] === 'evento.findFirst'), false, 'achou no corpo, nem pergunta pra trilha');
 });

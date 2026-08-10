@@ -7,8 +7,14 @@ import { canonicalRouteDate } from './logistica-route-billing.service';
 /**
  * PR18072026 Onda 1 — testes de `limparDia`. Espelha o harness de
  * `logistica-rota-encerrar.service.test.ts` ($transaction que simula commit/
- * rollback DE VERDADE), mas com o DESFECHO diferente: "Limpar dia" CANCELA as
+ * rollback DE VERDADE), mas com o DESFECHO diferente: "Limpar dia" descarta as
  * abertas (decisão do dono, 18/07), não devolve pra pendência como o encerrar.
+ *
+ * 🔴 10/08 — O DESFECHO VIROU DELETE ("o cancelar q não deleta, essa patifaria").
+ * A aberta que nunca virou trabalho SOME do banco; só quem tem SINAL DE VIDA
+ * (saiu pra rua, tem foto, trilha, claim, cobrança ou parada congelada de outra
+ * rota) continua sendo carimbada 'cancelada'. Estes testes agora provam as duas
+ * metades — e, principalmente, que a segunda existe.
  */
 
 type EntregaRow = {
@@ -24,6 +30,19 @@ type EntregaRow = {
   // podia ser regerado (ver o FIX no limparDia).
   planoEntregaId?: string | null;
   agendaOcorrenciaKey?: string | null;
+  agendaOcorrenciaKeyOrigem?: string | null;
+  customerProfileId?: string;
+  // 10/08 — os SINAIS DE VIDA (SEM_SINAL_DE_VIDA em logistica-expurgo.util): a
+  // fronteira entre "some" e "fica". Contadores fazem o papel das relações.
+  arrivedAt?: Date | null;
+  deliveredAt?: Date | null;
+  comprovanteConfirmadoAt?: Date | null;
+  receiptMethod?: string | null;
+  cobrancaStatus?: string | null;
+  comprovantes?: number;
+  logisticaTrackingPoints?: number;
+  logisticaTrackingEvents?: number;
+  logisticaTrackedCreditClaims?: number;
 };
 
 type PlanoRow = {
@@ -83,7 +102,29 @@ function matchesOrBranch(row: EntregaRow, branch: any): boolean {
 
 function matchesWhere(row: EntregaRow, where: any): boolean {
   if (!matchesBase(row, where)) return false;
+  if (where.id?.in && !where.id.in.includes(row.id)) return false;
   if (Array.isArray(where.OR)) return where.OR.some((branch: any) => matchesOrBranch(row, branch));
+  return true;
+}
+
+/**
+ * As perguntas do `SEM_SINAL_DE_VIDA`, respondidas pelo dublê. A parada congelada
+ * é lida do STORE DE STOPS de propósito: é assim que o teste prova a ORDEM (o stop
+ * some primeiro, senão o `Restrict` do banco de verdade barraria o delete).
+ */
+function matchesSinalDeVida(row: EntregaRow, where: any, stops: Map<string, StopRow>): boolean {
+  const nulos = ['startedAt', 'arrivedAt', 'deliveredAt', 'comprovanteConfirmadoAt', 'receiptMethod'] as const;
+  for (const campo of nulos) {
+    if (where[campo] === null && (row as any)[campo] != null) return false;
+  }
+  if (where.cobrancaStatus !== undefined && (row.cobrancaStatus ?? 'pendente') !== where.cobrancaStatus) return false;
+  const contadores = ['comprovantes', 'logisticaTrackingPoints', 'logisticaTrackingEvents', 'logisticaTrackedCreditClaims'] as const;
+  for (const rel of contadores) {
+    if (where[rel] && ((row as any)[rel] ?? 0) > 0) return false;
+  }
+  if (where.logisticaRouteStop?.is === null) {
+    for (const stop of stops.values()) if (stop.deliveryId === row.id) return false;
+  }
   return true;
 }
 
@@ -92,13 +133,16 @@ function buildHarness(
   routeSeed: RouteRow[] = [],
   planoSeed: PlanoRow[] = [],
   stopSeed: StopRow[] = [],
+  cobrancas: Array<{ entregaId: string }> = [],
 ) {
   const store = new Map<string, EntregaRow>(seed.map((row) => [row.id, { ...row }]));
   const routeStore = new Map<string, RouteRow>(routeSeed.map((row) => [row.id, { ...row }]));
   const planoStore = new Map<string, PlanoRow>(planoSeed.map((row) => [row.id, { ...row }]));
   const stopStore = new Map<string, StopRow>(stopSeed.map((row) => [row.id, { ...row }]));
   const financeiroChargeCalls: string[] = [];
-  let failNextUpdateMany = false;
+  /** O extrato (F2.2): com o corpo apagado, o EVENTO é a única história que sobra. */
+  const eventos: any[] = [];
+  let failNextWrite = false;
 
   function cloneStore(): Map<string, EntregaRow> {
     const clone = new Map<string, EntregaRow>();
@@ -154,21 +198,42 @@ function buildHarness(
           const rows: EntregaRow[] = [];
           for (const row of working.values()) {
             if (!matchesWhere(row, where)) continue;
+            if (!matchesSinalDeVida(row, where, workingStops)) continue;
             rows.push({ ...row });
           }
           return rows;
         },
         updateMany: async ({ where, data }: any) => {
-          if (failNextUpdateMany) throw new Error('falha injetada (simulando erro de banco no meio da transação)');
+          if (failNextWrite) throw new Error('falha injetada (simulando erro de banco no meio da transação)');
           let count = 0;
           for (const row of working.values()) {
-            // O 2º updateMany (soltar a chave da ocorrência) mira por id, não
+            // O updateMany que solta a chave da ocorrência mira por id, não
             // pelo escopo do dia.
             if (where.id?.in) {
               if (where.companyId != null && row.companyId !== where.companyId) continue;
               if (!where.id.in.includes(row.id)) continue;
+              if (where.status?.in && !where.status.in.includes(row.status)) continue;
             } else if (!matchesWhere(row, where)) continue;
             Object.assign(row, data);
+            count++;
+          }
+          return { count };
+        },
+        deleteMany: async ({ where }: any) => {
+          if (failNextWrite) throw new Error('falha injetada (simulando erro de banco no meio da transação)');
+          let count = 0;
+          for (const [id, row] of [...working]) {
+            if (where.companyId != null && row.companyId !== where.companyId) continue;
+            if (where.id?.in && !where.id.in.includes(id)) continue;
+            /* O `Restrict` do banco, encenado: parada congelada SEGURA a entrega.
+               Se o código tentar apagar uma linha que ainda tem stop, o teste
+               explode aqui — que é exatamente o que o Postgres faria. */
+            for (const stop of workingStops.values()) {
+              if (stop.deliveryId === id) {
+                throw new Error(`FK Restrict: LogisticaRouteStop ${stop.id} ainda aponta pra entrega ${id}`);
+              }
+            }
+            working.delete(id);
             count++;
           }
           return { count };
@@ -218,6 +283,12 @@ function buildHarness(
         },
       },
       financeiroCharge: {
+        /* LER a cobrança é obrigatório (ela não tem FK com a Entrega: sem esta
+           consulta o delete apagaria a ponta de um dinheiro que continua no banco).
+           ESCREVER continua proibido — cancelar não estorna. */
+        findMany: async ({ where }: any) => cobrancas.filter(
+          (c) => (where?.entregaId?.in ?? []).includes(c.entregaId),
+        ),
         create: financeiroChargeGuard('create'),
         update: financeiroChargeGuard('update'),
         updateMany: financeiroChargeGuard('updateMany'),
@@ -228,6 +299,9 @@ function buildHarness(
   }
 
   const prisma: any = {
+    logisticaAgendaEvento: {
+      create: async ({ data }: any) => { eventos.push(data); return data; },
+    },
     $transaction: async (callback: (tx: any) => Promise<any>) => {
       const working = cloneStore();
       const workingRoutes = cloneRoutes();
@@ -254,7 +328,8 @@ function buildHarness(
     planoStore,
     stopStore,
     financeiroChargeCalls,
-    setFailNextUpdateMany: (value: boolean) => { failNextUpdateMany = value; },
+    eventos,
+    setFailNextUpdateMany: (value: boolean) => { failNextWrite = value; },
   };
 }
 
@@ -269,32 +344,105 @@ function seedRow(overrides: Partial<EntregaRow> & { id: string }): EntregaRow {
     scheduledAt: atHour(9),
     planoEntregaId: null,
     agendaOcorrenciaKey: null,
+    agendaOcorrenciaKeyOrigem: null,
+    customerProfileId: `cli-${overrides.id}`,
+    // sem sinal de vida por padrão: a linha "normal" do dia é a que some
+    arrivedAt: null,
+    deliveredAt: null,
+    comprovanteConfirmadoAt: null,
+    receiptMethod: null,
+    cobrancaStatus: 'pendente',
+    comprovantes: 0,
+    logisticaTrackingPoints: 0,
+    logisticaTrackingEvents: 0,
+    logisticaTrackedCreditClaims: 0,
     ...overrides,
   };
 }
 
-// ── 1. Abertas viram CANCELADA (nunca pendência) ──────────────────────────────
-test('limparDia: agendada/em_rota do dia viram cancelada, com rotaOrdem/etaAt/startedAt limpos', async () => {
+// ── 1. Abertas SOMEM (10/08: "o cancelar q não deleta, essa patifaria") ───────
+test('limparDia: agendada/em_rota do dia sem sinal de vida SOMEM do banco', async () => {
   const h = buildHarness([
-    seedRow({ id: 'd-em-rota', status: 'em_rota', rotaOrdem: 0, etaAt: atHour(10), startedAt: atHour(9) }),
+    // 'em_rota' com rotaOrdem/etaAt: entrou na rota, mas o motorista nunca
+    // chegou em ninguém — nada aconteceu, some igual.
+    seedRow({ id: 'd-em-rota', status: 'em_rota', rotaOrdem: 0, etaAt: atHour(10) }),
     // Diferente do encerrarRota: mesmo uma 'agendada' CRUA (nunca passou por
-    // planejar/iniciar) é cancelada — Limpar Dia descarta TUDO que está aberto.
+    // planejar/iniciar) sai — Limpar Dia descarta TUDO que está aberto.
     seedRow({ id: 'd-agendada-crua', status: 'agendada' }),
   ]);
 
   const result = await h.service.limparDia(7, { date: DATE }, 42);
 
   assert.equal(result.ok, true);
-  assert.equal(result.resumo.canceladas, 2);
+  assert.equal(result.resumo.canceladas, 2, 'o número que o app mostra é quantas saíram do dia');
+  assert.equal(result.resumo.apagadas, 2, 'e todas elas SUMIRAM — nenhum defunto carimbado');
+  assert.equal(h.store.has('d-em-rota'), false);
+  assert.equal(h.store.has('d-agendada-crua'), false);
+  assert.equal(h.store.size, 0, 'o dia cancelado não deixa corpo nenhum pra trás');
+});
 
-  const emRota = h.store.get('d-em-rota')!;
-  assert.equal(emRota.status, 'cancelada');
-  assert.equal(emRota.rotaOrdem, null);
-  assert.equal(emRota.etaAt, null);
-  assert.equal(emRota.startedAt, null);
+// ── 1b. A OUTRA METADE: com SINAL DE VIDA, a linha FICA ──────────────────────
+// A fronteira do dono (10/08): "o cliente pode querer reaproveitar, ou saber o
+// quanto gastou". Tudo que já foi trabalho ou dinheiro sobrevive ao cancelar —
+// carimbado 'cancelada', como sempre foi.
+test('limparDia: linha COM sinal de vida não some — vira cancelada, com a origem carimbada', async () => {
+  const h = buildHarness([
+    seedRow({ id: 'd-saiu', status: 'em_rota', rotaOrdem: 0, startedAt: atHour(9), planoEntregaId: 'p1', agendaOcorrenciaKey: `agenda:p1:${DATE}` }),
+    seedRow({ id: 'd-foto', status: 'agendada', comprovantes: 1 }),
+    seedRow({ id: 'd-trilha', status: 'agendada', logisticaTrackingPoints: 12 }),
+    seedRow({ id: 'd-claim', status: 'agendada', logisticaTrackedCreditClaims: 1 }),
+    seedRow({ id: 'd-pago', status: 'agendada', receiptMethod: 'pix' }),
+    seedRow({ id: 'd-limpa', status: 'agendada' }),
+  ]);
 
-  const crua = h.store.get('d-agendada-crua')!;
-  assert.equal(crua.status, 'cancelada');
+  const result = await h.service.limparDia(7, { date: DATE }, 42);
+
+  assert.equal(result.resumo.canceladas, 6, 'todas saíram do dia');
+  assert.equal(result.resumo.apagadas, 1, 'mas só a que nunca virou nada sumiu');
+  assert.equal(h.store.has('d-limpa'), false);
+  for (const id of ['d-saiu', 'd-foto', 'd-trilha', 'd-claim', 'd-pago']) {
+    const row = h.store.get(id)!;
+    assert.equal(row.status, 'cancelada', `${id} tem história — fica carimbada`);
+    assert.equal(row.rotaOrdem, null);
+    assert.equal(row.entregadorId, null, 'motorista solto (29/07)');
+  }
+  const saiu = h.store.get('d-saiu')!;
+  assert.equal(saiu.agendaOcorrenciaKey, null, 'a chave viva sai (senão trava o cliente pra sempre)');
+  assert.equal(saiu.agendaOcorrenciaKeyOrigem, `agenda:p1:${DATE}`, 'e a origem fica gravada');
+});
+
+// ── 1c. Cobrança lançada segura a linha (a FK que o Prisma não vê) ───────────
+test('limparDia: entrega COM cobrança no financeiro não some — vira cancelada', async () => {
+  const h = buildHarness(
+    [seedRow({ id: 'd-cobrada' }), seedRow({ id: 'd-livre' })],
+    [], [], [],
+    [{ entregaId: 'd-cobrada' }],
+  );
+
+  const result = await h.service.limparDia(7, { date: DATE }, 42);
+
+  assert.equal(result.resumo.apagadas, 1);
+  assert.equal(h.store.has('d-livre'), false);
+  assert.equal(h.store.get('d-cobrada')!.status, 'cancelada', 'a ponta de um dinheiro no banco não se apaga');
+  assert.deepEqual(h.financeiroChargeCalls, [], 'e nada é escrito no financeiro');
+});
+
+// ── 1d. O EVENTO é a história que sobra (F2.2 + 10/08) ──────────────────────
+test('limparDia: cada parada que sai vira evento com ATOR, dia e ORIGEM da ocorrência', async () => {
+  const h = buildHarness([
+    seedRow({ id: 'd1', planoEntregaId: 'p1', agendaOcorrenciaKey: `agenda:p1:${DATE}` }),
+  ]);
+
+  await h.service.limparDia(7, { date: DATE }, 42, 51);
+
+  assert.equal(h.eventos.length, 1);
+  const evento = h.eventos[0];
+  assert.equal(evento.tipo, 'CANCELADA_LIMPAR_DIA');
+  assert.equal(evento.actorUserId, 51, 'evento sem ator responde "alguém", que é não responder');
+  assert.equal(evento.entregaId, 'd1');
+  assert.equal(evento.planoEntregaId, 'p1');
+  assert.equal(evento.deTexto, '18/07', 'o DIA DE ORIGEM — é ele que segura o generateDay depois');
+  assert.equal(evento.paraTexto, '18/07');
 });
 
 // ── 2. Entregues/canceladas ficam intocadas ───────────────────────────────────
@@ -309,6 +457,7 @@ test('limparDia: entregue/cancelada ficam intocadas; FinanceiroCharge nunca é t
   const result = await h.service.limparDia(7, { date: DATE }, 42);
 
   assert.equal(result.resumo.canceladas, 1, 'só a aberta é contada/cancelada');
+  assert.ok(h.store.has('d-cancelada-antes'), 'cancelada de ANTES não é varrida pelo cancelar de agora');
   const entregue = h.store.get('d-entregue')!;
   assert.equal(entregue.status, 'entregue');
   assert.equal(entregue.rotaOrdem, 3, 'rotaOrdem de entrega entregue não pode ser limpo');
@@ -389,6 +538,8 @@ test('limparDia: apaga as paradas congeladas do que não foi entregue e preserva
       seedRow({ id: 'd-entregue', status: 'entregue', rotaOrdem: 0, etaAt: entregueAt, startedAt: entregueAt }),
       seedRow({ id: 'd-aberta', status: 'em_rota', rotaOrdem: 1, startedAt: atHour(9) }),
       seedRow({ id: 'd-agendada', status: 'agendada', rotaOrdem: 2 }),
+      // do OUTRO motorista: fora do escopo do 42 em tudo
+      seedRow({ id: 'd-outro', entregadorId: 99, status: 'agendada', rotaOrdem: 0 }),
     ],
     [
       { id: 'r-42', companyId: 7, entregadorId: 42, routeDate, status: 'PLANNED', operationalEndedAt: null },
@@ -400,7 +551,7 @@ test('limparDia: apaga as paradas congeladas do que não foi entregue e preserva
       { id: 's-aberta', companyId: 7, routeId: 'r-42', deliveryId: 'd-aberta' },
       { id: 's-agendada', companyId: 7, routeId: 'r-42', deliveryId: 'd-agendada' },
       // rota de OUTRO motorista: fora do escopo, não pode perder parada nenhuma
-      { id: 's-outro', companyId: 7, routeId: 'r-99', deliveryId: 'd-agendada' },
+      { id: 's-outro', companyId: 7, routeId: 'r-99', deliveryId: 'd-outro' },
     ],
   );
 
@@ -411,6 +562,11 @@ test('limparDia: apaga as paradas congeladas do que não foi entregue e preserva
   assert.equal(h.stopStore.has('s-aberta'), false);
   assert.equal(h.stopStore.has('s-agendada'), false);
   assert.ok(h.stopStore.has('s-outro'), 'rota de outro motorista — intocada');
+  /* 🔴 A ORDEM É LEI (10/08): a parada congelada é `onDelete: Restrict` na
+     entrega. O dublê explode se o delete vier antes do stop sair — se este
+     teste passa, a ordem dentro da transação está certa. */
+  assert.equal(h.store.has('d-agendada'), false, 'stop saiu primeiro, aí a entrega pôde sumir');
+  assert.ok(h.store.has('d-outro'), 'a do outro motorista mantém entrega E parada');
   // e nada de dinheiro: cancelar não estorna (dono: "perde até os créditos")
   assert.deepEqual(h.financeiroChargeCalls, []);
 });
@@ -450,6 +606,7 @@ test('limparDia: falha injetada não deixa estado parcial (rollback)', async () 
 
   assert.equal(h.store.get('d1')!.status, 'em_rota', 'nada mudou — rollback');
   assert.equal(h.store.get('d2')!.status, 'agendada');
+  assert.equal(h.store.size, 2, 'delete que falha no meio não pode levar linha nenhuma');
 
   h.setFailNextUpdateMany(false);
   const result = await h.service.limparDia(7, { date: DATE }, 42);
@@ -477,7 +634,7 @@ test('limparDia: dia sem nenhuma entrega devolve resumo zerado, sem erro', async
   const result = await h.service.limparDia(7, { date: DATE }, 42);
   assert.deepEqual(result, {
     ok: true,
-    resumo: { canceladas: 0, planosLiberados: 0, rotasEncerradas: 0, paradasApagadas: 0 },
+    resumo: { canceladas: 0, apagadas: 0, planosLiberados: 0, rotasEncerradas: 0, paradasApagadas: 0 },
   });
 });
 
@@ -508,10 +665,10 @@ test('limparDia: devolve proximaData pro dia limpo e solta a chave da ocorrênci
   assert.equal(result.resumo.canceladas, 2);
   assert.equal(result.resumo.planosLiberados, 1);
 
-  const recorrente = h.store.get('d-recorrente')!;
-  assert.equal(recorrente.status, 'cancelada');
-  assert.equal(recorrente.agendaOcorrenciaKey, null, 'a chave tem que sair pra permitir gerar de novo');
-  assert.equal(recorrente.planoEntregaId, 'plano-1', 'o vínculo com o plano é histórico — não some');
+  // 10/08 — a entrega recorrente intocada SOME; o que devolve o dia é o PLANO
+  // (a chave morre junto com a linha, então não trava mais ninguém).
+  assert.equal(h.store.has('d-recorrente'), false);
+  assert.equal(h.store.has('d-avulsa'), false);
 
   const plano = h.planoStore.get('plano-1')!;
   assert.deepEqual(plano.proximaData, saoPauloMidnight(DATE), 'plano volta a vencer no dia limpo');
