@@ -7558,12 +7558,15 @@
   const ordemAlteradaSemSalvar = () => telaAtual() === 'montagem'
     && previaDoDedo && paradasParaSalvar().length > 0;
 
+  /** o 1º espaço sem rota dentro; -1 quando os três estão ocupados */
+  function primeiroVago() {
+    for (let i = 0; i < MAX_ESPACOS; i += 1) if (!ESPACOS[i]) return i;
+    return -1;
+  }
   /** o espaço que recebe a gravação obrigatória: o aceso, senão o 1º vago */
   function alvoDaTrava() {
     const aceso = idxDoModo(modoSel);
-    if (aceso >= 0) return aceso;
-    for (let i = 0; i < MAX_ESPACOS; i += 1) if (!ESPACOS[i]) return i;
-    return -1;                                   // cheio: quem decide é o dono
+    return aceso >= 0 ? aceso : primeiroVago();  // -1 = cheio, quem decide é o dono
   }
 
   /** embrulha Montar/Iniciar: sem ordem gravada, a tela de salvar vem antes */
