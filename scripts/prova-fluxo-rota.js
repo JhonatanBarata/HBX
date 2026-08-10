@@ -404,6 +404,12 @@ const SO_MEDIR = process.argv.includes('--antes');
     pe: (document.querySelector('.pe-montagem .go b') || {}).textContent || '',
     vazio: (document.querySelector('.vazio strong') || {}).textContent || '',
     portao: (document.querySelector('.portao h3') || {}).textContent || '',
+    /* 🔴 O RECADO DO PORTÃO MORA NO SUB, NÃO NO TÍTULO. A 1ª versão da cena M
+       cobrava a ausência do aviso lendo só o `h3` — e passava com o portão
+       ABERTO na tela, porque a frase que o dono fotografou ("Ela abre sozinha
+       quando o dia chegar") é o subtítulo. Asserção de ausência que lê o lugar
+       errado é asserção que nunca reprova. */
+    portaoSub: (document.querySelector('.portao .sub') || {}).textContent || '',
     aviso: (document.querySelector('.aviso-card strong, .aviso strong') || {}).textContent || '',
     dock: (document.querySelector('.tmx-main b, .tmx-main .rot') || {}).textContent || '',
     entregasNoServidor: window.__S.entregas.length,
@@ -1066,6 +1072,100 @@ const SO_MEDIR = process.argv.includes('--antes');
   eh('I6 · avulsa NAO materializa a agenda', postsI.indexOf('/logistica/mobile/materialize') < 0, postsI.join(','));
   eh('I7 · a agenda do dia fica como estava (sem ordem carimbada)', agendaIntocada);
   eh('I8 · a avulsa inicia e cai na navegacao', tI3.routeStatus === 'ACTIVE' && tI3.tela === 'mapa', `tela=${tI3.tela} status=${tI3.routeStatus}`);
+
+  /* ===================================================================
+     CENA M — O CHIP DE OUTRO DIA ENTREGA HOJE (dono, 10/08, com a foto do
+     portão "Rota de Qua montada · Ela abre sozinha quando o dia chegar"):
+     *"se eu clicar no 'qua', e hoje for segunda, ele monta e inicia a rota
+     normalmente, não é para abrir esse aviso"* · *"se for uma segunda, e eu
+     quiser entregar clientes de domingo, qual problema?"*
+
+     O chip escolhe GENTE, não DATA. Tocar outro dia e mandar montar tem que
+     virar a rota de HOJE com aquela gente — e a agenda de hoje que o cron já
+     materializou fica de fora, porque a tela não a está mostrando (a mesma lei
+     do recorte da cena I: quem sai é o que está na tela).
+
+     Esta cena existe porque a régua de 09/08 ("a rota nasce no dia dela",
+     `admin-route/prepare`) sobreviveu à noite em que a Montagem inteira mudou
+     de contrato — e ela era a ÚNICA porta desta tela que ainda gravava num dia
+     que não é hoje.
+     =================================================================== */
+  await cena({
+    // o cron já materializou a agenda de HOJE (c1/c5): é ela que não pode ser
+    // varrida pra dentro da rota que o dono recortou no chip.
+    entregas: [{ id: 'ag1', status: 'agendada', rotaOrdem: null, origem: 'recorrente', cliente: CLI_C5 }],
+    agendaHoje: AGENDA_HOJE, mesmaBase: true, custoComoServidor: true,
+  });
+  await irPara('montagem', 2200);
+  await zerar();
+  await tocarChip(DIA_B);          // "Qua" numa segunda: 2 pessoas (c1, c2)
+  const tM0 = await espiar();
+  nota(`[M] chip de outro dia: stops=${tM0.nStops} · pe="${tM0.pe}" · linhas: ${tM0.linhas.join(' | ')}`);
+  nota(`    POSTs do toque: ${(await posts()).join(',') || '(nenhum)'}`);
+  eh('M0 · o chip de outro dia mostra a gente DAQUELE dia', tM0.nStops === 2, `stops=${tM0.nStops}`);
+  eh('M1 · escolher o dia continua sem gravar nada', (await posts()).length === 0, (await posts()).join(','));
+
+  await zerar();
+  await p.waitForSelector('.pe-montagem [data-acao="montar-agora"], .pe-montagem [data-acao="iniciar-rota"]', { timeout: 8000 });
+  await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="montar-agora"], .pe-montagem [data-acao="iniciar-rota"]').click());
+  await p.waitForTimeout(2800);
+  const tM1 = await espiar();
+  const postsM = await posts();
+  const corposM = await postsDe('/logistica/entregas');
+  const planejarM = (await postsDe('/logistica/rota/planejar'))[0] || {};
+  const idsPlanejar = Array.isArray(planejarM.deliveryIds) ? planejarM.deliveryIds : [];
+  const agendaIntocadaM = await p.evaluate(() => window.__S.entregas
+    .filter((e) => e.id.indexOf('ag') === 0).every((e) => e.rotaOrdem === null || e.rotaOrdem === undefined));
+  const nascidasHoje = await p.evaluate(() => window.__S.entregas
+    .filter((e) => e.id.indexOf('e') === 0).map((e) => e.cliente.id));
+  nota(`[M] montar: POSTs=${postsM.join(' , ')} · pe="${tM1.pe}"`);
+  nota(`    portao="${tM1.portao || '(nenhum)'}" · sub="${tM1.portaoSub || '(nenhum)'}"`);
+  nota(`    entregas criadas hoje=${JSON.stringify(nascidasHoje)} · deliveryIds no planejar=${JSON.stringify(idsPlanejar)}`);
+  nota(`    chips=${tM1.chips.map((c) => c[0] + (c[1] ? '*' : '')).join(' ')} · agenda de hoje intocada=${agendaIntocadaM}`);
+  /* 🔴 A ASSERÇÃO DE AUSÊNCIA É O CORAÇÃO DESTA CENA. O portão e o `prepare`
+     não são "comportamento antigo que some sozinho": foram uma decisão de
+     produto que uma sessão pode reintroduzir de boa-fé. Peça removida vira
+     asserção negativa no portão que a dirigia (mesma lei do A7/A8). */
+  eh('M2 · NAO existe mais o aviso "abre sozinha quando o dia chegar"',
+    !/abre sozinha|quando o dia chegar|Rota de .* montada/i.test(`${tM1.portao} ${tM1.portaoSub}`),
+    `${tM1.portao} · ${tM1.portaoSub}`);
+  eh('M3 · o celular NAO fala mais com o admin-route/prepare',
+    postsM.indexOf('/logistica/admin-route/prepare') < 0, postsM.join(','));
+  eh('M4 · a gente do outro dia virou entrega DE HOJE',
+    corposM.length === 2 && nascidasHoje.indexOf('c1') >= 0 && nascidasHoje.indexOf('c2') >= 0,
+    `posts=${corposM.length} clientes=${JSON.stringify(nascidasHoje)}`);
+  eh('M5 · o planejar leva o RECORTE (a agenda de hoje fica fora)',
+    idsPlanejar.length === 2 && !idsPlanejar.some((id) => String(id).indexOf('ag') === 0),
+    JSON.stringify(idsPlanejar));
+  eh('M6 · a agenda de hoje NAO e materializada nem carimbada',
+    postsM.indexOf('/logistica/mobile/materialize') < 0 && agendaIntocadaM,
+    `posts=${postsM.join(',')} intocada=${agendaIntocadaM}`);
+  /* O chip fica ACESO de propósito: a lista na tela é exatamente a rota que
+     acabou de nascer. Apagar o dia aqui trocaria a lista por baixo do dedo —
+     e o pé diria "Iniciar" sobre uma lista que não é mais a que ele montou. */
+  eh('M7 · o dia continua aceso e o pe virou "Iniciar rota"',
+    /Iniciar/i.test(tM1.pe) && tM1.chips.some((c) => c[1] === 1), `pe="${tM1.pe}" chips=${JSON.stringify(tM1.chips)}`);
+  eh('M8 · a lista continua sendo a mesma gente do dia escolhido', tM1.nStops === 2, `stops=${tM1.nStops}`);
+
+  await zerar();
+  /* 🔴 O PÉ QUE NÃO VIRA "INICIAR" É UM ACHADO, NÃO UM CRASH. Antes do fix o
+     `waitForSelector` estourava aqui e levava junto as 9 medidas de cima — a
+     prova escondia o que tinha acabado de medir. Toca no que ESTIVER no pé e
+     deixa as asserções falarem. */
+  await p.waitForSelector('.pe-montagem [data-acao="iniciar-rota"], .pe-montagem [data-acao="montar-agora"]', { timeout: 8000 });
+  await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="iniciar-rota"], .pe-montagem [data-acao="montar-agora"]').click());
+  await p.waitForTimeout(2600);
+  const tM2 = await espiar();
+  const corpoIniciarM = (await postsDe('/logistica/rota/iniciar'))[0] || {};
+  const idsIniciarM = Array.isArray(corpoIniciarM.deliveryIds) ? corpoIniciarM.deliveryIds : [];
+  const agendaIntocadaM2 = await p.evaluate(() => window.__S.entregas
+    .filter((e) => e.id.indexOf('ag') === 0).every((e) => e.rotaOrdem === null || e.rotaOrdem === undefined));
+  nota(`[M] iniciar: deliveryIds=${JSON.stringify(idsIniciarM)} · tela=${tM2.tela} · status=${tM2.routeStatus}`);
+  eh('M9 · o Iniciar leva o mesmo RECORTE',
+    idsIniciarM.length === 2 && !idsIniciarM.some((id) => String(id).indexOf('ag') === 0), JSON.stringify(idsIniciarM));
+  eh('M10 · a rota do outro dia inicia HOJE e cai na navegacao',
+    tM2.routeStatus === 'ACTIVE' && tM2.tela === 'mapa', `tela=${tM2.tela} status=${tM2.routeStatus}`);
+  eh('M11 · e a agenda de hoje segue intocada depois de sair pra rua', agendaIntocadaM2);
 
   await b.close();
   console.log('\n=== MEDIDAS ===');

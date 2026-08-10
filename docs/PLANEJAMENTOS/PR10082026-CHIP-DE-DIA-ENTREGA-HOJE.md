@@ -72,7 +72,20 @@ se o chip olha a ocorrência passada ou futura — se não, seguir).
 A torneira fica intacta. O desktop (mesa de despacho / route-builder) continua sendo a porta de
 "agendar dia futuro de verdade" — a capacidade não sai do produto, sai só do celular.
 
-## Execução — trânsito
-🔴 **SERIALIZAR**: há outra sessão escrevendo no `ponte.js` agora (frente dos 3 espaços +
-memória de escolha, diff não commitado de 03:53). Este plano só entra depois do commit dela —
-1 módulo = 1 mão. Depois: publicar + prova na tela do celular (regra HBXAPK).
+## ESTADO — F1+F2 FEITAS (10/08, 04:5x) · `prova-fluxo-rota` 73/73
+
+O que ficou no código, além do planejado:
+- **O chip FICA ACESO depois do montar.** Apagá-lo (`montarDia = -1`, herança do prepare) trocaria
+  a lista debaixo do dedo: a tela mostra a gente da quarta e o pé diria "Iniciar" sobre outra
+  lista. Quem solta o dia segue sendo o gesto de soltar e o Iniciar.
+- **O pé pergunta à LISTA, não ao calendário** (`montadaNaTela`): enquanto a gente do dia é só
+  prévia, o verbo é "Montar rota"; assim que ela é a rota de hoje, vira "Iniciar rota" sozinho.
+  Sem estado guardado — cancelar a rota devolve o "Montar" sem ninguém mandar.
+- **O `conferir` passou a olhar HOJE** (era `diaPreparado`), que é onde a rota agora nasce.
+- Vacina de medição: `espiar()` lia só o `h3` do portão, e a asserção de ausência do aviso passava
+  com o portão ABERTO na tela — a frase do dono é o SUBTÍTULO. Agora lê os dois.
+
+⬜ Pendente: prova na tela do celular (regra HBXAPK) depois do publish.
+⬜ Anotado, não feito: cliente que entrega em DOIS dias com a entrega de hoje já criada pelo cron
+entra na rota pelo recorte (medido por cliente), mas some da lista se o dia for solto — a
+`somarAvulsas` filtra por `origem`, e a dele é `recorrente`. Rota certa, tela a menos.

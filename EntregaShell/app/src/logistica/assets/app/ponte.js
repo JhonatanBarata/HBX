@@ -1561,16 +1561,31 @@
      ------------------------------------------------------------------------ */
   /* --------------------------------------------------------------------
      O DIA DA ROTA A MONTAR (dono, 07/08): "não estamos conseguindo se
-     adiantar, ou voltar um dia". O trilho é o MESMO do desktop
-     (`/logistica/admin-route/prepare`): o dia operacional continua HOJE —
-     fechamento, cobrança e carimbo coerentes — e só os CLIENTES vêm do dia
-     escolhido. 0 = hoje (fluxo de sempre). Chip só aparece pra admin.
+     adiantar, ou voltar um dia". 0 = hoje (fluxo de sempre); chip só pra admin.
+
+     🔴 O CHIP ESCOLHE GENTE, NÃO DATA (dono, 10/08, com a foto do portão "Rota
+     de Qua montada · Ela abre sozinha quando o dia chegar"): *"se eu clicar no
+     'qua', e hoje for segunda, ele monta e inicia a rota normalmente"* · *"se
+     for uma segunda, e eu quiser entregar clientes de domingo, qual
+     problema?"*. Tocar outro dia é dizer QUEM entra na rota de HOJE — nunca
+     agendar um dia futuro. Quem agenda dia futuro é o computador (a mesa de
+     despacho); no celular quem está com o carro na rua entrega HOJE.
+
+     ⚰️ AQUI MORREU O `/logistica/admin-route/prepare` DO CELULAR. Ele nasceu
+     em 07/08 como "o mesmo trilho do desktop" e em 09/08 virou "a rota nasce no
+     dia dela" (a torneira: 50 clientes de segunda viravam entrega de domingo
+     porque escolher o dia GRAVAVA calado). Os três perigos que o justificavam
+     morreram na madrugada de 10/08 — entrar não grava (só o dedo grava), o
+     não-processado expira sozinho (Lei do Desaparecer) e `paradaAbertaDaConta`
+     impede a porta de entrar 2× no mesmo dia. O que sobrou dele era só a
+     PAREDE: um portão dizendo "volte quarta-feira" pra quem tem o carro na rua
+     hoje. Ver a cena M do `prova-fluxo-rota`.
 
      🔴 OS CHIPS SAÍRAM E VOLTARAM EM 09/08, e a lição fica escrita aqui: eles
      são a ÚNICA porta deste valor. Sem eles `montarDia` nasce e morre em 0 —
-     `diaDosEspacos`, o ramo `prepare` do `montarRota` e o recibo "Rota de Sáb
-     montada" ficam de pé e inalcançáveis. Quem for tirar o chip da tela de
-     novo está tirando "montar a rota de outro dia" junto.
+     `diaDosEspacos` e o recorte do dia escolhido ficam de pé e inalcançáveis.
+     Quem for tirar o chip da tela de novo está tirando "montar a rota com a
+     gente de outro dia" junto.
      -------------------------------------------------------------------- */
   /* 🔴 A MONTAGEM ABRE SEM DIA (dono, 10/08, com a foto da tela: "ao entrar no
      montagem de rota, não carregar o dia automaticamente, deixe nessa tela").
@@ -2434,6 +2449,12 @@
        preserva a ordem relativa de cada grupo, e roda ANTES do `previaCrua =`
        pra pernas, arrasto e PREVIA andarem no MESMO índice da tela. */
     const clientesOrdenados = [...clientes.filter((c) => c && c.avulsa), ...clientes.filter((c) => !(c && c.avulsa))];
+    /* Esta lista JÁ É a rota de hoje? Pergunta feita à rota montada, uma vez
+       por pintura: todo mundo da tela tem entrega aberta hoje. É o que decide o
+       verbo do pé quando o chip é de outro dia (ver `pronta`, logo abaixo) —
+       estado nenhum guardado, então cancelar a rota devolve o "Montar" sozinho. */
+    const montadaNaTela = !!clientesOrdenados.length
+      && clientesOrdenados.every((c) => naRotaMontada(daRota, c));
     // 🔴 O QUE FOI PUBLICADO VIRA A VERDADE. Guardar a ordem CRUA do servidor
     // depois de pintar outra deixaria dois donos da mesma lista — e o próximo
     // repinte escolheria um deles no escuro. Daqui pra frente `previaCrua` e
@@ -2501,19 +2522,20 @@
       carregando: false,
       semFonte: false,
       linhas,
-      /* 🔴 O PÉ É "INICIAR" NO DIA DE HOJE — E "MONTAR" NO DIA QUE AINDA VEM.
-         O "Iniciar sempre" (08/08: "MONTAR ROTA → MONTAGEM DE ROTA (BOTÃO
-         INICIAR)") nasceu quando esta lista era SEMPRE a de hoje: ali o toque a
-         mais só trocava a fonte da mesma lista, e matá-lo foi certo.
-         Com o chip de OUTRO dia aceso a lista é uma PRÉVIA — ninguém "inicia"
-         uma segunda-feira no domingo, e o verde prometendo isso era promessa
-         falsa: ele levaria pro Iniciar do dia de HOJE, que está vazio. Agora
-         quem escolheu um dia futuro vê "Montar rota", que é o verbo verdadeiro
-         (prepara aquele dia, no dia dele) — e o chip morre no fim do montar, o
-         que devolve o pé pro Iniciar de hoje sozinho. */
-      // Rota avulsa (-1) é de HOJE: o pé é "Iniciar" igual — só o conjunto
-      // que sai é menor (o que o dedo pôs). "Montar rota" fica pro dia FUTURO.
-      pronta: previaAlvo > 0 ? 0 : 1,
+      /* 🔴 O PÉ DIZ O QUE FALTA FAZER COM ESTA LISTA — e quem responde é a
+         PRÓPRIA lista, não o calendário.
+         Dia de hoje e rota avulsa (-1): "Iniciar rota", o gesto único de 10/08.
+         Chip de outro dia: enquanto aquela gente é só PRÉVIA (nenhuma entrega
+         de hoje ainda), o verbo é "Montar rota" — montar é o que falta. Depois
+         do montar as mesmas pessoas já são a rota de hoje, e aí o pé vira
+         "Iniciar" sozinho, sem precisar apagar o dia da tela.
+         ⚰️ Aqui morreu "chip de outro dia ⇒ Montar, sempre" (09/08). Ele era o
+         par do `admin-route/prepare`: como a rota nascia NOUTRA data, o Iniciar
+         de hoje ficava vazio e o verde seria promessa falsa. Com o dia
+         escolhido entregando HOJE a promessa é verdadeira — e cobrar um 2º
+         toque depois da rota montada é o "botão que muda de nome" que o dono
+         mandou matar no mesmo dia. */
+      pronta: previaAlvo > 0 ? (montadaNaTela ? 1 : 0) : 1,
       // Hoje: quem vem primeiro, que é pra onde ele vai agora. Dia futuro: o
       // DIA, porque é ele que responde "montar o quê?".
       iniciarSub: previaAlvo > 0
@@ -2835,8 +2857,58 @@
     } catch (_) { return false; }
   }
 
+  /* ------------------------------------------------------------------------
+     🔴 O DIA ESCOLHIDO ENTREGA HOJE (dono, 10/08) — e este é o único lugar onde
+     a lista de outro dia vira trabalho de verdade.
+
+     `montarDia > 0` e não é hoje: a tela está mostrando a gente de outra
+     data. Montar/Iniciar então fazem exatamente o que fariam com o dedo: a
+     lista da tela vira RASCUNHO e o rascunho vira entrega DE HOJE, pela mesma
+     porta de sempre (`materializarRascunho`). Nada de dia futuro, nada de
+     `prepare`, nenhum portão pedindo pra ele voltar quarta-feira.
+
+     A BAGAGEM INTEIRA VIAJA — a mesma do `usarHistorico`, e pelo mesmo motivo:
+     o que sai daqui senta no MESMO cartão da linha da agenda e é lido pela
+     MESMA régua (`localId` pra nascer na porta certa, `enderecoLinha` do
+     servidor, pino pela régua única, `resolveSozinho` pra não gritar "não sei
+     onde fica" em cliente com porta marcada).
+
+     Quem JÁ tem parada aberta hoje não nasce de novo — e não sai da conta: o
+     recorte é medido por CLIENTE (`idsDaPrevia`), então ele continua na rota,
+     com a entrega que já existia. É o caso do cliente que entrega na segunda e
+     na quarta com o cron já tendo criado a de hoje.
+     ------------------------------------------------------------------------ */
+  const diaDeOutroDia = () => montarDia > 0 && montarDia !== diaDaSemana();
+
+  function previaViraRascunho() {
+    const fonte = Array.isArray(previaCrua) ? previaCrua : [];
+    const jaNoRascunho = new Set(RASCUNHO.map((c) => chaveDaPorta(c.id, c.localId)));
+    let novos = 0;
+    fonte.forEach((c) => {
+      const id = String((c && c.customerProfileId) || '');
+      const porta = chaveDaPorta(id, c && c.localId);
+      if (!id || jaNoRascunho.has(porta) || paradaAbertaDaConta(id)) return;
+      jaNoRascunho.add(porta);
+      RASCUNHO.push({
+        id,
+        ...(c.localId ? { localId: String(c.localId) } : {}),
+        nome: String(c.nome || 'Cliente'),
+        enderecoLinha: String(c.enderecoLinha || ''),
+        bairro: String(c.bairro || c.cidade || ''),
+        ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
+        resolveSozinho: !!c.resolveSozinho,
+      });
+      novos += 1;
+    });
+    return novos;
+  }
+
   async function montarRota() {
     await comTrava(async () => {
+      // O dia escolhido no chip entra como escolha de GENTE (ver
+      // `previaViraRascunho`): a lista da tela vira rascunho antes de tudo.
+      const outroDia = diaDeOutroDia();
+      if (outroDia) previaViraRascunho();
       // O rascunho vira parada ANTES de planejar: planejar ordena o que EXISTE,
       // e o que só está no aparelho não existe pro servidor.
       const mat = await materializarRascunho();
@@ -2853,73 +2925,46 @@
       montando(1);
       const devolverEstado = () => montando(0);
 
+      /* 🔴 A ROTA SAI COM O QUE ESTÁ NA TELA — o RECORTE (`deliveryIds`) é a
+         mesma lei da rota avulsa (10/08): com um dia de outra data na tela, a
+         agenda de HOJE que o cron já materializou não pode ser varrida pra
+         dentro da rota que o dono acabou de escolher. Ele lê a tela, e a tela
+         mostra a quarta-feira.
+         O recorte é medido DEPOIS do `materializarRascunho` de propósito: é lá
+         que as entregas de hoje nascem, e `idsDaPrevia` casa a lista da tela
+         com elas. */
+      const recorte = outroDia ? { deliveryIds: idsDaPrevia() || [] } : {};
       let plano;
-      /* 🔴 MONTAR OUTRO DIA MONTA O DIA DELE, NÃO O DE HOJE (dono, 09/08: "o
-         prepare não pode materializar no dia de hoje").
-         Este ramo mandava `operationalDate: hojeISO()` — e era assim que a
-         agenda de segunda virava entrega de domingo. O servidor agora adota a
-         ORIGEM como dia da rota; aqui a tela para de fingir que aquilo virou a
-         rota de hoje. Guardo a data preparada porque o `conferir` tem que olhar
-         pro dia que foi montado, e o recibo tem que dizer QUAL. */
-      let diaPreparado = '';
-      let rotuloPreparado = '';
       try {
-        if (montarDia > 0 && montarDia !== diaDaSemana() && ehAdmin()) {
-          const alvo = dataDoDia(montarDia);
-          const prep = await window.API.post('/logistica/admin-route/prepare', {
-            operationalDate: alvo, sourceDates: [alvo], ...origemGps(),
-          });
-          plano = prep && prep.plan ? prep.plan : prep;
-          // Quem manda na data é a RESPOSTA do servidor, nunca a minha conta:
-          // se ele decidir outro dia, o conferir e o recibo seguem ele.
-          diaPreparado = String((prep && prep.operationalDate) || alvo);
-          rotuloPreparado = ROTULO_DIA[montarDia] || '';
-        } else {
-          // A agenda do dia vira entrega ANTES de ordenar (ver `materializarDia`).
-          // Nunca no modo avulsa: lá a agenda ficou de fora de propósito.
-          if (montarDia !== -1) await materializarDia();
-          plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...origemGps() });
-        }
+        // A agenda do dia vira entrega ANTES de ordenar (ver `materializarDia`).
+        // Nunca na avulsa nem com o dia de outra data: nos dois a agenda de hoje
+        // ficou de fora de propósito — trazê-la de volta é encher a rota com
+        // gente que a tela não está mostrando.
+        if (montarDia !== -1 && !outroDia) await materializarDia();
+        plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...recorte, ...origemGps() });
       } catch (e) { devolverEstado(); return avisoErro(e); }
       const paradas = Array.isArray(plano && plano.stops) ? plano.stops
         : (Array.isArray(plano && plano.items) ? plano.items
           : (Array.isArray(plano && plano.paradas) ? plano.paradas : []));
 
       // semáforo dos endereços: só ATRASA a montagem se o servidor acusar algo.
-      // Confere o dia que foi MONTADO — preparar a segunda e conferir o domingo
-      // devolveria o semáforo de um dia que ninguém tocou.
+      // Confere HOJE, sempre: o dia da rota é hoje mesmo quando a gente dela
+      // veio de outra data (é a lei do chip — ver `diaDeOutroDia`).
       let conf = null;
       try {
-        conf = await window.API.post('/logistica/rota/conferir', { date: diaPreparado || hojeISO(), ...origemGps() });
+        conf = await window.API.post('/logistica/rota/conferir', { date: hojeISO(), ...origemGps() });
       } catch (_) { /* aviso é enfeite, não portão */ }
       const comAviso = conf && Array.isArray(conf.items)
         ? conf.items.filter((i) => Array.isArray(i.motivosVisiveis) && i.motivosVisiveis.length).length
         : 0;
 
-      /* A ESCOLHA DE DIA MORRE AQUI. O dia escolhido já foi montado — no dia
-         DELE —, e seleção presa deixaria o próximo montar puxando o dia velho
-         calado, com o chip aceso mentindo sobre o que está na lista. */
-      if (montarDia > 0) { montarDia = -1; window.usarDados('montagem', { diaSel: -1 }); }
-
-      /* 🔴 ROTA DE OUTRO DIA NÃO É A ROTA DE HOJE, E A TELA TEM QUE DIZER ISSO.
-         Antes o dia escolhido era despejado em cima de hoje, então o silêncio
-         aqui "funcionava": a lista de hoje mudava na cara dele. Agora o domingo
-         continua vazio de propósito — e sem uma palavra o toque pareceria não
-         ter feito nada, que é o defeito que esta frente inteira mata. Recibo
-         primeiro, tela de hoje depois. */
-      if (diaPreparado) {
-        devolverEstado();
-        await carregarRota();
-        if (typeof window.portao === 'function') {
-          window.portao({
-            tom: 'ok', ico: 'check',
-            titulo: rotuloPreparado ? `Rota de ${rotuloPreparado} montada` : 'Rota montada',
-            sub: 'Ela abre sozinha quando o dia chegar. Hoje segue como está.',
-            acoes: [['Entendi', 'principal']],
-          });
-        }
-        return;
-      }
+      /* 🔴 O CHIP FICA ACESO, E ISSO É O CONSERTO (10/08). Aqui a escolha de dia
+         era APAGADA (`montarDia = -1`) porque o dia tinha sido montado noutra
+         data — a lista de hoje era outra coisa, e o chip aceso mentiria.
+         Agora a lista da tela É a rota que acabou de nascer: apagar o dia
+         trocaria a lista debaixo do dedo dele, e o pé diria "Iniciar" sobre uma
+         lista que não é a que ele montou. Quem solta o dia continua sendo o
+         gesto de soltar (`soltarDia`) e o Iniciar, quando a rota já saiu. */
       // 🔴 SÓ ABRE A MONTAGEM SE A ROTA ENTROU. Com o `/logistica/rota` no chão
       // o `carregarRota` volta no catch antes de escrever no seam, e a tela de
       // montagem abria com as 6 paradas do desenho e "R$ 336,00" — dinheiro de
@@ -2973,28 +3018,35 @@
          chegar aqui sem ordem gravada — e o servidor responderia "monte a rota
          antes de iniciar" no toque que devia sair pra rua. Planejar de novo o
          mesmo conjunto não cria parada nem debita. */
+      // O dia de outra data vira gente de HOJE antes de tudo — o mesmo gesto do
+      // montar (ver `previaViraRascunho`). Quem já é parada aberta é pulado lá,
+      // então tocar Iniciar numa lista já montada não cria nada de novo.
+      const outroDia = diaDeOutroDia();
+      if (outroDia) previaViraRascunho();
       // O rascunho vira parada ANTES de tudo: é o dedo mandando gravar, e é
       // daqui que sai o conjunto que o planejar vai ordenar e o servidor cobrar.
       const mat = await materializarRascunho();
-      /* 🔴 ROTA AVULSA SAI SÓ COM O QUE O DEDO PÔS (dono, 10/08: o chip do dia
-         desligado É a rota avulsa). Sem o recorte, o planejar varria as
-         entregas da agenda — que o cron já criou no servidor — pra dentro da
-         rota que ele acabou de enxugar na tela. `deliveryIds` já existe nas
-         três portas (planejar, custo-preview, iniciar); aqui ele carrega a
-         tela ao pé da letra. */
+      /* 🔴 A ROTA SAI SÓ COM O QUE ESTÁ NA TELA (dono, 10/08: o chip do dia
+         desligado É a rota avulsa; e o chip de OUTRO dia é a gente daquele dia
+         entregando hoje). Sem o recorte, o planejar varria as entregas da
+         agenda — que o cron já criou no servidor — pra dentro da rota que ele
+         acabou de escolher na tela. `deliveryIds` já existe nas três portas
+         (planejar, custo-preview, iniciar); aqui ele carrega a tela ao pé da
+         letra. */
       const avulsa = montarDia === -1;
-      const idsAvulsa = avulsa ? idsDaPrevia() : null;
+      const recortada = avulsa || outroDia;
+      const idsAvulsa = recortada ? idsDaPrevia() : null;
       if (avulsa && (!idsAvulsa || !idsAvulsa.length)) {
         return avisoErro(new Error('A rota avulsa está vazia. Adicione uma parada antes de iniciar.'));
       }
       const recorte = idsAvulsa && idsAvulsa.length ? { deliveryIds: idsAvulsa } : {};
-      if (estadoRota === 'montar' || !ENTREGAS.size || avulsa) {
+      if (estadoRota === 'montar' || !ENTREGAS.size || recortada) {
         try {
           // O MESMO remédio do montar: sem materializar, um dia cancelado em
           // massa batia aqui e morria no "Nenhuma entrega aberta neste dia".
-          // Na avulsa NÃO: materializar o dia traria a agenda de volta pra
-          // tela que o dono acabou de esvaziar de propósito.
-          if (!avulsa) await materializarDia();
+          // Na avulsa e no dia de outra data NÃO: materializar traria a agenda
+          // de hoje de volta pra tela que mostra outra gente.
+          if (!recortada) await materializarDia();
           await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...recorte, ...origemGps() });
         } catch (e) { return avisoErro(e); }
         if (!(await carregarRota())) return avisoErro(new Error('Não consegui montar agora. Tente de novo.'));
@@ -3069,9 +3121,10 @@
         return avisoErro(e);
       }
       await carregarRota();
-      // A escolha "sem dia" morreu no Iniciar: a rota avulsa virou A rota em
-      // andamento, e a Montagem seguinte volta a abrir no dia de sempre.
-      if (avulsa) { montarDia = -1; window.usarDados('montagem', { diaSel: -1 }); }
+      // A escolha de dia morre no Iniciar: a rota (avulsa ou com a gente de
+      // outra data) virou A rota em andamento, e a Montagem seguinte volta a
+      // abrir sem dia — o estado em que ela nasce desde 10/08.
+      if (recortada) { montarDia = -1; window.usarDados('montagem', { diaSel: -1 }); }
       /* 🔴 INICIAR É UM GESTO SÓ (dono, 10/08: "clico em iniciar, o botão muda
          para navegar NÃO QUERO — é iniciar de uma vez só, ou navegar de uma vez
          só"). Antes o toque deixava o motorista na tela Rota com o dock
