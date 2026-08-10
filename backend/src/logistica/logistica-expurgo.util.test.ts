@@ -24,16 +24,28 @@ function prismaDublê(opts: {
   canceladas?: any[];
 } = {}) {
   const chamadas: any[] = [];
+  /* 🔴 O DUBLÊ TEM QUE ESQUECER O QUE JÁ FOI APAGADO. O expurgo varre em LOTES até
+     esgotar (EXPURGO_LOTES_POR_PASSADA); um dublê que devolve as mesmas linhas pra
+     sempre faz o laço rodar 20 vezes e a prova mede o dublê, não o código. Aqui a
+     2ª consulta volta vazia, como o banco de verdade voltaria. */
+  let sobraramRotas = opts.rotas ?? [];
+  let sobraramEntregas = opts.entregas ?? [];
   const p: any = {
     logisticaRoute: {
-      findMany: async (args: any) => { chamadas.push(['route.findMany', args]); return opts.rotas ?? []; },
-      deleteMany: async (args: any) => { chamadas.push(['route.deleteMany', args]); return { count: (opts.rotas ?? []).length }; },
+      findMany: async (args: any) => {
+        chamadas.push(['route.findMany', args]);
+        const r = sobraramRotas; sobraramRotas = []; return r;
+      },
+      deleteMany: async (args: any) => { chamadas.push(['route.deleteMany', args]); return { count: (args?.where?.id?.in ?? []).length }; },
     },
     logisticaRouteStop: {
       deleteMany: async (args: any) => { chamadas.push(['stop.deleteMany', args]); return { count: 0 }; },
     },
     entrega: {
-      findMany: async (args: any) => { chamadas.push(['entrega.findMany', args]); return opts.entregas ?? []; },
+      findMany: async (args: any) => {
+        chamadas.push(['entrega.findMany', args]);
+        const e = sobraramEntregas; sobraramEntregas = []; return e;
+      },
       deleteMany: async (args: any) => {
         chamadas.push(['entrega.deleteMany', args]);
         return { count: (args?.where?.id?.in ?? []).length };
@@ -117,6 +129,26 @@ test('expurgo: sessão de rastreamento é ENCERRADA, nunca apagada (a trilha é 
   assert.equal(r.sessoesEncerradas, 3);
   // e ninguém chamou delete em sessão
   assert.ok(!chamadas.some((c) => c[0].startsWith('sessao.delete')));
+});
+
+test('expurgo: varre em LOTES até esgotar — o passivo some na 1ª noite, não em parcelas', async () => {
+  /* Medido em produção na 1ª passada real (10/08): a 41 tinha 900 elegíveis e a 48
+     tinha 1.871; com um lote só de 500, o passivo levaria DIAS. Este teste crava que
+     a passada VOLTA enquanto houver o que apagar — e que ela PARA quando não há. */
+  let restam = 3;
+  const p: any = {
+    logisticaRoute: { findMany: async () => [], deleteMany: async () => ({ count: 0 }) },
+    logisticaRouteStop: { deleteMany: async () => ({ count: 0 }) },
+    entrega: {
+      findMany: async () => (restam-- > 0 ? [{ id: `e${restam}` }] : []),
+      deleteMany: async (args: any) => ({ count: (args?.where?.id?.in ?? []).length }),
+      findFirst: async () => null,
+    },
+    financeiroCharge: { findMany: async () => [] },
+    logisticaTrackingSession: { updateMany: async () => ({ count: 0 }) },
+  };
+  const r = await expurgarNaoProcessado(p, 41);
+  assert.equal(r.entregasApagadas, 3, 'as três voltas apagaram; a quarta achou vazio e parou');
 });
 
 test('expurgo: empresa 0 não faz nada (guarda de multi-tenant)', async () => {

@@ -2164,13 +2164,14 @@
   }
 
   /* ------------------------------------------------------------------------
-     🔴 OS 2 ESPAÇOS DO DIA (dono, 08/08) — o botão do MEIO da tela de montar.
+     🔴 OS 3 ESPAÇOS DO DIA (dono, 08/08; o 3º entrou em 10/08 — "crie mais um
+     slot, vai ser 1 2 e 3, igualzinho os outros") — o botão do MEIO da tela.
 
-     Três posições e uma só valendo: `dist` (a ordem automática por distância,
-     que a lista já nasce tendo) e `s1`/`s2`, as duas rotas salvas DAQUELE dia
-     da semana. O rótulo é o nome que o motorista digitou: "Manhã" no sábado é
-     o Manhã do sábado, sempre — é `diaSemana` do rota-modelo que carrega isso,
-     coluna que já existia.
+     Quatro posições e uma só valendo: `dist` (a ordem automática por distância,
+     que a lista já nasce tendo) e `s1`/`s2`/`s3`, as três rotas salvas DAQUELE
+     dia da semana. O rótulo é o nome que o motorista digitou: "Manhã" no sábado
+     é o Manhã do sábado, sempre — é `diaSemana` do rota-modelo que carrega
+     isso, coluna que já existia.
 
      A ORDEM DOS ESPAÇOS É A DE NASCIMENTO (`criadoEm`), nunca a alfabética: o
      1º salvo do dia é o Espaço 1 pra sempre. Ordenar por nome faria renomear
@@ -2181,13 +2182,53 @@
      aberto hoje); o espaço diz em que SEQUÊNCIA. Por isso o que não está no
      espaço não some: vai pro fim, na ordem de distância que já tinha.
      ------------------------------------------------------------------------ */
-  const ESPACOS = [];          // até 2 rota-modelos do dia, em ordem de nascimento
-  let modoSel = 'dist';        // 'dist' | 's1' | 's2'
-  const NOME_MAX = 10;         // teto do nome: o botão tem 1/3 da largura da tela
+  const ESPACOS = [];          // até 3 rota-modelos do dia, em ordem de nascimento
+  const MAX_ESPACOS = 3;
+  let modoSel = 'dist';        // 'dist' | 's1' | 's2' | 's3'
+  const NOME_MAX = 10;         // teto do nome: o botão tem 1/4 da largura da tela
 
-  const modeloDoModo = () => (modoSel === 's1' ? ESPACOS[0] : modoSel === 's2' ? ESPACOS[1] : null);
+  /** 's2' → 1 · 'dist' → -1. Uma conta só: o número do espaço mora no nome. */
+  const idxDoModo = (chave) => {
+    const m = /^s([1-9])$/.exec(String(chave || ''));
+    return m ? Number(m[1]) - 1 : -1;
+  };
+  const modeloDoModo = () => ESPACOS[idxDoModo(modoSel)] || null;
   // -1 (rota avulsa) não é um dia: os espaços mostrados seguem os de hoje.
   const diaDosEspacos = () => (montarDia > 0 ? montarDia : diaDaSemana());
+
+  /* ------------------------------------------------------------------------
+     🔴 A ÚLTIMA ESCOLHA DO DIA FICA LEMBRADA (dono, 10/08: "sempre q abrir essa
+     tela, quando a pessoa clicar no dia da semana, lembrar qual foi a última
+     escolha — a pessoa sempre usa o slot 2, já carrega ele").
+
+     A memória é POR DIA DA SEMANA (decisão do dono na mesma conversa): segunda
+     lembra o espaço da segunda, quarta o da quarta. Ela mora no aparelho, então
+     sobrevive a fechar o app — é hábito de motorista, não estado de sessão.
+
+     E a regra de qual ordem a lista abre, nas palavras dele:
+     · sem histórico naquele dia ⇒ "Distância", calculada do GPS pra todos;
+     · com histórico ⇒ o espaço lembrado ganha (e a distância continua sendo
+       calculada: ela é a BASE por cima da qual a sequência salva se aplica).
+     Sem memória nenhuma (1ª vez naquele dia) e com espaço salvo, entra o
+     Espaço 1 — "se existir histórico, ele vai carregar o histórico".
+     ------------------------------------------------------------------------ */
+  const CHAVE_MEMORIA = 'montagem-espaco-do-dia';
+  let memoriaEspaco = null;         // { '1': 's2', '3': 'dist', … }
+  function lerMemoriaEspaco() {
+    if (memoriaEspaco) return memoriaEspaco;
+    let bruto = null;
+    try { bruto = window.HBX.cache.get(CHAVE_MEMORIA, null); } catch (_) { bruto = null; }
+    memoriaEspaco = (bruto && typeof bruto === 'object') ? bruto : {};
+    return memoriaEspaco;
+  }
+  /** grava a escolha do dia — 'dist' também é escolha, e é por isso que ela
+   *  entra: sem isso, quem pediu Distância veria o espaço voltar no próximo dia */
+  function lembrarEspaco(chave) {
+    const mem = lerMemoriaEspaco();
+    mem[String(diaDosEspacos())] = String(chave || 'dist');
+    try { window.HBX.cache.set(CHAVE_MEMORIA, mem); } catch (_) { /* sem cache: vale a sessão */ }
+  }
+  const espacoLembrado = (dia) => String(lerMemoriaEspaco()[String(dia)] || '');
 
   /** a fileira do seletor — e o ponto âmbar de "editado" mora no modo ATIVO */
   function publicarModos() {
@@ -2203,7 +2244,7 @@
     if (!montarDia && estadoRota !== 'montar' && estadoRota !== 'carregando') {
       return window.usarDados('montagem', { modos: [], modoSel: '' });
     }
-    const modos = ['dist', 's1', 's2'].map((chave, i) => {
+    const modos = ['dist', 's1', 's2', 's3'].map((chave, i) => {
       const m = i ? ESPACOS[i - 1] : null;
       // `previaDoDedo` já é o "o dedo mandou nesta lista" da montagem — o ponto
       // é a LEITURA dele, não um estado novo pra sair de sincronia depois.
@@ -2212,7 +2253,7 @@
     window.usarDados('montagem', { modos, modoSel });
   }
 
-  /** os 2 espaços do dia escolhido, do servidor */
+  /** os 3 espaços do dia escolhido, do servidor */
   async function carregarEspacos() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     const dia = diaDosEspacos();
@@ -2226,12 +2267,20 @@
       .filter((m) => m && Number(m.diaSemana) === dia)
       .sort((a, b) => String(a.criadoEm || '').localeCompare(String(b.criadoEm || ''))
         || String(a.id || '').localeCompare(String(b.id || '')))
-      .slice(0, 2)
+      .slice(0, MAX_ESPACOS)
       .forEach((m) => ESPACOS.push(m));
-    // O dia mudou debaixo do espaço escolhido? Volta pra Distância: espaço 2 de
-    // sábado não é espaço 2 de segunda, e manter a seleção mostraria a ordem de
-    // uma rota que não é aquela.
-    if (modoSel !== 'dist' && !modeloDoModo()) modoSel = 'dist';
+    /* 🔴 O DIA CHEGA COM A ESCOLHA DELE JÁ ACESA (dono, 10/08). Antes daqui saía
+       só a queda pra "Distância" quando o espaço não existia naquele dia — o
+       resto era memória de sessão, e trocar de chip apagava o hábito.
+       Agora quem manda é a memória DO DIA: o espaço lembrado se ele ainda
+       existe; "Distância" se foi ela a última escolha; e, sem memória nenhuma,
+       o Espaço 1 quando o dia tem histórico. Sem histórico, Distância — que é a
+       ordem calculada do GPS, a lei do item 1 do mesmo pedido. */
+    const lembrado = espacoLembrado(dia);
+    if (lembrado === 'dist') modoSel = 'dist';
+    else if (lembrado && ESPACOS[idxDoModo(lembrado)]) modoSel = lembrado;
+    else if (ESPACOS[0]) modoSel = 's1';
+    else modoSel = 'dist';
     publicarModos();
   }
 
@@ -2274,12 +2323,14 @@
   /** trocar de posição no seletor: a lista se repinta na ordem escolhida */
   function escolherModo(chave) {
     const alvo = String(chave || 'dist');
-    const idx = alvo === 's1' ? 0 : alvo === 's2' ? 1 : -1;
+    const idx = idxDoModo(alvo);
     // Espaço vazio não troca nada: ENSINA.
     if (idx >= 0 && !ESPACOS[idx]) return tutorialDoEspaco(alvo);
     // 2º toque no que já está aceso abre renomear/apagar (ver `gerirEspaco`).
     if (idx >= 0 && alvo === modoSel) return gerirEspaco(idx);
     modoSel = alvo;
+    // O dedo escolheu: é ESTA a escolha que o dia lembra da próxima vez.
+    lembrarEspaco(alvo);
     // Escolher uma ordem gravada é DESFAZER o arrasto de propósito — ele some
     // aqui, e com ele o ponto de "editado". Sem isto `previaDoDedo` venceria a
     // escolha e o toque seria mudo.
@@ -2348,14 +2399,21 @@
       ? previaCrua.slice()
       : (espaco
         ? ordenarPeloEspaco(encadearPorDistancia(previaCrua, ultimaPos), espaco)
-        /* 🔴 QUEM ORDENA É O OTIMIZADOR, ASSIM QUE ELE RESPONDE (dono, 08/08:
-           "o otimizador é pra funcionar já no carregamento, ao apertar Montar
-           Rota, só isso"). O encadeado por linha reta daqui é só a resposta
-           IMEDIATA — a lista já nasce em ordem de distância enquanto o servidor
-           calcula por RUA. Quando a rota volta montada, ela vence: é a mesma
-           sequência que o motorista vai dirigir, e é isso que faz a tela parar
-           de discordar do que foi gravado. */
-        : (ordemDaRotaMontada(previaCrua, daRota) || encadearPorDistancia(previaCrua, ultimaPos)));
+        /* 🔴 SEM ESPAÇO, MANDA O GPS — SEMPRE (dono, 10/08: "o carregamento, ao
+           clicar no dia da semana, sempre organizar por ordem de distância do
+           ponto atual do seu GPS SEMPRE"; e na dúvida: "se não existir
+           histórico sempre vai calcular e carregar Distância entre todos").
+           A ordem da rota JÁ MONTADA continua valendo num caso só: quando não
+           há fix nenhum. Ali `encadearPorDistancia` devolve a ordem do servidor
+           do mesmo jeito (não há de onde encadear), então preferir a sequência
+           que o otimizador cravou não contraria o GPS — não há GPS.
+
+           ⚰️ AQUI MORREU "quem ordena é o otimizador assim que ele responde"
+           (08/08). A ordem da rota montada vinha na frente do encadeado por
+           distância — e era ela que fazia o dono clicar no dia e ver uma
+           sequência que não é a de quem está com o carro na rua. */
+        : ((!ultimaPos && ordemDaRotaMontada(previaCrua, daRota))
+          || encadearPorDistancia(previaCrua, ultimaPos)));
     /* 🔴 A PARTE AVULSA VEM PRIMEIRO (dono, 09/08: "crie uma parte avulsa").
        Antes do Iniciar a ordem da tela é prévia — quem crava a sequência é o
        otimizador na saída. Então o avulso, que é o trabalho da vez, senta no
@@ -7335,11 +7393,11 @@
      explica em 3 passos e já deixa a saída no botão principal. */
   function tutorialDoEspaco(chave) {
     if (typeof window.portao !== 'function') return;
-    const n = chave === 's2' ? 2 : 1;
+    const n = Math.max(1, idxDoModo(chave) + 1);
     const passo = (i, t, s) => `<div class="pt-passo"><b>${i}</b><span><strong>${t}</strong>${s}</span></div>`;
     window.portao({
       tom: 'info', ico: 'save', titulo: `Espaço ${n} — ainda vazio`,
-      sub: `Cada dia da semana guarda 2 rotas suas, com o nome que você escolher.`,
+      sub: `Cada dia da semana guarda ${MAX_ESPACOS} rotas suas, com o nome que você escolher.`,
       corpo: `${passo(1, 'Deixe a lista na ordem que você dirige', 'arraste as paradas pelo punho')}
         ${passo(2, 'Salve neste espaço', 'com um nome curto: Manhã, Centro, Bairro…')}
         ${passo(3, `Na próxima ${ROTULO_DIA[diaDosEspacos()] || 'vez'}`, 'um toque no botão e a ordem volta')}`,
@@ -7350,22 +7408,31 @@
   }
 
   /* O nome é DIGITADO (o botão do seletor mostra o que ele escreveu) e tem teto
-     de 10: cada posição leva 1/3 da largura da tela, e nome que não cabe vira
-     reticência — o motorista deixaria de distinguir os dois espaços. */
-  function pedirNome(idx) {
+     de 10: cada posição leva 1/4 da largura da tela, e nome que não cabe vira
+     reticência — o motorista deixaria de distinguir os espaços.
+     `extra` é a versão OBRIGATÓRIA desta mesma tela (a trava da ordem alterada,
+     § travaDaOrdem): mesma peça, outro texto e um `depois` — nunca uma segunda
+     tela de salvar escrita à parte, que é como as duas passam a divergir. */
+  function pedirNome(idx, extra) {
     if (typeof window.portao !== 'function') return;
     if (!paradasParaSalvar().length) return avisoErro(new Error('Esta rota não tem parada para salvar.'));
     const espaco = ESPACOS[idx];
     const dia = diaDosEspacos();
+    const e = extra || {};
+    /* Nome PREENCHIDO, sempre (dono, 10/08: "abra a tela de salvamento com nome
+       preenchido"). Espaço com rota traz o nome dele; espaço vago traz o mesmo
+       palpite que o salvar sem nome já usava — assim a tela obrigatória se
+       resolve num toque só, que é o pedido dela. */
+    const nomeInicial = nomeCurto((espaco && espaco.nome) || e.nomePadrao || '');
     window.portao({
       tom: 'info', ico: 'save',
-      titulo: espaco ? 'Regravar este espaço?' : `Salvar no Espaço ${idx + 1}`,
-      sub: espaco
+      titulo: e.titulo || (espaco ? 'Regravar este espaço?' : `Salvar no Espaço ${idx + 1}`),
+      sub: e.sub || (espaco
         ? `"${esc(espaco.nome)}" perde a ordem antiga e fica com a que está na tela.`
-        : 'O nome curto é o que vai aparecer no botão.',
+        : 'O nome curto é o que vai aparecer no botão.'),
       corpo: `<div class="campo"><label>Nome</label><input data-campo="nome-espaco" type="text"
-        maxlength="${NOME_MAX}" autocomplete="off" placeholder="Manhã" value="${esc(nomeCurto(espaco && espaco.nome))}"></div>`,
-      acoes: [['Agora não', ''], [espaco ? 'Regravar' : 'Salvar', 'principal']], classe: 'duas',
+        maxlength="${NOME_MAX}" autocomplete="off" placeholder="Manhã" value="${esc(nomeInicial)}"></div>`,
+      acoes: [[e.escape || 'Agora não', ''], [e.rotulo || (espaco ? 'Regravar' : 'Salvar'), 'principal']], classe: 'duas',
     });
     const campo = naCamada('.portao-wrap [data-campo="nome-espaco"]');
     const botao = naCamada('.portao-wrap .principal');
@@ -7379,12 +7446,12 @@
       // dentro do dia e diz de onde veio. Portão fechado com erro na cara seria
       // obrigar o motorista a começar tudo de novo.
       const nome = digitado || `${ROTULO_DIA[dia] || 'Rota'} ${idx + 1}`;
-      comTrava(() => salvarNoEspaco(idx, nome));
+      comTrava(() => salvarNoEspaco(idx, nome, e.depois));
     }, { once: true });
   }
 
   /** grava a ordem da tela no espaço: POST se está vago, PATCH se já tem rota */
-  async function salvarNoEspaco(idx, nome) {
+  async function salvarNoEspaco(idx, nome, depois) {
     const paradas = paradasParaSalvar();
     if (!paradas.length) return avisoErro(new Error('Esta rota não tem parada para salvar.'));
     const dia = diaDosEspacos();
@@ -7400,11 +7467,18 @@
     // Salvou o que estava vendo ⇒ é ESTE espaço que passa a valer, e o ponto de
     // "editado" apaga: a ordem da tela e a gravada voltaram a ser a mesma.
     modoSel = `s${idx + 1}`;
+    // …e é ele que o dia lembra: salvar É a escolha mais forte que existe.
+    lembrarEspaco(modoSel);
     previaDoDedo = false;
     publicarModos();
     // A lista de Rotas salvas fica fresca na hora: o dono vai OLHAR lá pra
     // conferir que "ficou salvo" — e lista velha diria que não ficou.
     await carregarSalvas();
+    /* Salvou pra poder MONTAR (a trava da ordem alterada)? Então segue o toque
+       que ele deu: um recibo "Rota salva" no meio seria um segundo "ok" entre o
+       dedo e a rua, e o pedido era de UMA tela só. A prova de que salvou fica na
+       fileira: o espaço acende com o nome dele. */
+    if (typeof depois === 'function') return depois();
     window.portao({
       tom: 'ok', ico: 'check', titulo: 'Rota salva',
       sub: `${esc(nome)} é o Espaço ${idx + 1} de ${ROTULO_DIA[dia] || 'hoje'}.`,
@@ -7446,17 +7520,82 @@
   async function salvarRota() {
     if (typeof window.portao !== 'function') return;
     if (!paradasParaSalvar().length) return avisoErro(new Error('Esta rota não tem parada para salvar.'));
-    if (modoSel === 's1' || modoSel === 's2') return pedirNome(modoSel === 's1' ? 0 : 1);
+    if (idxDoModo(modoSel) >= 0) return pedirNome(idxDoModo(modoSel));
     const rotulo = (i) => (ESPACOS[i] ? `Espaço ${i + 1}: ${esc(ESPACOS[i].nome)}` : `Espaço ${i + 1} (vazio)`);
+    /* Com 3 espaços a fileira de botões passou a ser desenhada em LAÇO — e a
+       escuta também. Classe fixa por posição (`principal`/`azul`/…) não escala:
+       o que identifica cada botão é a POSIÇÃO dentro de `.acoes`, que é a mesma
+       ordem em que eles foram declarados aqui. */
     window.portao({
       tom: 'info', ico: 'save', titulo: 'Salvar em qual espaço?',
-      sub: `${ROTULO_DIA[diaDosEspacos()] || 'Este dia'} guarda 2 rotas. Espaço com rota dentro é regravado.`,
-      acoes: [[rotulo(0), 'principal'], [rotulo(1), 'azul'], ['Agora não', '']],
+      sub: `${ROTULO_DIA[diaDosEspacos()] || 'Este dia'} guarda ${MAX_ESPACOS} rotas. Espaço com rota dentro é regravado.`,
+      acoes: [...Array.from({ length: MAX_ESPACOS }, (_, i) => [rotulo(i), i ? 'azul' : 'principal']), ['Agora não', '']],
     });
-    const um = naCamada('.portao-wrap .principal');
-    const dois = naCamada('.portao-wrap .azul');
-    if (um) um.addEventListener('click', () => pedirNome(0), { once: true });
-    if (dois) dois.addEventListener('click', () => pedirNome(1), { once: true });
+    const caixa = naCamada('.portao-wrap .acoes');
+    if (!caixa) return;
+    for (let i = 0; i < MAX_ESPACOS; i += 1) {
+      const b = caixa.children[i];
+      if (b) b.addEventListener('click', ((n) => () => pedirNome(n))(i), { once: true });
+    }
+  }
+
+  /* ------------------------------------------------------------------------
+     🔴 A TRAVA DA ORDEM ALTERADA (dono, 10/08: "caso a pessoa fazer alterações e
+     tentar montar rota, barre e peça para salvar — 1 tela apenas: 'Foi alterado
+     a ordem, necessário salvar para montar rota'").
+
+     Arrastar a lista é permitido (item 2 do mesmo pedido: "vc pode alterar as
+     sequências"). O que não é permitido é a ordem nova sair pra rua sem estar
+     GRAVADA em espaço nenhum: no toque seguinte no dia ela não teria como
+     voltar, e o trabalho do dedo morreria no primeiro repinte.
+
+     UMA TELA. O alvo já vem decidido daqui — o espaço aceso, ou o primeiro
+     vago —, então o dono digita (ou aceita) o nome e a rota monta na sequência.
+     Com os ${MAX_ESPACOS} ocupados e nenhum aceso não há alvo pra decidir
+     sozinho, e é o único caso em que existe uma pergunta antes: apagar o MAIS
+     ANTIGO (o Espaço 1, que é o mais velho por nascimento) e gravar no lugar.
+     ------------------------------------------------------------------------ */
+  const ordemAlteradaSemSalvar = () => telaAtual() === 'montagem'
+    && previaDoDedo && paradasParaSalvar().length > 0;
+
+  /** o espaço que recebe a gravação obrigatória: o aceso, senão o 1º vago */
+  function alvoDaTrava() {
+    const aceso = idxDoModo(modoSel);
+    if (aceso >= 0) return aceso;
+    for (let i = 0; i < MAX_ESPACOS; i += 1) if (!ESPACOS[i]) return i;
+    return -1;                                   // cheio: quem decide é o dono
+  }
+
+  /** embrulha Montar/Iniciar: sem ordem gravada, a tela de salvar vem antes */
+  function comOrdemSalva(seguir) {
+    if (!ordemAlteradaSemSalvar() || typeof window.portao !== 'function') return seguir();
+    const dia = diaDosEspacos();
+    const idx = alvoDaTrava();
+    const abrirSalvar = (n) => pedirNome(n, {
+      titulo: 'Foi alterado a ordem',
+      sub: 'Necessário salvar para montar rota.',
+      rotulo: 'Salvar e montar',
+      nomePadrao: `${ROTULO_DIA[dia] || 'Rota'} ${n + 1}`,
+      depois: seguir,
+    });
+    if (idx >= 0) return abrirSalvar(idx);
+    const velho = ESPACOS[0];
+    window.portao({
+      tom: 'alerta', ico: 'save', titulo: 'Foi alterado a ordem',
+      sub: `Os ${MAX_ESPACOS} espaços de ${ROTULO_DIA[dia] || 'hoje'} estão cheios. Apagar "${esc(velho.nome)}", o mais antigo?`,
+      acoes: [['Agora não', ''], ['Apagar e salvar', 'principal']], classe: 'duas',
+    });
+    const botao = naCamada('.portao-wrap .principal');
+    if (!botao) return;
+    botao.addEventListener('click', () => comTrava(async () => {
+      try { await window.API.del(`/logistica/rota-modelos/${encodeURIComponent(velho.id)}`); }
+      catch (e) { return avisoErro(e); }
+      // A fileira encolhe: quem era Espaço 2 vira 1, e o vago é o ÚLTIMO.
+      await carregarEspacos();
+      const vago = alvoDaTrava();
+      if (vago < 0) return avisoErro(new Error('Não consegui liberar um espaço agora.'));
+      abrirSalvar(vago);
+    }), { once: true });
   }
 
   /* ------------------------------------------------------------------------

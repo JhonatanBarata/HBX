@@ -2275,6 +2275,11 @@ button,input{font:inherit;color:inherit}
    Vem ANTES do bloco do modo claro de propósito — lá a cor é redesenhada. */
 .cli .ava,.item-linha .ava{display:grid;place-items:center;font-size:12px;margin-top:0;color:var(--blue-l)}
 .cli .ava.lime,.item-linha .ava.lime{color:var(--lime)}
+/* O vermelho do dia não-completado precisa das MESMAS três declarações que o lime
+   já tem — e por quê está escrito no comentário logo acima: `.cli .ava` tem a mesma
+   força de `.ava.red` e vem DEPOIS, então rouba a cor da letra. MEDIDO antes de
+   existir esta linha: fundo vermelho com letra AZUL. */
+.cli .ava.red,.item-linha .ava.red{color:var(--red)}
 
 /* ==========================================================================
    MODO CLARO — DESENHADO, não derivado.
@@ -2383,6 +2388,10 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .form-c.total{background:#f4faea}
 [data-luz="claro"] .ava{background:#eaf1fe;border-color:#9dbdf0;color:var(--blue)}
 [data-luz="claro"] .ava.lime{background:#f0f8e4;border-color:#a8cc6e;color:var(--lime)}
+/* Mesmo par do `.tag.red`/`.perna.alerta` do claro (#fff5f5 com fio #e6a3a3): a
+   régua do claro é 1 atributo + 1 classe e vence `.ava.red` sozinha — sem esta
+   linha o dia cancelado ficava AZUL no modo dia. Medido, não deduzido. */
+[data-luz="claro"] .ava.red{background:#fff5f5;border-color:#e6a3a3;color:var(--red)}
 [data-luz="claro"] .rowcard .ico{background:#eaf1fe;color:var(--blue)}
 [data-luz="claro"] .rowcard .ico.lime{background:#f0f8e4;color:var(--lime)}
 [data-luz="claro"] .linha-cfg .ico{background:#eef2f8;color:var(--ink-2)}

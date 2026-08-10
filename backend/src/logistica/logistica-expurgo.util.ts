@@ -48,9 +48,18 @@ export interface ExpurgoResumo {
   sessoesEncerradas: number;
 }
 
-/** Teto por passada e por empresa: a lei roda todo dia, não precisa esvaziar tudo de
- *  uma vez — e passada que trava o banco vira passada que alguém desliga. */
+/** Tamanho do LOTE: nunca um DELETE gigante de uma vez — passada que trava o banco
+ *  vira passada que alguém desliga. */
 const EXPURGO_LOTE = 500;
+/**
+ * Quantos lotes por empresa numa passada. 🔴 Medido em produção na 1ª passada real
+ * (10/08): a company 41 tinha 900 elegíveis e a 48 tinha 1.871 — com um lote só, o
+ * passivo levaria DIAS pra sumir, e "some daqui a 4 dias" não é a lei que o dono
+ * escreveu, é faxina parcelada. 20 lotes = até 10.000 linhas por empresa por dia,
+ * em pedaços de 500: esvazia o passivo já na primeira noite e continua sem travar
+ * o banco. O teto existe pra um tenant absurdo não segurar a fila dos outros.
+ */
+const EXPURGO_LOTES_POR_PASSADA = 20;
 
 /**
  * Roda a lei numa empresa. Idempotente e barata: sem nada a expirar, são três
@@ -67,6 +76,28 @@ export async function expurgarNaoProcessado(
 ): Promise<ExpurgoResumo> {
   const resumo: ExpurgoResumo = { entregasApagadas: 0, rotasApagadas: 0, sessoesEncerradas: 0 };
   if (!companyId) return resumo;
+  // Lotes até esgotar (ver EXPURGO_LOTES_POR_PASSADA): o passivo tem que sumir na
+  // primeira noite, não em parcelas diárias.
+  for (let volta = 0; volta < EXPURGO_LOTES_POR_PASSADA; volta += 1) {
+    const passo = await umLote(prisma, companyId, agora, volta === 0);
+    resumo.entregasApagadas += passo.entregasApagadas;
+    resumo.rotasApagadas += passo.rotasApagadas;
+    resumo.sessoesEncerradas += passo.sessoesEncerradas;
+    // nada mais a expirar nesta empresa: sai sem pagar outra consulta à toa.
+    if (!passo.entregasApagadas && !passo.rotasApagadas) break;
+  }
+  return resumo;
+}
+
+/** Um lote: até `EXPURGO_LOTE` entregas e rotas. `encerrarSessoes` só na 1ª volta —
+ *  é um `updateMany` idempotente que não precisa repetir a cada lote. */
+async function umLote(
+  prisma: PrismaService,
+  companyId: number,
+  agora: Date,
+  encerrarSessoes: boolean,
+): Promise<ExpurgoResumo> {
+  const resumo: ExpurgoResumo = { entregasApagadas: 0, rotasApagadas: 0, sessoesEncerradas: 0 };
   const corte = new Date(agora.getTime() - JANELA_EXPURGO_MS);
   const p = prisma as any;
 
@@ -143,11 +174,13 @@ export async function expurgarNaoProcessado(
      trilha (pontos, eventos) e a trilha é história de onde o motorista andou. O que
      estava errado era ela ficar ACTIVE pra sempre — 3 delas na company 41, uma de
      07/08 ainda "ativa" três dias depois. */
-  const encerradas = await p.logisticaTrackingSession.updateMany({
-    where: { companyId, status: 'ACTIVE', startedAt: { lt: corte } },
-    data: { status: 'ENDED', endedAt: agora },
-  });
-  resumo.sessoesEncerradas = encerradas.count;
+  if (encerrarSessoes) {
+    const encerradas = await p.logisticaTrackingSession.updateMany({
+      where: { companyId, status: 'ACTIVE', startedAt: { lt: corte } },
+      data: { status: 'ENDED', endedAt: agora },
+    });
+    resumo.sessoesEncerradas = encerradas.count;
+  }
 
   return resumo;
 }
