@@ -3540,8 +3540,54 @@ function pintar(animar,dir){
      DOM justamente por isso; aqui só se redesenha o que já é verdade. */
   tourRepintar();
   // A abertura não fica na tela: ela ENTREGA o app (ver `armarAbertura`).
-  if(atual==='entrada') armarAbertura();
+  if(atual==='entrada'){ segurarCena(nova); armarAbertura(); }
 }
+
+/* ==========================================================================
+   🔴 A CENA NÃO COMEÇA ATRÁS DA CORTINA (10/08 — MEDIDO no g15, APK 248,
+   screenrecord a 20 quadros/s).
+
+   O que se viu: no primeiro quadro em que o app APARECE, as hastes já estavam
+   voando. O trecho que o dono pediu — *"ele abre apenas HB"* — tocava inteiro
+   escondido. A conta fecha: o `.splash` começa a animar quando esta folha pinta,
+   e a cortina nativa só sai `max(agora+650ms, handoff+550ms)` DEPOIS do
+   `appReady()` (§ `MainActivity.revealReadyApp`). Mais de um segundo de cena
+   para ninguém.
+
+   O remédio é o mesmo que a cortina nativa já usa em si mesma (§ `opening.html`:
+   `html[data-native="true"]:not(.started) .stage *{animation-play-state:paused}`):
+   a cena nasce PAUSADA e o aparelho a solta quando o app fica visível. Como toda
+   animação da abertura tem `both`, pausada antes do atraso ela mostra o fundo e
+   nada mais — que é exatamente o que estava por baixo da cortina.
+
+   TRÊS GARANTIAS, porque abertura presa é app morto:
+   · Só segura se HOUVER aparelho (`HBXAndroid`). No navegador e no mock nada
+     muda — a cena continua começando no primeiro quadro.
+   · O relógio de reserva é armado NO MESMO instante em que a pausa cai: se o
+     Kotlin não chamar (casca nova em APK velho), a cena solta sozinha em 1,6 s.
+   · O piso de 3,4 s da abertura passa a contar do START (§ `armarAbertura`),
+     senão a cena seria cortada no fim pelo tempo que passou pausada.
+   ========================================================================== */
+const CENA_ESPERA_TETO=1600;
+let cenaPresa=null, cenaSolta=false, cenaEsperaTimer=null;
+function segurarCena(camada){
+  const palco=camada&&camada.querySelector('.splash');
+  if(!palco||cenaSolta||!window.HBXAndroid) return;
+  cenaPresa=palco;
+  palco.classList.add('cena-presa');
+  clearTimeout(cenaEsperaTimer);
+  cenaEsperaTimer=setTimeout(soltarCena,CENA_ESPERA_TETO);
+}
+function soltarCena(){
+  clearTimeout(cenaEsperaTimer);
+  if(cenaSolta) return;
+  cenaSolta=true;
+  if(cenaPresa) cenaPresa.classList.remove('cena-presa');
+  cenaPresa=null;
+  aberturaEm=performance.now();   // o piso conta de agora, não de antes da cortina
+}
+/** o aparelho avisa aqui quando a cortina saiu e o app está NA TELA */
+window.HBXCenaComeca=soltarCena;
 
 /* ==========================================================================
    🔴 A ABERTURA ENTREGA O APP QUANDO O APP ESTÁ PRONTO — não num relógio cego

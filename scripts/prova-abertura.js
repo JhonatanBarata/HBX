@@ -483,6 +483,49 @@ const eh = (nome, cond, medida) => {
       `desvio ${dx}x${dy} px`);
   }
 
+  /* ---- F) A CENA ESPERA A CORTINA, MAS NUNCA FICA PRESA -------------------
+     No aparelho a cena nascia ATRÁS da cortina nativa e o "só HB" tocava pra
+     ninguém (§ `segurarCena`). O remédio pausa a cena — e cena pausada que não
+     solta é app que não abre. Então são três medidas: ela SEGURA, ela SOLTA no
+     aviso do aparelho, e ela solta SOZINHA se o aviso nunca vier.
+     Página nova, com uma ponte de mentira só pra existir `HBXAndroid`. */
+  const ctx2 = await navegador.newContext({ viewport: { width: 412, height: 940 } });
+  /* O dublê responde qualquer método com um no-op: quem segura a cena é a
+     EXISTÊNCIA da ponte, e listar os métodos do Kotlin aqui só criaria uma
+     segunda lista pra ficar desatualizada. */
+  await ctx2.addInitScript(() => {
+    window.HBXAndroid = new Proxy({}, { get: () => () => {} });
+  });
+  const pg = await ctx2.newPage();
+  await pg.goto(`http://127.0.0.1:${porta}/assets/app/index.html`);
+  await pg.addStyleTag({ content: pele });
+  const presa = await pg.evaluate(() => {
+    const s = document.querySelector('.splash');
+    return { temMarca: !!(s && s.classList.contains('cena-presa')), parado: s ? getComputedStyle(s.querySelector('.splash-logo .w b')).animationPlayState : null };
+  });
+  eh('F.1 com aparelho na frente, a cena nasce SEGURA',
+    presa.temMarca && presa.parado === 'paused', `marca=${presa.temMarca} estado=${presa.parado}`);
+  await pg.waitForTimeout(700);
+  const congelou = await pg.evaluate(() => {
+    const b = document.querySelector('.splash .splash-logo .w b');
+    const a = b && b.getAnimations && b.getAnimations()[0];
+    return { relogio: a ? Math.round(Number(a.currentTime || 0)) : null, tinta: Number(getComputedStyle(b).opacity) };
+  });
+  eh('F.2 e ela fica MESMO parada (o HB não sobe atrás da cortina)',
+    congelou.tinta <= .05, `opacidade ${congelou.tinta} · relogio ${congelou.relogio} ms`);
+  await pg.evaluate(() => window.HBXCenaComeca && window.HBXCenaComeca());
+  await pg.waitForTimeout(700);
+  const soltou = await pg.evaluate(() => Number(getComputedStyle(document.querySelector('.splash .splash-logo .w b')).opacity));
+  eh('F.3 o aviso do aparelho SOLTA a cena', soltou >= .95, `opacidade ${soltou}`);
+  /* o teto: outra página, e ninguém avisa nada */
+  const pg2 = await ctx2.newPage();
+  await pg2.goto(`http://127.0.0.1:${porta}/assets/app/index.html`);
+  await pg2.addStyleTag({ content: pele });
+  await pg2.waitForTimeout(2600);
+  const sozinha = await pg2.evaluate(() => Number(getComputedStyle(document.querySelector('.splash .splash-logo .w b')).opacity));
+  eh('F.4 sem aviso nenhum, ela solta SOZINHA (teto de 1,6 s)', sozinha >= .95, `opacidade ${sozinha}`);
+  await ctx2.close();
+
   await ctx.close();
   await navegador.close();
   srv.close();

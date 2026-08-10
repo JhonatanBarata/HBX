@@ -441,6 +441,19 @@ class MainActivity : AppCompatActivity() {
         )
         openingHandler.postDelayed({
             if (isFinishing || isDestroyed) return@postDelayed
+            /* 🔴 A CENA DO HBX COMEÇA AQUI, NÃO NO LOAD DA PÁGINA (10/08 — medido
+               no g15 com screenrecord a 20 quadros/s: no primeiro quadro em que o
+               app aparecia, as hastes do X JÁ estavam voando). O `.splash` do app
+               animava desde que a folha pintava, e a cortina só sai
+               `max(agora+650ms, handoff+550ms)` depois do `appReady()` — mais de
+               um segundo de cena tocando para ninguém, e justamente o trecho que
+               o dono pediu (*"ele abre apenas HB"*).
+               Solto no INÍCIO do cruzamento de propósito: assim o "HB" sobe
+               enquanto a marca da cortina se apaga, em vez de as duas marcas
+               dividirem a tela. Do outro lado (§ `segurarCena`, no mock) há um
+               relógio de reserva de 1,6 s — APK velho com casca nova continua
+               abrindo, só que sem o ganho. */
+            webView.evaluateJavascript("window.HBXCenaComeca&&window.HBXCenaComeca()", null)
             webView.animate()
                 .alpha(1f)
                 .translationX(0f)

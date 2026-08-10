@@ -362,6 +362,10 @@ button,input{font:inherit;color:inherit}
    (`ABERTURA_PISO`) não mudou: a cena inteira continua cabendo nele. */
 .splash{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
   background:linear-gradient(180deg,var(--bg-2),#05080f);overflow:hidden}
+/* 🔴 A CENA ESPERA A CORTINA SAIR — ver `segurarCena`, no script. Só o aparelho
+   põe esta marca; pausada antes do atraso (todas as animações são `both`), a
+   tela mostra o fundo e nada mais, que é o que já estava debaixo da cortina. */
+.splash.cena-presa,.splash.cena-presa *{animation-play-state:paused!important}
 .splash-fundo{position:absolute;inset:0;
   background:radial-gradient(430px 330px at 50% 44%,rgba(47,126,247,.20),transparent 70%);
   animation:spFundo 1.7s var(--cv-entra) both}
