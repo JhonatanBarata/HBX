@@ -169,7 +169,11 @@ const SO_MEDIR = process.argv.includes('--antes');
     await p.evaluate(() => window.HBXRota && window.HBXRota.carregar());
     await p.waitForTimeout(900);
     // o boot para na ABERTURA; a tela que esta prova mede é a Rota
+    // o boot para na ABERTURA. A tela Rota e o MAPA; a lista de paradas (onde
+    // se toca no cartao) e a 'rotalista' — um toque no botao Lista da barra.
     await p.evaluate(() => window.ir('rota'));
+    await p.waitForTimeout(500);
+    await p.evaluate(() => window.ir('rotalista'));
     await p.waitForTimeout(700);
   };
 
@@ -209,7 +213,7 @@ const SO_MEDIR = process.argv.includes('--antes');
   // o desfecho: o botão de confirmar da folha simples
   await p.evaluate(() => {
     const alvo = [...document.querySelectorAll('[data-acao]')]
-      .find((e) => /^(confirmar-entrega|confirm-pago|venda-confirmar)/.test(e.dataset.acao || ''));
+      .find((e) => /^(confirmar-venda|entregue-pagou)$/.test(e.dataset.acao || ''));
     if (!alvo) throw new Error('sem botao de confirmar na folha: ' + [...document.querySelectorAll('[data-acao]')].map((e) => e.dataset.acao).join(','));
     alvo.click();
   });
@@ -252,7 +256,7 @@ const SO_MEDIR = process.argv.includes('--antes');
   await p.waitForTimeout(600);
   await p.evaluate(() => {
     const alvo = [...document.querySelectorAll('[data-acao]')]
-      .find((e) => /^(confirmar-entrega|confirm-pago|venda-confirmar)/.test(e.dataset.acao || ''));
+      .find((e) => /^(confirmar-venda|entregue-pagou)$/.test(e.dataset.acao || ''));
     if (alvo) alvo.click();
   });
   await p.waitForTimeout(1400);
@@ -285,7 +289,12 @@ const SO_MEDIR = process.argv.includes('--antes');
   nota(`[F3] chegou na e2: tela=${t3.tela} · corpo tem "Ademir"=${/Ademir/.test(t3.corpo)}`);
   eh('F3.1 · a chegada ABRE a folha sozinha (sem toque)', t3.tela === 'venda' || t3.tela === 'folha',
     `tela=${t3.tela}`);
-  eh('F3.2 · abre a folha do cliente CERTO', /Ademir/.test(t3.corpo), t3.tituloVenda.trim().slice(0, 40));
+  // 🔴 A TELA TEM QUE ENTRAR NA CONTA. Medindo so o texto, esta assercao
+  // passava VERDE com a folha fechada: o nome do cliente tambem esta no cartao
+  // da LISTA. Portao que aprova o defeito que existe pra pegar nao e portao.
+  eh('F3.2 · abre a folha do cliente CERTO',
+    (t3.tela === 'venda' || t3.tela === 'folha') && /Ademir/.test(t3.corpo),
+    `tela=${t3.tela}`);
 
   // chegada com folha JÁ aberta não pode roubar a tela no meio de outra venda
   const telaAntes = t3.tela;
@@ -294,7 +303,8 @@ const SO_MEDIR = process.argv.includes('--antes');
   const t4 = await espiar();
   nota(`[F3] chegada com folha aberta: tela=${t4.tela} · ainda "Ademir"=${/Ademir/.test(t4.corpo)}`);
   eh('F3.3 · chegada NAO troca a folha que ja esta aberta',
-    t4.tela === telaAntes && /Ademir/.test(t4.corpo), `tela=${t4.tela}`);
+    (t4.tela === 'venda' || t4.tela === 'folha') && t4.tela === telaAntes && /Ademir/.test(t4.corpo),
+    `tela=${t4.tela}`);
 
   // chegada de parada já fechada é ruído: ignora calado
   await cena({ entregas: [Object.assign({}, P1, { status: 'entregue' }), P2], routeStatus: 'ACTIVE' });

@@ -831,6 +831,105 @@
      tela envelheceu. Ver `viradaDoDia`. */
   let diaNaTela = null;
 
+  /* ---- O GEOFENCE NATIVO: quem arma é a rota que está NA RUA ---------------
+     🔴 O MOTOR SEMPRE ESTEVE INTEIRO; O QUE MORREU FOI O CHAMADOR (10/08).
+     `RotaService` (GPS em segundo plano), `ChegadaActivity` (o alarme na tela
+     apagada) e o `hbx:arrival` do `MainActivity` atravessaram a fusão de 07/08
+     sem um arranhão — mas quem entregava as paradas ao Android era o
+     `activateRoute` do `iniciarRota` do app VELHO, e o app novo não o portou.
+     Medido: de 07/08 até aqui a folha só abria no TOQUE, e o motorista com o
+     celular no bolso não era avisado de nada. É o padrão da fusão de sempre
+     (capacidade nativa viva, fio cortado).
+
+     O sync mora AQUI, e não no toque do Iniciar, de propósito: `carregarRota`
+     é a ÚNICA porta por onde a rota do dia entra na tela — boot, cada desfecho,
+     virada da meia-noite, volta do foco. Pendurado no Iniciar, o serviço
+     nasceria desarmado em todo caminho que não passa por ele, e "reabri o app
+     no meio do turno" é o caso comum, não a exceção.
+
+     🔴 E ELE TAMBÉM DESARMA. Rota encerrada no desktop, dia virado, última
+     parada fechada: sem o `stopRoute` o GPS segue ligado no bolso de quem já
+     terminou o dia — bateria e ruído, com a tela dizendo que acabou.
+
+     Re-armar não faz parada repetir apito: o `RotaState.setRota` do Kotlin faz
+     `disparados.retainAll(ids)`, que só esquece quem SAIU da lista (parada
+     reaberta é visita nova, e aí apitar é certo). O freio por assinatura abaixo
+     é só pra não pedir `startForegroundService` a cada foco da janela. */
+  let geofenceAssinatura = '';
+
+  function raioDaChegada() {
+    /* `config` chega pelo `carregarBarra` e a `let` dele mora bem mais abaixo
+       neste arquivo — no boot isto pode cair em TDZ, e é o mesmo motivo dos
+       outros `try` desta função. 60 m é o padrão do servidor E do Kotlin (que
+       ainda clampa entre 20 e 1000), então errar pra cá não inventa nada. */
+    try {
+      const v = Number(config && config.raioChegadaM);
+      return Number.isFinite(v) && v > 0 ? v : 60;
+    } catch (_) { return 60; }
+  }
+
+  function sincronizarGeofence(r, itens) {
+    if (!temPonte() || typeof window.HBX.activateRoute !== 'function') return;
+    /* 🔴 DESARMA SEMPRE, E O FREIO É DO OUTRO LADO. A 1ª versão pulava o
+       `stopRoute` quando a assinatura já estava vazia ("nada a desarmar") — e
+       isso é falso justamente no caso que importa: `RotaService` é START_STICKY
+       e o `RotaState` é PERSISTIDO, então o serviço sobrevive ao app fechado.
+       Quem encerrasse o dia, fechasse o app e abrisse de novo caía numa
+       assinatura vazia (módulo novo) com o GPS ainda rodando no bolso.
+       Quem sabe se há algo a parar é o Kotlin, e ele já responde: o
+       `requestStop` começa com `if (!isRunning) return`. Pedir é barato;
+       presumir é que sai caro. */
+    const desarmar = () => {
+      geofenceAssinatura = '';
+      try { if (typeof window.HBX.stopRoute === 'function') window.HBX.stopRoute(); } catch (_) { /* ponte velha */ }
+    };
+    /* SÓ 'rodando'. Pausada é pausa DELIBERADA (almoço, imprevisto) — apitar
+       ali é ruído em cima de quem escolheu parar. E 'pronta'/'montar' é rota
+       que ainda não saiu: geofence antes de sair é alarme na garagem. */
+    let naRua = false;
+    try { naRua = estadoRota === 'rodando'; } catch (_) { return; }
+    if (!naRua) return desarmar();
+
+    /* Alvo é PARADA ABERTA COM PORTA. Sem pino não há o que vigiar (a régua é a
+       mesma `pinoValido` do resto do app: zero não é pino, meia coordenada não
+       é pino) — mandar um alvo sem coordenada faria o Kotlin descartar calado,
+       e o motorista acharia que o cliente sem pino também apita. */
+    const alvos = [];
+    (itens || []).forEach((it) => {
+      const st = String((it && it.status) || '');
+      if (st === 'entregue' || st === 'cancelada') return;
+      const c = (it && it.cliente) || {};
+      if (!it || !it.id || !pinoValido(c.lat, c.lng)) return;
+      alvos.push({
+        id: String(it.id),
+        nome: String(c.nome || 'Cliente'),
+        lat: Number(c.lat),
+        lng: Number(c.lng),
+      });
+    });
+    // Rota rodando sem nenhuma porta aberta = dia cumprido: desarma igual.
+    if (!alvos.length) return desarmar();
+
+    const raioM = raioDaChegada();
+    const routeId = (r && r.routeId) ? String(r.routeId) : null;
+    /* O modo é do SERVIDOR, nunca inferido aqui — é ele que decide se a rota é
+       rastreada. E TRACKED sem `routeId` o próprio Kotlin rebaixa pra
+       ESSENTIAL: telemetria nunca liga por engano. */
+    const mode = (r && r.trackingRequired) ? 'TRACKED' : 'ESSENTIAL';
+    const trackingSessionId = (r && r.trackingSessionId) ? String(r.trackingSessionId) : null;
+    const assinatura = `${raioM}|${mode}|${routeId || ''}|${trackingSessionId || ''}|`
+      + alvos.map((a) => `${a.id}:${a.lat.toFixed(5)},${a.lng.toFixed(5)}`).join(';');
+    if (assinatura === geofenceAssinatura) return;
+    geofenceAssinatura = assinatura;
+    try {
+      window.HBX.activateRoute({ raioM, paradas: alvos, routeId, mode, trackingSessionId });
+    } catch (_) {
+      // Ponte fora do ar não pode derrubar a rota da tela — e a assinatura
+      // volta pra vazio pra próxima carga tentar de novo.
+      geofenceAssinatura = '';
+    }
+  }
+
   async function carregarRota() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     const dia = diaOperacional();
@@ -924,6 +1023,11 @@
     if (typeof window.PARADAS !== 'undefined') window.PARADAS = paradas;
     else try { PARADAS = paradas; } catch (_) { /* seam ausente: nada a fazer */ }
     try { estadoRota = estadoDaRota(r); } catch (_) { /* idem */ }
+    /* O geofence anda JUNTO com a rota que acabou de chegar — depois do
+       `estadoRota` (é ele quem diz se está na rua) e antes de pintar, porque
+       armar o serviço não depende de tela nenhuma. Best-effort de verdade:
+       tudo lá dentro é try/catch, e falha aqui nunca segura a rota do dia. */
+    sincronizarGeofence(r, itens);
 
     window.usarDados('rota', {
       /* 🔴 A LISTA PRECISA CABER NO FREIO. `usarDados` só repinta quando um
@@ -10062,6 +10166,38 @@
     if (simples) { encherVenda(reg.item, reg.n); window.ir('venda'); }
     else { encherFolha(reg.item, reg.n); window.ir('folha'); }
   }
+
+  /* ---- CHEGOU NA PORTA: a folha abre SOZINHA ------------------------------
+     🔴 O KOTLIN GRITAVA PRA NINGUÉM (10/08). `MainActivity.entregarChegada`
+     dispara este evento desde sempre, a cada chegada detectada pelo
+     `RotaService` — e o app novo nasceu sem ouvinte. Junto com o `activateRoute`
+     que ninguém chamava (ver `sincronizarGeofence`), é a corrente inteira do
+     "chegou no cliente" que a fusão de 07/08 deixou no chão.
+
+     Ele NÃO é um caminho novo de dinheiro: cai no MESMO `abrirParada` do toque
+     — mesma folha, mesmo carimbo de chegada, mesma regra de venda × folha
+     completa. A diferença entre chegar e tocar é só quem deu a ordem.
+
+     🔴 E NÃO FALA. Quem diz "Chegou: Fulano" é o `RotaService.falar()` do
+     nativo, que já rodou antes deste evento existir. Um `H.speak` aqui seria
+     eco — a mesma armadilha dos dois sons do Iniciar (29/07). */
+  document.addEventListener('hbx:arrival', (ev) => {
+    const id = String((ev && ev.detail && ev.detail.deliveryId) || '');
+    if (!id) return;
+    /* Folha JÁ ABERTA não se troca. Ele pode estar fechando a venda do cliente
+       anterior a 20 m deste — roubar a tela no meio trocaria o cliente debaixo
+       do dedo dele, e o alarme do nativo continua na barra pra ser atendido
+       quando terminar. Nunca interromper dinheiro em andamento. */
+    if (aberta) return;
+    // Rota fora da rua: o serviço nativo sobrevive a restart e pode chegar
+    // atrasado, depois do dia encerrado. Chegada sem rota não abre nada.
+    try { if (estadoRota !== 'rodando') return; } catch (_) { return; }
+    const reg = ENTREGAS.get(id);
+    if (!reg) return;                       // parada que não é do dia na tela
+    const st = String((reg.item && reg.item.status) || '');
+    if (st === 'entregue' || st === 'cancelada') return;   // desfecho já dado
+    abrirParada(id);
+  });
 
   /** repinta a folha aberta (o seam é a única fonte da marcação selecionada) */
   function repintarFolha() {
