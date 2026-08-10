@@ -265,6 +265,13 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [nivelBusy, setNivelBusy] = useState(false);
   const [nivelMsg, setNivelMsg] = useState<string | null>(null);
 
+  // ROTA v2 (10/08) — override de Nº de motoristas por empresa (vazio = herda
+  // do nível). O backend que aceita `logisticaAssentos` roda em paralelo: só
+  // mostra/envia o campo quando o GET do nível já trouxe a chave (degrade sem
+  // quebrar o PUT de nível, que hoje é whitelist estrita — campo extra 400).
+  const [assentosForm, setAssentosForm] = useState("");
+  const [assentosSuportado, setAssentosSuportado] = useState(false);
+
   // MASTER-REFAB S8 (10/07) — "chavinha" contrato empresarial: 1 gesto (tipo + módulos full +
   // valor fixo + teto num só POST). Só aparece quando a empresa ainda é conta Crédito.
   const [entContractBusy, setEntContractBusy] = useState(false);
@@ -337,6 +344,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     setAccountTypeMsg(null);
     setNivel(null);
     setNivelMsg(null);
+    setAssentosForm("");
+    setAssentosSuportado(false);
     setEntContractMsg(null);
     setEntContractArm(false);
     setEntContractForm({ monthlyValue: "", dailyDeliveryCap: "" });
@@ -367,9 +376,16 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     // PR27072026 F1 — nível do plano (endereço próprio, fora do /detail). Erro
     // de leitura cai em ADVANCED na tela (mesmo grandfathering do backend) —
     // nunca mostra Basic por causa de uma falha de rede.
-    apiFetch<{ nivel?: string }>(`/logistica/master/company/${id}/nivel`)
-      .then(res => setNivel(res?.nivel === "BASIC" || res?.nivel === "FULL" ? res.nivel : "ADVANCED"))
-      .catch(() => setNivel("ADVANCED"));
+    apiFetch<{ nivel?: string; logisticaAssentos?: number | null }>(`/logistica/master/company/${id}/nivel`)
+      .then(res => {
+        setNivel(res?.nivel === "BASIC" || res?.nivel === "FULL" ? res.nivel : "ADVANCED");
+        // Presença da CHAVE (não do valor — null é "herda do nível") é o sinal de
+        // que o backend já aceita o campo neste PUT.
+        const suportado = res != null && typeof res === "object" && "logisticaAssentos" in res;
+        setAssentosSuportado(suportado);
+        setAssentosForm(suportado && res.logisticaAssentos != null ? String(res.logisticaAssentos) : "");
+      })
+      .catch(() => { setNivel("ADVANCED"); setAssentosSuportado(false); setAssentosForm(""); });
     // Website: GET .../launch?target=public NÃO gera token (mesmo gotcha do
     // portal do cliente) — seguro pra usar só como leitura de config no load.
     apiFetch<WebsiteConfigPortal>(`/website/master/company/${id}/launch?target=public`)
@@ -529,6 +545,33 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       await recarregarTudo();
     } catch (err) {
       setNivelMsg(err instanceof Error ? err.message : "Falha ao aplicar o nível.");
+    } finally {
+      setNivelBusy(false);
+    }
+  }
+
+  // ROTA v2 (10/08) — override de motoristas (assentos) desta empresa, no MESMO
+  // PUT do nível (`nivel` viaja junto porque o DTO o exige sempre). Vazio grava
+  // null = volta a herdar do nível. Só existe quando assentosSuportado (o GET
+  // já trouxe a chave) — ver comentário no state acima.
+  async function salvarAssentos() {
+    if (nivelBusy || selId == null || nivel == null) return;
+    const raw = assentosForm.trim();
+    if (raw !== "") {
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 1 || n > 999) { setNivelMsg("Motoristas (assentos) inválido — use de 1 a 999."); return; }
+    }
+    setNivelBusy(true);
+    setNivelMsg(null);
+    try {
+      await apiFetch(`/logistica/master/company/${selId}/nivel`, {
+        method: "PUT",
+        body: JSON.stringify({ nivel, logisticaAssentos: raw === "" ? null : Math.trunc(Number(raw)) }),
+      });
+      setNivelMsg("✓ Motoristas (assentos) salvo.");
+      await recarregarTudo();
+    } catch (err) {
+      setNivelMsg(err instanceof Error ? err.message : "Falha ao salvar os assentos.");
     } finally {
       setNivelBusy(false);
     }
@@ -1391,6 +1434,22 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                           </button>
                         ))}
                       </div>
+                      {/* ROTA v2 (10/08) — override de motoristas por empresa; some quando o
+                          backend (rollout em paralelo) ainda não expõe `logisticaAssentos`
+                          no GET do nível (degrade sem quebrar, ver state acima). */}
+                      {assentosSuportado && (
+                        <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
+                          <div style={{ display: "grid", gap: 4 }}>
+                            <label className="field-label">Motoristas (assentos)</label>
+                            <input className="field-dark" type="number" min={1} max={999} style={{ width: 110 }} placeholder="herda do nível"
+                              disabled={nivelBusy}
+                              value={assentosForm} onChange={e => setAssentosForm(e.target.value)} />
+                          </div>
+                          <button className="btn-ghost" disabled={nivelBusy || nivel == null} onClick={salvarAssentos}>
+                            {nivelBusy ? "…" : "Salvar assentos"}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {/* MASTER-REFAB S8 (10/07) — chavinha: 1 gesto liga tipo + módulos full +
