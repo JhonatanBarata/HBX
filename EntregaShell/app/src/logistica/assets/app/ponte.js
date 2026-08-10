@@ -2635,9 +2635,12 @@
 
   let ocupado = false;
   const comTrava = async (fn) => {
-    if (ocupado) return;
+    if (ocupado) return undefined;
     ocupado = true;
-    try { await fn(); } finally { ocupado = false; }
+    /* 🔴 O RESULTADO DE `fn` VIAJA DE VOLTA (10/08) — sem ele, `depoisDaTrava`
+       (mais abaixo, o "refaz a ação original" do 409/402 novos) não tem como
+       saber se o gesto deu certo antes de repetir o montar/iniciar. */
+    try { return await fn(); } finally { ocupado = false; }
   };
   /* 🔴 O "SIM" DE UM PORTÃO NÃO PODE SER DESCARTADO (09/08). `comTrava` protege
      do toque duplo JOGANDO FORA o segundo — o que é certo pro botão de uma tela
@@ -2655,13 +2658,138 @@
     if (ocupado) return avisoErro(new Error('O app ainda está terminando a ação anterior. Toque de novo.'));
     return comTrava(fn);
   };
-  const avisoErro = (e) => {
+  /* 🔴 O CORPO DO ERRO TEM DADO, E ELE ESTAVA SENDO JOGADO FORA (10/08 — o
+     beco que travou o dono: toque em Montar/Iniciar morrendo em "Não deu
+     certo" quando o servidor já sabia dizer QUEM montou a rota, ou QUEM
+     ficou de fora do dia vazio). Contrato novo do servidor: o corpo do erro
+     pode trazer `code` (409 `ROTA_DE_OUTRO_MOTORISTA`, 402
+     `ASSENTOS_ESGOTADOS`), e o materialize desta MESMA tentativa pode ter
+     guardado `avisos` nomeados. `avisoErro` lê os dois ANTES de cair na
+     frase genérica — e recebe, opcional, QUEM refaz a ação depois de
+     resolver (`contexto.repetir`). */
+  let ultimosAvisosMaterialize = [];
+  /* 🔴 REFAZER DEPOIS NÃO PODE FICAR PRESO NA MESMA TRAVA. "Forçar
+     cancelamento e puxar" e "Liberar hoje" prometem refazer o montar/iniciar
+     sozinhos — e refazer é outro gesto, com a MESMA `comTrava` por dentro.
+     Chamado ainda DENTRO da trava do gesto que abriu o portão, ele veria
+     `ocupado=true` e morreria calado — o toque mudo que esta casa já matou
+     uma vez (ver a nota do `comTrava`, acima). `depoisDaTrava` espera a
+     trava soltar (o `.then()` só corre depois do `finally` de `comTrava`) e
+     só chama `depois` quando `fn` terminou OK. */
+  const depoisDaTrava = (fn, depois) => {
+    comTravaFila(fn).then((sucesso) => {
+      if (sucesso && typeof depois === 'function') depois();
+    });
+  };
+  const avisoErro = (e, contexto) => {
+    const body = (e && e.body) || null;
+    const code = String((body && body.code) || '');
+    if (code === 'ROTA_DE_OUTRO_MOTORISTA') return portaoOutroMotorista(body);
+    if (code === 'ASSENTOS_ESGOTADOS') {
+      const repetir = contexto && typeof contexto.repetir === 'function' ? contexto.repetir : null;
+      return portaoAssentosEsgotados(body, repetir);
+    }
     const msg = humano(e);
+    // A MESMA frase genérica ("Nenhuma entrega aberta") vira RECADO NOMEADO
+    // quando o materialize DESTA tentativa guardou por quem ela passou vazia.
+    if (/Nenhuma entrega aberta/i.test(msg) && ultimosAvisosMaterialize.length) {
+      return portaoAvisosMaterialize(ultimosAvisosMaterialize);
+    }
     if (typeof window.portao === 'function') {
       window.portao({ tom: 'trava', ico: 'alert', titulo: 'Não deu certo', sub: msg, acoes: [['Fechar', '']] });
     }
   };
   const hojeISO = () => diaOperacional();
+
+  /* 🔴 A CONFIRMAÇÃO PADRÃO DA CASA, NUM LUGAR SÓ (10/08) — o mesmo "Tem
+     certeza que deseja cancelar? Não/Sim" que o Cancelar já usava (lei do
+     dono, 29/07) passa a ser também o "Forçar cancelamento e puxar" do 409
+     de outro motorista. `depoisDaTrava`, não `comTrava` direto: este é o
+     "Sim" de um portão — ele FECHA no toque, então toque descartado por app
+     ocupado não tem repeteco, e `depois` só roda DEPOIS que a trava soltou
+     e a limpeza deu certo. Confirma, limpa o dia no servidor, esquece a
+     rota carregada deste lado do fio (a fita, a geometria, a lista — ANTES
+     do `carregarRota`, senão o repinte passaria com a rota morta ainda
+     desenhada), recarrega — e só então `depois` decide o que vem: sair pra
+     Rota (o Cancelar) ou remontar sozinho (o Forçar). */
+  function confirmarLimparDia(depois) {
+    if (typeof window.portao !== 'function') return;
+    window.portao({
+      tom: 'alerta', ico: 'close', titulo: 'Tem certeza que deseja cancelar?',
+      acoes: [['Não', ''], ['Sim', 'principal']], classe: 'duas', perigo: true,
+    });
+    const botao = naCamada('.portao-wrap .principal');
+    if (!botao) return;
+    botao.addEventListener('click', () => depoisDaTrava(async () => {
+      try { await window.API.post('/logistica/rota/limpar-dia', { date: hojeISO() }); } catch (e) { avisoErro(e); return false; }
+      esquecerRotaCarregada();
+      await carregarRota();
+      return true;
+    }, depois), { once: true });
+  }
+
+  /* 🔴 409 ROTA_DE_OUTRO_MOTORISTA — o portão fala QUEM já montou a rota do
+     dia. Sem `podeForcar` é só recado (o dedo não pode nada aqui, e nasce
+     sem 2ª ação). Com `podeForcar`, "Forçar cancelamento e puxar" faz
+     exatamente o que o dono descreveu: confirma, limpa o dia, MONTA de novo
+     — sozinho, sem pedir o toque duas vezes. */
+  function portaoOutroMotorista(body) {
+    if (typeof window.portao !== 'function') return;
+    const podeForcar = !!(body && body.podeForcar);
+    const sub = String((body && body.message) || 'Essa rota já foi montada por outro motorista.');
+    if (!podeForcar) {
+      window.portao({ tom: 'trava', ico: 'alert', titulo: 'Rota já montada', sub, acoes: [['Fechar', '']] });
+      return;
+    }
+    window.portao({
+      tom: 'trava', ico: 'alert', titulo: 'Rota já montada', sub,
+      acoes: [['Fechar', ''], ['Forçar cancelamento e puxar', 'principal']], classe: 'duas',
+    });
+    const botao = naCamada('.portao-wrap .principal');
+    if (!botao) return;
+    botao.addEventListener('click', () => confirmarLimparDia(() => montarRota()), { once: true });
+  }
+
+  /* 🔴 402 ASSENTOS_ESGOTADOS — mesma língua: o corpo é a frase do servidor,
+     e a única ação (comprar o passe do dia) só nasce quando ele autoriza
+     (`podeComprarPasse`). Comprado, refaz a AÇÃO ORIGINAL — montar ou
+     iniciar, quem chamou decide (`repetir`, vindo do `contexto` do
+     `avisoErro`). */
+  function portaoAssentosEsgotados(body, repetir) {
+    if (typeof window.portao !== 'function') return;
+    const podeComprar = !!(body && body.podeComprarPasse);
+    const sub = String((body && body.message) || 'Assentos esgotados hoje.');
+    if (!podeComprar) {
+      window.portao({ tom: 'trava', ico: 'card', titulo: 'Assentos esgotados', sub, acoes: [['Fechar', '']] });
+      return;
+    }
+    const n = Number(body && body.passeCreditos);
+    const rotulo = `Liberar hoje (${Number.isFinite(n) ? String(n).replace('.', ',') : '0'} créditos)`;
+    window.portao({
+      tom: 'trava', ico: 'card', titulo: 'Assentos esgotados', sub,
+      acoes: [['Fechar', ''], [rotulo, 'principal']], classe: 'duas',
+    });
+    const botao = naCamada('.portao-wrap .principal');
+    if (!botao) return;
+    botao.addEventListener('click', () => depoisDaTrava(async () => {
+      try { await window.API.post('/logistica/rota/passe-do-dia', {}); } catch (e) { avisoErro(e); return false; }
+      return true;
+    }, repetir), { once: true });
+  }
+
+  /* 🔴 O RECADO NOMEADO DO DIA VAZIO (10/08 — a madrugada que travou o dono:
+     "Nenhuma entrega aberta neste dia" na cara de quem só precisava saber
+     QUEM ficou de fora e por quê). Quando o materialize DESTA tentativa
+     guardou avisos, eles trocam de lugar com a frase genérica: até 5, um
+     por linha, no `corpo` do portão (não no `sub` — é lista, não frase). */
+  function portaoAvisosMaterialize(avisos) {
+    if (typeof window.portao !== 'function') return;
+    const linhas = avisos.slice(0, 5).map((a) => esc(a));
+    window.portao({
+      tom: 'trava', ico: 'alert', titulo: 'Não deu certo',
+      sub: 'Ninguém entrou na rota:', corpo: linhas.join('<br>'), acoes: [['Fechar', '']],
+    });
+  }
 
   /* 🔴 O PONTO DE PARTIDA DA ROTA É ONDE O MOTORISTA ESTÁ — e o app nunca
      mandava (dono, 08/08: "já carregar montado pelo GPS").
@@ -2850,11 +2978,25 @@
      existe — o dia normal (entregas já criadas) nunca fica refém desta ida. */
   async function materializarDia() {
     try {
-      await window.API.post('/logistica/mobile/materialize', {
+      const resp = await window.API.post('/logistica/mobile/materialize', {
         operationalDate: hojeISO(), sourceDates: [hojeISO()],
       });
-      return true;
-    } catch (_) { return false; }
+      const avisos = Array.isArray(resp && resp.avisos) ? resp.avisos.map(String) : [];
+      // 🔴 O ESTADO FICA GUARDADO PRA QUEM VIER DEPOIS (`avisoErro`, 10/08): se
+      // o planejar/custo-preview seguinte morrer em "Nenhuma entrega aberta",
+      // é ESTE recado — nomeado, cliente a cliente — que substitui a frase
+      // genérica no portão de erro.
+      ultimosAvisosMaterialize = avisos;
+      return {
+        ok: true,
+        criadas: Number((resp && resp.criadas) || 0),
+        puladas: Number((resp && resp.puladas) || 0),
+        avisos,
+      };
+    } catch (_) {
+      ultimosAvisosMaterialize = [];
+      return { ok: false, criadas: 0, puladas: 0, avisos: [] };
+    }
   }
 
   /* ------------------------------------------------------------------------
@@ -2905,6 +3047,9 @@
 
   async function montarRota() {
     await comTrava(async () => {
+      // Cada tentativa começa com a memória limpa: avisos de uma volta
+      // anterior não podem vazar pro portão de erro desta (ver `avisoErro`).
+      ultimosAvisosMaterialize = [];
       // O dia escolhido no chip entra como escolha de GENTE (ver
       // `previaViraRascunho`): a lista da tela vira rascunho antes de tudo.
       const outroDia = diaDeOutroDia();
@@ -2942,7 +3087,7 @@
         // gente que a tela não está mostrando.
         if (montarDia !== -1 && !outroDia) await materializarDia();
         plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...recorte, ...origemGps() });
-      } catch (e) { devolverEstado(); return avisoErro(e); }
+      } catch (e) { devolverEstado(); return avisoErro(e, { repetir: () => montarRota() }); }
       const paradas = Array.isArray(plano && plano.stops) ? plano.stops
         : (Array.isArray(plano && plano.items) ? plano.items
           : (Array.isArray(plano && plano.paradas) ? plano.paradas : []));
@@ -3036,6 +3181,9 @@
   async function iniciarRota(intencao) {
     const escopo = String((intencao && intencao.escopo) || 'dia');
     await comTrava(async () => {
+      // Mesma memória limpa do montar: avisos de uma tentativa anterior não
+      // podem vazar pro portão de erro desta (ver `avisoErro`).
+      ultimosAvisosMaterialize = [];
       /* 🔴 UMA TELA SÓ ⇒ O INICIAR TAMBÉM MONTA (dono: "MONTAR ROTA → MONTAGEM
          DE ROTA (BOTÃO INICIAR)"). O 2º "Montar rota" morreu, então o dia pode
          chegar aqui sem ordem gravada — e o servidor responderia "monte a rota
@@ -3073,7 +3221,7 @@
           // de hoje de volta pra tela que mostra outra gente.
           if (!recortada) await materializarDia();
           await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...recorte, ...origemGps() });
-        } catch (e) { return avisoErro(e); }
+        } catch (e) { return avisoErro(e, { repetir: () => iniciarRota(intencao) }); }
         if (!(await carregarRota())) return avisoErro(new Error('Não consegui montar agora. Tente de novo.'));
         if (ordemDeGente()) await cravarOrdemDaTela();
       }
@@ -3084,7 +3232,7 @@
       try {
         const qIds = idsAvulsa && idsAvulsa.length ? `&deliveryIds=${encodeURIComponent(idsAvulsa.join(','))}` : '';
         custo = await window.API.get(`/logistica/rota/custo-preview?date=${encodeURIComponent(hojeISO())}${qIds}`);
-      } catch (e) { return avisoErro(e); }
+      } catch (e) { return avisoErro(e, { repetir: () => iniciarRota(intencao) }); }
       // 🔴 NOME DE CAMPO DE DINHEIRO NÃO SE CHUTA. A 1ª versão adivinhou
       // (`custo`/`total`/`creditos`) e a tela mostrou "Debita 0" com o servidor
       // dizendo 4,8 — mentira com cara de app pronto. Estes são os nomes
@@ -3143,7 +3291,7 @@
           if (typeof window.ir === 'function') window.ir('mapa');
           return;
         }
-        return avisoErro(e);
+        return avisoErro(e, { repetir: () => iniciarRota(intencao) });
       }
       await carregarRota();
       // A escolha de dia morre no Iniciar: a rota (avulsa ou com a gente de
@@ -3257,28 +3405,12 @@
     }
   }
 
+  /* 🔴 A CONFIRMAÇÃO E A LIMPEZA MORAM EM `confirmarLimparDia` (10/08) — o
+     mesmo botão "Sim" que o 409 de outro motorista passou a usar no "Forçar
+     cancelamento e puxar". Só o DEPOIS muda: aqui é sair pra Rota; lá é
+     montar de novo sozinho. */
   async function cancelarRota() {
-    if (typeof window.portao !== 'function') return;
-    window.portao({
-      tom: 'alerta', ico: 'close', titulo: 'Tem certeza que deseja cancelar?',
-      acoes: [['Não', ''], ['Sim', 'principal']], classe: 'duas', perigo: true,
-    });
-    const botao = naCamada('.portao-wrap .principal');
-    if (!botao) return;
-    /* `comTravaFila` e não `comTrava`: este é o "Sim" de um portão, a mesma
-       peça do "Iniciar" logo acima. O portão FECHA no toque, então toque
-       descartado por app ocupado (a Montagem monta sozinha ao abrir) não tem
-       repeteco — o dono via o diálogo sumir e a rota continuar de pé. */
-    botao.addEventListener('click', () => comTravaFila(async () => {
-      try { await window.API.post('/logistica/rota/limpar-dia', { date: hojeISO() }); } catch (e) { return avisoErro(e); }
-      // 🔴 O SERVIDOR ENCERROU; O APARELHO TAMBÉM TEM QUE ESQUECER. A fita, a
-      // geometria e a lista são DESTE lado do fio — e vêm ANTES do
-      // `carregarRota`, senão o repinte que ele dispara passaria com a rota
-      // morta ainda desenhada.
-      esquecerRotaCarregada();
-      await carregarRota();
-      if (typeof window.ir === 'function') window.ir('rota');
-    }), { once: true });
+    confirmarLimparDia(() => { if (typeof window.ir === 'function') window.ir('rota'); });
   }
 
   /* ------------------------------------------------------------------------

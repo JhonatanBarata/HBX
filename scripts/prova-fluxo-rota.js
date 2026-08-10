@@ -42,7 +42,10 @@ const DOW = (() => {
 const DIA_A = (DOW % 7) + 1;
 const DIA_B = ((DOW + 2) % 7) + 1;
 
-const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agendaHoje, hojeDow, custoComoServidor }) => {
+const PONTE = ({
+  hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agendaHoje, hojeDow, custoComoServidor,
+  outroMotorista, assentos,
+}) => {
   window.__chamadas = [];
   /* 🔴 PROMESSA QUE MORRE SOZINHA NÃO ACENDE `pageerror`. Quase tudo da ponte é
      chamado sem `await` (`montarRota()` no abrir da tela, `void sanitizarPrevia`):
@@ -98,6 +101,14 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
        porque as outras cenas medem a Lei do IF (custo no chão = linha some),
        não este contrato. */
     custoComoServidor: !!custoComoServidor,
+    /* cenas R/S: os dois contratos NOVOS do servidor (409/402, 10/08) — cada
+       um dispara UMA vez só (`usado` trava a repetição), pra medir exatamente
+       o gesto do dono: falhou nomeado, forçou/comprou, refez sozinho. Depois
+       da 1ª rejeição o bloqueio se solta (limpar-dia limpa o outroMotorista;
+       comprar o passe apaga o assentos) — é assim que a 2ª tentativa entra. */
+    outroMotorista: outroMotorista ? Object.assign({ usado: false }, outroMotorista) : null,
+    assentos: assentos ? Object.assign({ usado: false }, assentos) : null,
+    passeComprado: 0,
   };
   window.__S = S;
   /* O DIALETO REAL do /nucleo/clientes (09/08): lat/lng (o map da resposta
@@ -160,6 +171,15 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
         return m ? decodeURIComponent(m[1]) : '';
       };
       const R = (v) => Promise.resolve(JSON.parse(JSON.stringify(v)));
+      /* 🔴 O DUBLÊ TAMBÉM PRECISA REJEITAR COM CORPO (10/08). Os contratos
+         novos (409 `ROTA_DE_OUTRO_MOTORISTA`, 402 `ASSENTOS_ESGOTADOS`) viajam
+         no `body`, não só na mensagem — é o `chamar()` de `00-nucleo.js` que
+         copia `e.status`/`e.body` pra frente quando eles existem no motivo da
+         rejeição. Um `new Error(texto)` puro (os outros 400 deste dublê)
+         chega igual sempre chegou: sem `body`, cai no genérico. */
+      const REJ = (status, body) => Promise.reject(Object.assign(
+        new Error(String((body && body.message) || '')), { status, body },
+      ));
 
       if (caminho.indexOf('/logistica/config') === 0) {
         // `modoRotaPadrao` é a chave que faz `ehAdmin()` dizer sim — e sem admin
@@ -231,6 +251,19 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
         return R({ dias: [{ data: '2026-08-08', paradas: 2 }, { data: '2026-08-07', paradas: 2 }] });
       }
       if (caminho.indexOf('/logistica/rota/planejar') === 0 && metodo === 'POST') {
+        /* cena R: a 1ª tentativa de planejar bate no 409 — outro motorista já
+           montou o dia. `usado` garante que é SÓ a primeira; a que vem depois
+           do "Forçar cancelamento e puxar" (que já chamou limpar-dia) entra
+           normal. */
+        if (S.outroMotorista && !S.outroMotorista.usado) {
+          S.outroMotorista.usado = true;
+          return REJ(409, {
+            code: 'ROTA_DE_OUTRO_MOTORISTA',
+            message: `Essa rota já foi montada por: ${S.outroMotorista.motorista}.`,
+            montadaPor: S.outroMotorista.motorista,
+            podeForcar: !!S.outroMotorista.podeForcar,
+          });
+        }
         const manual = corpo && Array.isArray(corpo.ordemManual) ? corpo.ordemManual.map(String) : null;
         // O RECORTE da rota avulsa: com `deliveryIds`, só eles são ordenados —
         // o resto do dia fica como está (é o contrato real do planejar).
@@ -249,6 +282,18 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
       if (caminho.indexOf('/logistica/rota/conferir') === 0) return R({ items: [] });
       if (caminho.indexOf('/logistica/rota/checar-enderecos') === 0) return R({ problemas: [] });
       if (caminho.indexOf('/logistica/rota/iniciar') === 0 && metodo === 'POST') {
+        /* cena S: a 1ª tentativa de iniciar bate no 402 — assentos esgotados
+           hoje. `usado` garante que é SÓ a primeira; comprar o passe zera
+           `S.assentos` (ver `passe-do-dia` abaixo) e a 2ª tentativa entra. */
+        if (S.assentos && !S.assentos.usado) {
+          S.assentos.usado = true;
+          return REJ(402, {
+            code: 'ASSENTOS_ESGOTADOS',
+            message: S.assentos.message || 'Assentos esgotados hoje.',
+            podeComprarPasse: !!S.assentos.podeComprarPasse,
+            passeCreditos: Number(S.assentos.passeCreditos) || 0,
+          });
+        }
         if (!abertas().length) return Promise.reject(new Error('Não há entregas abertas para iniciar.'));
         const soIniciar = corpo && Array.isArray(corpo.deliveryIds) ? corpo.deliveryIds.map(String) : null;
         abertas().filter((e) => !soIniciar || soIniciar.indexOf(String(e.id)) >= 0)
@@ -259,6 +304,17 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
       }
       if (caminho.indexOf('/logistica/rota/limpar-dia') === 0) {
         S.entregas = []; S.routeStatus = '';
+        // cena R: forçar cancelamento resolve o conflito — a próxima montagem
+        // (o "refaz o montar automaticamente" do portão) não bate mais no 409.
+        if (S.outroMotorista) S.outroMotorista.usado = true;
+        return R({ ok: true });
+      }
+      /* cena S: o passe do dia — a única ação do portão 402. Compra libera o
+         bloqueio (`S.assentos = null`) e a "ação original" que o portão refaz
+         sozinho encontra o caminho livre. */
+      if (caminho.indexOf('/logistica/rota/passe-do-dia') === 0 && metodo === 'POST') {
+        S.assentos = null;
+        S.passeComprado += 1;
         return R({ ok: true });
       }
       /* O GERADOR ÚNICO do servidor (`materializeForRoute`): cria a entrega do
@@ -268,12 +324,18 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
          deixou a segunda com 102 canceladas e o Iniciar preso no "Nenhuma
          entrega aberta". */
       if (caminho.indexOf('/logistica/mobile/materialize') === 0 && metodo === 'POST') {
+        /* 🔴 CONTRATO NOVO (10/08): `criadas` sozinho não dizia POR QUE alguém
+           ficou de fora — e foi essa a frase genérica que travou o dono. Agora
+           quem tem `pausado`/`semEndereco` na agenda vira AVISO nomeado, não
+           silêncio; é este `avisos` que a cena Q mede chegando no portão. */
         const alvo = (S.agendaHoje || []);
-        let criadas = 0;
+        let criadas = 0; let puladas = 0; const avisos = [];
         alvo.forEach((c) => {
           const aberta = S.entregas.some((e) => e.status !== 'entregue' && e.status !== 'cancelada'
             && e.cliente && String(e.cliente.id) === String(c.customerProfileId));
-          if (aberta) return;
+          if (aberta) { puladas += 1; return; }
+          if (c.pausado) { puladas += 1; avisos.push(`${c.nome}: cliente pausado`); return; }
+          if (c.semEndereco) { puladas += 1; avisos.push(`${c.nome}: sem endereço cadastrado`); return; }
           S.seq += 1;
           criadas += 1;
           S.entregas.push({
@@ -284,7 +346,7 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
             },
           });
         });
-        return R({ criadas });
+        return R({ criadas, puladas, avisos });
       }
       if (caminho.indexOf('/logistica/rota-modelos') === 0) return R([]);
       if (caminho.indexOf('/logistica/rota') === 0 && metodo === 'GET') {
@@ -351,6 +413,13 @@ const AGENDA_HOJE = [
   { customerProfileId: 'c1', nome: 'Larissa Ype', enderecoLinha: 'Rua 3a, 1354', bairro: 'Centro', lat: -22.40, lng: -47.55, itens: [] },
   { customerProfileId: 'c5', nome: 'Andreia bicicletaria', enderecoLinha: 'Rua 8 JP, 210', bairro: 'Centro', lat: -22.404, lng: -47.554, itens: [] },
 ];
+/* cena Q: uma agenda de hoje onde NINGUÉM vira entrega — os dois têm motivo,
+   e o motivo tem nome. É o dia que o dono viveu em 10/08: o materialize passa
+   vazio e o "Nenhuma entrega aberta" genérico precisa virar recado nomeado. */
+const AGENDA_SO_AVISOS = [
+  { customerProfileId: 'w1', nome: 'Wagner Pausado', enderecoLinha: 'Rua W, 1', bairro: 'Centro', lat: -22.40, lng: -47.55, itens: [], pausado: true },
+  { customerProfileId: 'w2', nome: 'Wanda Sem Endereco', enderecoLinha: '', bairro: '', lat: null, lng: null, itens: [], semEndereco: true },
+];
 
 const ok = [];
 const falhou = [];
@@ -414,6 +483,10 @@ const SO_MEDIR = process.argv.includes('--antes');
        quando o dia chegar") é o subtítulo. Asserção de ausência que lê o lugar
        errado é asserção que nunca reprova. */
     portaoSub: (document.querySelector('.portao .sub') || {}).textContent || '',
+    // cena Q: os avisos nomeados do materialize vão no `corpo` (não no `sub`
+    // — é lista, uma linha por cliente, `<br>` entre elas).
+    portaoCorpo: (document.querySelector('.portao .corpo') || {}).innerHTML || '',
+    portaoBotoes: [...document.querySelectorAll('.portao-wrap button')].map((e) => e.textContent.trim()),
     aviso: (document.querySelector('.aviso-card strong, .aviso strong') || {}).textContent || '',
     dock: (document.querySelector('.tmx-main b, .tmx-main .rot') || {}).textContent || '',
     entregasNoServidor: window.__S.entregas.length,
@@ -1248,6 +1321,137 @@ const SO_MEDIR = process.argv.includes('--antes');
     JSON.stringify(iniciarP));
   eh('P6 · a rota do dia ficou ACTIVE e o toque caiu na navegacao',
     tP1.routeStatus === 'ACTIVE' && tP1.tela === 'mapa', `tela=${tP1.tela} status=${tP1.routeStatus}`);
+
+  /* ===================================================================
+     CENA Q — O DIA VAZIO FALA NOME (10/08, a madrugada que travou o dono).
+
+     `AGENDA_SO_AVISOS` tem dois clientes e NENHUM vira entrega: um pausado,
+     um sem endereço. O materialize devolve `avisos` nomeando os dois; o
+     custo-preview (atrás da bandeira `custoComoServidor`, o mesmo contrato
+     REAL da cena G) rejeita com "Nenhuma entrega aberta neste dia" — e é
+     ESSA frase genérica que o portão de erro tinha que trocar pelos avisos
+     guardados na MESMA tentativa (`ultimosAvisosMaterialize`, ver
+     `30-verbos-rota.js`).
+     =================================================================== */
+  await cena({ entregas: [], agendaHoje: AGENDA_SO_AVISOS, custoComoServidor: true, mesmaBase: true });
+  await zerar();
+  await abrirDiaDeHoje(2600);
+  await zerar();
+  await p.waitForSelector('.pe-montagem [data-acao="iniciar-rota"]', { timeout: 8000 });
+  await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="iniciar-rota"]').click());
+  await p.waitForTimeout(2400);
+  const tQ = await espiar();
+  const postsQ = await posts();
+  nota(`[Q] dia so com avisos: POSTs=${postsQ.join(' , ')} · entregas=${tQ.entregasNoServidor}`);
+  nota(`    portao="${tQ.portao}" · sub="${tQ.portaoSub}" · corpo="${tQ.portaoCorpo}"`);
+  eh('Q1 · o materialize rodou e ninguem virou entrega (os dois tem aviso)',
+    postsQ.indexOf('/logistica/mobile/materialize') >= 0 && tQ.entregasNoServidor === 0,
+    `posts=${postsQ.join(',')} entregas=${tQ.entregasNoServidor}`);
+  eh('Q2 · o portao NAO mostra mais a frase generica',
+    !/Nenhuma entrega aberta/i.test(`${tQ.portao} ${tQ.portaoSub}`), `${tQ.portao} · ${tQ.portaoSub}`);
+  eh('Q3 · o portao nomeia os DOIS avisos do materialize, um por linha',
+    /Wagner Pausado/.test(tQ.portaoCorpo) && /Wanda Sem Endereco/.test(tQ.portaoCorpo)
+    && tQ.portaoCorpo.indexOf('<br>') >= 0, tQ.portaoCorpo);
+
+  /* ===================================================================
+     CENA R — 409 ROTA_DE_OUTRO_MOTORISTA: FORÇAR CANCELA E REMONTA SOZINHO
+     (10/08, contrato novo do servidor).
+
+     O primeiro `planejar` desta tentativa bate no motorista que já montou o
+     dia. O portão tem que FALAR quem foi (não "Não deu certo" genérico) e,
+     com `podeForcar`, oferecer "Forçar cancelamento e puxar" — que abre a
+     MESMA confirmação da casa do Cancelar, chama `limpar-dia` e refaz o
+     MONTAR sozinho, sem pedir o toque duas vezes.
+     =================================================================== */
+  await cena({
+    entregas: [], agendaHoje: AGENDA_HOJE, mesmaBase: true,
+    outroMotorista: { motorista: 'Carlos Motorista', podeForcar: true },
+  });
+  await zerar();
+  await abrirDiaDeHoje(2600);
+  await zerar();
+  await p.waitForSelector('.pe-montagem [data-acao="iniciar-rota"]', { timeout: 8000 });
+  await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="iniciar-rota"]').click());
+  await p.waitForTimeout(1600);
+  const tR0 = await espiar();
+  nota(`[R] 409 outro motorista: portao="${tR0.portao}" · sub="${tR0.portaoSub}" · botoes=${JSON.stringify(tR0.portaoBotoes)}`);
+  eh('R1 · o portao fala QUEM montou a rota, com titulo proprio',
+    tR0.portao === 'Rota já montada' && /Carlos Motorista/.test(tR0.portaoSub), `${tR0.portao} | ${tR0.portaoSub}`);
+  eh('R2 · com podeForcar, o botao "Forcar cancelamento e puxar" existe',
+    tR0.portaoBotoes.some((b) => /Forçar cancelamento e puxar/.test(b)), JSON.stringify(tR0.portaoBotoes));
+
+  await p.evaluate(() => {
+    const alvo = [...document.querySelectorAll('.portao-wrap button')].find((b) => /Forçar cancelamento/.test(b.textContent));
+    if (!alvo) throw new Error('sem o botao "Forcar cancelamento e puxar"');
+    alvo.click();
+  });
+  await p.waitForTimeout(500);
+  const tR1 = await espiar();
+  nota(`[R] apos forcar: portao="${tR1.portao}"`);
+  eh('R3 · o forcar abre a confirmacao PADRAO da casa (a mesma do Cancelar)',
+    /Tem certeza que deseja cancelar/i.test(tR1.portao), tR1.portao);
+
+  await zerar();
+  await p.evaluate(() => {
+    const x = document.querySelector('.portao-wrap .principal');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(2800);
+  const tR2 = await espiar();
+  const postsR = await posts();
+  nota(`[R] apos confirmar "Sim": POSTs=${postsR.join(' , ')} · stops=${tR2.nStops} · entregas=${tR2.entregasNoServidor}`);
+  eh('R4 · confirmar chama o limpar-dia', postsR.indexOf('/logistica/rota/limpar-dia') >= 0, postsR.join(','));
+  eh('R5 · e REMONTA sozinho, sem novo toque do dedo (planejar saiu de novo)',
+    postsR.indexOf('/logistica/rota/planejar') >= 0, postsR.join(','));
+  eh('R6 · a 2a tentativa entrou: a rota nao ficou vazia',
+    tR2.entregasNoServidor === AGENDA_HOJE.length, `entregas=${tR2.entregasNoServidor}`);
+
+  /* ===================================================================
+     CENA S — 402 ASSENTOS_ESGOTADOS: COMPRAR O PASSE REFAZ A AÇÃO ORIGINAL
+     (10/08, contrato novo do servidor).
+
+     A rota já está montada (igual a cena D); o `iniciar` bate no 402. O
+     portão mostra a frase do servidor e, com `podeComprarPasse`, o botão
+     "Liberar hoje (N créditos)" com o N que o servidor mandou. Comprado
+     (`passe-do-dia`), a AÇÃO ORIGINAL — iniciar, não montar — se refaz
+     sozinha e a rota sai pra rua.
+     =================================================================== */
+  await cena({
+    routeStatus: 'PLANNED',
+    entregas: [{ id: 'as1', status: 'agendada', rotaOrdem: 0, origem: 'avulsa', cliente: CLI_C1 }],
+    custo: { blocosTotais: 1, blocosJaDebitados: 0, creditosAIniciar: 0.4, saldoAtual: 9340, saldoCobre: true },
+    assentos: { podeComprarPasse: true, passeCreditos: 2, message: 'Assentos esgotados para hoje.' },
+  });
+  await irPara('montagem');
+  await irPara('rota', 1600);
+  await zerar();
+  await p.evaluate(() => {
+    const x = document.querySelector('.tmx-main [data-estado="iniciar"], .tmx-main [data-acao="iniciar-rota"]');
+    if (!x) throw new Error('sem botao Iniciar no dock da rota');
+    x.click();
+  });
+  await p.waitForTimeout(1400);
+  const tS0 = await espiar();
+  nota(`[S] 402 assentos esgotados: portao="${tS0.portao}" · sub="${tS0.portaoSub}" · botoes=${JSON.stringify(tS0.portaoBotoes)}`);
+  eh('S1 · o portao mostra a frase do servidor', tS0.portaoSub === 'Assentos esgotados para hoje.', tS0.portaoSub);
+  eh('S2 · o botao mostra os creditos que o SERVIDOR mandou (2)',
+    tS0.portaoBotoes.some((b) => b === 'Liberar hoje (2 créditos)'), JSON.stringify(tS0.portaoBotoes));
+
+  await zerar();
+  await p.evaluate(() => {
+    const alvo = [...document.querySelectorAll('.portao-wrap button')].find((b) => /Liberar hoje/.test(b.textContent));
+    if (!alvo) throw new Error('sem o botao "Liberar hoje"');
+    alvo.click();
+  });
+  await p.waitForTimeout(2600);
+  const tS1 = await espiar();
+  const postsS = await posts();
+  nota(`[S] apos comprar o passe: POSTs=${postsS.join(' , ')} · routeStatus=${tS1.routeStatus} · tela=${tS1.tela}`);
+  eh('S3 · comprar chama o passe-do-dia', postsS.indexOf('/logistica/rota/passe-do-dia') >= 0, postsS.join(','));
+  eh('S4 · e refaz a ACAO ORIGINAL sozinho — iniciar de novo, sem novo toque',
+    postsS.indexOf('/logistica/rota/iniciar') >= 0, postsS.join(','));
+  eh('S5 · a rota iniciou de verdade na 2a tentativa e caiu na navegacao',
+    tS1.routeStatus === 'ACTIVE' && tS1.tela === 'mapa', `status=${tS1.routeStatus} tela=${tS1.tela}`);
 
   await b.close();
   console.log('\n=== MEDIDAS ===');
