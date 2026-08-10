@@ -64,20 +64,32 @@ function local(over: any = {}) {
   };
 }
 
-function buildService(rows: any[], eventos: any[] = []) {
+function buildService(rows: any[], eventos: any[] = [], perfis: any[] = []) {
   const chamadas: any[] = [];
   const chamadasEvento: any[] = [];
+  const chamadasCount: any[] = [];
   const prisma: any = {
     entrega: {
       findMany: async (args: any) => { chamadas.push(args); return rows; },
+      // ROTA v2 F1c (10/08) — "HOJE só entra morto": a checagem de HOJE
+      // (nenhuma aberta + sinal de cancelamento) roda ANTES da consulta de
+      // `rows`. Nos fixtures deste arquivo TODAS as datas são fixas no
+      // passado (nunca "hoje" de verdade) — 0 é a resposta correta pros dois
+      // usos (hojeTemAberta/hojeCancelada), preservando o comportamento de
+      // sempre ("hoje fica de fora") pros testes que não mexem nisso.
+      count: async (args: any) => { chamadasCount.push(args); return 0; },
     },
     // 10/08 — a TRILHA. Com o cancelar apagando o não-processado, é dela que sai
     // o dia 100% cancelado (o corpo não existe mais pra ser contado).
     logisticaAgendaEvento: {
       findMany: async (args: any) => { chamadasEvento.push(args); return eventos; },
+      findFirst: async () => null,
+    },
+    customerProfile: {
+      findMany: async () => perfis,
     },
   };
-  return { chamadas, chamadasEvento, service: new LogisticaRotaService(prisma, {} as any) };
+  return { chamadas, chamadasEvento, chamadasCount, service: new LogisticaRotaService(prisma, {} as any) };
 }
 
 test('local COM pino e perfil SEM pino → a linha nasce na porta do LOCAL (endereço junto)', async () => {
@@ -329,4 +341,82 @@ test('a CONTA do dia usa a mesma chave (cliente|porta) das linhas — chip e ras
   assert.equal(resposta.dias.length, 1);
   assert.equal(resposta.dias[0].data, '2026-08-06');
   assert.equal(resposta.dias[0].paradas, 2, 'duas portas, duas paradas');
+});
+
+/* ── ROTA v2 F1c (10/08) — "HOJE" na lista e reconstrução pela TRILHA ────────── */
+
+function hojeISO(): string {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+}
+
+test('F1c: HOJE entra vermelho quando MORREU — zero aberta e uma cancelada hoje', async () => {
+  const agora = new Date();
+  const prisma: any = {
+    entrega: {
+      findMany: async () => [
+        { scheduledAt: agora, customerProfileId: 'cHoje', localId: null, status: 'cancelada' },
+      ],
+      count: async (args: any) => (args?.where?.status?.in ? 0 /* hojeTemAberta */ : 1 /* hojeCancelada */),
+    },
+    logisticaAgendaEvento: { findMany: async () => [], findFirst: async () => null },
+    customerProfile: { findMany: async () => [] },
+  };
+  const service = new LogisticaRotaService(prisma, {} as any);
+  const { dias } = (await service.historicoDeRotas(COMPANY)) as any;
+  const hoje = dias.find((d: any) => d.data === hojeISO());
+  assert.ok(hoje, 'hoje precisa aparecer na lista — ele morreu (sem aberta, com cancelada)');
+  assert.equal(hoje.desfecho, 'cancelada');
+});
+
+test('F1c: HOJE continua de fora enquanto tiver QUALQUER entrega aberta (dia vivo não é histórico)', async () => {
+  let contouAberta = false;
+  let whereDaLista: any = null;
+  const prisma: any = {
+    entrega: {
+      // Dublê "burro" de propósito — o comportamento sob teste é a FRONTEIRA
+      // (`fim`) que o servidor manda pro banco, não o filtro em si (isso é
+      // trabalho do Postgres de verdade). Captura o `where` da consulta da
+      // LISTA pra provar que ela nem PEDE o dia de hoje.
+      findMany: async (args: any) => { whereDaLista = args.where; return []; },
+      count: async (args: any) => {
+        if (args?.where?.status?.in) { contouAberta = true; return 3; } // hojeTemAberta > 0
+        return 1; // nunca deveria ser perguntado — dia vivo não checa cancelamento
+      },
+    },
+    logisticaAgendaEvento: { findMany: async () => [], findFirst: async () => null },
+    customerProfile: { findMany: async () => [] },
+  };
+  const service = new LogisticaRotaService(prisma, {} as any);
+  await service.historicoDeRotas(COMPANY);
+  assert.ok(contouAberta, 'a checagem de aberta precisa ter rodado');
+  const inicioDeHoje = new Date();
+  inicioDeHoje.setHours(0, 0, 0, 0);
+  assert.ok(
+    whereDaLista.scheduledAt.lte.getTime() < inicioDeHoje.getTime(),
+    'dia vivo: a fronteira `fim` fica ANTES de hoje começar — o banco nem é perguntado sobre hoje',
+  );
+});
+
+test('F1c: sem corpo (a LEI DO DESAPARECER já varreu), a lista de clientes do dia vem da TRILHA', async () => {
+  const { service } = buildService(
+    [], // rows vazio — nenhuma Entrega sobrou pra este dia
+    [
+      { customerProfileId: 'c1', paraTexto: ddmm(DIA) },
+      { customerProfileId: 'c1', paraTexto: ddmm(DIA) }, // duplicado não vira 2 clientes
+    ],
+    [{ ...perfil({ name: 'Alfredo' }), id: 'c1' }],
+  );
+  const { clientes } = (await service.historicoDeRotas(COMPANY, DIA)) as any;
+  assert.equal(clientes.length, 1);
+  assert.equal(clientes[0].customerProfileId, 'c1');
+  assert.equal(clientes[0].localId, null, 'sem corpo não existe mais LOCAL — cai no perfil');
+  assert.equal(clientes[0].nome, 'Alfredo');
+  assert.equal(clientes[0].endereco, 'Rua M-7', 'endereço vem do PERFIL (multilocal cai sozinho)');
+});
+
+test('F1c: sem corpo e sem trilha, o dia devolve lista vazia (nunca inventa cliente)', async () => {
+  const { service } = buildService([], []);
+  const { clientes } = (await service.historicoDeRotas(COMPANY, DIA)) as any;
+  assert.deepEqual(clientes, []);
 });

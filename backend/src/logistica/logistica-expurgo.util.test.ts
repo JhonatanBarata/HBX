@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   expurgarNaoProcessado,
-  ocorrenciaCanceladaRecente,
   JANELA_EXPURGO_MS,
 } from './logistica-expurgo.util';
 
@@ -168,48 +167,8 @@ test('expurgo: empresa 0 não faz nada (guarda de multi-tenant)', async () => {
   assert.equal(chamadas.length, 0, 'nem consulta sai');
 });
 
-/* ── F2.4: CANCELAR VALE (inclusive através de um publish) ─────────────────── */
-
-test('ocorrenciaCanceladaRecente: procura pela ORIGEM carimbada, cancelada, dentro da janela', async () => {
-  const { p, chamadas } = prismaDublê({ canceladas: [{ id: 'e9' }] });
-  const achou = await ocorrenciaCanceladaRecente(p, 41, 'agenda:plano1:2026-08-10');
-  assert.equal(achou, true);
-  const where = acharChamada(chamadas, 'entrega.findFirst').where;
-  assert.equal(where.companyId, 41);
-  assert.equal(where.agendaOcorrenciaKeyOrigem, 'agenda:plano1:2026-08-10');
-  assert.equal(where.status, 'cancelada');
-  assert.ok(where.updatedAt.gte instanceof Date, 'só vale DENTRO da janela');
-});
-
-test('ocorrenciaCanceladaRecente: sem chave não pergunta nada (e não bloqueia geração)', async () => {
-  const { p, chamadas } = prismaDublê({ canceladas: [{ id: 'e9' }] });
-  assert.equal(await ocorrenciaCanceladaRecente(p, 41, ''), false);
-  assert.equal(chamadas.length, 0);
-});
-
-/* 🔴 10/08 — A PROVA MUDOU DE LUGAR. O cancelar agora APAGA o não-processado, e um
-   guard que depende do defunto morre junto com ele: o dia voltaria a renascer no
-   primeiro generateDay, que é o bug de origem ("cancelou 00:44, o publish das 03:08
-   recriou as 51"). Sem corpo, a prova é a TRILHA — história de DECISÃO, que não some. */
-test('ocorrenciaCanceladaRecente: sem corpo, a TRILHA responde (plano + dia de origem, na janela)', async () => {
-  const { p, chamadas } = prismaDublê({ eventos: [{ id: 'ev1' }] });
-  const achou = await ocorrenciaCanceladaRecente(p, 41, 'agenda:plano1:2026-08-10');
-  assert.equal(achou, true, 'cancelar tem que valer mesmo com a linha apagada');
-  const where = acharChamada(chamadas, 'evento.findFirst').where;
-  assert.equal(where.companyId, 41);
-  assert.equal(where.planoEntregaId, 'plano1', 'a chave desmontada: o PLANO');
-  assert.equal(where.deTexto, '10/08', 'e o DIA DE ORIGEM (é ele que o generateDay pergunta)');
-  assert.deepEqual(where.tipo, { in: ['CANCELADA_LIMPAR_DIA'] });
-  assert.ok(where.createdAt.gte instanceof Date, 'só vale DENTRO da janela');
-});
-
-test('ocorrenciaCanceladaRecente: sem corpo e sem trilha, a geração segue livre', async () => {
-  const { p } = prismaDublê();
-  assert.equal(await ocorrenciaCanceladaRecente(p, 41, 'agenda:plano1:2026-08-10'), false);
-});
-
-test('ocorrenciaCanceladaRecente: o CORPO ainda responde primeiro (linha que sobreviveu)', async () => {
-  const { p, chamadas } = prismaDublê({ canceladas: [{ id: 'e9' }] });
-  assert.equal(await ocorrenciaCanceladaRecente(p, 41, 'agenda:plano1:2026-08-10'), true);
-  assert.equal(chamadas.some((c) => c[0] === 'evento.findFirst'), false, 'achou no corpo, nem pergunta pra trilha');
-});
+/* ── F2.4 morreu (10/08, ROTA v2 F1a) ─────────────────────────────────────────
+   Os 5 testes de `ocorrenciaCanceladaRecente` saíram junto com a função: o guard
+   de 24h que ela alimentava só fazia sentido enquanto existia o gerador
+   automático (`sweepGerarDiaAutomatico`, morto no mesmo commit). Ver o
+   comentário que ficou no lugar da função em logistica-expurgo.util.ts. */

@@ -913,7 +913,7 @@ export class LogisticaController {
     const deliveryIds = deliveryIdsRaw
       ? deliveryIdsRaw.split(',').map((id) => id.trim()).filter(Boolean)
       : undefined;
-    return this.custoPreviewService.previewCusto(companyId, { date, deliveryIds }, entregadorId);
+    return this.custoPreviewService.previewCusto(companyId, { date, deliveryIds }, entregadorId, req.user);
   }
 
   /**

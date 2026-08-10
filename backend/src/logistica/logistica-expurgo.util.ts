@@ -1,6 +1,4 @@
 import type { PrismaService } from '../prisma/prisma.service';
-import { formatDDMM } from './logistica-agenda-evento.util';
-import { planIdFromOccurrenceKey, sourceDateFromOccurrenceKey } from './logistica-agenda-cursor.util';
 
 /**
  * ⛔ A LEI DO DESAPARECER (10/08/2026, lei ABSOLUTA do dono)
@@ -236,69 +234,15 @@ async function umLote(
   return resumo;
 }
 
-/**
- * A ocorrência foi CANCELADA por gente há pouco? (F2.4 — "cancelar vale")
- *
- * Sem isto, o dia cancelado renascia sozinho no primeiro `generateDay` — e como o
- * gerador roda no boot do backend, **todo publish ressuscitava o dia que o dono
- * acabou de cancelar**. Foi o que aconteceu na madrugada de 10/08: ele cancelou às
- * 00:44, o deploy das 03:08 recriou as 51, e a conclusão natural pra quem está na
- * tela é "o app não obedece".
- *
- * A régua é a MESMA janela do expurgo, de propósito: enquanto a decisão é recente (24
- * h) ela vale; passada a janela, a agenda volta a poder gerar aquele dia — que a essa
- * altura já é passado.
- *
- * 🔴 A PROVA MUDOU DE LUGAR (10/08, "o cancelar q não deleta, essa patifaria"). Ela
- * era o CORPO: a entrega cancelada com `agendaOcorrenciaKeyOrigem`. Agora o cancelar
- * APAGA o não-processado, e um guard que depende do defunto morre junto com ele — o
- * dia voltaria a renascer no `generateDay` seguinte, que é o bug de origem.
- * Então são DUAS provas, nesta ordem:
- *   1. o corpo, quando ele sobreviveu (linha com sinal de vida não é apagada);
- *   2. a TRILHA (`LogisticaAgendaEvento`) — que é história de DECISÃO e não some
- *      NUNCA. Ela guarda plano + dia de origem (`deTexto`), que é a chave inteira
- *      desmontada nas duas partes que o evento sabe carregar.
- */
-export async function ocorrenciaCanceladaRecente(
-  prisma: PrismaService,
-  companyId: number,
-  occurrenceKey: string,
-  agora: Date = new Date(),
-): Promise<boolean> {
-  if (!companyId || !occurrenceKey) return false;
-  const corte = new Date(agora.getTime() - JANELA_EXPURGO_MS);
-  const p = prisma as any;
-  const achada = await p.entrega.findFirst({
-    where: {
-      companyId,
-      agendaOcorrenciaKeyOrigem: occurrenceKey,
-      status: 'cancelada',
-      updatedAt: { gte: corte },
-    },
-    select: { id: true },
-  });
-  if (achada) return true;
-
-  const planoEntregaId = planIdFromOccurrenceKey(occurrenceKey);
-  const origem = formatDDMM(sourceDateFromOccurrenceKey(occurrenceKey));
-  if (!planoEntregaId || !origem) return false;
-  try {
-    const evento = await p.logisticaAgendaEvento.findFirst({
-      where: {
-        companyId,
-        planoEntregaId,
-        deTexto: origem,
-        tipo: { in: [...TIPOS_CANCELAMENTO_HUMANO] },
-        createdAt: { gte: corte },
-      },
-      select: { id: true },
-    });
-    return !!evento;
-  } catch {
-    // Trilha indisponível (migration/dublê) nunca pode virar "pode gerar de novo"
-    // por acidente nem derrubar a geração: sem prova, segue a resposta do corpo.
-    return false;
-  }
-}
+// 🔴 `ocorrenciaCanceladaRecente` MORREU AQUI (10/08, ROTA v2 F1a). Ela travava
+// `generateDay` por 24h depois de um cancelamento humano — trava que só fazia
+// sentido enquanto existia `sweepGerarDiaAutomatico`, o timer que recriava o
+// dia sozinho no BOOT do backend. Esse timer morreu no mesmo commit (ver
+// logistica-expurgo.service.ts: hoje o único timer da casa só APAGA lixo,
+// nunca CRIA dia). Sem gerador automático pra segurar, o guard só sobrava
+// travando o próprio dono quando ele mandava remontar o dia que tinha acabado
+// de cancelar — decisão humana mais RECENTE perdendo pra decisão humana mais
+// ANTIGA. `TIPOS_CANCELAMENTO_HUMANO` abaixo segue vivo: `historicoDeRotas`
+// (logistica-rota.service.ts) ainda lê essa trilha pra pintar o dia cancelado.
 
 export { CLAIM_NAO_TERMINAL };

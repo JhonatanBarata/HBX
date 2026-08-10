@@ -11,6 +11,8 @@ import {
 } from './logistica-route-billing.service';
 import { resolveDayRange } from './logistica-rota.service';
 import { diagnosticarMotoristaUnico } from './logistica-motorista-unico.util';
+import { isLogisticaAdmin, type LogisticaActor } from './logistica-operacao.service';
+import { quemMontouODia, rotaDeOutroMotoristaError } from './logistica-quem-montou.util';
 
 // Só as entregas ABERTAS entram no universo do preview (mesmo recorte do
 // planejador/conferência — LogisticaRotaService.STATUS_ABERTO, duplicado aqui
@@ -76,6 +78,7 @@ export class LogisticaCustoPreviewService {
     companyId: number,
     input: CustoPreviewInput = {},
     entregadorIdAtor?: number,
+    actor?: LogisticaActor,
   ): Promise<CustoPreviewResult> {
     const cid = Number(companyId);
     if (!Number.isInteger(cid) || cid <= 0) throw new BadRequestException('Empresa não identificada');
@@ -83,7 +86,7 @@ export class LogisticaCustoPreviewService {
     const deliveryIds = normalizeDeliveryIds(input.deliveryIds);
     const entregadorId = Number.isInteger(entregadorIdAtor) && (entregadorIdAtor as number) > 0
       ? (entregadorIdAtor as number)
-      : await this.resolveSingleDriver(cid, input.date, deliveryIds);
+      : await this.resolveSingleDriver(cid, input.date, deliveryIds, actor);
 
     // Mesma chave/ordenação de ensureRoute em logistica-route-billing.service.ts
     // (companyId+entregadorId+routeDate, createdAt desc): pode existir mais de
@@ -198,7 +201,12 @@ export class LogisticaCustoPreviewService {
    * nas entregas abertas — mesma exigência que o Iniciar de verdade cobra
    * antes de cobrar qualquer bloco.
    */
-  private async resolveSingleDriver(companyId: number, date?: string, deliveryIds?: string[]): Promise<number> {
+  private async resolveSingleDriver(
+    companyId: number,
+    date?: string,
+    deliveryIds?: string[],
+    actor?: LogisticaActor,
+  ): Promise<number> {
     const { start, end } = resolveDayRange(date);
     const rows = await this.prisma.entrega.findMany({
       where: {
@@ -213,7 +221,16 @@ export class LogisticaCustoPreviewService {
     // logistica-motorista-unico.util.ts). O painel de crédito do /logistica lê
     // esta mensagem pra explicar por que o dia não tem custo.
     const diagnostico = diagnosticarMotoristaUnico(rows as any, deliveryIds);
-    if (diagnostico.mensagem) throw new BadRequestException(diagnostico.mensagem);
+    if (diagnostico.mensagem) {
+      // "JÁ MONTADA POR X" (10/08, ROTA v2 F1b) — mesmo tratamento do gêmeo em
+      // logistica-rota.service.ts: "dia_vazio" some quando sobra gente com
+      // trabalho fora do recorte ABERTO.
+      if (diagnostico.motivo === 'dia_vazio') {
+        const montadores = await quemMontouODia(this.prisma, companyId, start, end);
+        if (montadores.length > 0) throw rotaDeOutroMotoristaError(montadores, isLogisticaAdmin(actor));
+      }
+      throw new BadRequestException(diagnostico.mensagem);
+    }
     return diagnostico.entregadorId as number;
   }
 }

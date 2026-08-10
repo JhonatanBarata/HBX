@@ -43,7 +43,6 @@ import { isoWeekdayForDate, saoPauloDateKey } from './logistica-dia.util';
 import { sourceDateFromOccurrenceKey } from './logistica-agenda-cursor.util';
 import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
 import { encerrarDiasAnteriores } from './logistica-fechamento-caixa.util';
-import { ocorrenciaCanceladaRecente } from './logistica-expurgo.util';
 
 const DAY_NAMES = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'] as const;
 // F0 (27/07) — abreviação curta do dia pro extrato (LogisticaAgendaEvento.de/paraTexto)
@@ -1372,20 +1371,23 @@ export class LogisticaAgendaService {
         continue;
       }
 
-      /* 🔴 CANCELAR VALE — INCLUSIVE ATRAVÉS DE UM PUBLISH (10/08, F2.4 da LEI DO
-         DESAPARECER). O `limparDia` MOVE a chave viva pra `agendaOcorrenciaKeyOrigem`
-         (ela é única e travaria o cliente pra sempre se ficasse), então o `existing`
-         logo acima não acha nada e a ocorrência renascia na geração seguinte. Como o
-         gerador roda no BOOT do backend, na prática **todo deploy ressuscitava o dia
-         que o dono tinha acabado de cancelar** — foi o que ele viveu na madrugada de
-         10/08 (cancelou 00:44, o publish das 03:08 recriou as 51) e a conclusão de
-         quem está na tela é "o app não obedece".
-         Dentro da janela da lei (24 h), decisão de gente vence geração automática. */
-      if (await ocorrenciaCanceladaRecente(this.prisma, companyId, occurrenceKey)) {
-        skipped += 1;
-        warnings.push(`${plan.customerProfile.name || 'Cliente'} foi cancelado neste dia — não vou recriar.`);
-        continue;
-      }
+      /* 🔴 GUARD MORTO (10/08, ROTA v2 F1a — "montar depois de cancelar RECRIA o
+         dia"). Aqui morava `ocorrenciaCanceladaRecente`: dentro de 24h, cancelamento
+         humano vencia a geração AUTOMÁTICA do dia — porque existia
+         `sweepGerarDiaAutomatico`, o timer que recriava o dia sozinho a cada BOOT do
+         backend (era ele que ressuscitava às 03:08 o que o dono tinha cancelado às
+         00:44). Esse timer MORREU em 10/08 (ver logistica-expurgo.service.ts: hoje o
+         único timer da casa só APAGA lixo, nunca CRIA dia). Sem gerador automático
+         correndo atrás do cancelar, o guard perdeu o inimigo — e sobrou travando o
+         próprio dono: ele cancela o dia, decide remontar, chama `generateDay` de
+         novo (é GENTE apertando o botão, não boot nenhum) e o guard recusava com
+         "não vou recriar". Decisão humana mais RECENTE (remontar) tem que vencer
+         decisão humana mais ANTIGA (cancelar) — nunca o contrário.
+         A prova de "cancelei" não sumiu: `LogisticaAgendaEvento` continua guardando
+         pra sempre (histórico/decisão nunca some) — só parou de bloquear geração
+         nova. `TIPOS_CANCELAMENTO_HUMANO` (logistica-expurgo.util.ts) segue
+         exportado: `historicoDeRotas` ainda lê essa trilha pra pintar o dia cancelado
+         de vermelho. */
 
       // GUARD ANTI-DUPLA-ABERTA (F0, 27/07) — sem o avanço-na-geração, nada mais
       // impediria duas ocorrências abertas do MESMO plano ao mesmo tempo: se a

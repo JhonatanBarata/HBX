@@ -30,6 +30,8 @@ import {
   MAX_DIA_PADRAO,
 } from './prospector-corredor.sql';
 import { isAdminTierActor, type ActorKindUserLike } from '../access/actor-kind';
+import { isLogisticaAdmin } from './logistica-operacao.service';
+import { quemMontouODia, rotaDeOutroMotoristaError } from './logistica-quem-montou.util';
 
 const ROUTE_BILLING_CONTEXT = Symbol('routeBillingContext');
 type InternalPlanResult = PlanejarRotaResult & { [ROUTE_BILLING_CONTEXT]?: PreparedLogisticaRoute };
@@ -512,7 +514,7 @@ export class LogisticaRotaService {
     actor?: ActorKindUserLike,
   ): Promise<PlanejarRotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
-    const effectiveDriverId = entregadorId ?? (await this.resolveSingleDriver(companyId, input.date, input.deliveryIds));
+    const effectiveDriverId = entregadorId ?? (await this.resolveSingleDriver(companyId, input.date, input.deliveryIds, actor));
     // Re-planeja a partir da origem atual (mesmo caminho do planejar).
     const plan = await this.planejarRota(companyId, {
       date: input.date,
@@ -522,7 +524,20 @@ export class LogisticaRotaService {
       ordemManual: input.ordemManual,
     }, effectiveDriverId, actorUserId, true);
 
-    if (plan.paradas.length === 0) throw new BadRequestException('Não há entregas abertas para iniciar.');
+    if (plan.paradas.length === 0) {
+      // "JÁ MONTADA POR X" (10/08, ROTA v2 F1b) — antes desta checagem, um dia
+      // com zero paradas ABERTAS pra ESTE motorista (porque a rota inteira já
+      // é de outro) caía direto na mensagem genérica de dia vazio, como se
+      // ninguém tivesse feito nada. Se sobrar gente que não é o motorista
+      // efetivo, o dia tem dono — 409 explica QUEM, em vez de mandar montar de
+      // novo por cima.
+      const { start, end } = resolveDayRange(input.date);
+      const montadores = (await quemMontouODia(this.prisma, companyId, start, end)).filter(
+        (m) => m.userId !== effectiveDriverId,
+      );
+      if (montadores.length > 0) throw rotaDeOutroMotoristaError(montadores, isLogisticaAdmin(actor));
+      throw new BadRequestException('Não há entregas abertas para iniciar.');
+    }
     const prepared = (plan as InternalPlanResult)[ROUTE_BILLING_CONTEXT];
     if (!prepared) throw new Error('Contexto comercial da rota não foi criado.');
     let initialization: { token: string | null; alreadyActive: boolean };
@@ -1338,7 +1353,12 @@ export class LogisticaRotaService {
     return { ok: true, resumo };
   }
 
-  private async resolveSingleDriver(companyId: number, date?: string, deliveryIds?: string[]): Promise<number> {
+  private async resolveSingleDriver(
+    companyId: number,
+    date?: string,
+    deliveryIds?: string[],
+    actor?: ActorKindUserLike,
+  ): Promise<number> {
     const { start, end } = resolveDayRange(date);
     const selectedIds = normalizeDeliveryIds(deliveryIds);
     const rows = await this.prisma.entrega.findMany({
@@ -1354,7 +1374,17 @@ export class LogisticaRotaService {
     // mudou é a FRASE dizer qual deles é. Ver logistica-motorista-unico.util.ts:
     // a frase única mandava o dono atribuir motorista num dia VAZIO.
     const diagnostico = diagnosticarMotoristaUnico(rows, selectedIds);
-    if (diagnostico.mensagem) throw new BadRequestException(diagnostico.mensagem);
+    if (diagnostico.mensagem) {
+      // "JÁ MONTADA POR X" (10/08, ROTA v2 F1b) — "dia_vazio" é MENTIRA quando
+      // sobrou trabalho de outro motorista fora do recorte ABERTO (ex.: ele já
+      // entregou tudo). Só este motivo troca de mensagem — os outros 3
+      // continuam dizendo exatamente o que já diziam.
+      if (diagnostico.motivo === 'dia_vazio') {
+        const montadores = await quemMontouODia(this.prisma, companyId, start, end);
+        if (montadores.length > 0) throw rotaDeOutroMotoristaError(montadores, isLogisticaAdmin(actor));
+      }
+      throw new BadRequestException(diagnostico.mensagem);
+    }
     return diagnostico.entregadorId as number;
   }
 
@@ -1463,6 +1493,68 @@ export class LogisticaRotaService {
           },
         },
       });
+      // 🔴 RECONSTRUÇÃO PELA TRILHA (10/08, ROTA v2 F1c). A LEI DO DESAPARECER já
+      // pode ter varrido o CORPO (Entrega) de um dia cancelado antes das 24h de
+      // graça virarem 14 dias de histórico — `rows` vem vazio mesmo quando o dia
+      // teve gente de verdade. A única fonte que sobra é a TRILHA
+      // (`LogisticaAgendaEvento` tipo `CANCELADA_LIMPAR_DIA`, história de DECISÃO
+      // que nunca some): ela carrega o `customerProfileId` de quem foi cancelado
+      // naquele DD/MM. Sem o corpo não existe mais `localId` (a porta cancelada
+      // morreu com a entrega) — o multilocal cai sozinho no PERFIL (local=null,
+      // ver resolverCoordenadaMultilocal), que é exatamente a bagagem que sobra.
+      // Assim "cancelei hoje" continua dando pra PEGAR/REMONTAR de qualquer dia
+      // dos 14, mesmo depois do expurgo ter apagado a linha.
+      if (rows.length === 0) {
+        const ddmm = formatDDMM(dayISO);
+        const eventos = ddmm
+          ? await (this.prisma as any).logisticaAgendaEvento
+              .findMany({
+                where: { companyId, tipo: { in: [...TIPOS_CANCELAMENTO_HUMANO] }, paraTexto: ddmm },
+                select: { customerProfileId: true },
+              })
+              .catch(() => [])
+          : [];
+        const idsUnicos = [
+          ...new Set(
+            (eventos as Array<{ customerProfileId: string | null }>)
+              .map((e) => String(e.customerProfileId || ''))
+              .filter(Boolean),
+          ),
+        ];
+        if (!idsUnicos.length) return { data: dayISO, clientes: [] };
+        const perfis = await this.prisma.customerProfile.findMany({
+          where: { id: { in: idsUnicos }, companyId },
+          select: {
+            id: true,
+            name: true, endereco: true, numero: true, complemento: true,
+            bairro: true, cidade: true, uf: true, cep: true,
+            lat: true, lng: true, geoFonte: true,
+            logisticaPlanosEntrega: { where: { ativo: true }, take: 1, select: { id: true } },
+          },
+        });
+        const clientesDaTrilha = perfis.map((c) => {
+          const coord = resolverCoordenadaMultilocal(null, c);
+          const fonte = enderecoDaFonteMultilocal(null, c);
+          return {
+            customerProfileId: String(c.id),
+            localId: null,
+            nome: c.name ?? '',
+            endereco: fonte.endereco ?? '',
+            numero: fonte.numero ?? '',
+            complemento: fonte.complemento ?? '',
+            bairro: fonte.bairro ?? '',
+            cidade: fonte.cidade ?? '',
+            uf: fonte.uf ?? '',
+            cep: fonte.cep ?? '',
+            enderecoLinha: linhaEnderecoDaFonte(fonte),
+            lat: coord.lat,
+            lng: coord.lng,
+            geoFonte: coord.geoFonte,
+            recorrente: (c.logisticaPlanosEntrega?.length ?? 0) > 0,
+          };
+        });
+        return { data: dayISO, clientes: clientesDaTrilha };
+      }
       // 🔴 09/08 — a chave é (cliente|porta), não o cliente: duas portas do mesmo
       // cliente no MESMO dia são duas paradas legítimas, e deduplicar por cliente
       // apagava a segunda. O mesmo cliente na MESMA porta 2x continua sendo UMA
@@ -1505,7 +1597,42 @@ export class LogisticaRotaService {
     }
     const hoje = resolveDayRange();
     const inicio = new Date(hoje.start.getTime() - 14 * 24 * 3600 * 1000);
-    const fim = new Date(hoje.start.getTime() - 1);
+    /* 🔴 HOJE SÓ ENTRA MORTO (10/08, ROTA v2 F1c). Regra de sempre: "hoje é a
+       rota VIVA, não histórico" — dia com QUALQUER entrega aberta continua de
+       fora, senão o histórico brigaria com a tela de hoje sobre o que está
+       acontecendo agora. A exceção é o dia que já morreu: sem nenhuma aberta E
+       com sinal de cancelamento (linha 'cancelada' agendada hoje, ou — se a LEI
+       DO DESAPARECER já varreu o corpo — o evento da trilha carimbado com o
+       DD/MM de hoje). Sem esta checagem, "cancelei hoje de manhã" só pintava
+       vermelho amanhã: o dono cancela e quer ver o registro NA HORA. */
+    let incluirHoje = false;
+    const hojeTemAberta = await this.prisma.entrega.count({
+      where: {
+        companyId,
+        status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
+        OR: [{ scheduledAt: { gte: hoje.start, lte: hoje.end } }, { scheduledAt: null }],
+      },
+    });
+    if (hojeTemAberta === 0) {
+      const hojeCancelada = await this.prisma.entrega.count({
+        where: { companyId, scheduledAt: { gte: hoje.start, lte: hoje.end }, status: 'cancelada' },
+      });
+      if (hojeCancelada > 0) {
+        incluirHoje = true;
+      } else {
+        const ddmmHoje = formatDDMM(hoje.dayISO);
+        const eventoHoje = ddmmHoje
+          ? await (this.prisma as any).logisticaAgendaEvento
+              .findFirst({
+                where: { companyId, tipo: { in: [...TIPOS_CANCELAMENTO_HUMANO] }, paraTexto: ddmmHoje },
+                select: { id: true },
+              })
+              .catch(() => null)
+          : null;
+        incluirHoje = !!eventoHoje;
+      }
+    }
+    const fim = incluirHoje ? hoje.end : new Date(hoje.start.getTime() - 1);
     /* 🔴 O HISTÓRICO REGISTRA O QUE NÃO FOI COMPLETADO (10/08, F5 — dono: "tem q
        ficar registrado rotas que eu criei e cancelei").
        Até aqui a lista só via PARADA (`rotaOrdem` ou entregue), e o `limparDia`
