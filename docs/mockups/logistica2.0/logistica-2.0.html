@@ -452,7 +452,14 @@ button,input{font:inherit;color:inherit}
 .splash-brilho{position:absolute;top:-25%;left:-45%;width:26%;height:150%;pointer-events:none;
   background:linear-gradient(90deg,transparent,rgba(255,255,255,.42),transparent);
   transform:skewX(-18deg);animation:spBrilho .82s ease-in-out 2.34s both}
-@keyframes spBrilho{from{left:-45%}to{left:125%}}
+/* 🔴 A VARREDURA ANDA EM `translate`, NUNCA em `left`: left é layout, e o
+   brilho varre (2,34–3,16 s) JUSTO enquanto o mapa nasce no palco fantasma —
+   animação de layout congela com o main thread ocupado; a composta não.
+   653.85% = os mesmos 170% do contêiner (-45% → 125%) medidos na largura
+   própria (26%). Se a largura de `.splash-brilho` mudar, este número muda
+   junto. O `translate` entra ANTES do skewX estático, na mesma ordem em que o
+   left entrava. */
+@keyframes spBrilho{from{translate:0}to{translate:653.85% 0}}
 .splash-logo small{display:block;font-size:11px;color:var(--logo-sub);margin-top:11px;padding-left:10px;
   animation:spLetras .85s var(--cv-entra) 2.44s both}
 /* 🔴 A LINHA DO NOME DA EMPRESA SAIU DA ABERTURA (07/08). Ela dizia "Água Rio
@@ -759,7 +766,12 @@ button,input{font:inherit;color:inherit}
   color:var(--ink);font-size:13.5px;cursor:pointer}
 .erro .acoes .principal{background:var(--danger-btn);border-color:var(--danger-btn);color:var(--white)}
 @keyframes mvErro{from{opacity:0;transform:scale(.84)}to{opacity:1;transform:none}}
-@keyframes mvSacode{0%,100%{margin-left:0}15%{margin-left:-7px}35%{margin-left:6px}55%{margin-left:-4px}75%{margin-left:2px}}
+/* 🔴 O TREMOR ANDA EM `translate`, NUNCA em margin nem em transform: margin é
+   layout (a tela inteira recalcula a CADA um dos 7 quadros do sacode) e o
+   transform já tem dono aqui (`mvErro` escala o cartão até 320 ms, e o sacode
+   parte aos 300). `translate` compõe com o transform sem brigar e roda no
+   compositor — mesmos deslocamentos, mesmo relógio, zero reflow. */
+@keyframes mvSacode{0%,100%{translate:0}15%{translate:-7px}35%{translate:6px}55%{translate:-4px}75%{translate:2px}}
 
 /* ==========================================================================
    CONFIRMAÇÃO — cartão central, sem drama: cresce 6% e assenta.
@@ -1694,7 +1706,7 @@ button,input{font:inherit;color:inherit}
 .emp.on .emp-luz{opacity:1}
 .emp.on .emp-aro{opacity:1}
 .emp.on .emp-rotulo{opacity:1}
-.emp.on .emp-barra{width:100%}
+.emp.on .emp-barra{transform:scaleX(1)}
 
 @keyframes empVarre{0%{opacity:.95;transform:scale(.3)}100%{opacity:0;transform:scale(2.4);stroke:var(--emp-varre-fim)}}
 @keyframes empTopo{from{fill:var(--emp-topo)}}
@@ -1710,7 +1722,7 @@ button,input{font:inherit;color:inherit}
    navegador trocava SECO no meio e não havia digitação nenhuma (medido no
    mock rota; o defeito morava aqui também). */
 @keyframes empDigita{from{clip-path:inset(0 100% 0 0)} to{clip-path:inset(0 0 0 0)}}
-@keyframes empSublinha{from{width:0}}
+@keyframes empSublinha{from{transform:scaleX(0)}}
 @keyframes empNasce{from{opacity:0;transform:scale(calc(var(--esc,1)*.15)) translateY(9px)}}
 
 .emp.nasce .emp-obj{animation:empNasce 560ms var(--cv-mola) both}
@@ -1747,7 +1759,13 @@ button,input{font:inherit;color:inherit}
 /* o sublinhado enche MAIS DEVAGAR que a digitação: é ele que dá o ar de "o app
    ainda está confirmando" depois que o nome já apareceu */
 .emp-trilho{position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--emp-trilho)}
-.emp-barra{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--emp-barra)}
+/* 🔴 A BARRA ENCHE POR `scaleX`, NUNCA por width: width é layout, e são até
+   três barras de 1,9 s cada rodando na tela mais cara do app (a de dirigir).
+   Retângulo sólido, sem raio e sem filho: escalar é IDÊNTICO a crescer. A
+   caixa já nasce em 100% e o que anda é a escala — quem chega sem animação
+   continua vendo o estado que a regra estática diz. */
+.emp-barra{position:absolute;left:0;top:0;bottom:0;width:100%;background:var(--emp-barra);
+  transform:scaleX(0);transform-origin:0 50%}
 /* 66 ms por letra (duas ordens do dono no mock rota). 🔴 O TETO É O SUBLINHADO:
    ele TEM que terminar depois do nome (23 letras = 1,52s; barra 1,9s). */
 .emp.on .emp-nome{animation:empDigita calc(var(--n,1)*66ms) steps(var(--n,1),end) calc(var(--atraso,0s) + 40ms) both}
