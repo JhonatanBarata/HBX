@@ -3010,8 +3010,31 @@
     });
   }
 
+  /* ------------------------------------------------------------------------
+     🔴 A INTENÇÃO VIAJA COMO ARGUMENTO — a porta declara, o verbo obedece
+     (10/08). Este era o defeito medido em produção hoje: `iniciarRota` decidia
+     se a rota era AVULSA lendo `montarDia`, que é estado da tela MONTAGEM. Só
+     que a Montagem abre SEM dia (`montarDia = -1` é o default desde 10/08), e
+     esse -1 fica de pé mesmo pra quem nunca abriu a Montagem. Resultado: o
+     Iniciar do MAPA, com 51 paradas agendadas no servidor, morria dizendo "A
+     rota avulsa está vazia" — com o dia CHEIO do outro lado do fio. E quando a
+     Montagem tinha sido aberta antes, era pior: o Iniciar do mapa saía
+     RECORTADO pela prévia dela, calado.
+
+     Agora cada porta diz o que quer, e o verbo NUNCA mais lê `montarDia`:
+
+       · `{ escopo: 'dia' }`      — o dia inteiro (o Iniciar do dock do MAPA).
+                                    Materializa a agenda, planeja tudo, inicia.
+       · `{ escopo: 'avulsa' }`   — só o que está na tela (chip do dia apagado).
+       · `{ escopo: 'outroDia' }` — a gente de outra data entregando HOJE.
+
+     Estado de tela morre com a tela: quem lê a prévia e o chip é a MONTAGEM, no
+     instante do toque (ver o mapa de ações). Com esta lei a regressão de hoje
+     é impossível de escrever.
+     ------------------------------------------------------------------------ */
   /** iniciar: mostra o custo REAL e só então cobra. */
-  async function iniciarRota() {
+  async function iniciarRota(intencao) {
+    const escopo = String((intencao && intencao.escopo) || 'dia');
     await comTrava(async () => {
       /* 🔴 UMA TELA SÓ ⇒ O INICIAR TAMBÉM MONTA (dono: "MONTAR ROTA → MONTAGEM
          DE ROTA (BOTÃO INICIAR)"). O 2º "Montar rota" morreu, então o dia pode
@@ -3021,7 +3044,7 @@
       // O dia de outra data vira gente de HOJE antes de tudo — o mesmo gesto do
       // montar (ver `previaViraRascunho`). Quem já é parada aberta é pulado lá,
       // então tocar Iniciar numa lista já montada não cria nada de novo.
-      const outroDia = diaDeOutroDia();
+      const outroDia = escopo === 'outroDia';
       if (outroDia) previaViraRascunho();
       // O rascunho vira parada ANTES de tudo: é o dedo mandando gravar, e é
       // daqui que sai o conjunto que o planejar vai ordenar e o servidor cobrar.
@@ -3032,8 +3055,10 @@
          agenda — que o cron já criou no servidor — pra dentro da rota que ele
          acabou de escolher na tela. `deliveryIds` já existe nas três portas
          (planejar, custo-preview, iniciar); aqui ele carrega a tela ao pé da
-         letra. */
-      const avulsa = montarDia === -1;
+         letra.
+         🔴 QUEM DIZ QUE É AVULSA É A PORTA, nunca o `montarDia` (ver o bloco
+         da INTENÇÃO acima): o escopo 'dia' sai INTEIRO, sem recorte nenhum. */
+      const avulsa = escopo === 'avulsa';
       const recortada = avulsa || outroDia;
       const idsAvulsa = recortada ? idsDaPrevia() : null;
       if (avulsa && (!idsAvulsa || !idsAvulsa.length)) {
@@ -3124,6 +3149,9 @@
       // A escolha de dia morre no Iniciar: a rota (avulsa ou com a gente de
       // outra data) virou A rota em andamento, e a Montagem seguinte volta a
       // abrir sem dia — o estado em que ela nasce desde 10/08.
+      // Só o escopo recortado chega aqui, e recortado só vem da MONTAGEM: é
+      // limpeza da tela que mandou, nunca leitura de estado alheio (o dock do
+      // mapa manda 'dia' e não encosta no chip de ninguém).
       if (recortada) { montarDia = -1; window.usarDados('montagem', { diaSel: -1 }); }
       /* 🔴 INICIAR É UM GESTO SÓ (dono, 10/08: "clico em iniciar, o botão muda
          para navegar NÃO QUERO — é iniciar de uma vez só, ou navegar de uma vez
@@ -10754,8 +10782,24 @@
     // rota rodando: o botão do meio leva pra navegação (é o que se faz andando)
     navegar: () => window.ir('mapa'),
     'salvar-rota': salvarRota,
-    'iniciar-rota': () => comOrdemSalva(iniciarRota),
-    iniciar: () => comOrdemSalva(iniciarRota),
+    /* 🔴 A INTENÇÃO NASCE NA PORTA (10/08, lei do PR10082026). São DUAS portas
+       pro mesmo verbo, e elas querem coisas diferentes:
+
+         · `iniciar-rota` é o pé da MONTAGEM. Ela lê o estado DELA, no instante
+           do toque: chip apagado ⇒ rota AVULSA (só o que está na tela); chip
+           num dia que não é hoje ⇒ a gente daquele dia entregando HOJE; chip
+           em hoje ⇒ o dia inteiro.
+         · `iniciar` é o dock do MAPA. Ele nunca esteve na Montagem: quer o DIA
+           INTEIRO, e ponto.
+
+       Enquanto a decisão morava DENTRO do `iniciarRota` (lendo `montarDia`), o
+       dock do mapa herdava o -1 de uma tela que o motorista nem abriu e o
+       Iniciar morria com "A rota avulsa está vazia" — com 51 paradas agendadas
+       no servidor. Porta que adivinha por variável de ambiente é essa doença. */
+    'iniciar-rota': () => comOrdemSalva(() => iniciarRota({
+      escopo: montarDia === -1 ? 'avulsa' : (diaDeOutroDia() ? 'outroDia' : 'dia'),
+    })),
+    iniciar: () => comOrdemSalva(() => iniciarRota({ escopo: 'dia' })),
     'cancelar-rota': cancelarRota,
     'entregue-pagou': () => confirmarEntrega(''),
     'entregue-marcou': () => confirmarEntrega('fiado'),

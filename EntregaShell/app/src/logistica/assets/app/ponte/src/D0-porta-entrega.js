@@ -327,8 +327,24 @@
     // rota rodando: o botão do meio leva pra navegação (é o que se faz andando)
     navegar: () => window.ir('mapa'),
     'salvar-rota': salvarRota,
-    'iniciar-rota': () => comOrdemSalva(iniciarRota),
-    iniciar: () => comOrdemSalva(iniciarRota),
+    /* 🔴 A INTENÇÃO NASCE NA PORTA (10/08, lei do PR10082026). São DUAS portas
+       pro mesmo verbo, e elas querem coisas diferentes:
+
+         · `iniciar-rota` é o pé da MONTAGEM. Ela lê o estado DELA, no instante
+           do toque: chip apagado ⇒ rota AVULSA (só o que está na tela); chip
+           num dia que não é hoje ⇒ a gente daquele dia entregando HOJE; chip
+           em hoje ⇒ o dia inteiro.
+         · `iniciar` é o dock do MAPA. Ele nunca esteve na Montagem: quer o DIA
+           INTEIRO, e ponto.
+
+       Enquanto a decisão morava DENTRO do `iniciarRota` (lendo `montarDia`), o
+       dock do mapa herdava o -1 de uma tela que o motorista nem abriu e o
+       Iniciar morria com "A rota avulsa está vazia" — com 51 paradas agendadas
+       no servidor. Porta que adivinha por variável de ambiente é essa doença. */
+    'iniciar-rota': () => comOrdemSalva(() => iniciarRota({
+      escopo: montarDia === -1 ? 'avulsa' : (diaDeOutroDia() ? 'outroDia' : 'dia'),
+    })),
+    iniciar: () => comOrdemSalva(() => iniciarRota({ escopo: 'dia' })),
     'cancelar-rota': cancelarRota,
     'entregue-pagou': () => confirmarEntrega(''),
     'entregue-marcou': () => confirmarEntrega('fiado'),
