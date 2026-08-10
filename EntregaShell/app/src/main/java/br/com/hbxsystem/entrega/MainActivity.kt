@@ -485,7 +485,19 @@ class MainActivity : AppCompatActivity() {
         if (agora - ultimoVoltarEm <= 2_000L) {
             saidaEmAndamento = true
             if (HbxMobileExperience.premiumShell) {
-                ClosingActivity.start(this, nextPairing = false)
+                /* 🔴 QUEM TOCA A SAÍDA É O APP, E ELA É A ENTRADA AO CONTRÁRIO
+                   (ordem do dono, 09/08: "remova o efeito de sair, é o antigo, e
+                   faça o inverso do q foi feito no 1"). A cena vive no mock
+                   (`T.saida`): o HBX desce do cabeçalho pro meio da tela e o X se
+                   desmonta nas duas hastes que o montaram. Aqui só se PEDE.
+                   🔴 E O RELÓGIO É DAQUI, nunca do JavaScript: app que só fecha
+                   quando a animação avisa é app que não fecha no dia em que ela
+                   falhar. Sem `HBXSaida` (casca velha), o atraso corre igual e a
+                   saída continua sendo a de sempre. */
+                webView.evaluateJavascript("window.HBXSaida&&window.HBXSaida()", null)
+                webView.postDelayed({
+                    if (!isFinishing && !isDestroyed) ClosingActivity.start(this, nextPairing = false)
+                }, 1_950L)
             } else {
                 finish()
             }

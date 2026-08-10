@@ -137,7 +137,14 @@ plugins {
 // 🔴 A LIÇÃO QUE NÃO PEGOU EM 4 TENTATIVAS: quem sideloada pra provar SOBE O
 // PISO no mesmo commit. O sideload é diagnóstico; o piso é o que devolve o
 // aparelho pro fluxo de verdade (aviso → download → instalar).
-val hbxLogisticaVersionCodeFloor = 221
+// 221 → 241 em 09/08 (noite) — A QUINTA COBRANÇA, e desta vez ela foi paga ANTES
+// de morder: a leva "a entrada começa e começa novamente" exigiu quatro builds
+// sideloadadas no g15 pra achar o defeito por gravação de tela (236, 237, 238 e
+// 240 — a 240 com a cena de saída nova). O publicado era 235. Sem subir o piso,
+// o próximo publish carimbaria max(235,221)+1 = 236, que o g15 JÁ RODA, e o
+// aparelho de prova ficaria cego pro aviso de atualização — exatamente o buraco
+// que custou o "publiquei e não mudou nada" da manhã.
+val hbxLogisticaVersionCodeFloor = 241
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)

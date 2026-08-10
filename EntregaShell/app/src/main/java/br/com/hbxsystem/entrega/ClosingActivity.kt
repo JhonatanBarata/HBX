@@ -75,8 +75,17 @@ class ClosingActivity : AppCompatActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() = Unit
         })
-        webView.loadUrl("${HbxMobileExperience.openingUrl}?mode=exit&paused=1")
-        handler.postDelayed(::completeClosing, 8_000L)
+        /* 🔴 A CENA ANTIGA SAIU DAQUI (dono, 09/08: "remova o efeito de sair, é o
+           antigo"). Esta tela era o `opening.html?mode=exit` — a cena NATIVA
+           tocada de trás pra frente, com outra marca e outro desenho, logo depois
+           da despedida do app: duas saídas em fila.
+           Agora quem se despede é o APP (`window.HBXSaida`, a entrada ao
+           contrário) e esta activity volta ao que sempre foi por baixo do enfeite
+           — a que tira a tarefa dos recentes. Fundo escuro, e some.
+           A WebView continua montada e vazia de propósito: `revealClosing` e o
+           `done.html` são contrato da OUTRA porta desta activity (o pareamento),
+           e mexer neles daqui quebraria um caminho que ninguém pediu. */
+        handler.postDelayed(::completeClosing, 140L)
     }
 
     private fun revealClosing() {

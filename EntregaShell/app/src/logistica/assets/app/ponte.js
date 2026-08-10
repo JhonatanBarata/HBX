@@ -1014,6 +1014,23 @@
   // motorista abrir o chat — que é exatamente quem ele deveria chamar.
   window.HBXRota = { carregar: carregarRota };
 
+  /* 🔴 A CENA DE SAÍDA É DO APP, NÃO DE UMA TELA NATIVA (ordem do dono, 09/08:
+     *"remova o efeito de sair, é o antigo, e faça o inverso do q foi feito no
+     1"*). O Kotlin pedia uma página só pra fechar (`opening.html?mode=exit`) e
+     ali morava OUTRA marca, com OUTRO desenho — a saída não era o inverso da
+     entrada, era outra cena. Agora quem toca é o próprio app, com a mesma marca
+     e as mesmas animações ao contrário (§ `T.saida` no mock).
+     O Kotlin chama isto e fecha no relógio dele: se esta função não existir (app
+     velho dentro de casca nova), ele fecha do mesmo jeito — a saída nunca pode
+     depender de a cena dar certo. */
+  window.HBXSaida = function () {
+    try {
+      if (typeof window.ir !== 'function') return 0;
+      window.ir('saida');
+      return 1;
+    } catch (_) { return 0; }
+  };
+
   /* ------------------------------------------------------------------------
      🔴 NO APARELHO, A DEMONSTRAÇÃO NÃO EXISTE.
 

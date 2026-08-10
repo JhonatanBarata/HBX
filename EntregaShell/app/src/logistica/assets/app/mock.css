@@ -631,6 +631,44 @@ button,input{font:inherit;color:inherit}
 .tela.cena.cheio .dirigindo .gps-lado button{animation-delay:.58s}
 
 /* ==========================================================================
+   🔴 A SAÍDA É A ENTRADA AO CONTRÁRIO — e é a MESMA folha (dono, 09/08: *"remova
+   o efeito de sair, é o antigo, e faça o inverso do q foi feito no 1"*).
+
+   Nenhum `@keyframes` novo aqui embaixo: são os mesmos da abertura com
+   `reverse`. O logo desce do cabeçalho pro meio (o `mvLogoVoa` de volta, com as
+   MESMAS variáveis `--dx/--dy/--esc` que a entrada mediu), o X se desmonta nas
+   duas hastes, as letras descem e a barra esvazia. Cena de fechar com desenho
+   próprio seria uma segunda marca — e duas marcas discordam no dia seguinte.
+
+   A ORDEM importa e é a inversa: primeiro o VOO (0 → 0,86 s), e só quando a
+   marca está no meio da tela ela se desmancha (0,86 s em diante).
+   ========================================================================== */
+.tela.entra.saida{animation:mvScrim .34s ease-out both!important}
+.tela.sai.saida{animation:trApaga .3s ease both!important}
+/* o voo de volta: começa lá em cima, no tamanho do cabeçalho, e assenta no meio */
+.tela.entra.saida .splash-logo{animation:mvLogoVolta .86s var(--cv-entra) both}
+@keyframes mvLogoVolta{from{transform:translate(var(--dx,0px),var(--dy,-380px)) scale(var(--esc,.55))}}
+/* o resto da marca só existe DEPOIS que ela pousa: na entrada eles somem no fim,
+   aqui eles voltam antes de tudo se desmanchar. */
+.tela.saida .splash-fundo{animation:spFundo 1.7s var(--cv-entra) both}
+.tela.saida .splash-anel,.tela.saida .splash-barra{animation:mvSai .3s var(--cv-sai) reverse both}
+/* AGORA o inverso do 1: o X larga o glifo e vira as duas hastes de novo, que
+   voam pra fora pelos mesmos caminhos por onde vieram. */
+.tela.saida .splash-logo .w em{animation:spAcende .34s ease .86s reverse both}
+.tela.saida .splash-xis{animation:spHastesSaem .3s var(--cv-sai) .86s reverse both}
+.tela.saida .splash-xis .haste-a{animation:spHasteA .8s var(--cv-entra) 1.1s reverse both}
+.tela.saida .splash-xis .haste-b{animation:spHasteB .8s var(--cv-entra) 1.16s reverse both}
+.tela.saida .splash-xis .rastro.haste-a{animation-delay:1.16s}
+.tela.saida .splash-xis .rastro.haste-b{animation-delay:1.22s}
+.tela.saida .splash-flash{animation:spFlash .5s ease-out 1.0s both}
+.tela.saida .splash-logo .w b:nth-of-type(1){animation:spSobe .5s var(--cv-mola) 1.24s reverse both}
+.tela.saida .splash-logo .w b:nth-of-type(2){animation:spSobe .5s var(--cv-mola) 1.18s reverse both}
+.tela.saida .splash-logo small{animation:spLetras .6s var(--cv-entra) 1.0s reverse both}
+.tela.saida .splash-barra i{animation:spCarrega 1s var(--cv-entra) .9s reverse both}
+/* e o palco apaga por último, quando não sobrou marca nenhuma */
+.tela.saida .splash{animation:trApaga .42s ease 1.9s both}
+
+/* ==========================================================================
    FOLHA (bottom sheet) — sobe de baixo, o fundo escurece junto (lei 6).
    ========================================================================== */
 .tela .sheet{animation:mvFolha var(--mv-folha) var(--cv-entra) both}

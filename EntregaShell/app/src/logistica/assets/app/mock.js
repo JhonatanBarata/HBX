@@ -2156,13 +2156,14 @@ ${hdr({voltar:'clientes',semChat:1})}
 ${nav('ajustes')}`;}};
 
 /* 0 — ENTRADA (abertura do app) ------------------------------------------ */
-T.entrada={nome:'Entrada (abertura)',grupo:'Sistema',render(){
+/* A MARCA DA ABERTURA MORA AQUI, E EM UM LUGAR SÓ. A entrada usa e a SAÍDA usa
+   (§ `T.saida`) — a cena que fecha é a que abre, ao contrário, e duas cópias da
+   mesma marca é como elas passam a discordar. */
+function splashMarca(){
   // As hastes nascem com coordenadas provisórias: quem crava é `ajustarHastes`,
   // que MEDE o glifo do X depois da tela montada. Cravar aqui na mão faria a
   // haste e o glifo desencontrarem a cada mudança de fonte ou de tamanho.
-  return `${status}
-<div class="body flush" style="overflow:hidden">
-  <div class="splash">
+  return `<div class="splash">
     <div class="splash-fundo"></div>
     <svg class="splash-xis" viewBox="0 0 412 900" preserveAspectRatio="none">
       <line class="rastro haste-a" x1="0" y1="0" x2="0" y2="0"/>
@@ -2179,8 +2180,11 @@ T.entrada={nome:'Entrada (abertura)',grupo:'Sistema',render(){
       </div>
       <div class="splash-barra"><i></i></div>
     </div>
-  </div>
-</div>`;}};
+  </div>`;
+}
+T.entrada={nome:'Entrada (abertura)',grupo:'Sistema',render(){
+  return `${status}
+<div class="body flush" style="overflow:hidden">${splashMarca()}</div>`;}};
 
 /** Põe as duas hastes exatamente em cima das diagonais do glifo do X, e o
  *  clarão no cruzamento. Medido, nunca chutado — a haste é a MESMA forma que o
@@ -2215,6 +2219,23 @@ function ajustarHastes(camada){
   const fl=splash.querySelector('.splash-flash');
   if(fl){ fl.style.left=(cx-48)+'px'; fl.style.top=(cy-48)+'px'; fl.style.marginLeft='0'; }
 }
+
+/* 0b — SAÍDA (o fechamento do app) ----------------------------------------
+   🔴 O INVERSO DA ENTRADA, LITERALMENTE (ordem do dono, 09/08: *"remova o efeito
+   de sair, é o antigo, e faça o inverso do q foi feito no 1"*).
+
+   O que saiu: a cena NATIVA tocada de trás pra frente (`opening.html?mode=exit`)
+   — outra marca, outro desenho, outro lugar. O que entra: a MESMA cena da
+   abertura, com o filme rodando ao contrário. O HBX desce do cabeçalho pro meio
+   da tela, o X se desmonta nas duas hastes que voam embora, as letras descem e a
+   barra esvazia.
+
+   E ela usa as MESMAS peças: `T.saida` devolve o mesmo `.splash` da entrada
+   (`splashMarca()`), e as animações são as MESMAS com `reverse`. Cena de fechar
+   que é desenho próprio vira, no dia seguinte, duas marcas que discordam. */
+T.saida={nome:'Saída (fechamento)',grupo:'Sistema',render(){
+  return `${status}
+<div class="body flush" style="overflow:hidden">${splashMarca()}</div>`;}};
 
 /* 19 — SUB-TELAS DOS AJUSTES ---------------------------------------------- */
 const telaAjuste=(titulo,corpo,rodape)=>`${status}
@@ -3013,7 +3034,7 @@ ${nav('ajustes')}`;}};
 /* ==========================================================================
    MONTAGEM
    ========================================================================== */
-const ORDEM=['entrada','rota','rotalista','mapa','mapachegou','mapalista','gerenciador','montagem','conferencia',
+const ORDEM=['entrada','saida','rota','rotalista','mapa','mapachegou','mapalista','gerenciador','montagem','conferencia',
              'venda','folha','folhanao','rapida','salvas','fechamento','semana','clientes','novocliente','ficha','produtos',
              'fichaproduto','chat','ajustes','creditos','financeiro','avancado','sons','historico',
              'passeio','portoes'];
@@ -3188,6 +3209,31 @@ function pintar(animar,dir){
   // — e o relógio de limpeza anterior é cancelado, senão ele remove a errada.
   const camadas=[...app.querySelectorAll('.tela')];
   const antiga=camadas.length?camadas[camadas.length-1]:null;
+  /* 🔴 A ABERTURA NÃO SE REPINTA — NUNCA (dono, 09/08, olhando o boot do g15:
+     *"a entrada ainda está com defeito, começa e começa novamente"*).
+
+     MEDIDO na gravação do aparelho (4 quadros/s): as duas hastes entram, somem
+     e ENTRAM DE NOVO. Não é a cena "piscando": é a cena tocando duas vezes. O
+     motivo é o seam: toda resposta do servidor chama `usarDados` → `pintar` →
+     `T[atual].render()` numa camada NOVA. Numa tela comum isso é invisível (a
+     herança logo abaixo continua o relógio da entrada). Numa CENA COM RELÓGIO
+     não tem herança que salve: são quinze animações com atrasos calculados
+     entre si (haste, rastro, clarão, anel, letras, brilho, barra, batida), e
+     recriar o DOM devolve todas ao quadro zero.
+
+     E ela não tem o que repintar: `T.entrada` é a única tela que não lê `DADOS`
+     (ver o comentário dela). Repinte aqui é trabalho jogado fora que ainda por
+     cima estraga a cena.
+
+     🔴 POR QUE ISTO PIOROU HOJE, e a lição: a abertura passou a ESPERAR o app
+     (§ `armarAbertura`), então ela fica no ar mais tempo — e quanto mais tempo,
+     mais respostas do servidor caem dentro dela. O defeito era latente; segurar
+     a tela por mais tempo só o trouxe pra luz. Mudança de RITMO revela bug de
+     RE-ENTRADA: quem alonga uma cena tem que perguntar quem repinta durante ela.
+
+     Só o REPINTE morre aqui. Trocar de tela (`animar`) continua passando, senão
+     a abertura nunca entregaria o app. */
+  if(!animar && atual==='entrada' && antiga) return;
   // medido ANTES de qualquer troca: no ramo comum a camada velha é destruída
   // (`innerHTML=''`) e depois disso não há o que perguntar.
   const rolagem=animar?{}:medirRolagem(antiga);
@@ -3327,17 +3373,48 @@ function pintar(animar,dir){
         // brilho, então medir por ela erraria tamanho e altura.
         // Pondo a origem do transform no centro do .w, a escala não desloca
         // nada e o translate vira a conta direta entre os dois centros.
+        /* 🔴 A CONTA É DE RETÂNGULO DE TELA, não de corrente de `offsetParent` —
+           é o mesmo conserto das hastes do X (ver `ajustarHastes`). A corrente
+           só fecha se TODO ancestral no caminho estiver posicionado; basta um
+           não estar pra o logo aterrissar torto, e "encaixar no topo" é a
+           promessa desta animação inteira (ordem do dono, 09/08: *"o HBX tem q
+           se formar e encaixar aqui no topper, depois acontece o efeito"*).
+           As duas camadas estão no mesmo lugar da tela neste instante — a nova
+           acabou de entrar e ainda não tem transform —, então medir as duas em
+           coordenada de VIEWPORT é comparar maçã com maçã. */
         const wO=origem.querySelector('.w'), wA=alvo.querySelector('.w');
-        const pl=posNaCamada(origem,antiga);
-        const po=posNaCamada(wO,antiga), pa=posNaCamada(wA,nova);
-        const co={x:po.x+wO.offsetWidth/2, y:po.y+wO.offsetHeight/2};
-        const ca={x:pa.x+wA.offsetWidth/2, y:pa.y+wA.offsetHeight/2};
-        origem.style.transformOrigin=`${(co.x-pl.x).toFixed(1)}px ${(co.y-pl.y).toFixed(1)}px`;
+        const rL=origem.getBoundingClientRect();
+        const rO=wO.getBoundingClientRect(), rA=wA.getBoundingClientRect();
+        const co={x:rO.x+rO.width/2, y:rO.y+rO.height/2};
+        const ca={x:rA.x+rA.width/2, y:rA.y+rA.height/2};
+        origem.style.transformOrigin=`${(co.x-rL.x).toFixed(1)}px ${(co.y-rL.y).toFixed(1)}px`;
         origem.style.setProperty('--dx',(ca.x-co.x).toFixed(1)+'px');
         origem.style.setProperty('--dy',(ca.y-co.y).toFixed(1)+'px');
-        origem.style.setProperty('--esc',(wA.offsetWidth/wO.offsetWidth).toFixed(3));
+        origem.style.setProperty('--esc',(rA.width/rO.width).toFixed(3));
       }
       espera=1000;
+    }
+    /* 🔴 O VOO DE VOLTA MEDE IGUAL, SÓ QUE AO CONTRÁRIO. Na entrada a origem é o
+       splash e o alvo é o cabeçalho; aqui a camada que ENTRA é o splash e o
+       cabeçalho está na que SAI. As variáveis são as mesmas (`--dx/--dy/--esc`)
+       e o `@keyframes mvLogoVolta` só troca `to` por `from` — é o mesmo caminho
+       percorrido de trás pra frente, que é o pedido literal do dono. */
+    if(atual==='saida'){
+      nova.classList.add('saida'); antiga.classList.add('saida');
+      const origem=nova.querySelector('.splash-logo'), alvo=antiga.querySelector('.logo');
+      if(alvo&&origem){
+        const wO=origem.querySelector('.w'), wA=alvo.querySelector('.w');
+        const rL=origem.getBoundingClientRect();
+        const rO=wO.getBoundingClientRect(), rA=wA.getBoundingClientRect();
+        const co={x:rO.x+rO.width/2, y:rO.y+rO.height/2};
+        const ca={x:rA.x+rA.width/2, y:rA.y+rA.height/2};
+        origem.style.transformOrigin=`${(co.x-rL.x).toFixed(1)}px ${(co.y-rL.y).toFixed(1)}px`;
+        origem.style.setProperty('--dx',(ca.x-co.x).toFixed(1)+'px');
+        origem.style.setProperty('--dy',(ca.y-co.y).toFixed(1)+'px');
+        origem.style.setProperty('--esc',(rA.width/rO.width).toFixed(3));
+      }
+      espera=520;
+      requestAnimationFrame(()=>ajustarHastes(nova));
     }
     // Marca de quando a entrada COMEÇOU. É o único jeito de um repinte que
     // chega no meio saber de onde continuar — a duração da própria camada não

@@ -95,13 +95,31 @@ const ARMADILHA = (ruas) => {
     },
   });
 };
+/* 🔴 O SERVIDOR TAMBÉM TEM QUE DEMORAR, e é isto que fez o defeito aparecer: no
+   aparelho as respostas chegam ESPALHADAS pelos primeiros segundos, e cada uma
+   repinta a tela. Com o dublê respondendo na hora, nenhum repinte cai dentro da
+   abertura e a prova jura que está tudo bem enquanto o dono vê a cena tocar duas
+   vezes. Os atrasos abaixo põem um repinte em cada trecho da cena. */
 const PONTE = () => {
+  const tarde = (ms, v) => new Promise((ok) => setTimeout(() => ok(v), ms));
+  /* 🔴 E O DADO TEM QUE SER DIFERENTE DO QUE JÁ ESTÁ NA TELA. `usarDados` tem
+     freio: dado igual não repinta. Devolvendo lista vazia, o dublê nunca
+     provocava repinte nenhum durante a abertura — e era por isso que a prova
+     passava verde com o defeito publicado no celular do dono. Aqui cada resposta
+     MUDA alguma coisa, que é o que o servidor de verdade faz. */
+  const parada = (i) => ({
+    id: 'e' + i, status: 'pendente', rotaOrdem: i, quantidade: 1 + i,
+    cliente: { id: 'c' + i, nome: 'Cliente ' + (i + 1), enderecoLinha: 'Rua ' + (i + 1) + ', 100', bairro: 'Centro',
+      lat: -22.4126 - i / 1000, lng: -47.5763 - i / 1000 },
+  });
   window.HBX = {
     api(c) {
-      if (c.indexOf('/logistica/rota?') === 0) return Promise.resolve({ items: [], routeStatus: 'NONE', moduloFinanceiroAtivo: false });
-      if (c.indexOf('/logistica/agenda') === 0) return Promise.resolve({ dias: [] });
-      if (c.indexOf('/logistica/dia-preview') === 0) return Promise.resolve({ clientes: [] });
-      return Promise.resolve({});
+      if (c.indexOf('/logistica/rota?') === 0) return tarde(900, { items: [0, 1, 2].map(parada), routeStatus: 'PLANNED', moduloFinanceiroAtivo: true, saldo: 128 });
+      if (c.indexOf('/logistica/agenda') === 0) return tarde(1700, { dias: [{ dia: 'seg', clientes: 4 }, { dia: 'ter', clientes: 7 }] });
+      if (c.indexOf('/logistica/dia-preview') === 0) return tarde(2400, { clientes: [{ id: 'c9', nome: 'Mercado do Zé' }] });
+      if (c.indexOf('/logistica/config') === 0) return tarde(1300, { avisoChegandoEnabled: true, modulos: {} });
+      if (c.indexOf('/logistica/recados') === 0) return tarde(2100, { items: [{ id: 'r1', texto: 'Bom dia', de: 'Central', em: Date.now() }] });
+      return tarde(2900, { items: [] });
     },
     requestLocationPermission() {}, manterTelaAcesa() {}, modoNavegacao() {}, speak() {},
   };
@@ -122,9 +140,31 @@ const GRAVAR = () => {
       try { vis = m.getLayoutProperty('roads_minor', 'visibility') || 'visible'; } catch (_) { vis = null; }
       for (let i = 0; i < 7; i += 1) { try { if (m.getLayer(`hbx-cena-ruas-${i}`)) camadas += 1; } catch (_) { /* trocando */ } }
     }
+    /* 🔴 A ABERTURA RECOMEÇOU? Duas perguntas, e as duas são medidas:
+       · o nó do splash é o MESMO? (repinte recria a camada inteira)
+       · o relógio da cena anda pra frente? (`spCarrega`, a barra de 2,6 s, é a
+         animação mais longa da abertura — se ela volta pra perto de zero, a
+         cena recomeçou na cara do motorista). */
+    if (splash && !splash.__hbxId) { window.__splashN = (window.__splashN || 0) + 1; splash.__hbxId = window.__splashN; }
+    let relogio = null;
+    try {
+      const barra = splash && splash.querySelector('.splash-barra i');
+      const a = barra && barra.getAnimations && barra.getAnimations()[0];
+      if (a) relogio = Math.round(a.currentTime || 0);
+    } catch (_) { relogio = null; }
+    /* o ENCAIXE: onde está a linha "HBX" do splash e onde está a do cabeçalho.
+       O logo voa de uma pra outra — se ele não pousa em cima dela, a promessa
+       da animação (dono: "tem q se formar e encaixar aqui no topper") é falsa. */
+    const caixa = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; };
+    const voando = caixa(document.querySelector('.tela.abertura .splash-logo .w'));
+    const topo = caixa(document.querySelector('.tela:not(.sai) .logo .w'));
     window.__fita.push({
       t: Math.round(performance.now()),
       splash: !!splash,
+      splashId: splash ? splash.__hbxId : null,
+      relogio,
+      voando,
+      topo,
       palco: !!palco,
       mapa: !!m,
       pronto: !!(palco && palco.classList.contains('pronto')),
@@ -162,7 +202,11 @@ const eh = (nome, cond, medida) => {
   await p.addStyleTag({ content: pele });
   await p.evaluate(PONTE);
   await p.evaluate(GRAVAR);
-  await p.evaluate(() => window.HBXRota.carregar());
+  /* 🔴 SEM `await` NA CARGA. Com o dublê lento (que é o ponto desta prova), a
+     carga só volta lá na frente — esperar por ela jogaria a medição do X pra
+     depois da abertura inteira, e a prova mediria uma tela que já saiu. O app
+     carrega no ritmo dele; o relógio da prova é o da PÁGINA. */
+  p.evaluate(() => window.HBXRota.carregar()).catch(() => {});
 
   /* ---- A) O X POUSA EM CIMA DO GLIFO -------------------------------------
      Medido no fim do voo das hastes (elas assentam em 1,25 s e o glifo acende
@@ -182,7 +226,14 @@ const eh = (nome, cond, medida) => {
     };
   });
   if (!xis) {
-    eh('A.1 a abertura tem hastes e glifo', false, 'nao achei .splash/.w em/haste');
+    const oque = await p.evaluate(() => ({
+      telas: document.querySelectorAll('.tela').length,
+      classes: [...document.querySelectorAll('.tela')].map((t) => t.className).join(' | '),
+      temSplash: !!document.querySelector('.splash'),
+      temEm: !!document.querySelector('.splash .w em'),
+      temHaste: document.querySelectorAll('.splash line').length,
+    }));
+    eh('A.1 a abertura tem hastes e glifo', false, JSON.stringify(oque));
   } else {
     const cruz = { x: (xis.a.cx + xis.b.cx) / 2, y: (xis.a.cy + xis.b.cy) / 2 };
     const dx = Math.round(cruz.x - xis.em.cx);
@@ -198,6 +249,20 @@ const eh = (nome, cond, medida) => {
       `viewBox="${xis.viewBox}" splash ${Math.round(xis.splash.w)}x${Math.round(xis.splash.h)}`);
   }
 
+  /* 🔴 O REPINTE DO MEIO DA ABERTURA — FORÇADO, porque esperar que ele aconteça
+     sozinho na bancada foi o que deixou o defeito chegar no dono. No aparelho
+     são cinco chamadas de boot (barra, rota, recados, tutorial, config) caindo
+     espalhadas pelos primeiros segundos, cada uma com dado NOVO: cada uma
+     repinta, e repinte recria a camada. Medido no g15 (gravação de tela, 2
+     quadros/s): o X se formava, sumia e se formava DE NOVO, três vezes.
+     Aqui a prova não torce pra acontecer: ela MANDA acontecer, duas vezes, em
+     pontos diferentes da cena. Se a abertura sobreviver às duas, sobrevive ao
+     boot de qualquer aparelho. */
+  await p.waitForTimeout(300);
+  await p.evaluate(() => window.usarDados && window.usarDados('rota', { titulo: 'meio da cena ' + Date.now() }));
+  await p.waitForTimeout(700);
+  await p.evaluate(() => window.usarDados && window.usarDados('barra', { linha: 'outra ' + Date.now() }));
+
   /* ---- B) e C) a corrente até o mapa --------------------------------------- */
   await p.waitForTimeout(11000);
   await p.evaluate(() => { window.__gravando = false; });
@@ -210,6 +275,22 @@ const eh = (nome, cond, medida) => {
   const fimCena = (() => { const q = [...fita].reverse().find((x) => x.camadas > 0); return q ? q.t : null; })();
 
   eh('B.0 a tela nao quebrou', erros.length === 0, erros[0] || 'sem erro');
+
+  /* 🔴 A ABERTURA COMEÇA UMA VEZ SÓ (dono, 09/08: *"a entrada ainda está com
+     defeito, começa e começa novamente"*). O seam repinta a cada dado que chega
+     do servidor, e repinte RECRIA a camada — numa tela comum isso é invisível,
+     numa CENA COM RELÓGIO é a cena recomeçando do zero na cara de quem olha. */
+  const ids = [...new Set(fita.filter((q) => q.splash).map((q) => q.splashId))];
+  eh('B.4 o splash é UM só do começo ao fim (nao se repinta)', ids.length === 1,
+    `${ids.length} splash na fita`);
+  let voltou = 0;
+  let ant = -1;
+  fita.forEach((q) => {
+    if (!q.splash || q.relogio === null) return;
+    if (ant >= 0 && q.relogio + 60 < ant) voltou += 1;
+    ant = q.relogio;
+  });
+  eh('B.5 e o relogio dela nunca volta pra tras', voltou === 0, `${voltou} recomecos`);
   eh('B.1 o mapa NASCE durante a abertura (nao depois dela)',
     nasceMapa !== null && fimSplash !== null && nasceMapa < fimSplash,
     `mapa=${nasceMapa && nasceMapa - t0} splash ate=${fimSplash && fimSplash - t0}`);
@@ -217,6 +298,26 @@ const eh = (nome, cond, medida) => {
     fimSplash !== null && fimSplash - t0 >= 3300, `${fimSplash && Math.round(fimSplash - t0)} ms`);
   eh('B.3 e nao segura alem do teto (7 s)',
     fimSplash !== null && fimSplash - t0 <= 7600, `${fimSplash && Math.round(fimSplash - t0)} ms`);
+
+  /* ---- D) O HBX ENCAIXA NO TOPO, E SÓ DEPOIS AS COISAS APARECEM EMBAIXO ----
+     Ordem do dono (09/08): *"o HBX tem q se formar e encaixar aqui no topper,
+     depois acontece o efeito de aparecer as coisas embaixo"*. São duas coisas
+     medíveis: ONDE o logo pousa, e QUANDO a cena tem licença pra começar. */
+  const pouso = [...fita].reverse().find((q) => q.voando && q.topo);
+  if (!pouso) {
+    eh('D.1 o logo do splash voa pro cabeçalho', false, 'nao peguei o voo na fita');
+  } else {
+    const dx = Math.round((pouso.voando.x + pouso.voando.w / 2) - (pouso.topo.x + pouso.topo.w / 2));
+    const dy = Math.round((pouso.voando.y + pouso.voando.h / 2) - (pouso.topo.y + pouso.topo.h / 2));
+    const dw = Math.round(pouso.voando.w - pouso.topo.w);
+    eh('D.1 ele POUSA em cima do HBX do cabeçalho', Math.abs(dx) <= 6 && Math.abs(dy) <= 6,
+      `desvio ${dx}x${dy} px`);
+    eh('D.2 e no TAMANHO dele (a escala fecha a conta)', Math.abs(dw) <= 6, `${dw} px de largura a mais`);
+  }
+  const fimVoo = (() => { const q = [...fita].reverse().find((x) => x.voando); return q ? q.t : null; })();
+  eh('D.3 a cena das ruas só começa DEPOIS do encaixe',
+    nasceCena !== null && fimVoo !== null && nasceCena >= fimVoo - 120,
+    `encaixe ate=${fimVoo && fimVoo - t0} cena=${nasceCena && nasceCena - t0}`);
 
   /* 🔴 A JUNTA: entre a abertura sair e a cena começar não pode existir palco
      VIVO e VAZIO — é o cinza chapado que o dono viu. */

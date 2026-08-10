@@ -346,10 +346,18 @@ const ultimo = (fita, cond) => { const q = [...fita].reverse().find(cond); retur
     for (let i = 0; i < ONDAS; i += 1) nasceu.push(primeiro(fita, (q) => q.gs[i] !== null && q.gs[i] > 0));
     const todasNasceram = nasceu.every((t) => t !== null);
     eh('1.13 as 7 ondas existem e todas crescem', todasNasceram, nasceu.join(' · '));
+    /* 🔴 A RÉGUA É O ESPALHAMENTO, NÃO O QUADRO. A fita anda de quadro em quadro
+       (~16 ms, e num quadro pesado bem mais): duas ondas que partem com 170 ms de
+       diferença podem ser VISTAS no mesmo quadro se a bancada engasgar, e aí a
+       prova reprovaria a medição dela mesma. O que não pode acontecer é onda
+       voltando pra trás, e o conjunto tem que ocupar o tempo que a régua promete
+       (6 passos, com folga de um quadro gordo). */
     let emOrdem = true;
-    for (let i = 1; i < ONDAS; i += 1) if (!(nasceu[i] > nasceu[i - 1])) emOrdem = false;
-    eh('1.14 uma onda parte depois da outra (nao é tudo junto)', todasNasceram && emOrdem,
-      todasNasceram ? nasceu.map((t, i) => (i ? t - nasceu[i - 1] : 0)).slice(1).join('/') + ' ms' : '—');
+    for (let i = 1; i < ONDAS; i += 1) if (nasceu[i] < nasceu[i - 1]) emOrdem = false;
+    const espalho = todasNasceram ? nasceu[ONDAS - 1] - nasceu[0] : 0;
+    eh('1.14 uma onda parte depois da outra (nao é tudo junto)',
+      todasNasceram && emOrdem && espalho >= 6 * 170 * 0.7,
+      todasNasceram ? `${espalho} ms do 1º ao 7º (${nasceu.map((t, i) => (i ? t - nasceu[i - 1] : 0)).slice(1).join('/')})` : '—');
     /* 🔴 A CONTA PARA QUANDO A RUA FECHA. Depois do fim a cena apaga a camada
        (`line-opacity` 0) e a leitura volta a zero — isso é o DESFECHO, não a rua
        andando pra trás. Medir além disso seria a régua reprovando o encerramento. */
