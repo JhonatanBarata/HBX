@@ -3,8 +3,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  OnModuleDestroy,
-  OnModuleInit,
   Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -29,12 +27,27 @@ import {
 // endereço: rota-modelo, fechamento-dia e os testes seguem importando daqui.
 export { carregarVinculoItemSnapshot, parseDateOrNull, resolveValorUnit };
 
-// "Cron" caseiro (o repo não usa @nestjs/schedule): varre 1×/dia + 1 passada
-// atrasada no boot. INERTE por default — só toca empresas que ligaram
-// LogisticaConfig.gerarDiaAutomatico (default false). Sem nenhuma empresa opt-in,
-// o timer acorda, não encontra ninguém e volta a dormir (zero efeito).
-const GERAR_DIA_SWEEP_MS = 24 * 60 * 60 * 1000;
-const GERAR_DIA_BOOT_DELAY_MS = 30_000;
+/* ⚰️ AQUI MORREU O CRON "gerar dia automático" (10/08, ordem do dono: "some").
+   Ele varria 1×/dia + 1 passada 30 s depois do BOOT, materializando o dia
+   inteiro das empresas com `LogisticaConfig.gerarDiaAutomatico`.
+
+   🔴 O QUE ELE CUSTOU, MEDIDO NA EMPRESA 41 EM 10/08: **12 levas de 51 entregas
+   recorrentes** entre 01:25 e 03:52, e 770 canceladas no dia. "1×/dia" é
+   verdade só num servidor que não reinicia — numa madrugada com dois publishes
+   por hora, a passada de boot roda de hora em hora. O dono, vendo 56 paradas
+   logo depois de montar 5: *"os 51 recorrentes ficam se adicionando sozinhos,
+   isso não pode acontecer!"*.
+
+   🔴 E ELE CONTRADIZIA O CONTRATO DA CASA. Desde 10/08 a Montagem é
+   "entrar não grava; quem GRAVA é o dedo" — Iniciar/Montar chamam
+   `mobile/materialize`. O cron era a segunda mão escrevendo o mesmo dia, e a
+   invisível: quando o app novo ganhou a porta do dedo, ninguém apagou a
+   automática. **Duas mãos escrevendo o dia é o mesmo defeito de duas telas
+   discordando** — só que sem tela pra denunciar.
+
+   A agenda NÃO se perde com isso: `dia-preview` lê o PLANO, não a Entrega —
+   tocar o dia na Montagem segue trazendo a lista inteira, a um toque.
+   Ver [[o-aviso-nao-voltou-o-chip-escolhe-gente]] e o `logistica-expurgo`. */
 
 /**
  * LOGÍSTICA-MOBILE M2 (05/07) — amarração PRODUTO×CLIENTE + recorrência.
@@ -65,13 +78,16 @@ const GERAR_DIA_BOOT_DELAY_MS = 30_000;
  *
  * ── SEM EFEITO EXTERNO ───────────────────────────────────────────────────────
  * Gerar o dia é 100% interno (grava linhas). Não dispara WhatsApp nem cobrança —
- * isso só acontece no CONFIRMAR (N6), atrás de HBX_LOGISTICA_ENABLED. O cron que
- * chama este serviço vive atrás de LogisticaConfig.gerarDiaAutomatico (default OFF).
+ * isso só acontece no CONFIRMAR (N6), atrás de HBX_LOGISTICA_ENABLED.
+ *
+ * ── QUEM CHAMA (10/08): SÓ O DEDO ────────────────────────────────────────────
+ * `POST /logistica/gerar-dia`, o `mobile/materialize` do Iniciar/Montar e o
+ * `admin-route/prepare` do desktop. Não existe mais chamador automático — o cron
+ * morreu (a nota grande logo acima).
  */
 @Injectable()
-export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestroy {
+export class LogisticaRecorrenciaService {
   private readonly logger = new Logger(LogisticaRecorrenciaService.name);
-  private gerarDiaSweepHandle: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -145,51 +161,6 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
       // tela sem explicação nenhuma se este catch for mudo.
       this.logger.warn(`[estoque] saldo indisponível para a empresa ${companyId}: ${String((e as any)?.message || e)}`);
       return vazio;
-    }
-  }
-
-  // ── CRON "gerar dia automático" (INERTE por default) ─────────────────────────
-  onModuleInit() {
-    this.gerarDiaSweepHandle = setInterval(() => {
-      void this.sweepGerarDiaAutomatico('interval');
-    }, GERAR_DIA_SWEEP_MS);
-    // 1 passada atrasada no boot (não roda EM boot — respiro de 30s; ainda assim
-    // só faz algo se alguma empresa tiver gerarDiaAutomatico=true).
-    setTimeout(() => {
-      void this.sweepGerarDiaAutomatico('startup');
-    }, GERAR_DIA_BOOT_DELAY_MS);
-  }
-
-  onModuleDestroy() {
-    if (this.gerarDiaSweepHandle) clearInterval(this.gerarDiaSweepHandle);
-    this.gerarDiaSweepHandle = null;
-  }
-
-  /**
-   * Passada do cron: só as empresas que LIGARAM gerarDiaAutomatico entram. Sem
-   * opt-in = no-op total (nenhuma escrita). Cada empresa roda o gerarDia idempotente
-   * de HOJE — repetir não duplica. Falha de uma não derruba as outras.
-   */
-  private async sweepGerarDiaAutomatico(trigger: 'startup' | 'interval'): Promise<void> {
-    let configs: Array<{ companyId: number }> = [];
-    try {
-      configs = await this.prisma.logisticaConfig.findMany({
-        where: { gerarDiaAutomatico: true },
-        select: { companyId: true },
-      });
-    } catch (e: any) {
-      this.logger.warn(`[logistica] gerar-dia cron (${trigger}) falhou ao listar configs: ${String(e?.message || e)}`);
-      return;
-    }
-    if (configs.length === 0) return; // ninguém opt-in → inerte
-    for (const c of configs) {
-      try {
-        await this.gerarDia(c.companyId);
-      } catch (e: any) {
-        this.logger.warn(
-          `[logistica] gerar-dia cron (${trigger}) company=${c.companyId} falhou: ${String(e?.message || e)}`,
-        );
-      }
     }
   }
 

@@ -23,7 +23,6 @@ function row(overrides: Record<string, unknown> = {}) {
     raioChegadaM: 60,
     velocidadeMediaKmH: 25,
     tempoParadaMin: 5,
-    gerarDiaAutomatico: false,
     diasTrabalho: null,
     avisoChegandoEnabled: false,
     avisoChegandoTemplate: null,

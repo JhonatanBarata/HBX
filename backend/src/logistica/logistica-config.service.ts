@@ -250,8 +250,8 @@ export class LogisticaConfigService {
       data.moduloFinanceiroAtivo = !!input.moduloFinanceiroAtivo;
     }
     // PR27072026 F2 — PARADA AMARELA DE DEVEDOR: modo do tratamento na rota de
-    // hoje. OPERACIONAL (não exige billing owner — mesmo padrão de
-    // gerarDiaAutomatico/cobrancaAutomatica acima; @Admin() do controller já
+    // hoje. OPERACIONAL (não exige billing owner — mesmo padrão do
+    // `cobrancaAutomatica` acima; @Admin() do controller já
     // basta). GATE DE USO é só de NÍVEL (Advanced+): NORMAL (equivalente a
     // "desligado") sempre passa, mesmo no BASIC — só COBRANCA/EXCLUIR exigem o
     // nível. logistica.service.ts tem o cinto-e-suspensório na LEITURA (resolve
@@ -273,7 +273,6 @@ export class LogisticaConfigService {
     if (input.precoPorClienteAtivo !== undefined) data.precoPorClienteAtivo = !!input.precoPorClienteAtivo;
     if (input.cobrancaAutomatica !== undefined) data.cobrancaAutomatica = !!input.cobrancaAutomatica;
     if (input.moduloRecoveryAtivo !== undefined) data.moduloRecoveryAtivo = !!input.moduloRecoveryAtivo;
-    if (input.gerarDiaAutomatico !== undefined) data.gerarDiaAutomatico = !!input.gerarDiaAutomatico;
     // TASK 4 — dias de trabalho da empresa: CSV de inteiros 1..7 (ISO, 1=segunda…
     // 7=domingo), dedupe+sort (mesma normalização de ClienteProduto.diasSemana).
     // Vazio/sem dia válido → null (sem restrição configurada).
@@ -799,7 +798,6 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     sentinelaSemSinalMin: c.sentinelaSemSinalMin,
     sentinelaParadoMin: c.sentinelaParadoMin,
     sentinelaAtrasoMin: c.sentinelaAtrasoMin,
-    gerarDiaAutomatico: !!c.gerarDiaAutomatico,
     diasTrabalho: c.diasTrabalho ?? null,
     avisoChegandoEnabled: !!c.avisoChegandoEnabled,
     avisoChegandoTemplate: c.avisoChegandoTemplate ?? null,
@@ -1003,7 +1001,6 @@ export interface UpdateLogisticaConfigInput {
   cobrancaNaEntrega?: boolean;
   moduloFinanceiroAtivo?: boolean;
   moduloRecoveryAtivo?: boolean;
-  gerarDiaAutomatico?: boolean;
   diasTrabalho?: string | null;
   pixChave?: string | null;
   pixNome?: string | null;
@@ -1062,7 +1059,6 @@ export interface LogisticaConfigDTO {
   sentinelaAtrasoMin: number;
   cobrancaNaEntrega?: boolean;
   moduloRecoveryAtivo?: boolean;
-  gerarDiaAutomatico: boolean;
   diasTrabalho: string | null;
   pixChave?: string | null;
   pixNome?: string | null;

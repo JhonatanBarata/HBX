@@ -2072,8 +2072,9 @@ model EntregaItem {
 // LOGÍSTICA-MOBILE M2 (05/07) — configuração do módulo Logística por EMPRESA
 // (1 linha por tenant). Guarda as regras que o admin controla: aviso de WhatsApp,
 // raio de chegada/geofence, velocidade média (ETA), cobrança na entrega e os
-// opt-ins de módulo (financeiro/recovery) + o gatilho do cron "gerar dia".
-// TODOS os toggles têm default seguro; gerarDiaAutomatico=false → cron INERTE.
+// opt-ins de módulo (financeiro/recovery). TODOS os toggles têm default seguro.
+// ⚰️ `gerarDiaAutomatico` saiu em 10/08 junto com o cron que ela ligava — ver
+// logistica-recorrencia.service.ts. Quem materializa o dia é o DEDO.
 model LogisticaConfig {
   id                    String   @id @default(cuid())
   company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -2091,7 +2092,6 @@ model LogisticaConfig {
   cobrancaNaEntrega     Boolean  @default(false)
   moduloFinanceiroAtivo Boolean  @default(false)
   moduloRecoveryAtivo   Boolean  @default(false)
-  gerarDiaAutomatico    Boolean  @default(false)
   // ROTA-CONFERIDA (S4/S5/S6 PR25072026) — tela de conferência + rota congelada
   // + preview de créditos no APK. Ligada geral em 26/07, mesma lei acima.
   rotaConferidaAtiva    Boolean  @default(true)

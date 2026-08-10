@@ -61,7 +61,6 @@ type Config = {
   cobrancaNaEntrega?: boolean;
   moduloFinanceiroAtivo?: boolean;
   moduloRecoveryAtivo?: boolean;
-  gerarDiaAutomatico: boolean;
   comprovanteFotoObrigatoria: boolean;
   comprovanteAssinaturaObrigatoria: boolean;
   comprovanteCodigoObrigatorio: boolean;
@@ -700,10 +699,17 @@ export function LogisticaConfigClient() {
               </div>
             )}
 
-            {/* ── Toggles gerais ─────────────────────────────────────────────── */}
-            <div className="log-cfg__block">
-              <strong className="log-cfg__block-title">{billingOwner ? "Cobrança e recorrência" : "Recorrência"}</strong>
-              {billingOwner && (
+            {/* ── Cobrança ───────────────────────────────────────────────────────
+                🔴 O BLOCO INTEIRO É DO BILLING OWNER (10/08). Ele se chamava
+                "Cobrança e recorrência" e tinha dois toggles; com a morte do
+                "Gerar entregas do dia automaticamente" (o cron que recriava o dia
+                a cada boot do backend — ver logistica-recorrencia.service.ts)
+                sobrou só a cobrança, que já era do dono do faturamento. Deixar o
+                `<div>` de fora do `if` daria um bloco com TÍTULO e NADA dentro
+                pra todo mundo que não é billing owner: some a peça, some o slot. */}
+            {billingOwner && (
+              <div className="log-cfg__block">
+                <strong className="log-cfg__block-title">Cobrança</strong>
                 <label className="log-cfg__switch">
                   <input
                     type="checkbox"
@@ -714,18 +720,8 @@ export function LogisticaConfigClient() {
                     <span className="log-cfg__switch-name">Cobrança na entrega</span>
                   </span>
                 </label>
-              )}
-              <label className="log-cfg__switch">
-                <input
-                  type="checkbox"
-                  checked={cfg.gerarDiaAutomatico}
-                  onChange={(e) => patch({ gerarDiaAutomatico: e.target.checked })}
-                />
-                <span className="log-cfg__switch-txt">
-                  <span className="log-cfg__switch-name">Gerar entregas do dia automaticamente</span>
-                </span>
-              </label>
-            </div>
+              </div>
+            )}
 
             <div className="log-cfg__block">
               <strong className="log-cfg__block-title">Comprovante de entrega</strong>

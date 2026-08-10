@@ -30,7 +30,6 @@ function row(overrides: Record<string, unknown> = {}) {
     cobrancaNaEntrega: false,
     moduloFinanceiroAtivo: false,
     moduloRecoveryAtivo: false,
-    gerarDiaAutomatico: false,
     diasTrabalho: null,
     pixChave: null,
     pixNome: null,

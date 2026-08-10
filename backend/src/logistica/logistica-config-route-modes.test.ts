@@ -23,7 +23,6 @@ function row(overrides: Record<string, unknown> = {}) {
     cobrancaNaEntrega: true,
     moduloFinanceiroAtivo: true,
     moduloRecoveryAtivo: true,
-    gerarDiaAutomatico: false,
     diasTrabalho: '1,2,3,4,5',
     pixChave: 'financeiro@example.com',
     pixNome: 'EMPRESA TESTE',

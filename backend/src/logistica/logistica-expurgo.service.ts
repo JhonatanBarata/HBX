@@ -7,11 +7,14 @@ import { expurgarNaoProcessado, JANELA_EXPURGO_MS } from './logistica-expurgo.ut
  *
  * A regra e o porquê moram em `logistica-expurgo.util.ts`. Aqui é só o relógio.
  *
- * 🔴 **RODA PRA TODA EMPRESA, sem opt-in.** O irmão mais velho deste timer — o
- * `sweepGerarDiaAutomatico` — só toca em quem ligou `gerarDiaAutomatico`, e está
- * certo: gerar dia é decisão comercial de cada tenant. Expurgar não é: nenhum dono
- * escolhe acumular lixo, e uma lei com chavinha é uma lei que fica desligada em quem
- * mais precisa dela. Esta é a diferença de propósito entre os dois.
+ * 🔴 **RODA PRA TODA EMPRESA, sem opt-in — e é o ÚNICO timer desta casa que
+ * escreve sozinho.** O irmão mais velho, o `sweepGerarDiaAutomatico`, MORREU em
+ * 10/08: ele CRIAVA o dia (51 entregas por passada, a cada boot do backend) numa
+ * casa cujo contrato é "quem grava é o dedo". A diferença de propósito é essa, e
+ * ela decide quem pode ter timer: **este só APAGA o que já está morto** (não
+ * processado, passada a janela de estorno), e apagar lixo não é decisão comercial
+ * de tenant nenhum — lei com chavinha fica desligada justamente em quem mais
+ * precisa dela.
  *
  * Falha de uma empresa não derruba as outras — e nunca lança pra fora: infra de
  * fundo que explode no boot derruba o backend inteiro por causa de linha morta.

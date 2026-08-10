@@ -1,6 +1,6 @@
 // PR27072026 F2 (27/07) — devedorNaRota em LogisticaConfigService: OPERACIONAL
 // (todo ator lê, não exige billing owner pra gravar — mesmo padrão de
-// cobrancaAutomatica/gerarDiaAutomatico) + gate de nível ADVANCED+ só pra
+// cobrancaAutomatica) + gate de nível ADVANCED+ só pra
 // COBRANCA/EXCLUIR. Mesmo molde de logistica-config-nivel.test.ts (prisma fake
 // em memória, node:test) — arquivo isolado de propósito.
 import 'reflect-metadata';
@@ -25,7 +25,6 @@ function row(overrides: Record<string, unknown> = {}) {
     cobrancaNaEntrega: false,
     moduloFinanceiroAtivo: false,
     moduloRecoveryAtivo: false,
-    gerarDiaAutomatico: false,
     diasTrabalho: null,
     pixChave: null,
     pixNome: null,

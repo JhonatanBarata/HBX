@@ -1,0 +1,15 @@
+-- ⚰️ A MORTE DO "gerar dia automático" (10/08/2026 — ordem do dono: "some").
+--
+-- A coluna ligava um cron que materializava o dia INTEIRO da empresa 1×/dia + 1
+-- passada 30 s depois de cada boot do backend. Medido na empresa 41 neste dia:
+-- 12 levas de 51 entregas recorrentes entre 01:25 e 03:52 e 770 canceladas — numa
+-- madrugada com dois publishes por hora, "1×/dia" vira de hora em hora. Cena do
+-- dono: montou 5 paradas e a tela mostrou 56.
+--
+-- O contrato da casa desde 10/08 é "quem GRAVA é o dedo" (Iniciar/Montar chamam
+-- mobile/materialize). Esta coluna era a segunda mão — a invisível — escrevendo o
+-- mesmo dia. A agenda não se perde: o dia-preview lê o PLANO, não a Entrega.
+--
+-- Sem backfill: já estava `false` em todas as empresas quando esta migration foi
+-- escrita (a última, a 41, foi desligada à mão na mesma madrugada).
+ALTER TABLE "LogisticaConfig" DROP COLUMN IF EXISTS "gerarDiaAutomatico";

@@ -664,10 +664,6 @@ export class UpdateLogisticaConfigDto {
   @IsBoolean()
   moduloRecoveryAtivo?: boolean;
 
-  @IsOptional()
-  @IsBoolean()
-  gerarDiaAutomatico?: boolean;
-
   // TASK 4 — dias da semana em que a empresa trabalha. CSV ISO "1,2,3,4,5,6,7"
   // (1=segunda…7=domingo); validação de conteúdo (1..7, dedupe+sort) no serviço.
   @IsOptional()
