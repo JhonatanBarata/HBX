@@ -103,7 +103,13 @@ function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = [], planoSeed:
           let count = 0;
           for (const row of store.values()) {
             if (row.companyId !== where.companyId) continue;
-            if (!where.id.in.includes(row.id)) continue;
+            /* O Prisma aceita `id: 'x'` E `id: { in: [...] }` — este dublê só
+               entendia a 2ª forma e quebrava quando o carimbo da ocorrência
+               (F2.1, 10/08) passou a atualizar UMA linha por vez. Dublê mais
+               estreito que o de verdade reprova código legítimo. */
+            const alvoId = where.id?.in ?? where.id;
+            const bateId = Array.isArray(alvoId) ? alvoId.includes(row.id) : alvoId === row.id;
+            if (!bateId) continue;
             const statusOk = typeof where.status === 'string'
               ? row.status === where.status
               : where.status?.in

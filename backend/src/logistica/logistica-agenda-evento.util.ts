@@ -31,7 +31,14 @@ export type TipoEventoAgenda =
   | 'ENTREGA_REABERTA'
   // 28/07 — conserto de dado feito à mão (origem 'reparo'). A ficha do cliente
   // tem de dizer que ALGUÉM mexeu ali, senão o extrato mente por omissão.
-  | 'CORRECAO_MANUAL';
+  | 'CORRECAO_MANUAL'
+  /* 🔴 10/08 (F2.2 da LEI DO DESAPARECER) — O CANCELAR EM MASSA DEIXA RASTRO.
+     `limparDia` cancelava N entregas e não gravava evento NENHUM: quem cancelou,
+     quando e de qual aparelho não existia no banco, e a única testemunha (o log do
+     container) morre no primeiro publish — foi exatamente o que aconteceu no dia
+     10/08, com as chamadas das 22:36 e 00:06 apagadas pelo deploy das 03:08.
+     Uma linha por entrega, com o ATOR: é o "carimbo" que o dono pediu. */
+  | 'CANCELADA_LIMPAR_DIA';
 
 export type OrigemEventoAgenda =
   | 'montagem'

@@ -484,7 +484,7 @@ export class LogisticaConferenciaService implements OnModuleInit {
       },
       take: TETO_CLIENTES_CURA_BASE,
     });
-    if (!clientes.length) return { candidatos: 0, tentados: 0, curados: 0, restantes: 0 };
+    if (!clientes.length) return { candidatos: 0, tentados: 0, curados: 0, ceps: 0, restantes: 0 };
 
     const locais = await this.prisma.localEntrega.findMany({
       where: { companyId, customerProfileId: { in: clientes.map((c) => c.id) }, ativo: true },

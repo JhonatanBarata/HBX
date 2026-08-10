@@ -23,6 +23,7 @@ import { PulsoAppModule } from '../pulso-app/pulso-app.module';
 import { UsersModule } from '../users/users.module';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
+import { LogisticaExpurgoService } from './logistica-expurgo.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConferenciaService } from './logistica-conferencia.service';
 import { LogisticaCustoPreviewService } from './logistica-custo-preview.service';
@@ -222,6 +223,9 @@ import { LogisticaTutorialService } from './logistica-tutorial.service';
   providers: [
     LogisticaService,
     LogisticaRecorrenciaService,
+    // ⛔ A LEI DO DESAPARECER (10/08): o não-processado expira sozinho. Sem chave
+    // e sem opt-in por empresa — ver o cabeçalho do serviço pro porquê.
+    LogisticaExpurgoService,
     LogisticaAdminRouteService,
     LogisticaAdminRouteViewService,
     LogisticaMobileService,

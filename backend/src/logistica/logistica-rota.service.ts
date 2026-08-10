@@ -17,6 +17,7 @@ import { diagnosticarMotoristaUnico } from './logistica-motorista-unico.util';
 import { LogisticaOsrmService } from './logistica-osrm.service';
 import { LogisticaEstoqueService } from './logistica-estoque.service';
 import { sourceDateFromOccurrenceKey, saoPauloMidnight } from './logistica-agenda-cursor.util';
+import { saoPauloDateKey } from './logistica-dia.util';
 import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
 import { ProspectorCorredorService } from './prospector-corredor.service';
 import { isProspectorEnabled } from './logistica-prospector.flags';
@@ -921,6 +922,17 @@ export class LogisticaRotaService {
 
       let descartadas = 0;
       if (idsDescarte.length) {
+        /* 🔴 CARIMBA ANTES DE SOLTAR (10/08, F2.1). A chave viva TEM que sair (ver
+           abaixo), mas apagá-la sem guardar de onde veio deixava a cancelada sem
+           identidade nenhuma. Uma escrita por chave — são poucas por descarte, e
+           `updateMany` não sabe copiar coluna em coluna. */
+        const comChave = descartaveis.filter((row) => !!row.agendaOcorrenciaKey);
+        for (const row of comChave) {
+          await tx.entrega.updateMany({
+            where: { companyId, id: row.id, status: 'agendada' },
+            data: { agendaOcorrenciaKeyOrigem: row.agendaOcorrenciaKey },
+          });
+        }
         const canceladas = await tx.entrega.updateMany({
           // Re-checa status DENTRO da transação (mesma defesa do limparDia):
           // nunca sobrescreve uma entrega que virou 'entregue' no meio.
@@ -932,7 +944,8 @@ export class LogisticaRotaService {
             startedAt: null,
             // A chave é ÚNICA por empresa: presa na entrega cancelada, o
             // `generateDay` acha "já existe" e pula o cliente PARA SEMPRE
-            // (mesma armadilha resolvida no limparDia em 25/07).
+            // (mesma armadilha resolvida no limparDia em 25/07). A ORIGEM dela
+            // acabou de ser carimbada logo acima — some a chave, fica a história.
             agendaOcorrenciaKey: null,
           },
         });
@@ -1060,12 +1073,16 @@ export class LogisticaRotaService {
     companyId: number,
     input: EncerrarRotaInput = {},
     entregadorId?: number,
+    // QUEM apertou (F2.2, 10/08). Opcional pra não quebrar chamador nenhum, mas o
+    // controller manda sempre: evento sem ator responde "alguém", que é o mesmo
+    // que não responder.
+    actorUserId?: number | null,
   ): Promise<LimparDiaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const { start, end, dayISO } = resolveDayRange(input.date);
     const routeDate = canonicalRouteDate(input.date);
 
-    const resumo = await this.prisma.$transaction(async (tx: any) => {
+    const resumoBruto = await this.prisma.$transaction(async (tx: any) => {
       // Mesmo escopo "abertas do dia" do encerrarRota (range do dia + sem-data
       // abertas), já restrito por status — aqui CANCELA direto (sem o meio-termo
       // "estava mesmo na rota?" do encerrar: Limpar Dia descarta tudo que está
@@ -1089,7 +1106,12 @@ export class LogisticaRotaService {
       // levantamos as linhas ANTES do updateMany — precisamos dos ids/planos.
       const alvos = await tx.entrega.findMany({
         where: escopoAberto,
-        select: { id: true, planoEntregaId: true, agendaOcorrenciaKey: true },
+        // `customerProfileId` e `scheduledAt` entram pro EVENTO (F2.2): o extrato
+        // é por cliente, e a data dita o texto da linha.
+        select: {
+          id: true, planoEntregaId: true, agendaOcorrenciaKey: true,
+          customerProfileId: true, scheduledAt: true,
+        },
       });
 
       // 🔴 29/07 — SOLTA O MOTORISTA junto. Este é o caminho do botão CANCELAR
@@ -1106,11 +1128,16 @@ export class LogisticaRotaService {
       // `generateDay` acha "já existe" e pula o cliente PARA SEMPRE. Soltar a
       // chave preserva o histórico (a entrega continua cancelada, com o plano de
       // origem) e devolve o direito de gerar o mesmo dia de novo.
-      const idsComChave = alvos.filter((row: any) => row.agendaOcorrenciaKey).map((row: any) => row.id);
-      if (idsComChave.length) {
+      /* 🔴 A CHAVE É MOVIDA, NÃO APAGADA (10/08, F2.1 da LEI DO DESAPARECER). A
+         viva sai — é ela que trava o cliente —, mas a ORIGEM fica gravada: sem
+         isso a cancelada não sabia de que visita veio, e nem o histórico nem a
+         idempotência do cancelar tinham em que se apoiar. Uma escrita por chave
+         (updateMany não copia coluna em coluna) e são poucas por dia. */
+      const comChave = alvos.filter((row: any) => row.agendaOcorrenciaKey);
+      for (const row of comChave) {
         await tx.entrega.updateMany({
-          where: { companyId, id: { in: idsComChave } },
-          data: { agendaOcorrenciaKey: null },
+          where: { companyId, id: row.id },
+          data: { agendaOcorrenciaKey: null, agendaOcorrenciaKeyOrigem: row.agendaOcorrenciaKey },
         });
       }
 
@@ -1214,8 +1241,33 @@ export class LogisticaRotaService {
         planosLiberados,
         rotasEncerradas: rotas.count,
         paradasApagadas: paradas.count,
+        // o que gravar no extrato DEPOIS do commit — ver abaixo. Sai do `resumo`
+        // logo na desestruturação: isto é matéria-prima do evento, NUNCA resposta
+        // da API (o app lê este objeto, e teste guarda o formato dele).
+        alvosDoEvento: alvos as Array<{ id: string; customerProfileId: string; planoEntregaId: string | null; scheduledAt: Date | null }>,
       };
     });
+    const { alvosDoEvento, ...resumo } = resumoBruto;
+
+    /* 🔴 O CANCELAR EM MASSA DEIXA RASTRO (10/08, F2.2). Fora da transação, pelo
+       contrato do `registrarEventoAgenda`: um INSERT que falhe DENTRO da tx aborta
+       o cancelamento inteiro no Postgres, e o extrato é história — nunca pode
+       derrubar a operação que ele descreve.
+       Uma linha por entrega, com o ATOR: até 10/08 este caminho era MUDO, e quando
+       o dono perguntou "quem cancelou meu dia?" a resposta só existia no log do
+       container — que o publish daquela madrugada já tinha levado embora. */
+    for (const row of alvosDoEvento) {
+      await registrarEventoAgenda(this.prisma as any, {
+        companyId,
+        customerProfileId: row.customerProfileId,
+        entregaId: row.id,
+        planoEntregaId: row.planoEntregaId,
+        tipo: 'CANCELADA_LIMPAR_DIA',
+        paraTexto: formatDDMM(saoPauloDateKey(row.scheduledAt) || dayISO),
+        origem: 'app',
+        actorUserId: actorUserId ?? null,
+      });
+    }
 
     this.logger.log(
       `[logistica] limpar-dia ${dayISO} company=${companyId}` +

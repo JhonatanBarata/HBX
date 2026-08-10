@@ -113,13 +113,24 @@ export async function encerrarDiasAnteriores(
           stopLivreWhere(hojeISO),
         ],
       },
-      select: { id: true, customerProfileId: true, scheduledAt: true },
+      select: { id: true, customerProfileId: true, scheduledAt: true, agendaOcorrenciaKey: true },
       take: 500,
     });
 
     let entregasCanceladas = 0;
     if (presas.length) {
       const ids = presas.map((row: { id: string }) => row.id);
+      // 🔴 CARIMBA ANTES DE SOLTAR (10/08, F2.1) — o mesmo contrato dos outros dois
+      // canceladores em massa: a chave viva sai (é única e travaria o cliente), a
+      // ORIGEM fica. Sem isso a vassoura do dia passado apagava a identidade da
+      // visita, e é justamente ela que o histórico do não-completado precisa ler.
+      for (const row of presas as Array<{ id: string; agendaOcorrenciaKey: string | null }>) {
+        if (!row.agendaOcorrenciaKey) continue;
+        await tx.entrega.updateMany({
+          where: { companyId, id: row.id, status: 'agendada' },
+          data: { agendaOcorrenciaKeyOrigem: row.agendaOcorrenciaKey },
+        });
+      }
       const canceladas = await tx.entrega.updateMany({
         // Re-checa status DENTRO da transação — mesma defesa do descartarMontagem:
         // nunca sobrescreve uma entrega que virou 'entregue' no meio.

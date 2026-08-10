@@ -1307,6 +1307,16 @@ model Entrega {
   // Chave da ocorrência recorrente, separada da idempotência offline usada na
   // confirmação. Uma não pode ocupar nem apagar o contrato da outra.
   agendaOcorrenciaKey String? @db.VarChar(160)
+  /// 🔴 A OCORRÊNCIA DE ONDE ELA VEIO — IMUTÁVEL (10/08, F2 da LEI DO DESAPARECER).
+  /// Cancelar em massa (`limparDia`, `descartarMontagem`, fechamento) zera a chave
+  /// VIVA de propósito: ela é única por empresa, e presa numa cancelada faria o
+  /// `generateDay` achar "já existe" e pular o cliente PARA SEMPRE. Só que a cura
+  /// criou o ponto cego — a cancelada deixava de saber de que visita veio, e o banco
+  /// não respondia "esta é a mesma ocorrência que renasceu depois?".
+  /// Aqui a chave é MOVIDA, não apagada: esta coluna não tem índice único, então
+  /// guardar a origem não trava ninguém. É dela que saem a idempotência do cancelar
+  /// (F2.4) e o histórico do que não foi completado (F5).
+  agendaOcorrenciaKeyOrigem String? @db.VarChar(160)
   // Comprovante configurável por tenant. Foto/assinatura vivem em
   // EntregaComprovante (arquivo privado + metadata); código esperado nunca é
   // persistido em claro, apenas scrypt(hash+salt). A confirmação guarda ator/data.

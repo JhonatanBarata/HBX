@@ -1046,7 +1046,12 @@ export class LogisticaController {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const actorWhere = await this.operacao.whereForActor(req.user);
     const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
-    const resultado = await this.rota.limparDia(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
+    // O ATOR viaja junto (F2.2, 10/08): sem ele o extrato responde "alguém
+    // cancelou", que é o mesmo que não responder — foi a pergunta que o dono fez
+    // às 3h e o banco não soube responder.
+    const resultado = await this.rota.limparDia(
+      companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId, Number(req.user?.id) || null,
+    );
     // 31/07 — "bati o caminhão, limpa tudo" também é rota que morreu no meio:
     // quem já tinha saído pra rua gera recado igual ao encerrar.
     // 03/08 — mesma identidade das outras duas portas (ver `quemDirigiu`).
