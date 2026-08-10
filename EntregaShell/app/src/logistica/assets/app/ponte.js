@@ -2450,25 +2450,10 @@
   /** o dedo ou um espaço mandaram nesta lista? então a ordem é DELES */
   const ordemDeGente = () => previaDoDedo || modoSel !== 'dist';
 
-  /* 🔴 ABRIR A MONTAGEM NÃO PODE RE-RODAR O OTIMIZADOR AGORA (09/08).
-     Abrir a Montagem RE-PLANEJA — é o "montar já no carregamento" que o dono
-     pediu, e está certo enquanto ninguém decidiu nada. A parada avulsa quebra
-     as duas pontas disso, e por motivos diferentes:
-
-     1. DEU CERTO: ela acabou de gravar uma sequência ESCOLHIDA ("No caminho"
-        mediu o encaixe perna a perna, "Primeira parada" furou a fila). O
-        `planejar` sem `ordemManual` do toque seguinte desfazia a escolha dele
-        em silêncio, e a parada reaparecia noutro lugar sem ninguém pedir. É a
-        metade já escrita duas seções acima: COM decisão humana, o motor não
-        tem o direito de refazer.
-     2. DEU ERRADO: o encaixe caiu na rede, e a tela volta com o aviso "a
-        parada entrou, mas não consegui reordenar". Deixar a Montagem tentar
-        planejar de novo ali é pedir pro MESMO erro acontecer 300 ms depois —
-        e o portão genérico do erro APAGA o aviso certo (medido: o "Não deu
-        certo" comia a única frase que dizia que a parada existe).
-
-     Vale UMA vez e some depois. */
-  let pularMontarAoAbrir = false;
+  /* ⚰️ `pularMontarAoAbrir` morreu em 10/08 junto com o auto-montar da entrada
+     (a chave existia só pra proteger a decisão humana DELE — sem o mecanismo,
+     a proteção é a regra geral: entrar não grava nada). Chave morta varrida no
+     mesmo commit, pela lei da casa. */
 
   /* Casa a lista da tela (clientes) com as entregas do dia (ids) e devolve a
      sequência em ids — o formato que o servidor entende. O elo é o CLIENTE:
@@ -2797,16 +2782,23 @@
         // levar o motorista pra ela, não um erro genérico.
         await carregarRota();
         if (estadoRota === 'rodando' || estadoRota === 'pausada') {
-          if (typeof window.ir === 'function') window.ir('rota');
-          return window.portao({
-            tom: 'info', ico: 'route', titulo: 'A rota já está em andamento',
-            sub: 'Você caiu direto nela.', acoes: [['Fechar', '']],
-          });
+          // Já está em andamento? Cai direto NELA — a navegação, não uma tela
+          // intermediária com mais um botão (a mesma lei do sucesso, abaixo).
+          if (typeof window.ir === 'function') window.ir('mapa');
+          return;
         }
         return avisoErro(e);
       }
       await carregarRota();
-      if (typeof window.ir === 'function') window.ir('rota');
+      /* 🔴 INICIAR É UM GESTO SÓ (dono, 10/08: "clico em iniciar, o botão muda
+         para navegar NÃO QUERO — é iniciar de uma vez só, ou navegar de uma vez
+         só"). Antes o toque deixava o motorista na tela Rota com o dock
+         morfado pra "Navegar" — um segundo toque pra fazer o que ele acabou de
+         mandar. Agora o Iniciar entra DIRETO na navegação (a mesma porta do
+         botão Navegar: `ir('mapa')` cobra GPS na hora certa e toca a descida
+         2D→3D). O "Sair" do 3D continua devolvendo pra Rota com o dock
+         Navegar·Cancelar·Finalizar — sair de propósito é outro verbo. */
+      if (typeof window.ir === 'function') window.ir('mapa');
       /* 🔴 O RECIBO FALA DEPOIS QUE A TELA PAROU DE SE PINTAR (mesma armadilha
          que o portão da parada avulsa já pagou, 09/08). `avisar` monta na camada
          VIVA, e o `carregarRota` acima repinta: falar antes é falar pra uma
@@ -6926,13 +6918,18 @@
       // antes. Montar rota nunca depende de permissão.
       if (tela === 'montagem') {
         garantirGps(); publicarMontarDias(); carregarDiasComCliente(); carregarEspacos(); encherMontagem(); carregarHistorico();
-        /* 🔴 O OTIMIZADOR RODA NO CARREGAMENTO (dono, 08/08: "é pra funcionar
-           já no carregamento, ao apertar Montar Rota, só isso"). Chegar aqui É
-           mandar montar — o 2º "Montar rota" no pé da tela não existe mais.
-           Rota JÁ RODANDO fica de fora: re-planejar no meio do dia embaralharia
-           a sequência de quem está na rua só porque ele abriu a tela. */
-        if (pularMontarAoAbrir) pularMontarAoAbrir = false;
-        else if (estadoRota !== 'rodando' && estadoRota !== 'pausada') montarRota();
+        /* 🔴 ENTRAR NÃO MONTA MAIS NADA (dono, 10/08: "montar rota, voltar.
+           ROTA JÁ FOI GERADA. pq?" · "cancelo a rota, fica piscando").
+           O auto-montar de 08/08 ("funcionar já no carregamento") gravava no
+           servidor só de ABRIR a tela: o planejar carimbava `rotaOrdem` e — com
+           o materialize de 10/08 — até RESSUSCITAVA um dia recém-cancelado, e
+           cada volta repetia a cena de rota nova (o "piscando"). É a mesma
+           regressão que o dono já matou em 29/07 ("estou apertando Cancelar…
+           os clientes voltam!!!"), agora pela porta da agenda.
+           A régua vigente é a do rascunho (09/08, "eu ainda nem confirmei q
+           queria nada"): a Montagem MOSTRA e deixa mexer; quem GRAVA é o dedo —
+           Iniciar (materializa + planeja + inicia), Salvar, "Meus clientes"/
+           avulsa. Entrar e voltar deixa o servidor exatamente como estava. */
       }
       /* 🔴 A TELA PRINCIPAL DA ROTA É UM MAPA, E MAPA SEM "ONDE EU ESTOU" NÃO É
          MAPA (dono, 08/08: *"não mostra minha localização tbm"*). O watch do
@@ -9435,9 +9432,8 @@
       let encaixe = { aplicado: false, anterior: null };
       const novoId = entrega && entrega.id ? String(entrega.id) : '';
       if (novoId) encaixe = await encaixarAvulsa(novoId, posicao);
-      // A escolha dele já está gravada: a Montagem que vem a seguir não
-      // reotimiza por cima (ver `pularMontarAoAbrir`).
-      pularMontarAoAbrir = encaixe.aplicado;
+      // A escolha dele já está gravada — e desde 10/08 a Montagem não
+      // reotimiza nada sozinha ao abrir, então ninguém passa por cima.
       await carregarRota();
       await voltarDaAvulsa(volta);
       window.portao({
@@ -9457,13 +9453,10 @@
       // faria ele adicionar o mesmo endereço duas vezes.
       rapida = null;
       try { await carregarRota(); } catch (_) { /* já estamos no desvio */ }
-      // Sem isto a Montagem tentaria planejar de novo e o erro genérico dela
-      // apagaria o aviso abaixo — que é a única frase que diz que a parada existe.
-      pularMontarAoAbrir = true;
       await voltarDaAvulsa(volta);
       window.portao({
         tom: 'alerta', ico: 'alert', titulo: 'A parada entrou',
-        sub: 'Mas não consegui reordenar a rota agora. Toque em "Montar rota" pra ela achar o lugar dela.',
+        sub: 'Mas não consegui reordenar a rota agora. Ela acha o lugar dela no Iniciar.',
         acoes: [['Fechar', 'principal', true]],
       });
     }
@@ -9596,8 +9589,6 @@
       await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...origemGps() });
     } catch (_) { ordenou = false; }
     await carregarRota();
-    // Acabei de planejar: a Montagem não precisa (nem deve) planejar de novo.
-    pularMontarAoAbrir = ordenou;
     await voltarDaAvulsa(volta);
 
     const n = entraram.length;

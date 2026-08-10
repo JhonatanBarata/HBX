@@ -366,6 +366,11 @@ const SO_MEDIR = process.argv.includes('--antes');
     // própria ponte declara; passada a trava, ele vale.
     await p.waitForTimeout(3200);
     await p.evaluate(() => window.dispatchEvent(new Event('focus')));
+    /* O boot real faz `carregarRota` contra a API de verdade; aqui o dublê
+       chegou DEPOIS do boot, então a releitura é pedida pela mesma porta que a
+       ponte já expõe. Antes de 10/08 quem tapava este buraco era o auto-montar
+       da entrada da Montagem — que morreu de propósito (entrar não grava). */
+    await p.evaluate(() => window.HBXRota && window.HBXRota.carregar());
     await p.waitForTimeout(700);
   };
 
@@ -845,9 +850,12 @@ const SO_MEDIR = process.argv.includes('--antes');
   eh('D1 · saldo cobre ⇒ NENHUM portao antes de iniciar', !temPortaoIniciar);
   eh('D2 · o POST /logistica/rota/iniciar saiu', (await posts()).indexOf('/logistica/rota/iniciar') >= 0);
   eh('D3 · a rota ficou ACTIVE', tD2.routeStatus === 'ACTIVE');
-  eh('D4 · o dock MORFOU pra Navegar', /Navegar/.test(tD2.dock));
-  eh('D5 · continua na tela rota', tD2.tela === 'rota');
-  eh('D6 · sem tela remontando tela (nenhuma camada NOVA de troca)', pinturas <= 2);
+  /* 🔴 INICIAR É UM GESTO SÓ (dono, 10/08: "clico em iniciar, o botão muda para
+     navegar NÃO QUERO — é iniciar de uma vez só"). O contrato antigo — dock
+     morfando pra "Navegar" e esperando um 2º toque — morreu; o toque entra
+     DIRETO na navegação. */
+  eh('D4 · o toque entra DIRETO na navegação (tela mapa)', tD2.tela === 'mapa', `tela=${tD2.tela}`);
+  eh('D6 · sem tela remontando tela (só a troca rota→mapa)', pinturas <= 3, `camadas=${pinturas}`);
 
   /* ===================================================================
      CENA D2 — INICIAR pelo pé da MONTAGEM (o caminho que o dono fez).
@@ -902,7 +910,8 @@ const SO_MEDIR = process.argv.includes('--antes');
   nota(`    camadas montadas=${pinturasF} · sequencia de telas: ${telasF.join(' > ')}`);
   nota(`    POSTs: ${(await posts()).join(' , ') || '(nenhum)'}`);
   eh('F1 · iniciar pela montagem NAO abre portao (saldo cobre)', !portaoNaMontagem);
-  eh('F2 · iniciar pela montagem leva pra rota RODANDO', tF2.routeStatus === 'ACTIVE');
+  eh('F2 · iniciar pela montagem tambem cai DIRETO na navegação, rota ACTIVE',
+    tF2.routeStatus === 'ACTIVE' && tF2.tela === 'mapa', `tela=${tF2.tela} status=${tF2.routeStatus}`);
 
   /* ===================================================================
      CENA E — saldo NÃO cobre: a trava continua
@@ -946,21 +955,32 @@ const SO_MEDIR = process.argv.includes('--antes');
   const postsG = await posts();
   nota(`[G] dia morto → montagem: stops=${tG0.nStops} · entregas no servidor=${tG0.entregasNoServidor} · pe="${tG0.pe}"`);
   nota(`    POSTs da entrada: ${postsG.join(' , ') || '(nenhum)'} · portao="${tG0.portao}"`);
-  eh('G1 · abrir a Montagem chama o materialize (a porta que faltava)',
-    postsG.indexOf('/logistica/mobile/materialize') >= 0, postsG.join(','));
-  eh('G2 · a agenda virou entrega no servidor (o dia renasceu)',
-    tG0.entregasNoServidor === AGENDA_HOJE.length, `entregas=${tG0.entregasNoServidor}`);
-  eh('G3 · materializar é idempotente: 1 entrega por cliente, sem leva dupla',
+  /* 🔴 ENTRAR NÃO GRAVA (dono, 10/08: "montar rota, voltar. ROTA JÁ FOI
+     GERADA. pq?"). A 1ª versão desta cena cobrava o contrário — materialize na
+     ENTRADA — e foi exatamente o comportamento que o dono reprovou na tela no
+     mesmo dia: abrir e voltar deixava rota montada, e cancelar deixava de
+     valer (o dia renascia sozinho, "fica piscando"). O materialize é do DEDO. */
+  eh('G1 · entrar na Montagem NAO cria nada no servidor',
+    postsG.indexOf('/logistica/mobile/materialize') < 0
+    && postsG.indexOf('/logistica/rota/planejar') < 0
+    && tG0.entregasNoServidor === 0, `posts=${postsG.join(',')} entregas=${tG0.entregasNoServidor}`);
+  eh('G2 · mas a AGENDA aparece na lista pra decidir (prévia, não entrega)',
     tG0.nStops === AGENDA_HOJE.length, `stops=${tG0.nStops}`);
   await zerar();
   await p.waitForSelector('.pe-montagem [data-acao="iniciar-rota"]', { timeout: 8000 });
   await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="iniciar-rota"]').click());
   await p.waitForTimeout(2200);
   const tG1 = await espiar();
-  nota(`[G] iniciar: portao="${tG1.portao || '(nenhum)'}" · routeStatus=${tG1.routeStatus}`);
+  const postsG1 = await posts();
+  nota(`[G] iniciar: POSTs=${postsG1.join(' , ')} · portao="${tG1.portao || '(nenhum)'}" · routeStatus=${tG1.routeStatus} · tela=${tG1.tela}`);
+  eh('G3 · o INICIAR materializa o dia morto (a porta que faltava, no dedo)',
+    postsG1.indexOf('/logistica/mobile/materialize') >= 0
+    && tG1.entregasNoServidor === AGENDA_HOJE.length,
+    `posts=${postsG1.join(',')} entregas=${tG1.entregasNoServidor}`);
   eh('G4 · o Iniciar NAO morre mais no "Nenhuma entrega aberta"',
     !/Não deu certo|Nenhuma entrega aberta/i.test(tG1.portao), tG1.portao);
-  eh('G5 · a rota do dia renascido ficou ACTIVE', tG1.routeStatus === 'ACTIVE');
+  eh('G5 · a rota do dia renascido ficou ACTIVE e caiu na navegação',
+    tG1.routeStatus === 'ACTIVE' && tG1.tela === 'mapa', `status=${tG1.routeStatus} tela=${tG1.tela}`);
 
   await b.close();
   console.log('\n=== MEDIDAS ===');
