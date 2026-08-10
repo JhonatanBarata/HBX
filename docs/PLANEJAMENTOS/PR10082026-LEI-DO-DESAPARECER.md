@@ -131,6 +131,33 @@ pior que pino vazio — a régua de PINO não afrouxa, só a de CEP).
 
 ---
 
+---
+
+## §2b — ESTADO (10/08, madrugada — tudo medido em produção)
+
+| fase | o que é | estado |
+|---|---|---|
+| F0 | janela de estorno | ✅ medida: minutos (5 min / 90 s) ⇒ `JANELA_EXPURGO_MS` = 24 h |
+| F3 | CEP: consenso da quadra + alvo só-CEP | ✅ `25166875` · **rodando em prod**: "preencheu 5 CEP(s)" no 1º ciclo |
+| F4 | Montagem abre sem dia | ✅ `3e876313` (APK publicado) |
+| F2.1 | carimbo `agendaOcorrenciaKeyOrigem` | ✅ `372ef9f5` · coluna + índice no VPS |
+| F2.2 | evento `CANCELADA_LIMPAR_DIA` com ator | ✅ `372ef9f5` |
+| F2.4 | cancelar vale (nem publish ressuscita) | ✅ `372ef9f5` |
+| F5 | histórico vermelho + o que não foi completado | ✅ publicado · medido nos 2 modos |
+| F1 | expurgo | ✅ `372ef9f5` + lotes em `340c9b95` |
+| F2.3/2.5 | cursor da agenda · botão Cancelar | ⬜ não começadas |
+
+**A 1ª passada real (06:53):** 1.089 entregas mortas e 2 rotas desapareceram, 6 sessões
+encerradas — **sem tocar em nada vivo** (agendadas 152, entregues 44, em_rota 2, e as 51
+do dia do André intactas). O teto de 1 lote/dia deixaria o resto pra amanhã; por isso o
+`340c9b95` faz a passada varrer até esgotar.
+
+**CEP da company 41 (225 clientes ativos):** 158 com CEP, 67 sem. Dos 67: 35 têm pino
+(alvo só-CEP, a régua nova), 32 sem pino, e **16 são impossíveis por máquina** — não têm
+número digitado. A lista nominal dos 16 está no relatório ao dono; é a única parte humana.
+
+---
+
 ## §3 — Ordem de execução e prova
 F0 (medida) ✅ → F3 (CEP) ✅ `25166875` → **F4** (Montagem abre sem dia — é a foto que o
 dono mandou) → F2.1/2.2 (carimbo+evento, migration aditiva) → F2.4 (cancelar vale) →
