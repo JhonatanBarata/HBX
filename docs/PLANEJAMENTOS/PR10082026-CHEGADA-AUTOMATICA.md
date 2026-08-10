@@ -104,6 +104,46 @@ document.addEventListener('hbx:arrival', (ev) => { ... });
 - **Sem `H.speak` no JS**: o `RotaService.falar()` já diz "Chegou: Fulano" — duas
   vozes é eco (armadilha documentada dos sons do Iniciar).
 
+## F4 — "Registrar local" na navegação (ideia do dono, 10/08)
+
+> *"registrar local teria q ser aqui, com GPS ativo. O André q se adapte nesse
+> sentido!!"* — na tela de dirigir, botão na ESQUERDA da barra de baixo
+> (espelho do "Sair").
+
+**Fato medido antes do desenho:** a tela Fechamento de hoje é SÓ dinheiro
+(formas + total + Fechar o dia) — o roster saiu de lá por ordem do próprio dono.
+As opções pedidas existem TODAS, cada uma na sua tela: **avulsa** (vender pra
+quem não está no dia — "conta no fechamento" é copy do próprio app),
+**novocliente** (o "+", com "Usar meu local" → CEP/rua/bairro do GPS) e
+**ficha** (editor completo com Salvar real). O botão abre ESSAS portas; o
+dinheiro cai no fechamento sozinho, como hoje.
+
+**O gesto:** toque em "Registrar local" → **carimba o fix NA HORA** (GPS ativo,
+parado na porta = precisão de ouro) → portão com 3 saídas, todas existentes:
+
+1. **Vender aqui** → fluxo da avulsa, semeado com o fix
+2. **Cadastrar cliente** → novocliente com endereço JÁ preenchido pelo fix
+   (`geo/reverse`, o mesmo do "Usar meu local" — sem toque extra)
+3. **Corrigir {parada da vez}** → a ficha do cliente da parada atual, com o
+   pino do fix oferecido — é a inteligência antiga ("chegou → corrija o
+   endereço"), no gesto dele
+
+**Por que compõe com F1–F3 (e não compete):** o geofence cobre o cliente
+CONHECIDO com pino bom; o botão cobre os buracos — cliente novo, venda
+improvisada e **pino errado** (o caso em que o geofence nunca dispara; 83
+clientes da 41 sem fonte de pino nenhuma, medido 10/08). Cada uso converge a
+base.
+
+**Custo:** 1 botão no MOCK da tela de dirigir (`data-acao="registrar-local"`,
+pipeline pele20: editar o HTML → gerar → conferir), 1 `window.portao` com as 3
+ações, e a semeadura do fix nas 3 telas. Sem Kotlin, sem endpoint, sem tela
+nova. Conferir antes: a AVULSA está publicada? (era commit LOCAL em 09/08).
+
+**Prova F4:** no g15, parado na porta com rota rodando — toque → portão →
+(a) cadastro nasce com o endereço da porta preenchido; (b) venda avulsa soma
+no fechamento; (c) "Corrigir" abre a ficha da parada da vez e o Salvar grava
+o pino (conferir `geoFonte='gps_cadastro'` no banco).
+
 ## O que NÃO entra (de propósito)
 
 - **Aviso WhatsApp "estou chegando" da 41** — desligado pelo dono em 04/08
@@ -141,8 +181,10 @@ document.addEventListener('hbx:arrival', (ev) => { ... });
 
 ## Fases e entrega
 
-- F1 → F2 → F3, **um commit por fase**, prova antes do seguinte (menor caminho
-  até resultado visível).
+- F1 → F2 → F3 → F4, **um commit por fase**, prova antes do seguinte (menor
+  caminho até resultado visível). F1–F3 são só `ponte.js`; F4 toca o mock
+  (pipeline pele20) e por isso vem por último, com o `pele20-antes-e-depois`
+  como portão.
 - Publish sobe o piso do APK sozinho (ponte.js entra na digital) — motoristas
   recebem pelo aviso. Depois do publish: prova no g15 NO BUILD PUBLICADO (§1 do
   hbxapk).
