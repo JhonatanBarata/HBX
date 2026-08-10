@@ -1,193 +1,126 @@
 # PR10082026 — PICAR A PONTE: o app sai de UM arquivo pra módulos com DONO
 
 > Ordem do dono (10/08): *"vc criou um código imenso, ponte.js. pode começar picando ele,
-> refaça inteira a arquitetura. eu clico em montagem ele já puxa coisa, eu tiro um simples
-> 'carregar segunda automaticamente' ele já quebra o carregamento do dia. toda essa linhagem
-> de pensamento em um arquivo imenso de 10.000 linhas é o problema."*
+> refaça inteira a arquitetura."* · Atualização (10/08, manhã): *"arquivos chaves (js) não
+> podem passar de 1000 linhas (exceções raras). Não vão ser 5 noites — vai ser tudo feito
+> agora, com workers. Exijo mudança 0 no front, com exceção da rota que se auto cria e eu
+> não vejo ela criada, e o cancelar que não deleta. Não publique no final — eu testo."*
 
----
+## §0 — ESTADO ATUAL (medido 10/08 ~05h40, pós-publish `f949cab9`)
 
-## §0 — A DOENÇA, MEDIDA (10/08, no arquivo de produção)
-
-| Medida | Valor |
+| Fato | Medida |
 |---|---|
-| Linhas do `ponte.js` | **10.858** |
-| Funções | **~505** |
-| Variáveis de estado soltas no escopo do arquivo (`let` ambientais) | **79** |
-| Escopos | **1 IIFE** — toda função enxerga as 79 variáveis |
+| `ponte.js` | **11.037 linhas** (cresceu: sessão paralela pôs `outroDia`/chip-gente) |
+| Bug do Iniciar do mapa | **VIVO** — `ponte.js:3036` ainda decide `avulsa` lendo `montarDia` da Montagem |
+| F0 | **NÃO feito** (o publish das 05:25 só levou este plano; ad2431ed/e4e3baf8 são outra frente) |
+| Produção, dia 10/08, company 41 | 51 `agendada` criadas ~03h BRT **sem gesto visível** + 714 `cancelada` acumuladas |
+| "Mão invisível" | cron `gerarDiaAutomatico` morto em `431da2ed` — mas ALGO criou as 51 depois; investigar |
+| Cancelar | carimba `cancelada` e deixa o corpo; só o expurgo de 24h limpa — o dono quer DELETE |
 
-**O espécime da doença — a regressão desta noite, commit por commit:**
+## §1 — AS REGRAS DESTA EXECUÇÃO (ordens do dono, 10/08)
 
-1. `fe10cbb3` — "Iniciar é um gesto só" (ordem do dono). Certo.
-2. `3e876313` — "a Montagem abre sem dia" (ordem do dono). Mudou `let montarDia = -1`. Certo.
-3. `41f5f034` — "chip desligado = rota avulsa" (ordem do dono). `const avulsa = montarDia === -1`. Certo.
+1. **Arquivo-chave JS ≤ 1.000 linhas.** Exceção rara e justificada. Arquivo GERADO
+   (mock.js, ponte.js costurado) não conta — a régua é da FONTE.
+2. **Mudança 0 no front.** Pixel por pixel, gesto por gesto — com DUAS exceções pedidas:
+   (a) rota/dia que se auto-cria sem o dono ver → morre o criador sem gesto E a tela
+   passa a MOSTRAR o dia que existe (a barra que dizia "Sem paradas hoje" com 51
+   agendadas); (b) cancelar DELETA o que não foi processado, não carimba defunto.
+3. **Tudo agora, com workers em paralelo** — territórios disjuntos, portões por entrega.
+4. **NÃO publicar.** Commits locais na master. O dono publica e testa no celular.
 
-Os três certos SOZINHOS. Juntos: o **Iniciar do mapa** (tela Rota) leu `montarDia` — que é
-estado da tela **Montagem**, que o dono nunca abriu — concluiu "rota avulsa vazia" e morreu
-com **51 paradas agendadas** no servidor. Erro na tela: *"A rota avulsa está vazia."*
+## §2 — AS TRÊS LEIS DA ARQUITETURA (inalteradas)
 
-A causa não é o botão. É que **`-1` significa duas coisas** ("Montagem abriu limpa" e
-"o dono desligou o dia de propósito") e **duas portas** (Iniciar do mapa, Iniciar da
-Montagem) adivinham a intenção lendo a mesma variável ambiente. Num arquivo de 10.858
-linhas, TODA variável é ambiente. Cada ordem nova reprograma portas que ninguém tocou.
+1. **ESTADO TEM UM DONO.** Módulo de fora lê por função com nome; escrever não existe.
+2. **INTENÇÃO VIAJA COMO ARGUMENTO.** `iniciar({escopo:'dia'})` do mapa;
+   `iniciar({escopo:'avulsa', ids})` da Montagem. Porta nunca adivinha por variável
+   ambiente. *Com esta lei, a regressão de hoje é impossível de escrever.*
+3. **ESTADO DE TELA MORRE COM A TELA.** Chip, prévia, rascunho: nascem na Montagem,
+   morrem ao sair sem gravar (exceção já-lei: RASCUNHO vive em rapida/ficha/novocliente).
 
-É a mesma doença que o PR09082026-ROTA-SEIS-VERBOS mediu no banco ("a agenda em 4 cópias"),
-agora medida no app: **estado sem dono**.
+## §3 — O MECANISMO DA PICADA (mudança 0 garantida por HASH)
 
----
+A fonte vira `EntregaShell/app/src/logistica/ponte-src/NN-nome.js` — FORA de `assets/`,
+que é embarcado no APK (14 arquivos ≤1.000 linhas, partição por FRONTEIRA de instrução top-level do IIFE).
+`scripts/ponte-costurar.js` concatena na ordem e gera o `ponte.js` embarcado —
+**byte-idêntico ao original no primeiro corte (portão: hash igual)**. É o MESMO desenho
+da casca (fonte HTML → mock.js gerado), que a casa já sabe operar.
 
-## §1 — AS TRÊS LEIS DA ARQUITETURA NOVA
+- `scripts/ponte-conferir.js`: falha se o gerado ≠ costura(fonte) — vacina contra edição
+  à mão no gerado (a lição do cordão de update, perdida 2× no index.html).
+- Costura entra no fluxo do publish ao lado do `casca-injetar` (o publish nunca embarca
+  ponte velho).
+- `index.html` NÃO muda (continua carregando um `ponte.js`).
 
-1. **ESTADO TEM UM DONO.** Cada variável mora num módulo, e só o dono escreve nela.
-   Quem é de fora LÊ por função com nome (`Rota.estado()`), nunca pela variável crua.
-   Escrita de fora **não compila** — não é disciplina, é parede.
+## §4 — OS WORKERS (territórios disjuntos, rodando AGORA)
 
-2. **INTENÇÃO VIAJA COMO ARGUMENTO.** Porta não adivinha. O Iniciar do mapa chama
-   `iniciar({escopo:'dia'})`. O Iniciar da Montagem chama `iniciar({escopo:'avulsa',
-   ids:[...]})` ou `{escopo:'dia'}` conforme o chip DELA. O verbo executa o que
-   recebeu — nunca fareja em que tela o dedo estava nem que variável ficou no ar.
-   *Com esta lei, a regressão desta noite é IMPOSSÍVEL de escrever.*
+| Worker | Território | Entrega | Estado |
+|---|---|---|---|
+| **W1 picador** | `ponte-src/` + `scripts/ponte-*` | Split ≤1.000/arquivo por script + costura + conferidor + F0 (portas declaram `{escopo}`) + vacina "porta suja" + fonte fora do APK + demolição | ✅ `9e15eac9` · `e8d2d97e` · `a9aa2f4f` · `e324730d` · `f21cc204` |
+| **W2 coveiro** | `backend/` (+ leitura VPS) | (a) autópsia das 51: era a passada de boot do cron VELHO (backend das 03:51 ainda sem o `431da2ed`; zero criações desde que ele subiu às 05:26) — nenhum criador sem gesto sobrou; (b) cancelar = DELETE do lixo nunca processado (ensaio em prod: 714 apagariam, 56 com crédito debitado ficam) + expurgo apertado (rota com parada fica inteira) | ✅ `9db7c2f6` · tsc limpo · logística 922/922 |
+| **W3 casca** | mockup + gerados | Barra do `montar` com abertas>0: "N paradas agendadas" + dica; "Sem paradas hoje" só com dia vazio de verdade | ✅ `5c176c28` · casca 62/62 |
+| **W4+ (onda 2)** | `ponte-src/` módulo a módulo | De-ambientização dos 79 `let`: cada estado preso no seu arquivo, namespace `PONTE` explícito, RASTRO (últimas 50 transições com ator) + mover retardatários pro módulo certo | ⬜ roda DEPOIS do teste do dono no celular (não empilhar mudança não testada) |
 
-3. **ESTADO DE TELA MORRE COM A TELA.** Chip do dia, prévia, rascunho, espaço escolhido:
-   nascem quando a Montagem abre, morrem quando ela fecha sem gravar. Nenhuma outra tela
-   consegue lê-los porque eles nem existem mais. (Exceção que já é lei do domínio: o
-   RASCUNHO sobrevive nas 3 telas de escolher gente — `rapida`/`ficha`/`novocliente`.)
+> ⛔ **FRONTEIRA DO DELETE (ordem do dono, 10/08):** *"não é para deletar históricos —
+> o cliente pode querer reaproveitar, saber o quanto gastou, ou reaproveitar as rotas já
+> gastas."* O DELETE (do cancelar E do expurgo de 24h) só come **lixo nunca processado**
+> (`agendada`/`em_rota` sem desfecho + filhos diretos). INTOCÁVEIS para sempre: a linha da
+> rota (`LogisticaRoute`, mesmo cancelada — é o "quanto gastou"), `LogisticaRouteStop`
+> (reuso de rota já rodada), claims/extrato de crédito, entregas com desfecho de rua
+> (`entregue` e `cancelada` com `rotaOrdem`), fechamento/caderneta, eventos da agenda,
+> modelos de rota e a agenda. Prova: "quanto gastei no mês" e "remontar a rota de ontem"
+> respondem IGUAL antes e depois. **Implementada como `SEM_SINAL_DE_VIDA`, régua ÚNICA
+> compartilhada entre limpar-dia e expurgo.**
 
----
+Guerra de sessão: cada worker fica no SEU território; commit local pequeno por entrega;
+se `index.lock`, espera e tenta de novo. Nenhum worker publica, nenhum cria branch.
 
-## §2 — O DESENHO
+## §5 — A FONTE PICADA COMO FICOU (14 arquivos, maior 997 linhas)
 
-```
-ANDROID (Kotlin)  →  native.js  →  mock.js (GERADO da casca — NÃO MUDA NADA)
-                                        ↓ pinta telas, lê DADOS/PARADAS
-                     ┌──────────────────┴───────────────────────────────┐
-                     │            PONTE PICADA (assets/app/ponte/)      │
-                     │                                                  │
-   00-nucleo.js      │  API · telaAtual · camadaViva · trava(ocupado)   │
-                     │  fila · esc() · avisoErro · RASTRO (auditoria)   │
-                     ├──────────────────────────────────────────────────┤
-   10-rota-estado.js │  A MÁQUINA DE 5 ESTADOS (PR09082026, já com GO)  │
-                     │  DONO DE: estadoRota · ENTREGAS · PARADAS do dia │
-                     │  · diaNaTela · virada do dia · carregarRota      │
-                     │  Toda transição tem NOME e entra no RASTRO.      │
-                     ├──────────────────────────────────────────────────┤
-   20-rota-verbos.js │  materializar · planejar · iniciar(escopo!) ·    │
-                     │  cancelar · salvar · fecharDia                   │
-                     │  SEM ESTADO PRÓPRIO. Recebe argumento, fala com  │
-                     │  o servidor, manda a máquina transicionar.       │
-                     ├──────────────────────────────────────────────────┤
-   30-montagem.js    │  DONO DE: montarDia(chip) · PREVIA · RASCUNHO ·  │
-                     │  ESPACOS · modoSel · diasComCliente              │
-                     │  Nasce ao entrar, morre ao sair. Chama os verbos │
-                     │  com argumento — nunca exporta variável.         │
-                     ├──────────────────────────────────────────────────┤
-   40-mapa-cenas.js  │  GARAGEM(palcos) · cenas · camFase · traço/pinos │
-                     │  CONSULTA a máquina (rotaMontada()) — não decide.│
-                     ├──────────────────────────────────────────────────┤
-   50-gps-nav.js     │  gpsWatch · ultimoFix · navRota+tetos · geofence │
-                     │  · aviso "tô chegando"                           │
-                     ├──────────────────────────────────────────────────┤
-   60-entrega.js     │  folha de chegada · confirmar · não-entregue ·   │
-                     │  caderneta/fechamento                            │
-                     ├──────────────────────────────────────────────────┤
-   70-clientes.js    │  ficha · novo cliente · busca · porta "rapida" · │
-                     │  MODELOS                                         │
-                     ├──────────────────────────────────────────────────┤
-   80-plataforma.js  │  update/CSP · sons · tema · Voltar · teclado ·   │
-                     │  barra de módulos · tutorial                     │
-                     └──────────────────────────────────────────────────┘
-```
+`EntregaShell/app/src/logistica/ponte-src/` (fora de `assets/` — o APK não carrega fonte):
+`00-nucleo` 839 · `10-geofence-montagem` 928 · `20-montagem-previa` 783 · `30-verbos-rota`
+850 · `40-mapa-palcos` 856 · `50-cena-ruas` 997 · `60-prospector-nav` 807 ·
+`70-traco-camera` 795 · `80-gps-rotas-salvas` 816 · `90-ajustes-financeiro` 679 ·
+`A0-chat-produtos` 673 · `B0-clientes-ficha` 814 · `C0-encaixe-semana` 618 ·
+`D0-porta-entrega` 626. Nomes seguem a ordem física do corte; a onda 2 move os
+retardatários e renomeia pro mapa-alvo de módulos (núcleo/estado/verbos/montagem/mapa/
+gps/entrega/clientes/plataforma).
 
-**Como os módulos conversam** — um objeto só, explícito e auditável:
+## §6 — DEMOLIÇÃO (feita em `f21cc204`, fio conferido peça a peça)
 
-```js
-window.PONTE = { nucleo, rota, verbos, montagem, mapa, gps, entrega, clientes };
-```
+| Peça | Veredito | Fio |
+|---|---|---|
+| `mobile-contract.js` (12 KB) | ⚰️ morreu | ninguém carrega/refere |
+| `offline-controls.js` (7,6 KB) | ⚰️ morreu | idem; pacote offline morto desde 06/08 |
+| `opening.html` (35 KB) | FICA | `OpeningActivity.kt:139` carrega no boot |
+| `matriz.js` (11 KB) | FICA | `frontend/scripts/check-matriz.mjs` (fiscal APK×web) |
 
-- Cada arquivo REGISTRA o que exporta; leitura cruzada é sempre `PONTE.rota.estado()` —
-  greppável, com dono na cara. `let` ambiental compartilhado DEIXA DE EXISTIR.
-- **RASTRO** (no núcleo): as últimas 50 transições de estado com ATOR
-  (`"montagem/iniciar-rota → planejar(avulsa, 3 ids)"`). É a lei do "evento com ator"
-  da LEI DO DESAPARECER aplicada ao app: quando algo regredir, o rastro diz QUEM foi
-  em 10 segundos, não em 3 horas de arqueologia.
-- Carregamento: `index.html` lista os arquivos NA ORDEM (00→80). Sem bundler, sem build
-  novo — a CSP `'self'` já cobre. ⚠️ `index.html` é GERADO: a lista nasce no
-  `scripts/casca-injetar.js` (o cordão de update já morreu 2× por editar o gerado à mão).
+Colateral consertado: o passo de CI "Packaged JavaScript syntax" apontava pros 2 mortos
+e pro `app.js` (morto na fusão de 07/08) — estava vermelho por ausência e cego pro app
+real; repontado pra `native`/`mock`/`ponte` + `main/native.js` + `matriz.js`.
+⚠️ Achado fora do território (registrado, decisão do dono): `check-matriz.mjs` está
+QUEBRADO desde 07/08 (lê `assets/app/app.js`, que não existe — `ENOENT` antes de
+fiscalizar qualquer coisa, dentro do `lint` do frontend).
 
-**O que a picada NÃO toca:** a casca (mock HTML → `casca-injetar` → mock.js/mock.css)
-continua exatamente como é — fonte no HTML, 32 telas, portões `casca-*`. O backend
-(seis verbos, PR próprio) é outra frente. O nativo (Kotlin) não muda.
+## §7 — O QUE NÃO SE TOCA
 
----
+Casca/mock (fora a exceção W3, pedida pelo dono) · backend seis-verbos (frente própria) ·
+nativo Kotlin · Webwhats · nada de branch, nada de publish.
 
-## §3 — AS FASES (cada uma termina PUBLICADA e testável no celular)
+## §8 — ESTADO FINAL (10/08, pronto pro teste do dono; NADA publicado)
 
-### F0 — ESTANCAR O SANGUE (minutos, antes de tudo)
-O bug na mão do dono não espera refatoração:
-- `iniciarRota`: o escopo vem da PORTA. Mapa (`iniciar`) = dia. Montagem
-  (`iniciar-rota`) = avulsa só se o chip DELA está desligado. Fim do palpite por
-  `montarDia` ambiente.
-- A barra do mapa fala a verdade do dia por montar: **"51 paradas agendadas"** + a dica
-  de montar — nunca mais "Sem paradas hoje" com 51 esperando (mexe na casca, via
-  pipeline `casca-*`; tela mudada de propósito acusada no antes-e-depois).
-- Prova nova no `prova-fluxo-rota`: **Iniciar do mapa com a Montagem nunca aberta e
-  estado dela sujo** — a vacina desta noite.
-- Publica. Dono testa. Só então começa a picada.
+7 commits locais na master: `5c176c28` (barra fala a verdade) · `9e15eac9` (picada
+hash-idêntica) · `e8d2d97e` (F0 — intenção como argumento) · `a9aa2f4f` (vacina porta
+suja) · `9db7c2f6` (cancelar apaga + expurgo apertado) · `e324730d` (fonte fora do APK)
+· `f21cc204` (demolição + CI).
 
-### F1 — O ESQUELETO (1 noite)
-- Nasce `assets/app/ponte/` com os 9 arquivos; `casca-injetar` passa a emitir a lista.
-- Mudança de código = **só transporte** (mover função inteira, byte a byte). Zero
-  comportamento novo. O arquivão morre no MESMO commit (lei da chave morta: nada de
-  `ponte.js` velho "de reserva" pra alguém carregar sem querer).
-- Portões: casca 32/64 intocada · `prova-fluxo-rota` 60/60 · `prova-abertura` ·
-  `prova-navegar` · `prova-cena-ruas` — todos verdes ANTES e DEPOIS.
+Portões no HEAD final: `ponte-conferir` ✅ (14 fontes, sha256 `ac5210d9…`) ·
+`casca-conferir` ✅ 62/62 · `prova-fluxo-rota` 80/80 · backend tsc limpo + logística
+922/922. Peso tirado do APK: ~609 KB.
 
-### F2 — A MÁQUINA E OS VERBOS (1 noite)
-- `10-rota-estado`: os 5 estados viram transições NOMEADAS + RASTRO ligado.
-- `20-rota-verbos`: `iniciar/planejar/custo` recebem `{escopo, ids}` — a Lei 2 vira
-  código. Os aliases de ação (`iniciar`, `iniciar-rota`) passam a declarar a intenção.
-- Morrem aqui: os estados `pausada`/`semsinal` que o servidor NUNCA produz
-  (PR 5-ESTADOS §4 já condenou) e todo `if` que pergunta "em que tela estou?" pra
-  decidir verbo.
-
-### F3 — A MONTAGEM VIRA DONA DE SI (1 noite, a fase que mata a classe do bug)
-- `montarDia`, PREVIA, RASCUNHO, ESPACOS, memória de espaço → presos no módulo 30.
-- Entrar não grava, entrar não carrega (as duas leis de hoje) — e agora sair LIMPA.
-- Prova de porta suja vira geral: toda porta do mapa roda com o estado da Montagem
-  aleatório — nenhuma pode mudar de comportamento.
-
-### F4 — MAPA/CENAS + GPS/NAV (1 noite)
-- Módulos 40 e 50. `rotaMontada()` passa a ser A consulta pública da máquina —
-  os 3 pontos que hoje a chamam continuam, mas ninguém mais lê `estadoRota` cru.
-
-### F5 — ENTREGA, CLIENTES, PLATAFORMA + DEMOLIÇÃO (1 noite)
-- Módulos 60/70/80 por transporte.
-- **As linhas vermelhas** (cada corte confere o FIO antes — função, passo de tutorial e
-  portão que a peça dirigia, a lei do "remover peça varre o tour"):
-  | Candidato | Tamanho | Fio a conferir |
-  |---|---|---|
-  | `mobile-contract.js` | 12 KB | `index.html` não carrega; era o gerar-dia do app velho |
-  | `offline-controls.js` | 7,6 KB | idem — ninguém referencia no flavor |
-  | `opening.html` | 35 KB | não roda sob V2 (medido, APK 259); `OpeningActivity` FICA |
-  | `matriz.js` | 11 KB | conferir quem carrega |
-  | código morto interno achado no transporte | — | lista fecha na própria F5 |
-
-**Total: 4–5 noites.** A classe de bug "mexi ali, quebrou aqui" morre na F3 — o resto
-das noites é acabar a mudança, não conviver com app quebrado.
-
----
-
-## §4 — OS PORTÕES DE TODA FASE (inegociáveis)
-
-1. `node scripts/casca-injetar.js && node scripts/casca-conferir.js` — 32 telas, 100%.
-2. `prova-fluxo-rota` (60+1 novas) · `prova-abertura` · `prova-navegar` · `prova-cena-ruas`.
-3. Console limpo no boot (bancada) + teste de TELA no g15 após cada publish.
-4. Commit local por fase; publish por fase (lei: terminar e testar no celular).
-5. Nenhuma fase deixa duas cópias vivas da mesma função (lei da chave morta).
-
-## §5 — DECISÕES QUE SÃO DO DONO (responder no GO)
-
-1. **GO do F0 já?** (o conserto do Iniciar + barra verdadeira sobe em minutos, hoje.)
-2. **Ordem das noites F1→F5 como está**, ou priorizar alguma frente?
-3. Na demolição da F5: além dos 4 arquivos da tabela, **quer que o corte seja agressivo**
-   (tudo que o transporte provar morto morre na hora) ou lista antes, corta depois?
+Pendências com moradia:
+- ⬜ **Onda 2 (W4+)**: de-ambientização dos 79 `let` + RASTRO — roda após o teste do dono.
+- ⬜ Histórico do DESKTOP (`admin-route/history`) conta lendo as linhas: dia 100%
+  cancelado some da lista de lá (no APK fica, pela trilha). Espelhar é decisão do dono.
+- ⬜ `descartarMontagem` e `encerrarDiasAnteriores` ainda carimbam `cancelada` (expurgo
+  limpa em 24h); levar o DELETE às 3 portas é o próximo corte natural.
+- ⬜ `check-matriz.mjs` quebrado (frontend) — consertar o alvo das catracas.
