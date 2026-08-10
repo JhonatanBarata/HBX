@@ -1,6 +1,22 @@
 # PR10082026 — A CHEGADA AUTOMÁTICA VOLTA (religar, não construir)
 
-**Status: aguardando GO.**
+**Status: F1–F4 CONSTRUÍDOS E PROVADOS na bancada. ⬜ falta publish + prova no g15.**
+
+| Fase | Estado | Onde |
+|---|---|---|
+| F1 · a precisão viaja no confirmar | ✅ **JÁ PUBLICADO** (o publish do dono das 03:04 levou) | `1ad75dea` |
+| F2 · o geofence é armado/desarmado | ✅ commitado, **não publicado** | `f0ce9498` |
+| F3 · a folha abre sozinha no `hbx:arrival` | ✅ commitado, **não publicado** | `f0ce9498` |
+| F4 · a barra da navegação + "Registrar" | ✅ commitado, **não publicado** | `bdb4dff1` (a parte da ponte foi junto no `3e876313` de outra sessão) |
+
+**Provas:** `node scripts/prova-chegada.js` → **29/29**, com GPS de verdade do
+Playwright (accuracy real, não dublada). `casca-conferir` 62/62 · `prova-fluxo-rota`
+61/61 · `prova-meus-clientes` 20/20 · `prova-navegar` 17/17. Contraste da barra
+nova medido nos 2 modos: pior caso 7,91:1 (AA).
+
+⚠️ **Ainda na mão do dono (knobs, não código):** `raioChegadaM` da 41 está em
+**20 m** — com GPS de celular quase não dispara; o padrão é 60. E o
+`avisoChegandoEnabled` da 41 segue **off** (decisão dele de 04/08).
 
 ## A cena (o critério de aceite)
 
@@ -134,15 +150,43 @@ improvisada e **pino errado** (o caso em que o geofence nunca dispara; 83
 clientes da 41 sem fonte de pino nenhuma, medido 10/08). Cada uso converge a
 base.
 
-**Custo:** 1 botão no MOCK da tela de dirigir (`data-acao="registrar-local"`,
-pipeline pele20: editar o HTML → gerar → conferir), 1 `window.portao` com as 3
-ações, e a semeadura do fix nas 3 telas. Sem Kotlin, sem endpoint, sem tela
-nova. Conferir antes: a AVULSA está publicada? (era commit LOCAL em 09/08).
+### O desenho, como o dono pediu (10/08) — FEITO
 
-**Prova F4:** no g15, parado na porta com rota rodando — toque → portão →
-(a) cadastro nasce com o endereço da porta preenchido; (b) venda avulsa soma
-no fechamento; (c) "Corrigir" abre a ficha da parada da vez e o Salvar grava
-o pino (conferir `geoFonte='gps_cadastro'` no banco).
+> *"abaixo de chegada, restante e distancia crie os botoes, 3 opcoes"*
+
+Os números sobem pra uma linha própria; embaixo fica só o que se aperta.
+**Numero se LÊ, botão se APERTA** — misturar os dois na mesma fila (era o caso:
+o "Sair" espremido ao lado de três números com que não tem nada a ver) põe o
+polegar decidindo entre coisas de natureza diferente. O **Sair fica na direita**,
+no mesmo canto do polegar de sempre: a tela mudou, o gesto que ele já tem na
+memória não.
+
+```
+ 👣 Parada 1 de 51 · Gislaine
+ 05:08          2 h 10        73,5 km
+ chegada        restante      distância
+ [ ◎ Registrar ] [ ▤ Fechamento ] [ Sair ]
+```
+
+Os nomes são os que o dono deixou a meu critério, e ele edita fino depois.
+"Registrar" é o verbo curto de *registrar o local onde eu estou*.
+
+**Como ficou por dentro:** o `portao()` do mock ganhou **ação por botão** (4º
+campo da ação). O `acaoPrincipal` que já existia resolve o portão que
+*pergunta* (um sim, um não); não resolve o que **oferece três portas**, onde
+nenhuma é "a principal". É aditivo — todos os portões de antes seguem byte a
+byte, e o `casca-conferir` (62/62) é quem prova isso.
+
+**Prova F4 (bancada, 11 cenas):** as três opções existem · os números ficam na
+linha de cima · o Sair continua à direita · **nenhum dos três é botão morto** ·
+o Registrar abre a escolha com a precisão do GPS na frente · cada saída cai numa
+tela que já existe (`novocliente` com o endereço da porta preenchido, `rapida`,
+e a `ficha` do cliente da vez — provado pelo NOME dentro do campo, não pelo
+texto solto da tela).
+
+⬜ **Falta a prova no g15** (§1 do hbxapk): publicar → parado na porta com rota
+rodando → o alarme toca e a folha abre sem toque → confirmar → conferir
+`geoFonte='gps_entrega'` no banco.
 
 ## O que NÃO entra (de propósito)
 
