@@ -42,7 +42,7 @@ const DOW = (() => {
 const DIA_A = (DOW % 7) + 1;
 const DIA_B = ((DOW + 2) % 7) + 1;
 
-const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agendaHoje, hojeDow }) => {
+const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agendaHoje, hojeDow, custoComoServidor }) => {
   window.__chamadas = [];
   /* 🔴 PROMESSA QUE MORRE SOZINHA NÃO ACENDE `pageerror`. Quase tudo da ponte é
      chamado sem `await` (`montarRota()` no abrir da tela, `void sanitizarPrevia`):
@@ -93,6 +93,11 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
     agendaHoje: agendaHoje || null,
     hojeDow,
     custo: custo || { blocosTotais: 3, blocosJaDebitados: 0, creditosAIniciar: 1.2, saldoAtual: 9340, saldoCobre: true },
+    /* cena G: o custo-preview responde como o SERVIDOR de verdade — 400 com
+       "Nenhuma entrega aberta" enquanto o dia está vazio. Atrás de bandeira
+       porque as outras cenas medem a Lei do IF (custo no chão = linha some),
+       não este contrato. */
+    custoComoServidor: !!custoComoServidor,
   };
   window.__S = S;
   /* O DIALETO REAL do /nucleo/clientes (09/08): lat/lng (o map da resposta
@@ -157,7 +162,12 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
         // os chips de dia nem nascem, que é metade do defeito A.
         return R({ modoRotaPadrao: 'essencial', appModulosDesativados: '' });
       }
-      if (caminho.indexOf('/logistica/rota/custo-preview') === 0) return R(S.custo);
+      if (caminho.indexOf('/logistica/rota/custo-preview') === 0) {
+        if (S.custoComoServidor && !abertas().length) {
+          return Promise.reject(new Error('Nenhuma entrega aberta neste dia. Monte a rota antes de iniciar.'));
+        }
+        return R(S.custo);
+      }
       // ANTES do genérico '/logistica/rota' (prefixo engole o específico —
       // foi exatamente assim que este stub nasceu devolvendo rota no historico)
       if (caminho.indexOf('/logistica/rota/historico') === 0) {
@@ -241,6 +251,31 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
       if (caminho.indexOf('/logistica/rota/limpar-dia') === 0) {
         S.entregas = []; S.routeStatus = '';
         return R({ ok: true });
+      }
+      /* O GERADOR ÚNICO do servidor (`materializeForRoute`): cria a entrega do
+         dia a partir da AGENDA, idempotente por cliente — quem já tem entrega
+         aberta hoje não ganha outra (espelho da chave de ocorrência). É a porta
+         que o montar do app passou a chamar em 10/08, quando um limpar-dia
+         deixou a segunda com 102 canceladas e o Iniciar preso no "Nenhuma
+         entrega aberta". */
+      if (caminho.indexOf('/logistica/mobile/materialize') === 0 && metodo === 'POST') {
+        const alvo = (S.agendaHoje || []);
+        let criadas = 0;
+        alvo.forEach((c) => {
+          const aberta = S.entregas.some((e) => e.status !== 'entregue' && e.status !== 'cancelada'
+            && e.cliente && String(e.cliente.id) === String(c.customerProfileId));
+          if (aberta) return;
+          S.seq += 1;
+          criadas += 1;
+          S.entregas.push({
+            id: `g${S.seq}`, status: 'agendada', rotaOrdem: null, origem: 'recorrente',
+            cliente: {
+              id: String(c.customerProfileId), nome: c.nome, enderecoLinha: c.enderecoLinha,
+              lat: c.lat, lng: c.lng,
+            },
+          });
+        });
+        return R({ criadas });
       }
       if (caminho.indexOf('/logistica/rota-modelos') === 0) return R([]);
       if (caminho.indexOf('/logistica/rota') === 0 && metodo === 'GET') {
@@ -890,6 +925,42 @@ const SO_MEDIR = process.argv.includes('--antes');
   nota(`[E] saldo curto: portao="${tE.portao || '(nenhum)'}" · routeStatus=${tE.routeStatus}`);
   eh('E1 · saldo curto ⇒ a trava aparece', /insuficiente/i.test(tE.portao));
   eh('E2 · saldo curto ⇒ NAO iniciou', tE.routeStatus !== 'ACTIVE');
+
+  /* ===================================================================
+     CENA G — O DIA CANCELADO EM MASSA RENASCE NO MONTAR (10/08, madrugada).
+
+     A cena real do dono: um `limpar-dia` às 00:44 deixou a segunda-feira com
+     102 canceladas e ZERO abertas; a Montagem seguia mostrando a prévia da
+     AGENDA (6 nomes) e o Iniciar respondia *"Nenhuma entrega aberta neste
+     dia. Monte a rota antes de iniciar."* — e NENHUM botão do app novo
+     materializava (o app velho falava `/logistica/gerar-dia`; o fio morreu
+     na fusão; o cron do servidor é 1×/dia).
+     O contrato novo: entrar na Montagem chama `mobile/materialize` ANTES do
+     planejar — a agenda vira entrega, o pé vira "Iniciar rota" de verdade e
+     o Iniciar sai pra rua sem tocar no 400.
+     =================================================================== */
+  await cena({ entregas: [], agendaHoje: AGENDA_HOJE, custoComoServidor: true, mesmaBase: true });
+  await zerar();
+  await irPara('montagem', 2600);
+  const tG0 = await espiar();
+  const postsG = await posts();
+  nota(`[G] dia morto → montagem: stops=${tG0.nStops} · entregas no servidor=${tG0.entregasNoServidor} · pe="${tG0.pe}"`);
+  nota(`    POSTs da entrada: ${postsG.join(' , ') || '(nenhum)'} · portao="${tG0.portao}"`);
+  eh('G1 · abrir a Montagem chama o materialize (a porta que faltava)',
+    postsG.indexOf('/logistica/mobile/materialize') >= 0, postsG.join(','));
+  eh('G2 · a agenda virou entrega no servidor (o dia renasceu)',
+    tG0.entregasNoServidor === AGENDA_HOJE.length, `entregas=${tG0.entregasNoServidor}`);
+  eh('G3 · materializar é idempotente: 1 entrega por cliente, sem leva dupla',
+    tG0.nStops === AGENDA_HOJE.length, `stops=${tG0.nStops}`);
+  await zerar();
+  await p.waitForSelector('.pe-montagem [data-acao="iniciar-rota"]', { timeout: 8000 });
+  await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="iniciar-rota"]').click());
+  await p.waitForTimeout(2200);
+  const tG1 = await espiar();
+  nota(`[G] iniciar: portao="${tG1.portao || '(nenhum)'}" · routeStatus=${tG1.routeStatus}`);
+  eh('G4 · o Iniciar NAO morre mais no "Nenhuma entrega aberta"',
+    !/Não deu certo|Nenhuma entrega aberta/i.test(tG1.portao), tG1.portao);
+  eh('G5 · a rota do dia renascido ficou ACTIVE', tG1.routeStatus === 'ACTIVE');
 
   await b.close();
   console.log('\n=== MEDIDAS ===');

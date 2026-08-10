@@ -344,12 +344,22 @@ button,input{font:inherit;color:inherit}
    como o cabeçalho muda entre telas, a conta é refeita a cada abertura.
    ========================================================================== */
 /* A CENA, em 6 atos (3,4 s até entregar o app):
-   1. o vazio respira            0,00–1,60  brilho de fundo abre
-   2. a rota se desenha          0,25–1,45  traço lima subindo, 3 pinos acendendo
-   3. o cometa percorre a rota   0,30–1,50  a luz chega exatamente onde o X nasce
-   4. a marca se monta           1,35–2,25  H · B · X com peso, anel no cruzamento
-   5. o brilho varre o logotipo  1,95–2,75  e LOGÍSTICA abre o espaçamento
-   6. a batida e a entrega       2,55–3,40  o conjunto pulsa uma vez, barra completa */
+   1. o vazio respira            0,00–1,70  brilho de fundo abre
+   2. abre só o "HB"             0,24–0,87  as duas letras sobem, e o X NÃO existe
+   3. as duas hastes chegam      0,86–1,80  uma por cada ponta da diagonal
+   4. o X nasce do cruzamento    1,78–2,35  clarão, anel, e o glifo assume a forma
+   5. o brilho varre o logotipo  2,34–3,29  e LOGÍSTICA abre o espaçamento
+   6. a batida e a entrega       2,66–3,40  o conjunto pulsa uma vez, barra completa
+
+   🔴 A ORDEM É "HB PRIMEIRO, X DEPOIS" (ordem do dono, 10/08: *"o X não é
+   carregado, ele abre apenas HB, aí o X vem 1 traço de cada ponta diagonal (1 de
+   cima outro de baixo), e formam o X"*). Antes as hastes voavam ANTES das letras
+   (0,3 s) e o X já estava montado quando o H e o B subiam — quem olhava via o X
+   primeiro e a palavra se completando em volta dele. Agora a marca se escreve na
+   ordem em que se lê: H, B, e só então o X é CONSTRUÍDO na frente do motorista.
+   Todo o resto da cena (brilho, LOGÍSTICA, batida) andou junto pra trás — o
+   brilho varrendo um logotipo sem X seria varrer meia marca. O piso de 3,4 s
+   (`ABERTURA_PISO`) não mudou: a cena inteira continua cabendo nele. */
 .splash{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
   background:linear-gradient(180deg,var(--bg-2),#05080f);overflow:hidden}
 .splash-fundo{position:absolute;inset:0;
@@ -360,51 +370,60 @@ button,input{font:inherit;color:inherit}
 /* AS DUAS HASTES — uma entra pela diagonal de cima à esquerda, a outra pela de
    baixo à direita, e onde elas se cruzam nasce o X. Cada haste viaja NA SUA
    PRÓPRIA direção (a de cima desce pra direita, a de baixo sobe pra esquerda),
-   então o encontro parece cálculo, não coincidência. */
+   então o encontro parece cálculo, não coincidência.
+   🔴 ELAS SÓ PARTEM DEPOIS QUE O "HB" ESTÁ NA TELA (0,86 s; o B assenta em
+   0,87 s). Haste que sai antes da palavra desmonta a ordem de leitura. */
 .splash-xis{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
-.splash-xis line{stroke:var(--lime);stroke-width:5;stroke-linecap:round;filter:drop-shadow(0 0 7px rgba(158,222,42,.75))}
-.splash-xis .haste-a{animation:spHasteA .95s var(--cv-entra) .3s both}
-.splash-xis .haste-b{animation:spHasteB .95s var(--cv-entra) .46s both}
+/* 🔴 A HASTE É A MESMA TINTA DO GLIFO, e por isso ela sai de `--splash-marca` e
+   não de `--lime`: no ESCURO os dois são o mesmo `#9ede2a`, mas no CLARO o
+   `--lime` vira o verde ESCURO que escreve texto (#3f7a00) e a `--splash-marca`
+   é o verde da marca (#5a9c10) — as hastes chegariam de um verde e o X acenderia
+   de outro, na troca que a cena inteira existe pra esconder. */
+.splash-xis line{stroke:var(--splash-marca);stroke-width:5;stroke-linecap:round;filter:drop-shadow(0 0 7px rgba(158,222,42,.75))}
+.splash-xis .haste-a{animation:spHasteA .78s var(--cv-entra) .86s both}
+.splash-xis .haste-b{animation:spHasteB .78s var(--cv-entra) 1.02s both}
 @keyframes spHasteA{from{opacity:0;transform:translate(-190px,-235px)}to{opacity:1;transform:none}}
 @keyframes spHasteB{from{opacity:0;transform:translate(190px,235px)}to{opacity:1;transform:none}}
-/* O rastro é a mesma haste, mais fina e atrasada: dá a leitura de velocidade
+/* O rastro é a mesma haste, mais fina e adiantada: dá a leitura de velocidade
    sem borrão de imagem (que num logotipo lê como defeito). */
 .splash-xis .rastro{stroke-width:2;opacity:.4;filter:none}
-.splash-xis .rastro.haste-a{animation-delay:.24s}
-.splash-xis .rastro.haste-b{animation-delay:.4s}
+.splash-xis .rastro.haste-a{animation-delay:.8s}
+.splash-xis .rastro.haste-b{animation-delay:.96s}
 /* Quando as duas assentam, as hastes entregam o lugar ao glifo de verdade. */
-.splash-xis{animation:spHastesSaem .34s var(--cv-sai) 1.62s both}
+.splash-xis{animation:spHastesSaem .34s var(--cv-sai) 2.01s both}
 @keyframes spHastesSaem{to{opacity:0}}
 /* Clarão no cruzamento, no instante exato do encontro. */
 .splash-flash{position:absolute;left:50%;top:0;width:96px;height:96px;margin-left:-48px;border-radius:50%;
   background:radial-gradient(circle,rgba(214,255,150,.85),rgba(158,222,42,0) 68%);pointer-events:none;
-  animation:spFlash .55s ease-out 1.4s both}   /* 1,40s = quando a 2ª haste assenta */
+  animation:spFlash .55s ease-out 1.78s both}   /* 1,78s = quando a 2ª haste assenta */
 @keyframes spFlash{0%{opacity:0;transform:scale(.2)}35%{opacity:1}100%{opacity:0;transform:scale(1.5)}}
 
 .splash-centro{position:relative;display:flex;flex-direction:column;align-items:center;
-  animation:spBatida .62s var(--cv-mola) 2.55s both}
+  animation:spBatida .62s var(--cv-mola) 2.66s both}
 @keyframes spBatida{0%{transform:scale(1)}38%{transform:scale(1.028)}100%{transform:scale(1)}}
 .splash-anel{position:absolute;top:2px;left:50%;margin-left:-59px;width:118px;height:118px;border-radius:50%;
-  border:1px solid var(--splash-marca-2);pointer-events:none;animation:spAnel 1.05s ease-out 1.46s both}
+  border:1px solid var(--splash-marca-2);pointer-events:none;animation:spAnel 1.05s ease-out 1.85s both}
 @keyframes spAnel{from{opacity:.6;transform:scale(.3)}to{opacity:0;transform:scale(2.4)}}
 
 .splash-logo{position:relative;display:flex;flex-direction:column;align-items:center;line-height:1;will-change:transform}
 .splash-logo .w{position:relative;overflow:hidden;padding:3px 5px;font-size:46px;font-weight:600;letter-spacing:.6px}
 .splash-logo .w b{color:var(--white);font-weight:600;display:inline-block}
-.splash-logo .w b:nth-of-type(1){animation:spSobe .55s var(--cv-mola) 1.5s both}
-.splash-logo .w b:nth-of-type(2){animation:spSobe .55s var(--cv-mola) 1.58s both}
+/* O "HB" ABRE A CENA — e o X ainda não existe aqui. Ver a ordem no cabeçalho
+   dos 6 atos: primeiro a palavra, depois a construção do X. */
+.splash-logo .w b:nth-of-type(1){animation:spSobe .55s var(--cv-mola) .24s both}
+.splash-logo .w b:nth-of-type(2){animation:spSobe .55s var(--cv-mola) .32s both}
 /* O glifo do X ACENDE no lugar das hastes (sem escala nem giro): a forma já
    está na tela, o que muda é quem a desenha. Salto de tamanho aqui delataria
    que são duas peças diferentes. */
 .splash-logo .w em{color:var(--splash-marca);font-style:normal;font-weight:600;font-size:52px;
-  display:inline-block;transform:skewX(-8deg);animation:spAcende .5s ease-out 1.5s both}
+  display:inline-block;transform:skewX(-8deg);animation:spAcende .5s ease-out 1.89s both}
 @keyframes spAcende{from{opacity:0}to{opacity:1}}
 .splash-brilho{position:absolute;top:-25%;left:-45%;width:26%;height:150%;pointer-events:none;
   background:linear-gradient(90deg,transparent,rgba(255,255,255,.42),transparent);
-  transform:skewX(-18deg);animation:spBrilho .82s ease-in-out 1.95s both}
+  transform:skewX(-18deg);animation:spBrilho .82s ease-in-out 2.34s both}
 @keyframes spBrilho{from{left:-45%}to{left:125%}}
 .splash-logo small{display:block;font-size:11px;color:var(--logo-sub);margin-top:11px;padding-left:10px;
-  animation:spLetras .85s var(--cv-entra) 2.05s both}
+  animation:spLetras .85s var(--cv-entra) 2.44s both}
 /* 🔴 A LINHA DO NOME DA EMPRESA SAIU DA ABERTURA (07/08). Ela dizia "Água Rio
    Claro" — COPY do desenho — na PRIMEIRA tela que o motorista vê, e o aparelho
    estava logado na Atlas Distribuidora (medido no g15). O nome da empresa não
@@ -639,8 +658,15 @@ button,input{font:inherit;color:inherit}
    duas hastes, as letras descem e a barra esvazia. Cena de fechar com desenho
    próprio seria uma segunda marca — e duas marcas discordam no dia seguinte.
 
-   A ORDEM importa e é a inversa: primeiro o VOO (0 → 0,86 s), e só quando a
-   marca está no meio da tela ela se desmancha (0,86 s em diante).
+   A ORDEM importa e é a inversa: primeiro o VOO (0 → 0,62 s), e só quando a
+   marca está no meio da tela ela se desmancha (0,62 s em diante).
+
+   🔴 E A INVERSA MUDOU JUNTO COM A ENTRADA (dono, 10/08: *"tem q ser IDÊNTICOS"*).
+   Na entrada a ordem é H → B → haste-a → haste-b → X → brilho → LOGÍSTICA. Aqui
+   ela roda de trás pra frente, item por item: LOGÍSTICA recolhe → o X larga o
+   glifo e vira haste → a haste-b sai (foi a última a chegar) → a haste-a sai →
+   o B desce (foi o último a subir) → o H desce → o palco apaga. Fila trocada em
+   um dos dois lados é o que faz a saída parecer "outra cena".
    ========================================================================== */
 .tela.entra.saida{animation:mvScrim .34s ease-out both!important}
 .tela.sai.saida{animation:trApaga .3s ease both!important}
@@ -653,19 +679,25 @@ button,input{font:inherit;color:inherit}
 .tela.saida .splash-anel,.tela.saida .splash-barra{animation:mvSai .3s var(--cv-sai) reverse both}
 /* AGORA o inverso do 1: o X larga o glifo e vira as duas hastes de novo, que
    voam pra fora pelos mesmos caminhos por onde vieram. */
-.tela.saida .splash-logo .w em{animation:spAcende .3s ease .62s reverse both}
-.tela.saida .splash-xis{animation:spHastesSaem .26s var(--cv-sai) .62s reverse both}
-.tela.saida .splash-xis .haste-a{animation:spHasteA .62s var(--cv-entra) .82s reverse both}
-.tela.saida .splash-xis .haste-b{animation:spHasteB .62s var(--cv-entra) .88s reverse both}
-.tela.saida .splash-xis .rastro.haste-a{animation-delay:.88s}
-.tela.saida .splash-xis .rastro.haste-b{animation-delay:.94s}
+.tela.saida .splash-logo small{animation:spLetras .42s var(--cv-entra) .60s reverse both}
+.tela.saida .splash-logo .w em{animation:spAcende .26s ease .66s reverse both}
+.tela.saida .splash-xis{animation:spHastesSaem .22s var(--cv-sai) .66s reverse both}
 .tela.saida .splash-flash{animation:spFlash .44s ease-out .74s both}
-.tela.saida .splash-logo .w b:nth-of-type(1){animation:spSobe .42s var(--cv-mola) .94s reverse both}
-.tela.saida .splash-logo .w b:nth-of-type(2){animation:spSobe .42s var(--cv-mola) .88s reverse both}
-.tela.saida .splash-logo small{animation:spLetras .5s var(--cv-entra) .72s reverse both}
-.tela.saida .splash-barra i{animation:spCarrega .8s var(--cv-entra) .66s reverse both}
-/* e o palco apaga por último, quando não sobrou marca nenhuma */
-.tela.saida .splash{animation:trApaga .36s ease 1.3s both}
+/* a haste-b chegou POR ÚLTIMO na entrada, então é a PRIMEIRA a ir embora */
+.tela.saida .splash-xis .haste-b{animation:spHasteB .42s var(--cv-entra) .86s reverse both}
+.tela.saida .splash-xis .haste-a{animation:spHasteA .42s var(--cv-entra) .92s reverse both}
+.tela.saida .splash-xis .rastro.haste-b{animation-delay:.92s}
+.tela.saida .splash-xis .rastro.haste-a{animation-delay:.98s}
+/* e só com o X desfeito as letras descem — o B primeiro, que subiu por último */
+.tela.saida .splash-logo .w b:nth-of-type(2){animation:spSobe .28s var(--cv-mola) 1.06s reverse both}
+.tela.saida .splash-logo .w b:nth-of-type(1){animation:spSobe .28s var(--cv-mola) 1.14s reverse both}
+.tela.saida .splash-barra i{animation:spCarrega .8s var(--cv-entra) .6s reverse both}
+/* e o palco apaga por último, quando não sobrou marca nenhuma.
+   🔴 O FIM CONTINUA EM 1,66 s, e isso é um TETO, não um gosto: o Kotlin fecha o
+   app 2,7 s depois de pedir a saída (`MainActivity.avisarOuSair`) e o reverso do
+   mapa come até 1,0 s antes desta cena começar. Cena de saída que passa daqui é
+   cena cortada no meio pelo processo morrendo. */
+.tela.saida .splash{animation:trApaga .32s ease 1.34s both}
 
 /* ==========================================================================
    FOLHA (bottom sheet) — sobe de baixo, o fundo escurece junto (lei 6).
@@ -870,7 +902,13 @@ button,input{font:inherit;color:inherit}
 .batt::after{content:"";position:absolute;right:-2.8px;top:2.8px;width:1.7px;height:3.8px;background:rgba(255,255,255,.6);border-radius:0 2px 2px 0}
 
 /* ---------- cabeçalho ---------- */
-.hdr{padding:0 13px 7px;flex:0 0 auto;position:relative;z-index:40}
+/* 🔴 O HBX DO TOPO TEM MARGEM (dono, 10/08: *"ele está muito encostado em cima,
+   bem pouquinho a margem, mas tem q ter"*). No aparelho a barra de status
+   DESENHADA não existe (`.status{display:none}`, 5ª adaptação da injeção), então
+   o cabeçalho encostava direto no vidro — os 7px de baixo já estavam aqui e o
+   topo era zero. Mesmo respiro dos dois lados: o logotipo para de brigar com a
+   barra do sistema sem empurrar a tela pra baixo. */
+.hdr{padding:7px 13px;flex:0 0 auto;position:relative;z-index:40}
 .hdr-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
 /* flancos gêmeos: mesma largura mínima ⇒ o logo não anda entre telas */
 .hdr-flanco{flex:0 0 76px;display:flex;justify-content:flex-start}
@@ -2550,6 +2588,13 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .splash-logo small{color:var(--splash-sub)}
 [data-luz="claro"] .splash-brilho{background:linear-gradient(90deg,transparent,rgba(15,23,38,.10),transparent)}
 [data-luz="claro"] .splash-barra{background:var(--splash-trilho)}
+/* 🔴 AS HASTES QUE MONTAM O X TAMBÉM SÃO PELE (dono, 10/08: *"claro e escuro
+   tudo"*). A cor já vem certa pelo token (`--splash-marca`), mas o HALO não:
+   lei 2 do modo claro — brilho sobre branco é sujeira, não profundidade. Sem
+   estas duas linhas a construção do X era a única peça da abertura que chegava
+   no claro com o glow do escuro pendurado. */
+[data-luz="claro"] .splash-xis line{filter:none}
+[data-luz="claro"] .splash-flash{background:radial-gradient(circle,rgba(90,156,16,.26),rgba(90,156,16,0) 68%)}
 
 /* aparelho: a barra de status desenhada ("9:41") morre — a real já existe. */
 .status{display:none!important}

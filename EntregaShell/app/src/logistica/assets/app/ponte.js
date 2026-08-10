@@ -2565,6 +2565,31 @@
   }
 
   /** monta a rota do dia: planeja (grava a ordem) e confere (semáforo). */
+  /* 🔴 MONTAR TEM QUE MATERIALIZAR A AGENDA — o app novo não tinha ESTA porta
+     (10/08, madrugada em que o dono ficou preso). O `planejar` só ORDENA o que
+     existe; quem CRIA a entrega do dia a partir da agenda é o
+     `materializeForRoute` do servidor, e no app novo ninguém o chamava: o
+     app velho falava `/logistica/gerar-dia` via mobile-contract.js, que morreu
+     na fusão sem herdeiro (o padrão "capacidade viva, fio cortado"). Sobrava o
+     cron de 1×/dia — e um `limpar-dia` às 00:44 deixou a segunda-feira com
+     102 canceladas e ZERO abertas, com a tela mostrando a prévia da agenda e o
+     Iniciar respondendo "Nenhuma entrega aberta neste dia. Monte a rota antes
+     de iniciar" — monte COMO, se nenhum botão materializava?
+     A porta já existia no servidor E na allowlist do Kotlin
+     (`POST /logistica/mobile/materialize`); é idempotente (gerar o mesmo dia
+     2× cria uma vez) e ainda puxa a vassoura dos dias anteriores
+     (`encerrarDiasAnteriores`), que o cron pula.
+     Falhar aqui NÃO derruba o montar: o planejar segue ordenando o que já
+     existe — o dia normal (entregas já criadas) nunca fica refém desta ida. */
+  async function materializarDia() {
+    try {
+      await window.API.post('/logistica/mobile/materialize', {
+        operationalDate: hojeISO(), sourceDates: [hojeISO()],
+      });
+      return true;
+    } catch (_) { return false; }
+  }
+
   async function montarRota() {
     await comTrava(async () => {
       // O rascunho vira parada ANTES de planejar: planejar ordena o que EXISTE,
@@ -2605,6 +2630,8 @@
           diaPreparado = String((prep && prep.operationalDate) || alvo);
           rotuloPreparado = ROTULO_DIA[montarDia] || '';
         } else {
+          // A agenda do dia vira entrega ANTES de ordenar (ver `materializarDia`).
+          await materializarDia();
           plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...origemGps() });
         }
       } catch (e) { devolverEstado(); return avisoErro(e); }
@@ -2705,6 +2732,9 @@
       const mat = await materializarRascunho();
       if (estadoRota === 'montar' || !ENTREGAS.size) {
         try {
+          // O MESMO remédio do montar: sem materializar, um dia cancelado em
+          // massa batia aqui e morria no "Nenhuma entrega aberta neste dia".
+          await materializarDia();
           await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...origemGps() });
         } catch (e) { return avisoErro(e); }
         if (!(await carregarRota())) return avisoErro(new Error('Não consegui montar agora. Tente de novo.'));

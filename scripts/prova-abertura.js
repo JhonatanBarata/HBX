@@ -9,7 +9,7 @@
  * carregado tudo a entrada, aí sim acontece o efeito"* · *"tem q ser limpo,
  * sensação profissional"*.
  *
- * Ela mede as três juntas que a cena da abertura tem:
+ * Ela mede as juntas que a cena da abertura tem:
  *   A) O X POUSA NO LUGAR. As duas hastes viram o glifo do X — se elas pousam
  *      fora dele, o motorista vê DOIS X (o das hastes e o do logotipo) e lê como
  *      "piscou e apareceu 2x". A régua é o retângulo do próprio glifo.
@@ -17,6 +17,13 @@
  *      dados, o mapa e o primeiro fix estão na mão (com piso e teto).
  *   C) NÃO EXISTE TELA MORTA ENTRE UMA COISA E OUTRA. Do fim da abertura até o
  *      mapa desenhado não pode haver um quadro de palco vazio.
+ *   E) A SAÍDA É A ENTRADA AO CONTRÁRIO — a fila dos atos, item por item.
+ *
+ * 🔴 A ORDEM DOS ATOS (dono, 10/08): *"o X não é carregado, ele abre apenas HB,
+ * aí o X vem 1 traço de cada ponta diagonal (1 de cima outro de baixo), e formam
+ * o X"* · *"ajuste fino na entrada e na saída, tem q ser IDÊNTICOS, e claro e
+ * escuro tudo"*. Então a prova não mede só ONDE as hastes pousam: mede QUANDO
+ * cada peça entra, e cobra que a saída seja essa mesma fila de trás pra frente.
  */
 const path = require('path');
 const http = require('http');
@@ -158,11 +165,31 @@ const GRAVAR = () => {
     const caixa = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) }; };
     const voando = caixa(document.querySelector('.tela.abertura .splash-logo .w'));
     const topo = caixa(document.querySelector('.tela:not(.sai) .logo .w'));
+    /* 🔴 A ORDEM DOS ATOS SE MEDE EM TINTA, não no CSS. Quanto de cada peça está
+       na tela a cada quadro — o "HB sozinho" do dono é um trecho da fita em que
+       as letras estão inteiras e o glifo do X ainda é ZERO. A haste vale pelo
+       PRODUTO das duas opacidades: o grupo `.splash-xis` tem a dele e a linha
+       tem a sua, e uma sozinha mente. */
+    const op = (el) => (el ? Number(getComputedStyle(el).opacity) : null);
+    const opXis = splash ? op(splash.querySelector('.splash-xis')) : null;
+    const haste = (sel) => {
+      if (!splash || opXis === null) return null;
+      const v = op(splash.querySelector(sel));
+      return v === null ? null : Math.round(v * opXis * 1000) / 1000;
+    };
+    const marca = splash ? {
+      h: op(splash.querySelector('.splash-logo .w b:nth-of-type(1)')),
+      b: op(splash.querySelector('.splash-logo .w b:nth-of-type(2)')),
+      x: op(splash.querySelector('.splash-logo .w em')),
+      a: haste('line.haste-a:not(.rastro)'),
+      hb: haste('line.haste-b:not(.rastro)'),
+    } : null;
     window.__fita.push({
       t: Math.round(performance.now()),
       splash: !!splash,
       splashId: splash ? splash.__hbxId : null,
       relogio,
+      marca,
       voando,
       topo,
       palco: !!palco,
@@ -209,9 +236,20 @@ const eh = (nome, cond, medida) => {
   p.evaluate(() => window.HBXRota.carregar()).catch(() => {});
 
   /* ---- A) O X POUSA EM CIMA DO GLIFO -------------------------------------
-     Medido no fim do voo das hastes (elas assentam em 1,25 s e o glifo acende
-     em 1,50 s): o cruzamento das duas tem que cair DENTRO do retângulo do `em`. */
-  await p.waitForTimeout(1350);
+     Medido no fim do voo das hastes (a 2ª assenta em 1,80 s, o glifo acende em
+     1,89 s e as hastes só saem em 2,01 s): o cruzamento das duas tem que cair
+     DENTRO do retângulo do `em`.
+     🔴 O RELÓGIO É O DA CENA, não o da prova. Antes isto era um
+     `waitForTimeout(1350)` contado do lado de cá — e ele só acertava por sorte,
+     porque o `goto` + o dublê comem um tanto de tempo que ninguém mede. A barra
+     (`spCarrega`) é a animação mais longa da abertura e serve de régua: espero
+     ela marcar 1,86 s, que é o instante entre a 2ª haste pousar e o glifo
+     assumir. Cena que anda, a prova acompanha. */
+  await p.waitForFunction(() => {
+    const barra = document.querySelector('.splash .splash-barra i');
+    const a = barra && barra.getAnimations && barra.getAnimations()[0];
+    return !!a && Number(a.currentTime || 0) >= 1860;
+  }, null, { timeout: 8000 }).catch(() => {});
   const xis = await p.evaluate(() => {
     const splash = document.querySelector('.splash');
     const em = splash && splash.querySelector('.w em');
