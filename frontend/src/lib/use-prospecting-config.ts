@@ -213,6 +213,10 @@ export function isProspConfigComplete(live: ProspLive | null): boolean {
 
 export type ProspConfigApi = ReturnType<typeof useProspectingConfig>;
 
+// Rascunho vazio com identidade fixa: os `useCallback` de leitura dependem de
+// `draft`, e um `{}` novo a cada render os recriaria sem nada ter mudado.
+const DRAFT_VAZIO: Partial<ProspCfg> = {};
+
 // `ownerUserId` = DE QUEM É A CAMPANHA aberta na tela (04/08/2026). A campanha
 // deixou de ser da empresa e passou a ser da pessoa: é `createdByUserId` que
 // decide de qual chip a mensagem sai e qual nome assina. Ausente = a de quem
@@ -223,9 +227,45 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
   const ownerUserId = Number(opts?.ownerUserId || 0) > 0 ? Number(opts?.ownerUserId) : null;
   const [live, setLive] = useState<ProspLive | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Partial<ProspCfg>>({});
   const [busy, setBusy] = useState(false);
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+
+  // O RASCUNHO É DE ALGUÉM — e é isso que o apaga ao trocar de pessoa.
+  // Antes o efeito de carga zerava draft/saveMsg no próprio corpo: setState no
+  // corpo do efeito é cascata de render (o lint reprova) e, pior, dependia do
+  // efeito ter rodado — durante um render a tela ainda mostrava o texto da
+  // Bianca sob a campanha da Flávia. Agora o dono viaja JUNTO com o rascunho e
+  // a invalidação é conta de render: mudou o dono, o rascunho não é mais dele.
+  const [edicao, setEdicao] = useState<{ dono: number | null; draft: Partial<ProspCfg>; saveMsg: string | null }>(
+    { dono: ownerUserId, draft: {}, saveMsg: null },
+  );
+  const doDono = edicao.dono === ownerUserId;
+  const draft = doDono ? edicao.draft : DRAFT_VAZIO;
+  const saveMsg = doDono ? edicao.saveMsg : null;
+
+  const mexerNaEdicao = useCallback(
+    (mudanca: (atual: { draft: Partial<ProspCfg>; saveMsg: string | null }) => { draft: Partial<ProspCfg>; saveMsg: string | null }) => {
+      setEdicao(atual => {
+        const base = atual.dono === ownerUserId ? atual : { draft: DRAFT_VAZIO, saveMsg: null };
+        return { dono: ownerUserId, ...mudanca(base) };
+      });
+    },
+    [ownerUserId],
+  );
+
+  const setDraft = useCallback(
+    (proximo: Partial<ProspCfg> | ((d: Partial<ProspCfg>) => Partial<ProspCfg>)) => {
+      mexerNaEdicao(atual => ({
+        ...atual,
+        draft: typeof proximo === "function" ? proximo(atual.draft) : proximo,
+      }));
+    },
+    [mexerNaEdicao],
+  );
+
+  const setSaveMsg = useCallback(
+    (msg: string | null) => { mexerNaEdicao(atual => ({ ...atual, saveMsg: msg })); },
+    [mexerNaEdicao],
+  );
 
   const campaign = live?.campaign ?? null;
 
@@ -250,11 +290,6 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
 
   useEffect(() => {
     let alive = true;
-    // Trocou de pessoa: o rascunho da anterior morre aqui. Salvar o texto da
-    // Bianca dentro da campanha da Flávia é o tipo de erro que só aparece no
-    // dia do disparo, no número errado.
-    setDraft({});
-    setSaveMsg(null);
     loadLive();
     // poll leve: mantém o resumo ao vivo sem atropelar o que o dono edita
     // (o draft sempre vence na leitura).
@@ -300,14 +335,14 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
 
   const setField = useCallback(<K extends keyof ProspCfg>(key: K, value: ProspCfg[K]) => {
     setDraft(d => ({ ...d, [key]: value }));
-  }, []);
+  }, [setDraft]);
 
   // input numérico → inteiro com clamp (espelha os limites do DTO)
   const setNum = useCallback((key: keyof ProspCfg, raw: string, min: number, max: number) => {
     const n = Math.round(Number(raw));
     const safe = Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : min;
     setDraft(d => ({ ...d, [key]: safe as never }));
-  }, []);
+  }, [setDraft]);
 
   const dirty = Object.keys(draft).length > 0;
   const canSave = !busy;
@@ -332,7 +367,7 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
     } finally {
       setBusy(false);
     }
-  }, [draft, busy, ownerUserId]);
+  }, [draft, busy, ownerUserId, setDraft, setSaveMsg]);
 
   // NÍVEL DE DISPARO: um clique aplica na hora (não fica esperando "Salvar"). O nível
   // é UMA decisão, não um formulário — e o rascunho dos 4 campos que ele grava é
@@ -362,7 +397,7 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
     } finally {
       setBusy(false);
     }
-  }, [busy, ownerUserId]);
+  }, [busy, ownerUserId, setDraft, setSaveMsg]);
 
   const ciclo = useCallback(async (path: "start" | "pause" | "resume" | "cancel") => {
     if (busy) return;
@@ -383,7 +418,7 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
     } finally {
       setBusy(false);
     }
-  }, [busy, loadLive, ownerUserId]);
+  }, [busy, loadLive, ownerUserId, setSaveMsg]);
 
   // ── Pré-visualização (linha de resumo) por peça ──
   const piecePreview = useCallback((key: PieceKey): string => {

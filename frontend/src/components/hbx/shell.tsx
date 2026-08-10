@@ -735,6 +735,20 @@ function CreditsSidebarCard({
     let timer: ReturnType<typeof setTimeout> | null = null;
     let raf = 0;
     let onLoaded: (() => void) | null = null;
+    const quadros: number[] = [];
+
+    // TODA adoção de saldo entra pelo mesmo cano do desenho: um quadro.
+    // Escrever o estado direto no corpo do efeito é cascata de render (o lint
+    // reprova, e com razão); o "pulo" e a "descida animada" viram a mesma
+    // coisa, só com duração diferente. Na tela não muda nada: o efeito já
+    // rodava depois da pintura.
+    const pintar = (balance: number, hist: number[]) => {
+      quadros.push(requestAnimationFrame(() => {
+        if (cancelled) return;
+        setDisplayed(balance);
+        setHistory(hist);
+      }));
+    };
 
     if (initializedKeyRef.current !== storageKey) {
       initializedKeyRef.current = storageKey;
@@ -742,15 +756,16 @@ function CreditsSidebarCard({
       if (cached) {
         displayedRef.current = cached.balance;
         historyRef.current = cached.history;
-        setDisplayed(cached.balance);
-        setHistory(cached.history);
+        pintar(cached.balance, cached.history);
       } else {
         displayedRef.current = actual;
         historyRef.current = [actual];
-        setDisplayed(actual);
-        setHistory([actual]);
+        pintar(actual, [actual]);
         writeCreditsVisualCache(storageKey, { balance: actual, history: [actual] });
-        return;
+        return () => {
+          cancelled = true;
+          quadros.forEach(cancelAnimationFrame);
+        };
       }
     }
 
@@ -759,10 +774,12 @@ function CreditsSidebarCard({
       const nextHistory = appendCreditHistory(historyRef.current, actual);
       displayedRef.current = actual;
       historyRef.current = nextHistory;
-      setDisplayed(actual);
-      setHistory(nextHistory);
+      pintar(actual, nextHistory);
       writeCreditsVisualCache(storageKey, { balance: actual, history: nextHistory });
-      return;
+      return () => {
+        cancelled = true;
+        quadros.forEach(cancelAnimationFrame);
+      };
     }
 
     const delta = from - actual;
@@ -820,6 +837,7 @@ function CreditsSidebarCard({
       cancelled = true;
       if (timer) clearTimeout(timer);
       if (raf) cancelAnimationFrame(raf);
+      quadros.forEach(cancelAnimationFrame);
       if (onLoaded) window.removeEventListener("load", onLoaded);
     };
   }, [summary?.restante, storageKey]);

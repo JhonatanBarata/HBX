@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { esquecerMedida, gravarMedida, lerMedida, useArrastar } from "@/lib/arrastar";
 
@@ -68,7 +68,6 @@ export function Divisoria({
   const alcaRef = useRef<HTMLDivElement | null>(null);
   const larguraRef = useRef<number>(padrao);
   const inicioRef = useRef<number>(padrao);
-  const [largura, setLargura] = useState<number>(padrao);
 
   /** Teto de verdade: o que sobra no pai, respeitando o outro painel. */
   const tetoAgora = useCallback(() => {
@@ -78,12 +77,21 @@ export function Divisoria({
     return Math.max(min, Math.min(max, disponivel));
   }, [max, min, minDoOutroLado]);
 
+  /**
+   * A LARGURA NÃO É ESTADO DO REACT — e é de propósito.
+   *
+   * Quem desenha o painel é a variável CSS no pai; o React não pinta nada com
+   * este número. Guardá-lo em `useState` só servia para o `aria-valuenow`, e
+   * cobrava caro: um render por quadro de arrasto e um `setState` dentro do
+   * efeito de montagem (cascata de renders — o que o lint reprova). Largura vai
+   * direto no DOM, junto com a variável, num gesto só.
+   */
   const aplicar = useCallback(
     (valor: number) => {
       const preso = Math.min(tetoAgora(), Math.max(min, valor));
       larguraRef.current = preso;
-      setLargura(preso);
       alcaRef.current?.parentElement?.style.setProperty(variavel, `${Math.round(preso)}px`);
+      alcaRef.current?.setAttribute("aria-valuenow", String(Math.round(preso)));
       return preso;
     },
     [min, tetoAgora, variavel],
@@ -148,7 +156,6 @@ export function Divisoria({
       role="separator"
       aria-orientation="vertical"
       aria-label={`${rotulo}. Arraste, ou use as setas. Home volta ao padrão.`}
-      aria-valuenow={Math.round(largura)}
       aria-valuemin={min}
       aria-valuemax={max}
       tabIndex={0}

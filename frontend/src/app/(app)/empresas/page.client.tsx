@@ -256,37 +256,41 @@ function EmpresaContext({
   onClose: () => void;
   onOpenFull: (id: string) => void;
 }) {
-  const [data, setData] = useState<EmpresaDetail>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [editando, setEditando] = useState(false);
   const [addContato, setAddContato] = useState(false);
   const [editContato, setEditContato] = useState<EmpresaContato | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // A resposta viaja carimbada com a empresa que a pediu (`chave` = id + revisão).
+  // "Carregando" e "isto é de outra empresa" saem daí, no render — antes eram
+  // setState no corpo do efeito (cascata de renders) e a ficha da empresa
+  // anterior ainda piscava por um render depois de trocar a seleção.
+  const [resposta, setResposta] = useState<{ chave: string; data: EmpresaDetail; error: string | null } | null>(null);
+  const chave = id ? `${id}#${refreshKey}` : null;
+  const noAr = resposta && resposta.chave === chave ? resposta : null;
+  const data = noAr?.data ?? null;
+  const error = noAr?.error ?? null;
+  const loading = Boolean(chave) && !noAr;
+
   useEffect(() => {
-    if (!id) {
-      setData(null);
-      setError(null);
-      return;
-    }
+    if (!chave || !id) return;
     let alive = true;
-    setLoading(true);
-    setError(null);
     apiFetch<EmpresaDetail>(`/nucleo/empresas/${encodeURIComponent(id)}`)
       .then((result) => {
-        if (alive) setData(result);
+        if (alive) setResposta({ chave, data: result, error: null });
       })
       .catch((err: unknown) => {
-        if (alive) setError(err instanceof Error ? err.message : "Não foi possível abrir a empresa.");
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
+        if (!alive) return;
+        setResposta({
+          chave,
+          data: null,
+          error: err instanceof Error ? err.message : "Não foi possível abrir a empresa.",
+        });
       });
     return () => {
       alive = false;
     };
-  }, [id, refreshKey]);
+  }, [chave, id]);
 
   function afterEdit() {
     setEditando(false);

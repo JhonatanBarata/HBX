@@ -11,7 +11,7 @@
 // Visual 100% em classe/token central (5 Leis). Zero hex/rgba inline.
 
 import { useRouter } from "next/navigation";
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Av, I, ICONS } from "@/components/hbx/shell";
@@ -924,10 +924,15 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
   const geoLookupTokenRef = useRef(0);
   const [minRating, setMinRating] = useState("");
   const [minReviews, setMinReviews] = useState("");
+  // Cópia em ref do filtro de reputação: quem lê é o poll da sessão, criado uma
+  // vez e vivo por minutos. A cópia mora num efeito porque escrever em ref no
+  // render é proibido (React 19) — e o poll só corre depois da pintura.
   const minRatingRef = useRef("");
   const minReviewsRef = useRef("");
-  minRatingRef.current = minRating;
-  minReviewsRef.current = minReviews;
+  useEffect(() => {
+    minRatingRef.current = minRating;
+    minReviewsRef.current = minReviews;
+  }, [minRating, minReviews]);
   const [requiredChannels, setRequiredChannels] = useState<RadarRequiredChannel[]>([]);
   const [channelMatchMode, setChannelMatchMode] = useState<"any_required" | "all_required">("all_required");
   const [searchQuantity, setSearchQuantity] = useState<SearchQuantity>("100");
@@ -3237,6 +3242,28 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
     );
   }
 
+  // Derivados do modal de território. Moravam num IIFE dentro do JSX, e IIFE no
+  // meio do render é CÓDIGO QUE RODA NA PINTURA: o compilador do React perdia o
+  // rastro dos handlers lá dentro e reprovava `selectGeoMode` como "ref acessada
+  // no render". Aqui em cima, memoizados, o JSX volta a ser só JSX.
+  const territorio = useMemo(() => {
+    if (!citiesModalOpen) return null;
+    const q = normCity(citiesQuery);
+    const filtered = q ? cityOptions.filter(option => normCity(option.label).includes(q)) : cityOptions;
+    const selectedOptions = cities.map(label => ({ value: label, label }));
+    return {
+      q,
+      filtered,
+      visibleOptions: q ? filtered : mergeFilterOptions(selectedOptions, filtered),
+      selectionLimit: geoMode === "radius" || geoMode === "nearby" ? 1 : MAX_CITY_TARGETS,
+      showCityPicker: geoMode !== "nearby" && (geoMode !== "ddd" || dddOptions.length > 0),
+      territoryReady: geoTargets.length > 0
+        && (geoMode !== "ddd" || VALID_DDDS.has(ddd))
+        && (!(geoMode === "radius" || geoMode === "nearby") || Number(alcance) > 0)
+        && (geoMode !== "nearby" || Boolean(geo)),
+    };
+  }, [citiesModalOpen, citiesQuery, cityOptions, cities, geoMode, dddOptions, geoTargets, ddd, alcance, geo]);
+
   return (
     <div className={"content leads-page" + (embedded ? " leads-embedded" : "")}>
       <div className="work">
@@ -3721,20 +3748,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
 
       {/* Território inteligente: a UI nunca autoriza mais de cinco cidades e
           deixa explícito quando haverá fila de execuções. */}
-      {citiesModalOpen && (() => {
-        const q = normCity(citiesQuery);
-        const filtered = q ? cityOptions.filter(option => normCity(option.label).includes(q)) : cityOptions;
-        const selectedOptions = cities.map(label => ({ value: label, label }));
-        const visibleOptions = q
-          ? filtered
-          : mergeFilterOptions(selectedOptions, filtered);
-        const selectionLimit = geoMode === "radius" || geoMode === "nearby" ? 1 : MAX_CITY_TARGETS;
-        const showCityPicker = geoMode !== "nearby" && (geoMode !== "ddd" || dddOptions.length > 0);
-        const territoryReady = geoTargets.length > 0
-          && (geoMode !== "ddd" || VALID_DDDS.has(ddd))
-          && (!(geoMode === "radius" || geoMode === "nearby") || Number(alcance) > 0)
-          && (geoMode !== "nearby" || Boolean(geo));
-        return (
+      {citiesModalOpen && territorio && (
           <div className="hbx-veil" onClick={closeCitiesModal}>
             <div
               ref={citiesModalRef}
@@ -3887,7 +3901,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
                     </div>
                   )}
 
-                  {showCityPicker && (
+                  {territorio.showCityPicker && (
                     <div className="be-geo-picker">
                       {geoMode === "ddd" && (
                         <div className="be-cities__search">
@@ -3901,11 +3915,11 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
                       )}
                       <div className="be-cities__toolbar">
                         <span className="be-cities__selcount">
-                          {cities.length}/{selectionLimit} selecionada{cities.length === 1 ? "" : "s"}
+                          {cities.length}/{territorio.selectionLimit} selecionada{cities.length === 1 ? "" : "s"}
                         </span>
                         <span className="be-cities__visible-count">
-                          {q
-                            ? `${visibleOptions.length} resultado${visibleOptions.length === 1 ? "" : "s"}`
+                          {territorio.q
+                            ? `${territorio.visibleOptions.length} resultado${territorio.visibleOptions.length === 1 ? "" : "s"}`
                             : `${cityOptions.length} cidades`}
                         </span>
                       </div>
@@ -3914,12 +3928,12 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
                           <div className="be-cities__empty">
                             {geoMode === "ddd" ? "Consulte um DDD para ver as cidades." : "Escolha um estado para ver as cidades."}
                           </div>
-                        ) : filtered.length === 0 ? (
+                        ) : territorio.filtered.length === 0 ? (
                           <div className="be-cities__empty">Nenhuma cidade encontrada.</div>
                         ) : (
-                          visibleOptions.map(option => {
+                          territorio.visibleOptions.map(option => {
                             const on = cities.includes(option.label);
-                            const disabled = !on && cities.length >= selectionLimit;
+                            const disabled = !on && cities.length >= territorio.selectionLimit;
                             return (
                               <button
                                 key={option.value}
@@ -3966,7 +3980,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
                     </div>
                   )}
 
-                  <div className={"be-geo-plan" + (territoryReady ? " be-geo-plan--ready" : "")}>
+                  <div className={"be-geo-plan" + (territorio.territoryReady ? " be-geo-plan--ready" : "")}>
                     <div className="be-geo-plan__targets">
                       {geoTargets.length === 0 ? (
                         <span className="be-geo-plan__empty">Nenhum alvo definido.</span>
@@ -4011,15 +4025,14 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
                   <button type="button" className="btn-ghost" onClick={() => { markFiltersDirty(); setCities([]); }} disabled={cities.length === 0}>
                     Limpar alvos
                   </button>
-                  <button type="button" className="btn-teal" onClick={closeCitiesModal} disabled={!territoryReady}>
+                  <button type="button" className="btn-teal" onClick={closeCitiesModal} disabled={!territorio.territoryReady}>
                     Concluir
                   </button>
                 </div>
               </div>
             </div>
           </div>
-        );
-      })()}
+      )}
 
       {/* WORM-15: Modal "Salvar filtro" — nome + (admin) atribuir a vendedor */}
       {saveModalOpen && (

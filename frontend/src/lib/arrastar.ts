@@ -76,8 +76,15 @@ export function useArrastar(opcoes: OpcoesArrasto): Arrasto {
   // As opções vivem numa ref porque os ouvintes são pendurados uma vez, no
   // pointerdown, e precisam enxergar a versão mais nova das funções sem que o
   // gesto seja recriado no meio do caminho.
+  //
+  // A CÓPIA VAI NUM EFEITO, não no corpo do componente: escrever em ref durante
+  // o render é proibido (React 19) porque o render pode rodar e ser jogado fora,
+  // deixando a ref adiantada em relação à tela. Aqui não muda nada na prática —
+  // efeito roda antes de qualquer ponteiro tocar a alça.
   const ref = useRef(opcoes);
-  ref.current = opcoes;
+  useEffect(() => {
+    ref.current = opcoes;
+  });
 
   // Enquanto arrasta, o documento inteiro adota o cursor e para de selecionar
   // texto. Sem isto, arrastar uma divisória pinta de azul metade da tela — o

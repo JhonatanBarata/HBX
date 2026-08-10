@@ -468,9 +468,12 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
   useEffect(() => {
     if (!disparoOpen || !disparoData || !disparoHora) return;
     const desiredAt = isoDeDataHora(disparoData, disparoHora);
-    if (!desiredAt) { setDisparoPreview(null); return; }
     let vivo = true;
     const timer = setTimeout(() => {
+      // Data impossível também espera o debounce: limpar na hora fazia o efeito
+      // escrever estado no meio da pintura (cascata de renders) e ainda piscava
+      // o preview a cada tecla de uma data sendo digitada.
+      if (!desiredAt) { setDisparoPreview(null); return; }
       setDisparoPreviewBusy(true);
       apiFetch<Exclude<ProximoSlot, null>>(
         `/vendas/agenda-disparo/proximo-slot?desiredAt=${encodeURIComponent(desiredAt)}`,

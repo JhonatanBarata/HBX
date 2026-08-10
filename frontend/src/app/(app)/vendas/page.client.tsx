@@ -555,7 +555,6 @@ export function VendasClient() {
     return escolhidas;
   });
   const largurasRef = useRef(larguras);
-  largurasRef.current = larguras;
   const [colsOpen, setColsOpen] = useState(false);
   /** Onde o menu de campos abre — canto do botão, medido no clique. */
   const [colsAnchor, setColsAnchor] = useState<{ x: number; y: number } | null>(null);
@@ -568,7 +567,14 @@ export function VendasClient() {
   // primeiro render. A ref é a cópia que está sempre em dia — quem desenha é
   // o estado, quem decide na soltura é esta.
   const columnDropIndexRef = useRef<number | null>(null);
-  columnDropIndexRef.current = columnDropIndex;
+  // As duas cópias em ref acima vão para dentro de um efeito: escrever em ref
+  // durante o render é proibido (React 19), porque um render pode ser jogado
+  // fora e deixar a ref adiantada em relação à tela. Quem lê estas duas é o
+  // gesto de arrasto, que só corre depois da pintura — nada muda na prática.
+  useEffect(() => {
+    largurasRef.current = larguras;
+    columnDropIndexRef.current = columnDropIndex;
+  }, [larguras, columnDropIndex]);
   // Menu da faixa (botão ⋯ ou clique-direito): Fechar venda, Retorno,
   // Sem interesse, WhatsApp e Excluir.
   const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -897,9 +903,12 @@ export function VendasClient() {
     if (!retornoOpen || !retornoData || !retornoHora) return;
     let alive = true;
     const desiredAt = isoLocalDeDataHora(retornoData, retornoHora);
-    if (!desiredAt) { setSlotPreview(null); return; }
     const timer = setTimeout(() => {
       if (!alive) return;
+      // Data impossível também espera o debounce: limpar na hora fazia o efeito
+      // escrever estado no meio da pintura (cascata de renders) e ainda piscava
+      // o preview a cada tecla de uma data sendo digitada.
+      if (!desiredAt) { setSlotPreview(null); return; }
       setSlotPreviewBusy(true);
       apiFetch<{ slot: string; conflito: boolean; motivoConflito: string | null; resumo?: string }>(
         `/vendas/agenda-disparo/proximo-slot?desiredAt=${encodeURIComponent(desiredAt)}`,
@@ -1103,7 +1112,11 @@ export function VendasClient() {
         setTetoEfetivo(Number.isFinite(res.tetoEfetivoPorDia) ? Number(res.tetoEfetivoPorDia) : null);
       })
       .catch(() => {});
-  }, []);
+    // Os setters entram na lista de propósito: são estáveis, e sem eles o
+    // compilador do React desiste de otimizar a tela inteira ("memoização
+    // manual não pôde ser preservada"). Nesta tela ele não consegue provar a
+    // estabilidade sozinho.
+  }, [setComercialConfigDraft, setTetoEfetivo]);
 
   // CATÁLOGO COMERCIAL (30/07): a tela do "o que a empresa vende" — sem ela o
   // catalogoJson só era editável por SQL, o que reprova "ele muda sozinho?".
@@ -1130,7 +1143,8 @@ export function VendasClient() {
       paraQuem: (c?.paraQuem || []).join(", "),
       ancoraDePreco: c?.ancoraDePreco || "",
     });
-  }, []);
+    // Mesmo motivo do `loadComercialConfig` acima: setter estável declarado.
+  }, [setCatalogoInfo, setCatalogoDraft]);
 
   const loadCatalogo = useCallback(() => {
     return apiFetch<CatalogoView>("/vendas/catalogo-comercial")
@@ -1166,8 +1180,8 @@ export function VendasClient() {
       });
       espelharCatalogo(res);
       setCatalogoMsg("✓ Catálogo salvo");
-    } catch (error: any) {
-      setCatalogoMsg(error?.message || "Não foi possível salvar");
+    } catch (error) {
+      setCatalogoMsg(error instanceof Error ? error.message : "Não foi possível salvar");
     } finally {
       setCatalogoBusy(false);
     }
@@ -2447,7 +2461,7 @@ export function VendasClient() {
                   aria-label="O que a empresa vende" />
               </label>
               <label style={{ display: "grid", gap: 4, fontSize: "var(--fz-m2)", color: "var(--text-muted)" }}>
-                Capacidades — uma por linha (opcional: "| dores que resolve")
+                Capacidades — uma por linha (opcional: &quot;| dores que resolve&quot;)
                 <textarea className="field-dark" rows={4} value={catalogoDraft.capacidades}
                   disabled={!podeConfigurarDisparo}
                   placeholder={"Entrega no mesmo dia | atraso, cliente esperando\nPedido pelo WhatsApp"}

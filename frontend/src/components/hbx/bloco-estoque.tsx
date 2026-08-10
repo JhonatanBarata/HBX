@@ -226,8 +226,11 @@ export function BlocoEstoque() {
         mov.acao === "inventario"
           ? { produtoId: mov.produto.id, contagem: qtd, motivo: movMotivo.trim() || undefined }
           : { produtoId: mov.produto.id, quantidade: qtd, motivo: movMotivo.trim() || undefined };
-      const r = await apiFetch<any>(`/fiscal/estoque/${mov.acao}`, { method: "POST", body: JSON.stringify(body) });
-      setAviso(mov.acao === "inventario" && r?.lancado === false ? r.aviso : null);
+      const r = await apiFetch<{ lancado?: boolean; aviso?: string | null }>(
+        `/fiscal/estoque/${mov.acao}`,
+        { method: "POST", body: JSON.stringify(body) },
+      );
+      setAviso(mov.acao === "inventario" && r?.lancado === false ? r.aviso ?? null : null);
       setMov(null);
       setMovQtd("");
       setMovMotivo("");

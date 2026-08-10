@@ -169,17 +169,17 @@ export function BalcaoClient() {
 
   // ── BIP — leitor é teclado: dígitos em sequência + Enter ─────────────────
   const bipRef = useRef<{ buffer: string; ultimo: number }>({ buffer: "", ultimo: 0 });
-  const produtosRef = useRef<ProdutoBalcao[]>([]);
-  produtosRef.current = produtos;
 
+  // A lista de produtos entra direto no bip (sem ref-cópia): ela é carregada uma
+  // vez ao abrir a tela, então o ouvinte de teclado só é rependurado nessa hora.
   const onBip = useCallback((codigo: string) => {
-    const p = produtosRef.current.find((x) => x.gtin && x.gtin === codigo);
+    const p = produtos.find((x) => x.gtin && x.gtin === codigo);
     if (!p) {
       setErro(`Código bipado não cadastrado: ${codigo} — cadastre o código de barras no Estoque.`);
       return;
     }
     adicionar(p);
-  }, [adicionar]);
+  }, [adicionar, produtos]);
 
   useEffect(() => {
     if (!admin) return;
@@ -211,18 +211,21 @@ export function BalcaoClient() {
   }, [admin, onBip]);
 
   // ── busca de cliente (fiado) ──────────────────────────────────────────────
+  // A lista some junto com o MOTIVO dela existir, e isso é conta de render — não
+  // um efeito que zera estado no corpo (cascata de renders). Enquanto a busca
+  // não vale, `listaClientes` já nasce vazia, sem depender de efeito ter rodado.
+  const buscandoCliente = pagamento === "FIADO" && !cliente && buscaCliente.trim().length >= 2;
+  const listaClientes = buscandoCliente ? resultadosCliente : [];
+
   useEffect(() => {
-    if (pagamento !== "FIADO" || cliente || buscaCliente.trim().length < 2) {
-      setResultadosCliente([]);
-      return;
-    }
+    if (!buscandoCliente) return;
     const t = setTimeout(() => {
       apiFetch<ClienteT[]>(`/fiscal/balcao/clientes?q=${encodeURIComponent(buscaCliente.trim())}`)
         .then((rows) => setResultadosCliente(Array.isArray(rows) ? rows : []))
         .catch(() => setResultadosCliente([]));
     }, 250);
     return () => clearTimeout(t);
-  }, [buscaCliente, pagamento, cliente]);
+  }, [buscaCliente, buscandoCliente]);
 
   // ── finalizar ─────────────────────────────────────────────────────────────
   const podeFinalizar = carrinho.length > 0 && pagamento != null && (pagamento !== "FIADO" || cliente != null) && !finalizando;
@@ -437,9 +440,9 @@ export function BalcaoClient() {
                       onChange={(e) => setBuscaCliente(e.target.value)}
                     />
                   </label>
-                  {resultadosCliente.length > 0 ? (
+                  {listaClientes.length > 0 ? (
                     <div className="bal-cliente-lista">
-                      {resultadosCliente.map((c) => (
+                      {listaClientes.map((c) => (
                         <button key={c.id} type="button" onClick={() => { setCliente(c); setResultadosCliente([]); }}>
                           {c.nome}{c.fone ? ` · ${c.fone}` : ""}
                         </button>

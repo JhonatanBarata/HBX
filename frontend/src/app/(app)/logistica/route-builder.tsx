@@ -385,37 +385,41 @@ export function RouteBuilderDialog({
   const [aviso, setAviso] = useState<string | null>(null);
   const previewRequest = useRef(0);
   // A terceira porta: a base inteira, marcada à mão.
-  const [clientes, setClientes] = useState<ClienteListItem[]>([]);
-  const [clientesLoading, setClientesLoading] = useState(false);
-  const [clientesCaiu, setClientesCaiu] = useState(false);
   const [marcados, setMarcados] = useState<string[]>([]);
   const clientesRequest = useRef(0);
 
   /* A busca vai ao servidor com a MESMA espera da lista do celular: uma ida por
      letra enfileira pedidos e a última resposta nem sempre é a última digitada
-     — o contador `clientesRequest` é quem decide qual resposta vale. */
+     — o contador `clientesRequest` é quem decide qual resposta vale.
+
+     A resposta guarda QUAL busca ela responde. Com isso "carregando" é conta de
+     render (a busca da tela ≠ a busca da resposta) em vez de um setState no
+     corpo do efeito, que é cascata de renders. A lista anterior continua na
+     tela enquanto a nova não chega — igual a antes. */
+  const [clientesResp, setClientesResp] = useState<{ busca: string; itens: ClienteListItem[]; caiu: boolean } | null>(null);
+  const buscaClientes = search.trim();
+  const clientesNoAr = clientesResp && clientesResp.busca === buscaClientes ? clientesResp : null;
+  const clientes = clientesResp?.itens ?? [];
+  const clientesCaiu = clientesNoAr?.caiu ?? false;
+  const clientesLoading = step === "escolher" && !clientesNoAr;
+
   useEffect(() => {
     if (step !== "escolher") return undefined;
-    const alvo = search.trim();
     const pedido = ++clientesRequest.current;
-    setClientesLoading(true);
     const t = setTimeout(() => {
-      listClientes(alvo)
+      listClientes(buscaClientes)
         .then((resposta) => {
           if (clientesRequest.current !== pedido) return;
-          setClientes((resposta.items || []).filter((c) => c.isCliente));
-          setClientesCaiu(false);
-          setClientesLoading(false);
+          setClientesResp({ busca: buscaClientes, itens: (resposta.items || []).filter((c) => c.isCliente), caiu: false });
         })
         .catch(() => {
           if (clientesRequest.current !== pedido) return;
           // Lista vazia e lista que não carregou são coisas OPOSTAS.
-          setClientesCaiu(true);
-          setClientesLoading(false);
+          setClientesResp({ busca: buscaClientes, itens: [], caiu: true });
         });
     }, 300);
     return () => clearTimeout(t);
-  }, [step, search]);
+  }, [step, buscaClientes]);
 
   // 31/07 — estado das rotas salvas: relido toda vez que a lista aparece (a
   // pessoa pode aceitar, sair ou devolver a rota com este diálogo aberto).

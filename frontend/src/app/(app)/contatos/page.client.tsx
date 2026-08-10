@@ -1076,9 +1076,11 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
   const [showNovo, setShowNovo] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [selected, setSelected] = useState<ContextSelection | null>(null);
-  const [clienteDetail, setClienteDetail] = useState<ClienteDetail | null>(null);
-  const [clienteDetailLoading, setClienteDetailLoading] = useState(false);
-  const [clienteDetailError, setClienteDetailError] = useState<string | null>(null);
+  // A ficha completa guarda DE QUEM ela é (`chave` = cliente + revisão). Assim
+  // "carregando" e "ficha errada na tela" viram conta de render em vez de três
+  // setState no corpo do efeito — que era cascata de renders e, pior, deixava a
+  // ficha do cliente anterior aparecer por um render depois de trocar a seleção.
+  const [clienteDetailResp, setClienteDetailResp] = useState<{ chave: string; data: ClienteDetail | null; error: string | null } | null>(null);
   const [clienteDetailRevision, setClienteDetailRevision] = useState(0);
   // LOGÍSTICA-MOBILE M2 — cliente com o drawer "Produtos do cliente" aberto.
   const [prodCliente, setProdCliente] = useState<{ id: string; nome: string | null } | null>(null);
@@ -1131,32 +1133,29 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
 
   // A lista é leve; a ficha completa (locais, telefones e contrato financeiro)
   // só é lida quando o operador realmente seleciona um cliente.
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch contextual ao trocar a seleção; guarda evita resposta velha.
+  const clienteDetailChave = selectedClienteId ? `${selectedClienteId}#${clienteDetailRevision}` : null;
+  const clienteDetailNoAr = clienteDetailResp && clienteDetailResp.chave === clienteDetailChave ? clienteDetailResp : null;
+  const clienteDetail = clienteDetailNoAr?.data ?? null;
+  const clienteDetailError = clienteDetailNoAr?.error ?? null;
+  const clienteDetailLoading = Boolean(clienteDetailChave) && !clienteDetailNoAr;
+
   useEffect(() => {
+    if (!clienteDetailChave || !selectedClienteId) return;
     let alive = true;
-    if (!selectedClienteId) {
-      setClienteDetail(null);
-      setClienteDetailLoading(false);
-      setClienteDetailError(null);
-      return () => { alive = false; };
-    }
-    setClienteDetail(null);
-    setClienteDetailLoading(true);
-    setClienteDetailError(null);
     apiFetch<ClienteDetail>(`/nucleo/clientes/${encodeURIComponent(selectedClienteId)}`)
       .then((detail) => {
-        if (!alive) return;
-        setClienteDetail(detail);
+        if (alive) setClienteDetailResp({ chave: clienteDetailChave, data: detail, error: null });
       })
       .catch((err: unknown) => {
         if (!alive) return;
-        setClienteDetailError(err instanceof Error ? err.message : "Não foi possível carregar a ficha completa.");
-      })
-      .finally(() => {
-        if (alive) setClienteDetailLoading(false);
+        setClienteDetailResp({
+          chave: clienteDetailChave,
+          data: null,
+          error: err instanceof Error ? err.message : "Não foi possível carregar a ficha completa.",
+        });
       });
     return () => { alive = false; };
-  }, [selectedClienteId, clienteDetailRevision]);
+  }, [clienteDetailChave, selectedClienteId]);
 
   function submitSearch(e: React.FormEvent) {
     e.preventDefault();
