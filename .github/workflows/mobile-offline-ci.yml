@@ -117,13 +117,22 @@ jobs:
           path: tenant-scope.log
           if-no-files-found: error
           retention-days: 3
+      # 🔴 ESTE PASSO CONFERE O QUE O APK CARREGA — e ele tinha parado de fazer
+      # isso. Listava `app.js` (morto na fusão de 07/08), `mobile-contract.js` e
+      # `offline-controls.js` (órfãos, removidos em 10/08): três arquivos que o
+      # `index.html` não carrega, um deles inexistente — ou seja, o passo estava
+      # vermelho por ausência e cego pro app de verdade.
+      # Os três que o `index.html` carrega, na ordem em que ele carrega, são a
+      # lista certa. `ponte.js` é GERADO (fonte em logistica/ponte-src/): quem
+      # garante que o gerado é a costura da fonte é `scripts/ponte-conferir.js`.
       - name: Packaged JavaScript syntax
         working-directory: EntregaShell
         run: |
           node --check app/src/main/assets/app/native.js
-          node --check app/src/logistica/assets/app/mobile-contract.js
-          node --check app/src/logistica/assets/app/app.js
-          node --check app/src/logistica/assets/app/offline-controls.js
+          node --check app/src/logistica/assets/app/native.js
+          node --check app/src/logistica/assets/app/mock.js
+          node --check app/src/logistica/assets/app/ponte.js
+          node --check app/src/logistica/assets/app/matriz.js
 
   frontend:
     name: Admin mobile frontend
