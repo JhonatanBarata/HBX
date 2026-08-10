@@ -15,6 +15,7 @@ import {
   resolverCnefeCep,
   resolverCnefeLote,
   resolverCnefePorta,
+  cepDaQuadra,
   type CnefePortaRow,
   type CnefeRow,
 } from './cnefe-resolver.util';
@@ -453,6 +454,49 @@ test('resolverCnefePorta: vizinho NUNCA carimba CEP no cadastro (faixa é do viz
     assert.ok(achado);
     assert.equal(achado!.pino.precisao, 'rua');
     assert.equal(achado!.cep, null);
+  } finally {
+    __setCnefeQueryForTests(null);
+    __resetCnefePortaCacheForTests();
+  }
+});
+
+/* 🔴 O CEP DO TRECHO POR CONSENSO (10/08). A régua de 27/07 — "CEP só da porta
+   exata" — deixava 43 dos 76 clientes sem CEP da company 41 com pino e sem CEP pra
+   sempre. CEP é do TRECHO da rua: vizinho unânime na mesma quadra prova o trecho.
+   Estes três testes são a vacina de que "unânime" continua querendo dizer unânime. */
+test('cepDaQuadra: vizinhos da MESMA quadra unânimes ⇒ o CEP do trecho', () => {
+  const rows = [porta({ numero: 150 }), porta({ numero: 160 }), porta({ numero: 166 })];
+  assert.equal(cepDaQuadra(rows, 157), '13504689');
+});
+
+test('cepDaQuadra: dois CEPs na quadra ⇒ null (o trecho vira aqui, não sei)', () => {
+  const rows = [porta({ numero: 150 }), porta({ numero: 160, cep: '13504690' })];
+  assert.equal(cepDaQuadra(rows, 157), null);
+});
+
+test('cepDaQuadra: um vizinho só NÃO é consenso; e fora da quadra não conta', () => {
+  assert.equal(cepDaQuadra([porta({ numero: 160 })], 157), null);
+  // Δ=100 > CNEFE_CEP_QUADRA_DELTA: outra quadra, outra faixa possível.
+  assert.equal(cepDaQuadra([porta({ numero: 257 }), porta({ numero: 261 })], 157), null);
+});
+
+test('resolverCnefePorta: vizinhos unânimes carimbam o CEP do trecho (fonte "quadra")', async () => {
+  __resetCnefePortaCacheForTests();
+  __setCnefeQueryForTests(async (sql) => {
+    if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
+    if (sql.includes('to_regclass')) return [{ porta: 'cnefe_porta', mapa: 'cnefe_mun_map' }];
+    if (sql.includes('FROM cnefe_mun_map')) return [{ cod_municipio: '3543907' }];
+    if (sql.includes('FROM cnefe_porta')) return [porta({ numero: 160 }), porta({ numero: 150 })];
+    return [];
+  });
+  try {
+    const achado = await resolverCnefePorta({
+      endereco: 'Jd. Boa Vista, Av. 96, nº 157', numero: '157', bairro: 'Jd. Boa Vista', cidade: 'Rio Claro', uf: 'SP',
+    });
+    assert.ok(achado);
+    assert.equal(achado!.pino.precisao, 'rua');       // o PINO segue sendo do vizinho
+    assert.equal(achado!.cep, '13504689');            // o CEP é do trecho, provado
+    assert.equal(achado!.cepFonte, 'quadra');
   } finally {
     __setCnefeQueryForTests(null);
     __resetCnefePortaCacheForTests();

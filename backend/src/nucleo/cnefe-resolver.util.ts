@@ -948,6 +948,43 @@ export function escolherPortaDireta(
     ?? vizinho(candidatos, CNEFE_VIZINHO_DELTA_SEM_BAIRRO);
 }
 
+/**
+ * 🔴 O CEP DO TRECHO, PROVADO POR CONSENSO DOS VIZINHOS (10/08, ordem do dono:
+ * "preencher os 90 CEPs — já falei disso 3 vezes").
+ *
+ * Até aqui o CEP só saía da porta EXATA (a auditoria dele de 27/07: faixa de CEP
+ * chutada é endereço inventado). A régua estava certa e continua — o que ela não
+ * enxergava é que **CEP no Brasil é do TRECHO da rua, não da casa**: se todas as
+ * portas conhecidas da mesma quadra têm o MESMO CEP, esse CEP é do trecho, e a casa
+ * que fica entre elas está nele. Isso não é palpite, é unanimidade medida.
+ *
+ * As três travas (nenhuma afrouxa a Lei nº1, que é sobre o PINO):
+ *   1. só olha vizinhos da MESMA QUADRA (Δ≤40 na numeração — a mesma régua do
+ *      `CNEFE_VIZINHO_DELTA_SEM_BAIRRO`, que já é o corte de "é aqui do lado");
+ *   2. UNANIMIDADE: um único CEP entre eles. Dois CEPs = o trecho vira na quadra e
+ *      "não sei" é a resposta honesta;
+ *   3. pelo menos DOIS vizinhos: um só não é consenso, é a mesma aposta de antes.
+ */
+export const CNEFE_CEP_QUADRA_DELTA = CNEFE_VIZINHO_DELTA_SEM_BAIRRO;
+export const CNEFE_CEP_QUADRA_MINIMO = 2;
+
+export function cepDaQuadra(rows: CnefePortaRow[], numeroPedido: number): string | null {
+  if (!Number.isInteger(numeroPedido) || numeroPedido <= 0) return null;
+  const ceps = new Set<string>();
+  let vizinhos = 0;
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (typeof r.numero !== 'number' || !Number.isFinite(r.numero)) continue;
+    if (Math.abs(r.numero - numeroPedido) > CNEFE_CEP_QUADRA_DELTA) continue;
+    const cep = normalizarCep8(r.cep);
+    if (!cep) continue;
+    ceps.add(cep);
+    vizinhos += 1;
+    if (ceps.size > 1) return null;      // trecho vira aqui: não sei
+  }
+  if (vizinhos < CNEFE_CEP_QUADRA_MINIMO || ceps.size !== 1) return null;
+  return [...ceps][0];
+}
+
 /** Os agregados existem neste banco? Nasceram fora do `carregar-uf.sh` (build à mão em
  *  06/08), então instalação antiga pode não tê-los. Pergunta que NUNCA dá erro — um
  *  `relation does not exist` cru poria o CNEFE INTEIRO em cooldown de 60s e derrubaria
@@ -1009,13 +1046,14 @@ export interface CnefePortaInput {
 /**
  * (município, rua, número) → pino, direto no Censo. Best-effort: NUNCA lança; sem
  * agregados, sem município mapeado, UF sem carga ou dúvida ⇒ null, e o chamador segue
- * pelo caminho do CEP. Devolve também o CEP da porta — é o do próprio Censo, e é o
- * que o cadastro sem CEP merece (só quando a prova foi a porta EXATA).
+ * pelo caminho do CEP. Devolve também o CEP do próprio Censo, com a FONTE dele:
+ * `porta` (a casa) ou `quadra` (unanimidade dos vizinhos — ver `cepDaQuadra`). Sem
+ * uma das duas provas, `cep: null`: CEP chutado é endereço inventado.
  */
 export async function resolverCnefePorta(
   input: CnefePortaInput,
   opts?: { queryTimeoutMs?: number },
-): Promise<{ pino: CnefePino; cep: string | null } | null> {
+): Promise<{ pino: CnefePino; cep: string | null; cepFonte: 'porta' | 'quadra' | null } | null> {
   if (!cnefeHabilitado()) return null;
   if (!queryOverride && !cnefeDatabaseUrl()) return null;
   const numero = extrairNumeroPorta({
@@ -1052,12 +1090,19 @@ export async function resolverCnefePorta(
     )) as CnefePortaRow[];
     const pino = escolherPortaDireta(rows, { numero, bairro: input.bairro, endereco: input.endereco });
     if (!pino) return null;
-    // CEP só sai da porta EXATA. Vizinho é "a altura da rua" — o CEP dele pode ser de
-    // outra faixa, e gravar isso no cadastro é o erro que o dono auditou em 27/07.
+    // O CEP da porta EXATA é o melhor que existe: é a casa.
     const casa = pino.precisao === 'porta'
       ? rows.find((r) => r.lat === pino.lat && r.lng === pino.lng)
       : null;
-    return { pino, cep: normalizarCep8(casa?.cep) };
+    const cepDaCasa = normalizarCep8(casa?.cep);
+    if (cepDaCasa) return { pino, cep: cepDaCasa, cepFonte: 'porta' };
+    // Sem a casa (ou casa sem CEP na base), o trecho ainda pode se provar sozinho —
+    // ver `cepDaQuadra`. Nunca é palpite: ou os vizinhos da quadra são unânimes, ou
+    // a resposta é null e o cadastro segue sem CEP.
+    const cepConsenso = cepDaQuadra(rows, numero);
+    return cepConsenso
+      ? { pino, cep: cepConsenso, cepFonte: 'quadra' }
+      : { pino, cep: null, cepFonte: null };
   } catch {
     return null;
   }

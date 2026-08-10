@@ -401,7 +401,7 @@ export class LogisticaConferenciaService implements OnModuleInit {
     companyId: number,
     rows: ParadaConferenciaRow[],
     orcamentoMs = CNEFE_CURA_ORCAMENTO_MS,
-  ): Promise<{ candidatos: number; tentados: number; curados: number }> {
+  ): Promise<{ candidatos: number; tentados: number; curados: number; ceps: number }> {
     const porDono = new Map<string, { alvo: AlvoCuraCnefe; linhas: ParadaConferenciaRow[] }>();
     for (const r of rows) {
       const alvo = alvoCuraCnefe(r);
@@ -416,13 +416,16 @@ export class LogisticaConferenciaService implements OnModuleInit {
       if (entrada) entrada.linhas.push(r);
       else porDono.set(chave, { alvo, linhas: [r] });
     }
-    if (!porDono.size) return { candidatos: 0, tentados: 0, curados: 0 };
+    if (!porDono.size) return { candidatos: 0, tentados: 0, curados: 0, ceps: 0 };
 
     const donos = [...porDono.values()].slice(0, CNEFE_CURA_TETO);
     const fim = Date.now() + orcamentoMs;
     let proximo = 0;
     let curados = 0;
     let tentados = 0;
+    // CEP preenchido é resultado PRÓPRIO — o alvo só-CEP nunca devolve pino, e sem
+    // contador ele apareceria como "0 curados" numa passada que consertou cadastro.
+    let ceps = 0;
     const trabalhador = async (): Promise<void> => {
       for (;;) {
         const i = proximo;
@@ -436,6 +439,7 @@ export class LogisticaConferenciaService implements OnModuleInit {
         await this.marcarSanitizado(companyId, dono.alvo, dono.linhas[0]);
         if (!cura) continue;
         const gravou = await this.gravarCuraCnefe(companyId, dono.alvo, dono.linhas[0], cura);
+        if (cura.cepDescoberto) ceps += 1;
         if (!gravou || !cura.pino) continue;
         curados += 1;
         for (const linha of dono.linhas) aplicarPinoCnefeNaLinha(linha, dono.alvo.tipo, cura.pino);
@@ -447,9 +451,9 @@ export class LogisticaConferenciaService implements OnModuleInit {
     // engolia a cidade inteira de rua numerada. Silêncio nunca mais.
     this.logger.log(
       `[logistica] conferência company=${companyId}: cura automática resolveu ${curados} de ${donos.length} endereço(s) novo(s) sem pino ` +
-        '(já tentados antes ficam fora até o cadastro mudar).',
+        `e preencheu ${ceps} CEP(s) (já tentados antes ficam fora até o cadastro mudar).`,
     );
-    return { candidatos: porDono.size, tentados, curados };
+    return { candidatos: porDono.size, tentados, curados, ceps };
   }
 
   /**
@@ -468,7 +472,7 @@ export class LogisticaConferenciaService implements OnModuleInit {
    */
   async resolverEnderecosDaBase(
     companyId: number,
-  ): Promise<{ candidatos: number; tentados: number; curados: number; restantes: number }> {
+  ): Promise<{ candidatos: number; tentados: number; curados: number; ceps: number; restantes: number }> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
 
     const clientes = await this.prisma.customerProfile.findMany({
@@ -512,8 +516,8 @@ export class LogisticaConferenciaService implements OnModuleInit {
     const res = await this.resolverSemPinoViaCnefe(companyId, rows, CNEFE_CURA_ORCAMENTO_BASE_MS);
     const restantes = Math.max(0, res.candidatos - res.tentados);
     this.logger.log(
-      `[logistica] resolver-enderecos company=${companyId}: ${res.curados} resolvido(s) de ${res.tentados} tentado(s); ` +
-        `${restantes} candidato(s) restante(s) nesta base.`,
+      `[logistica] resolver-enderecos company=${companyId}: ${res.curados} resolvido(s) e ${res.ceps} CEP(s) preenchido(s) ` +
+        `de ${res.tentados} tentado(s); ${restantes} candidato(s) restante(s) nesta base.`,
     );
     return { ...res, restantes };
   }
@@ -862,6 +866,18 @@ export interface AlvoCuraCnefe {
   bairro: string | null;
   cidade: string | null;
   uf: string | null;
+  /**
+   * 🔴 SÓ O CEP (10/08, ordem do dono: "preencher os 90 CEPs"). Cliente com pino JÁ
+   * PROVADO (o motorista marcou a porta) e cadastro sem CEP nunca era nem tentado —
+   * `alvoCuraCnefe` recusa quem tem pino provado, e é por isso que 43 dos 76 sem CEP
+   * da company 41 ficariam sem CEP pra sempre por mais que alguém rodasse a cura.
+   * Aqui o alvo entra pra PREENCHER O BURACO e nada mais: o pino não é tocado (a
+   * escrita já guarda "só quando não tem lat"), e o CEP só é aceito quando o Censo
+   * achou a MESMA casa que já está marcada (ver `pinoAtual` + `CURA_CEP_RAIO_M`).
+   */
+  soCep?: boolean;
+  /** o pino provado que já está no cadastro — a régua de "é a mesma casa". */
+  pinoAtual?: { lat: number; lng: number } | null;
 }
 
 /**
@@ -886,7 +902,6 @@ export function alvoCuraCnefe(r: ParadaConferenciaRow): AlvoCuraCnefe | null {
   // (string velha, typo, coluna de migração antiga) não está na lista, e por isso
   // passava por PROVADA — o pior lado pra errar.
   const jaProvado = pinoValido(coord.lat, coord.lng) && geoFonteDaPorta(coord.geoFonte);
-  if (jaProvado) return null;
   // 27/07 (incidente company 48) — o alvo é QUEM DÁ PRA LOCALIZAR: local primeiro
   // (a porta é dele), senão o PERFIL. Antes, local com endereço mas SEM CEP
   // travava a cura mesmo com o perfil completinho do lado (28 sem_pino no dia e
@@ -899,6 +914,27 @@ export function alvoCuraCnefe(r: ParadaConferenciaRow): AlvoCuraCnefe | null {
   const monta = (tipo: 'local' | 'perfil', cad: NonNullable<typeof candidatos[number]['cad']>, cep: string | null, numero: number): AlvoCuraCnefe => ({
     tipo, cep, numero, endereco: cad.endereco ?? null, bairro: cad.bairro ?? null, cidade: cad.cidade ?? null, uf: cad.uf ?? null,
   });
+  /* 🔴 PINO PROVADO E SEM CEP ENTRA — SÓ PELO CEP (10/08). Antes esta função devolvia
+     `null` aqui e pronto: quem tinha a porta marcada pelo motorista mas o cadastro sem
+     CEP ficava fora da fila pra sempre. O alvo é o DONO do endereço que está sem CEP
+     (local primeiro, como no resto), e a única escrita possível é a do CEP. */
+  if (jaProvado) {
+    for (const { tipo, cad } of candidatos) {
+      if (!cad) continue;
+      if (normalizarCep(cad.cep)) continue;                 // já tem CEP: nada a fazer
+      const numero = extrairNumeroPorta(cad);
+      if (!numero) continue;
+      if (logradouroDoCadastro(cad.endereco).length < 3) continue;
+      if (String(cad.cidade ?? '').trim().length < 3) continue;
+      if (!/^[A-Za-z]{2}$/.test(String(cad.uf ?? '').trim())) continue;
+      return {
+        ...monta(tipo, cad, null, numero),
+        soCep: true,
+        pinoAtual: { lat: coord.lat as number, lng: coord.lng as number },
+      };
+    }
+    return null;
+  }
   // 1ª passada: quem TEM CEP (caminho direto e mais barato — zero rede externa).
   for (const { tipo, cad } of candidatos) {
     if (!cad) continue;
@@ -924,6 +960,25 @@ export function alvoCuraCnefe(r: ParadaConferenciaRow): AlvoCuraCnefe | null {
 /** O que a cura conseguiu apurar sobre um alvo. `pino` null com `cepDescoberto`
  *  preenchido = achou o CEP da rua mas o CNEFE não provou a porta: grava o CEP
  *  (o furo do cadastro some) e a parada segue pendente, sem mentir que curou. */
+/**
+ * 🔴 "É A MESMA CASA?" — a régua do alvo só-CEP (10/08).
+ *
+ * 60 m é a MESMA medida que o app já usa pra decidir se o motorista está na porta
+ * (`presoNaRota`/GPS): dentro disso é o mesmo imóvel visto por dois instrumentos (o
+ * fix do celular e a porta do Censo); acima disso são endereços diferentes e o CEP
+ * seria de outro lugar. Sem pino atual não há o que comparar ⇒ recusa.
+ */
+export const CURA_CEP_RAIO_M = 60;
+
+export function mesmaCasa(
+  atual: { lat: number; lng: number } | null | undefined,
+  porta: { lat: number; lng: number } | null | undefined,
+): boolean {
+  if (!atual || !porta) return false;
+  if (!pinoValido(atual.lat, atual.lng) || !pinoValido(porta.lat, porta.lng)) return false;
+  return haversineKm(atual, porta) * 1000 <= CURA_CEP_RAIO_M;
+}
+
 export interface CuraCnefeResultado {
   pino: CnefePino | null;
   cepDescoberto: string | null;
@@ -959,8 +1014,18 @@ export async function resolverCuraCnefe(
     { ...base, bairro: alvo.bairro, cidade: alvo.cidade },
     opts,
   );
-  // `cepDescoberto` só quando a prova foi a PORTA (o resolver já devolve null no
-  // vizinho) e o cadastro está sem CEP: nunca trocar o CEP que o dono digitou.
+  /* 🔴 ALVO "SÓ CEP": o pino JÁ está provado no cadastro e não se toca. A única
+     pergunta é se o Censo achou a MESMA CASA — se a porta que ele devolveu está a
+     mais de `CURA_CEP_RAIO_M` do ponto que o motorista marcou, são casas diferentes
+     e o CEP é de outro lugar. Sem prova de identidade, "não sei" (a lei do dono:
+     endereço errado é pior que endereço faltando). */
+  if (alvo.soCep) {
+    if (!direta || !direta.cep) return null;
+    if (!mesmaCasa(alvo.pinoAtual, direta.pino)) return null;
+    return { pino: null, cepDescoberto: direta.cep, logradouroOficial: null };
+  }
+  // `cepDescoberto` só quando o Censo PROVOU o CEP (porta exata ou consenso da quadra
+  // — ver `cepDaQuadra`) e o cadastro está sem CEP: nunca trocar o que o dono digitou.
   if (direta) return { pino: direta.pino, cepDescoberto: alvo.cep ? null : direta.cep, logradouroOficial: null };
   if (alvo.cep) {
     /* 🔴 COM CEP NO CADASTRO, O CEP MANDA NO NOME DA RUA (09/08, ordem do dono: "se o
@@ -1056,10 +1121,12 @@ function jaSanitizado(cad: { sanitizadoEm?: Date | null; updatedAt?: Date | null
  * MEXER AQUI SÓ AO MUDAR A REGRA DE VERDADE: cada data nova custa uma passada de cura
  * na base inteira de todos os tenants.
  */
-// 09/08 14:30Z — o CEP do cadastro passou a mandar no nome da rua (cepDoCadastro).
-// Sem subir esta data, os 34 clientes da company 41 carimbados hoje de manhã pela
-// régua ANTERIOR nunca veriam o conserto: o carimbo os recusaria antes da 1ª consulta.
-const CURA_REGUA_DESDE = Date.parse('2026-08-09T14:30:00Z');
+// 10/08 06:00Z — DUAS mudanças de régua na mesma leva (ordem do dono: "preencher os
+// 90 CEPs"): o CEP passou a se provar por CONSENSO DA QUADRA (`cepDaQuadra`) e quem
+// TEM pino provado e está sem CEP passou a entrar na fila (alvo `soCep`). Sem subir
+// esta data, os carimbados de 09/08 — que é justamente a base inteira da 41 — nunca
+// veriam nenhuma das duas.
+const CURA_REGUA_DESDE = Date.parse('2026-08-10T06:00:00Z');
 
 /** Aplica o pino curado na linha EM MEMÓRIA (a fonte inteira, nunca campo solto) —
  *  esta mesma conferência já roda com o pino novo, sem re-consultar o banco. */

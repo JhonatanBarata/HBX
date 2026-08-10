@@ -1,7 +1,7 @@
 import test, { mock } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { alvoCuraCnefe, LogisticaConferenciaService } from './logistica-conferencia.service';
+import { alvoCuraCnefe, mesmaCasa, LogisticaConferenciaService } from './logistica-conferencia.service';
 import { limparCacheBuscaCep, limparCacheCep } from './logistica-cep.util';
 import { __setCnefeQueryForTests } from '../nucleo/cnefe-resolver.util';
 import { LogisticaRouteBillingService } from './logistica-route-billing.service';
@@ -590,4 +590,44 @@ test('alvoCuraCnefe (puro): elegibilidade e dono do endereço', () => {
   assert.equal(legado!.numero, 77);
   assert.equal(legado!.tipo, 'perfil');
   assert.equal(legado!.cep, '13990000');
+});
+
+/* 🔴 O ALVO "SÓ CEP" (10/08, ordem do dono: "preencher os 90 CEPs — já falei 3
+   vezes"). 43 dos 76 sem CEP da company 41 TÊM pino provado, e por isso nunca eram
+   nem tentados: `alvoCuraCnefe` recusava quem tem pino. Agora entram — para o CEP e
+   só pra ele, com o pino atual viajando junto como régua de "é a mesma casa". */
+test('alvoCuraCnefe: pino provado SEM CEP entra como alvo só-CEP (com o pino atual junto)', () => {
+  const soCep = alvoCuraCnefe({
+    id: 'x', status: 'agendada', rotaOrdem: null, customerProfileId: 'c', localId: null, local: null,
+    customerProfile: {
+      name: 'Ademir', lat: -22.4, lng: -47.5, geoFonte: 'gps_entrega',
+      cep: null, endereco: 'Rua 16, 199', numero: '199', bairro: 'Mãe preta', cidade: 'Rio Claro', uf: 'SP',
+    },
+  } as any);
+  assert.ok(soCep, 'pino provado e sem CEP É alvo');
+  assert.equal(soCep!.soCep, true);
+  assert.equal(soCep!.cep, null);
+  assert.equal(soCep!.numero, 199);
+  assert.deepEqual(soCep!.pinoAtual, { lat: -22.4, lng: -47.5 });
+});
+
+test('alvoCuraCnefe: pino provado COM CEP continua fora (não há buraco a preencher)', () => {
+  const completo = alvoCuraCnefe({
+    id: 'x', status: 'agendada', rotaOrdem: null, customerProfileId: 'c', localId: null, local: null,
+    customerProfile: {
+      name: 'Alfredo', lat: -22.4, lng: -47.5, geoFonte: 'gps_entrega',
+      cep: '13506661', endereco: 'Rua 4-a, 93', numero: '93', cidade: 'Rio Claro', uf: 'SP',
+    },
+  } as any);
+  assert.equal(completo, null);
+});
+
+test('mesmaCasa: 60 m é o corte — o Censo tem que ter achado a casa que já está marcada', () => {
+  const atual = { lat: -22.4, lng: -47.5 };
+  // ~11 m ao norte: mesmo imóvel visto por dois instrumentos.
+  assert.equal(mesmaCasa(atual, { lat: -22.4001, lng: -47.5 }), true);
+  // ~1,1 km: outra casa — o CEP dela não é deste cadastro.
+  assert.equal(mesmaCasa(atual, { lat: -22.41, lng: -47.5 }), false);
+  assert.equal(mesmaCasa(null, { lat: -22.4, lng: -47.5 }), false, 'sem pino atual não há prova');
+  assert.equal(mesmaCasa(atual, { lat: 0, lng: 0 }), false, '(0,0) não é pino');
 });
