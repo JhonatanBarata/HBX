@@ -1448,13 +1448,27 @@ export class LogisticaRotaService {
     const hoje = resolveDayRange();
     const inicio = new Date(hoje.start.getTime() - 14 * 24 * 3600 * 1000);
     const fim = new Date(hoje.start.getTime() - 1);
+    /* 🔴 O HISTÓRICO REGISTRA O QUE NÃO FOI COMPLETADO (10/08, F5 — dono: "tem q
+       ficar registrado rotas que eu criei e cancelei").
+       Até aqui a lista só via PARADA (`rotaOrdem` ou entregue), e o `limparDia`
+       zera `rotaOrdem` ao cancelar: um dia inteiro criado e cancelado sumia da
+       tela como se nunca tivesse existido. A cancelada entra agora — e é ela que
+       pinta o dia de vermelho.
+       ⏱ As 24 h do caso "sem registro nenhum" NÃO são regra desta consulta: elas
+       vêm de graça da LEI DO DESAPARECER (logistica-expurgo.util) — passada a
+       janela, a linha some do banco e o dia some daqui junto. Uma régua só, nos
+       dois lugares. */
     const rows = await this.prisma.entrega.findMany({
       where: {
         companyId,
         scheduledAt: { gte: inicio, lte: fim },
-        OR: eParada,
+        OR: [...eParada, { status: 'cancelada' }],
       },
-      select: { scheduledAt: true, customerProfileId: true, localId: true },
+      select: {
+        scheduledAt: true, customerProfileId: true, localId: true,
+        // o desfecho de cada parada: é dele que sai a cor do dia.
+        status: true, deliveredAt: true, comprovanteConfirmadoAt: true,
+      },
     });
     // agrupa pela MESMA régua de dia do resolveDayRange (fuso local do
     // servidor, via toDayISO) — segunda régua de dia é como as telas começam
@@ -1463,15 +1477,43 @@ export class LogisticaRotaService {
     // contando só o cliente, o chip do dia dizia "2 paradas" e reutilizar
     // enchia o rascunho com 3 (cliente com duas portas). O mesmo dado com dois
     // números em duas telas é bug de produto, não detalhe.
-    const porDia = new Map<string, Set<string>>();
+    const porDia = new Map<string, { paradas: Set<string>; entregues: Set<string> }>();
     rows.forEach((r) => {
       if (!r.scheduledAt) return;
       const dia = toDayISO(r.scheduledAt);
-      if (!porDia.has(dia)) porDia.set(dia, new Set());
-      porDia.get(dia)!.add(`${r.customerProfileId}|${r.localId ?? ''}`);
+      let bucket = porDia.get(dia);
+      if (!bucket) { bucket = { paradas: new Set(), entregues: new Set() }; porDia.set(dia, bucket); }
+      const chave = `${r.customerProfileId}|${r.localId ?? ''}`;
+      bucket.paradas.add(chave);
+      /* "REGISTRO DE VERDADE" (dono, 10/08): alguma coisa ACONTECEU nesta parada.
+         Entregue é o caso óbvio; `deliveredAt`/`comprovanteConfirmadoAt` cobrem a
+         que foi entregue e depois reaberta ou cancelada — trabalho feito não deixa
+         de ter sido feito porque o status mudou depois. */
+      if (r.status === 'entregue' || r.deliveredAt || r.comprovanteConfirmadoAt) bucket.entregues.add(chave);
     });
     const dias = [...porDia.entries()]
-      .map(([data, ids]) => ({ data, paradas: ids.size }))
+      .map(([data, { paradas, entregues }]) => {
+        const naoCompletadas = Math.max(0, paradas.size - entregues.size);
+        return {
+          data,
+          paradas: paradas.size,
+          entregues: entregues.size,
+          // O QUE NÃO FOI COMPLETADO — o número que o dono pediu que ficasse
+          // registrado nos dois casos (com e sem registro).
+          naoCompletadas,
+          /* A COR DO DIA, decidida no servidor (as duas telas não podem discordar
+             sobre o que é "completa"):
+               · `completa`   — todo mundo resolvido;
+               · `incompleta` — sobrou parada, mas o dia teve trabalho de verdade
+                                (o caso 2b do dono: fica salvo os 14 dias);
+               · `cancelada`  — sobrou parada e NADA aconteceu (o caso 2: vive 24 h
+                                e some junto com o crédito, pela lei do expurgo).
+             Vermelho é `!== 'completa'` — os dois últimos, como ele pediu. */
+          desfecho: (naoCompletadas === 0
+            ? 'completa'
+            : entregues.size > 0 ? 'incompleta' : 'cancelada') as 'completa' | 'incompleta' | 'cancelada',
+        };
+      })
       .sort((a, b) => (a.data < b.data ? 1 : -1));
     return { dias };
   }

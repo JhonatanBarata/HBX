@@ -930,8 +930,14 @@ const DADOS={
     // tela. Maquete aqui faria o motorista ler "Manhã" num espaço que não existe.
     modos:[], modoSel:'',
     // demo do HISTÓRICO (09/08) — dado vivo vem da ponte; aqui é só a peça.
+    /* Os TRÊS desfechos do dia (10/08) — o desenho mostra os três porque é assim
+       que a tela vai estar num dia real: completa, incompleta (teve trabalho e
+       sobrou parada) e cancelada (criou e cancelou, nada aconteceu). As duas
+       últimas vermelhas, com o que ficou por fazer à direita. */
     historico:[
       {data:'2026-08-08',dia:'Sáb',titulo:'Sáb · 08/08',sub:'95 paradas'},
+      {data:'2026-08-06',dia:'Qui',titulo:'Qui · 06/08',sub:'32 paradas · 28 entregues',tom:'red',naoFez:'4 não feitas'},
+      {data:'2026-08-05',dia:'Qua',titulo:'Qua · 05/08',sub:'7 paradas · cancelada',tom:'red',naoFez:'7 não feitas'},
       {data:'2026-08-04',dia:'Ter',titulo:'Ter · 04/08',sub:'52 paradas'},
     ],
     /* A linha da montagem é a MESMA do `.stop` da rota (ver `T.montagem`): um
@@ -1947,11 +1953,17 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
      que JÁ rodou; o toque enche o rascunho com os clientes daquele dia — nada
      grava até o Salvar/Iniciar. Sem fonte, sem seção (Lei do IF). A peça é a
      mesma `lista-card`/`cli` da porta "Meus clientes": casca única, por lei. */
+  /* 🔴 O DIA INCOMPLETO SE ANUNCIA (10/08, dono: "tem q ficar registrado rotas que
+     eu criei e cancelei… ambas ficam VERMELHAS, não foram completadas — em ambos
+     os casos fica registrado O QUE não foi completado").
+     Quem decide a cor é o SERVIDOR (`h.tom`), nunca uma conta desta tela: as duas
+     pontas discordando sobre o que é "completa" é o bug de produto desta casa. A
+     etiqueta da direita diz o número que ele pediu — o que ficou por fazer. */
   const hist=Array.isArray(d.historico)&&d.historico.length?`<div class="grupo">Histórico · 14 dias</div>
   <div class="lista-card">${d.historico.map(h=>`<button type="button" class="cli" data-acao="historico-usar" data-data="${h.data}">
-    <span class="ava">${h.dia}</span>
+    <span class="ava${h.tom==='red'?' red':''}">${h.dia}</span>
     <span><strong>${h.titulo}</strong><span>${h.sub}</span></span>
-    <span class="rgt"><span class="go">${ic('chev',15)}</span></span></button>`).join('')}</div>`:'';
+    <span class="rgt">${h.naoFez?`<span class="nao-fez">${h.naoFez}</span>`:''}<span class="go">${ic('chev',15)}</span></span></button>`).join('')}</div>`:'';
   /* 🔴 O BOTÃO DE MONTAR NÃO ROLA (dono, 08/08: "montar rota não está sempre
      visível"). Ele nascia no PÉ da lista: com 52 clientes na tela isso é
      3.259 px abaixo da dobra — MEDIDO no g15 — e cada repinte devolvia o dedo

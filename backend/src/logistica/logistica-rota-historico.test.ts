@@ -197,10 +197,63 @@ test('sem `date` a lista de DIAS não muda de contrato (agrupa por dia, conta pa
   ]);
 
   const resposta = (await service.historicoDeRotas(COMPANY)) as any;
+  // O contrato ganhou o DESFECHO em 10/08 (F5) — sem nenhuma entregue, o dia é
+  // 'cancelada' e diz quantas ficaram por fazer.
   assert.deepEqual(resposta.dias, [
-    { data: '2026-08-07', paradas: 1 },
-    { data: '2026-08-06', paradas: 2 },
+    { data: '2026-08-07', paradas: 1, entregues: 0, naoCompletadas: 1, desfecho: 'cancelada' },
+    { data: '2026-08-06', paradas: 2, entregues: 0, naoCompletadas: 2, desfecho: 'cancelada' },
   ]);
+});
+
+/* 🔴 F5 (10/08, dono: "tem q ficar registrado rotas que eu criei e cancelei…
+   ambas ficam VERMELHAS, não foram completadas — em ambos os casos fica
+   registrado o que NÃO foi completado"). O desfecho é do SERVIDOR: se cada tela
+   contar por conta própria, elas discordam sobre o que é "completa". */
+test('F5: dia com TUDO entregue é completa (sem vermelho, sem "não feitas")', async () => {
+  const quando = new Date(2026, 7, 6, 9, 0, 0, 0);
+  const { service } = buildService([
+    { scheduledAt: quando, customerProfileId: 'c1', localId: null, status: 'entregue', deliveredAt: quando },
+    { scheduledAt: quando, customerProfileId: 'c2', localId: null, status: 'entregue', deliveredAt: quando },
+  ]);
+  const { dias } = (await service.historicoDeRotas(COMPANY)) as any;
+  assert.deepEqual(dias, [{ data: '2026-08-06', paradas: 2, entregues: 2, naoCompletadas: 0, desfecho: 'completa' }]);
+});
+
+test('F5: dia com trabalho de verdade e parada sobrando é INCOMPLETA (caso 2b — fica 14 dias)', async () => {
+  const quando = new Date(2026, 7, 6, 9, 0, 0, 0);
+  const { service } = buildService([
+    { scheduledAt: quando, customerProfileId: 'c1', localId: null, status: 'entregue', deliveredAt: quando },
+    { scheduledAt: quando, customerProfileId: 'c2', localId: null, status: 'cancelada' },
+    { scheduledAt: quando, customerProfileId: 'c3', localId: null, status: 'cancelada' },
+  ]);
+  const { dias } = (await service.historicoDeRotas(COMPANY)) as any;
+  assert.deepEqual(dias, [{ data: '2026-08-06', paradas: 3, entregues: 1, naoCompletadas: 2, desfecho: 'incompleta' }]);
+});
+
+test('F5: entregue REABERTA depois continua contando como trabalho feito', async () => {
+  // O status virou outra coisa, mas `deliveredAt` prova que a visita aconteceu —
+  // trabalho feito não deixa de ter sido feito porque alguém reabriu a entrega.
+  const quando = new Date(2026, 7, 6, 9, 0, 0, 0);
+  const { service } = buildService([
+    { scheduledAt: quando, customerProfileId: 'c1', localId: null, status: 'cancelada', deliveredAt: quando },
+    { scheduledAt: quando, customerProfileId: 'c2', localId: null, status: 'cancelada' },
+  ]);
+  const { dias } = (await service.historicoDeRotas(COMPANY)) as any;
+  assert.equal(dias[0].desfecho, 'incompleta');
+  assert.equal(dias[0].naoCompletadas, 1);
+});
+
+test('F5: a CANCELADA entra na lista de dias (era ela que sumia da tela)', async () => {
+  // `limparDia` zera `rotaOrdem` ao cancelar, e a consulta antiga só via parada
+  // (rotaOrdem OU entregue): o dia inteiro criado e cancelado desaparecia como se
+  // nunca tivesse existido — exatamente a queixa do dono.
+  const { chamadas, service } = buildService([]);
+  await service.historicoDeRotas(COMPANY);
+  const where = chamadas[0].where;
+  assert.ok(
+    where.OR.some((o: any) => o.status === 'cancelada'),
+    'a cancelada precisa entrar no OR da lista de dias',
+  );
 });
 
 test('a CONTA do dia usa a mesma chave (cliente|porta) das linhas — chip e rascunho não discordam', async () => {
@@ -212,5 +265,7 @@ test('a CONTA do dia usa a mesma chave (cliente|porta) das linhas — chip e ras
   ]);
 
   const resposta = (await service.historicoDeRotas(COMPANY)) as any;
-  assert.deepEqual(resposta.dias, [{ data: '2026-08-06', paradas: 2 }], 'duas portas, duas paradas');
+  assert.equal(resposta.dias.length, 1);
+  assert.equal(resposta.dias[0].data, '2026-08-06');
+  assert.equal(resposta.dias[0].paradas, 2, 'duas portas, duas paradas');
 });

@@ -2280,6 +2280,12 @@ button,input{font:inherit;color:inherit}
 .ava{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:500;
   background:var(--blue-bg);border:1px solid var(--blue-line);color:var(--blue-l)}
 .ava.lime{background:var(--lime-bg-2);border-color:var(--lime-line);color:var(--lime)}
+/* 🔴 O DIA QUE NÃO FOI COMPLETADO (dono, 10/08: "ambas ficam vermelhas, não foram
+   completadas"). Vale pros dois casos — a cancelada sem registro nenhum (que vive
+   24 h) e a que teve trabalho de verdade e sobrou parada. Mesmo par de tokens do
+   resto do vermelho da casa; nada de hex solto. */
+.ava.red{background:var(--red-bg);border-color:var(--red-line);color:var(--red)}
+.cli .rgt .nao-fez{display:block;font-size:10px;color:var(--red)}
 .cli strong{display:block;font-size:13.5px;font-weight:500}
 .cli span{display:block;font-size:11px;color:var(--ink-2);margin-top:1px}
 .cli .rgt small{display:block;font-size:10px;color:var(--ink-2)}
@@ -2296,6 +2302,11 @@ button,input{font:inherit;color:inherit}
    Vem ANTES do bloco do modo claro de propósito — lá a cor é redesenhada. */
 .cli .ava,.item-linha .ava{display:grid;place-items:center;font-size:12px;margin-top:0;color:var(--blue-l)}
 .cli .ava.lime,.item-linha .ava.lime{color:var(--lime)}
+/* O vermelho do dia não-completado precisa das MESMAS três declarações que o lime
+   já tem — e por quê está escrito no comentário logo acima: `.cli .ava` tem a mesma
+   força de `.ava.red` e vem DEPOIS, então rouba a cor da letra. MEDIDO antes de
+   existir esta linha: fundo vermelho com letra AZUL. */
+.cli .ava.red,.item-linha .ava.red{color:var(--red)}
 
 /* ==========================================================================
    MODO CLARO — DESENHADO, não derivado.
@@ -2405,6 +2416,10 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .form-c.total{background:#f4faea}
 [data-luz="claro"] .ava{background:#eaf1fe;border-color:#9dbdf0;color:var(--blue)}
 [data-luz="claro"] .ava.lime{background:#f0f8e4;border-color:#a8cc6e;color:var(--lime)}
+/* Mesmo par do `.tag.red`/`.perna.alerta` do claro (#fff5f5 com fio #e6a3a3): a
+   régua do claro é 1 atributo + 1 classe e vence `.ava.red` sozinha — sem esta
+   linha o dia cancelado ficava AZUL no modo dia. Medido, não deduzido. */
+[data-luz="claro"] .ava.red{background:#fff5f5;border-color:#e6a3a3;color:var(--red)}
 [data-luz="claro"] .rowcard .ico{background:#eaf1fe;color:var(--blue)}
 [data-luz="claro"] .rowcard .ico.lime{background:#f0f8e4;color:var(--lime)}
 [data-luz="claro"] .linha-cfg .ico{background:#eef2f8;color:var(--ink-2)}
@@ -3644,8 +3659,14 @@ const DADOS={
     // tela. Maquete aqui faria o motorista ler "Manhã" num espaço que não existe.
     modos:[], modoSel:'',
     // demo do HISTÓRICO (09/08) — dado vivo vem da ponte; aqui é só a peça.
+    /* Os TRÊS desfechos do dia (10/08) — o desenho mostra os três porque é assim
+       que a tela vai estar num dia real: completa, incompleta (teve trabalho e
+       sobrou parada) e cancelada (criou e cancelou, nada aconteceu). As duas
+       últimas vermelhas, com o que ficou por fazer à direita. */
     historico:[
       {data:'2026-08-08',dia:'Sáb',titulo:'Sáb · 08/08',sub:'95 paradas'},
+      {data:'2026-08-06',dia:'Qui',titulo:'Qui · 06/08',sub:'32 paradas · 28 entregues',tom:'red',naoFez:'4 não feitas'},
+      {data:'2026-08-05',dia:'Qua',titulo:'Qua · 05/08',sub:'7 paradas · cancelada',tom:'red',naoFez:'7 não feitas'},
       {data:'2026-08-04',dia:'Ter',titulo:'Ter · 04/08',sub:'52 paradas'},
     ],
     /* A linha da montagem é a MESMA do `.stop` da rota (ver `T.montagem`): um
@@ -4661,11 +4682,17 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
      que JÁ rodou; o toque enche o rascunho com os clientes daquele dia — nada
      grava até o Salvar/Iniciar. Sem fonte, sem seção (Lei do IF). A peça é a
      mesma `lista-card`/`cli` da porta "Meus clientes": casca única, por lei. */
+  /* 🔴 O DIA INCOMPLETO SE ANUNCIA (10/08, dono: "tem q ficar registrado rotas que
+     eu criei e cancelei… ambas ficam VERMELHAS, não foram completadas — em ambos
+     os casos fica registrado O QUE não foi completado").
+     Quem decide a cor é o SERVIDOR (`h.tom`), nunca uma conta desta tela: as duas
+     pontas discordando sobre o que é "completa" é o bug de produto desta casa. A
+     etiqueta da direita diz o número que ele pediu — o que ficou por fazer. */
   const hist=Array.isArray(d.historico)&&d.historico.length?`<div class="grupo">Histórico · 14 dias</div>
   <div class="lista-card">${d.historico.map(h=>`<button type="button" class="cli" data-acao="historico-usar" data-data="${h.data}">
-    <span class="ava">${h.dia}</span>
+    <span class="ava${h.tom==='red'?' red':''}">${h.dia}</span>
     <span><strong>${h.titulo}</strong><span>${h.sub}</span></span>
-    <span class="rgt"><span class="go">${ic('chev',15)}</span></span></button>`).join('')}</div>`:'';
+    <span class="rgt">${h.naoFez?`<span class="nao-fez">${h.naoFez}</span>`:''}<span class="go">${ic('chev',15)}</span></span></button>`).join('')}</div>`:'';
   /* 🔴 O BOTÃO DE MONTAR NÃO ROLA (dono, 08/08: "montar rota não está sempre
      visível"). Ele nascia no PÉ da lista: com 52 clientes na tela isso é
      3.259 px abaixo da dobra — MEDIDO no g15 — e cada repinte devolvia o dedo

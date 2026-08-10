@@ -2069,11 +2069,26 @@
         const [a, m, d] = String(h.data || '').split('-').map(Number);
         const dt = new Date(a, (m || 1) - 1, d || 1, 12);
         const dow = dt.getDay() === 0 ? 7 : dt.getDay();
+        /* 🔴 O DIA DIZ O QUE NÃO FOI COMPLETADO (10/08, dono: "tem q ficar
+           registrado rotas que eu criei e cancelei… ambas ficam vermelhas").
+           Quem decide o desfecho é o SERVIDOR (`h.desfecho`) — a tela só veste.
+           Servidor velho não manda o campo: aí a linha nasce como sempre foi
+           (Lei do IF), nunca vermelha por dedução minha. */
+        const paradas = Number(h.paradas) || 0;
+        const naoFeitas = Number(h.naoCompletadas) || 0;
+        const desfecho = String(h.desfecho || '');
+        const entregues = Number(h.entregues) || 0;
+        const linha = `${paradas} ${paradas === 1 ? 'parada' : 'paradas'}`;
         return {
           data: String(h.data || ''),
           dia: ROTULO_DIA[dow] || '',
           titulo: `${ROTULO_DIA[dow] || ''} · ${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}`,
-          sub: `${Number(h.paradas) || 0} ${Number(h.paradas) === 1 ? 'parada' : 'paradas'}`,
+          // "7 paradas · cancelada" / "32 paradas · 28 entregues" / "95 paradas"
+          sub: desfecho === 'cancelada' ? `${linha} · cancelada`
+            : desfecho === 'incompleta' ? `${linha} · ${entregues} ${entregues === 1 ? 'entregue' : 'entregues'}`
+              : linha,
+          tom: desfecho && desfecho !== 'completa' ? 'red' : '',
+          naoFez: naoFeitas ? `${naoFeitas} não ${naoFeitas === 1 ? 'feita' : 'feitas'}` : '',
         };
       }),
     });
