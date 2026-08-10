@@ -2,21 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  __resetCnefePortaCacheForTests,
   __setCnefeQueryForTests,
-  canonVia,
   escolherPinoCep,
   escolherPinoPorta,
   escolherPinoRua,
-  escolherPortaDireta,
   extrairNumeroPorta,
   normalizarViaNumeral,
   resolverCnefe,
   resolverCnefeCep,
-  resolverCnefeLote,
-  resolverCnefePorta,
-  cepDaQuadra,
-  type CnefePortaRow,
+  resolverCnefeReverso,
   type CnefeRow,
 } from './cnefe-resolver.util';
 
@@ -234,10 +228,9 @@ test('CAST DO CEP: toda consulta que compara cep usa ::bpchar (senão vira seq s
   try {
     await resolverCnefe({ cep: '13500000', numero: 752, endereco: 'Rua 12', uf: 'SP' });
     await resolverCnefeCep({ cep: '13500000', endereco: 'Rua 12', uf: 'SP' });
-    await resolverCnefeLote(['13500000', '13500100'], { numero: 752, endereco: 'Rua 12', uf: 'SP' });
 
     const queComparamCep = sqls.filter((s) => /\bcep\s*(=|IN)\s*/i.test(s) && s.includes('cnefe_endereco'));
-    assert.ok(queComparamCep.length >= 3, 'esperava as consultas de porta, rua, cep e lote');
+    assert.ok(queComparamCep.length >= 3, 'esperava as consultas de porta, rua e cep');
     for (const sql of queComparamCep) {
       assert.ok(
         /cep\s*=\s*\$\d+::bpchar/i.test(sql) || /cep\s+IN\s*\([^)]*::bpchar/i.test(sql),
@@ -312,226 +305,53 @@ test('resolverCnefe: banco quebrado NUNCA lança (best-effort → null)', async 
   }
 });
 
-// ── A PORTA DIRETA: município + rua + número, sem CEP (09/08) ──────────────────────
-// Os casos abaixo são os mesmos que a company 41 tinha na rua: cadastro com endereço
-// completo e SEM CEP, rua numerada, bairro com nome popular diferente do oficial. A
-// Lei nº1 continua mandando — a prova é a PORTA no Censo, não o palpite de faixa.
 
-function porta(partial: Partial<CnefePortaRow>): CnefePortaRow {
-  return { loc_norm: 'jardim boa vista', numero: 157, lat: -22.37854, lng: -47.590847, cep: '13504689', spread_m: 0, cnefe_nivel: 1, ...partial };
-}
+// ── resolverCnefeReverso: posição → CEP da porta mais próxima (10/08) ──────────────
+// A sanitização por NOME DE RUA morreu (ordem do dono: "o CEP vai mandar em tudo").
+// O reverso é o que sobra pra quem só tem a posição: botão GPS do cadastro e alvo
+// só-CEP da cura. Fail-closed: fora do raio ⇒ null.
 
-test('canonVia: a chave da consulta é a MESMA dos dois lados (cadastro e banco)', () => {
-  assert.equal(canonVia('Av. 96'), 'av 96');
-  assert.equal(canonVia('AVENIDA NOVENTA E SEIS'), 'av 96');
-  assert.equal(canonVia('Av. M55'), 'av m 55');
-  assert.equal(canonVia('AVENIDA M CINQUENTA E CINCO'), 'av m 55');
-  assert.equal(canonVia('Rua 3a'), 'rua 3 a');
-  assert.equal(canonVia('RUA TRES A'), 'rua 3 a');
-  assert.equal(canonVia('Rua 08'), 'rua 8');
-  assert.equal(canonVia('Rua João Polastri'), 'rua joao polastri');
-});
-
-test('porta direta: número exato com o bairro do cadastro batendo → pino de PORTA', () => {
-  const pino = escolherPortaDireta(
-    [porta({}), porta({ loc_norm: 'recanto verde 1', lat: -22.9, lng: -47.9 })],
-    { numero: 157, bairro: 'Jd. Boa Vista' },
-  );
-  assert.ok(pino);
-  assert.equal(pino!.precisao, 'porta');
-  assert.equal(pino!.lat, -22.37854);
-});
-
-test('porta direta: bairro do cadastro NÃO precisa existir — a porta agrupada decide', () => {
-  const pino = escolherPortaDireta([porta({ loc_norm: 'recanto verde 1' })], { numero: 157, bairro: null });
-  assert.ok(pino);
-  assert.equal(pino!.precisao, 'porta');
-});
-
-test('porta direta: MESMO número em pedaços distantes da rua → null (ambiguidade real)', () => {
-  const pino = escolherPortaDireta(
-    [porta({ loc_norm: 'jardim araucaria' }), porta({ loc_norm: 'centro', lat: -22.34, lng: -47.62 })],
-    { numero: 157, bairro: 'Nenhum Lugar' },
-  );
-  assert.equal(pino, null);
-});
-
-test('porta direta: porta cujo próprio espalhamento estoura o teto não é porta', () => {
-  const pino = escolherPortaDireta([porta({ spread_m: 4105 })], { numero: 157, bairro: 'Jd. Boa Vista' });
-  assert.equal(pino, null);
-});
-
-test('vizinho de número: com bairro provado vale até 200; sem bairro só a MESMA QUADRA', () => {
-  const vizinhoDoBairro = escolherPortaDireta(
-    [porta({ numero: 250, loc_norm: 'jardim boa vista' })],
-    { numero: 157, bairro: 'Jd. Boa Vista' },
-  );
-  assert.ok(vizinhoDoBairro);
-  assert.equal(vizinhoDoBairro!.precisao, 'rua');
-
-  // mesmo vizinho, bairro que não bate: 93 de diferença é outro pedaço da rua.
-  assert.equal(
-    escolherPortaDireta([porta({ numero: 250, loc_norm: 'centro' })], { numero: 157, bairro: 'Jd. Boa Vista' }),
-    null,
-  );
-  // dentro da quadra (Δ ≤ 40) o vizinho vale mesmo sem bairro provado.
-  const mesmaQuadra = escolherPortaDireta([porta({ numero: 158, loc_norm: 'centro' })], { numero: 157, bairro: 'Jd. Boa Vista' });
-  assert.ok(mesmaQuadra);
-  assert.equal(mesmaQuadra!.precisao, 'rua');
-});
-
-test('resolverCnefePorta: consulta por (municipio, via, numero) e devolve o CEP da PORTA', async () => {
-  const vistas: string[] = [];
-  __resetCnefePortaCacheForTests();
+test('reverso: porta dentro do raio → o CEP dela, com a distância medida', async () => {
   __setCnefeQueryForTests(async (sql, params) => {
-    vistas.push(sql);
-    if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
-    if (sql.includes('to_regclass')) return [{ porta: 'cnefe_porta', mapa: 'cnefe_mun_map' }];
-    if (sql.includes('FROM cnefe_mun_map')) {
-      assert.deepEqual(params, ['SP', 'rio claro']);
-      return [{ cod_municipio: '3543907' }];
-    }
-    if (sql.includes('FROM cnefe_porta')) {
-      assert.deepEqual(params, ['3543907', 'av 96', 157]);
-      return [porta({})];
-    }
-    return [];
+    assert.ok(sql.includes('FROM cnefe_porta'), 'o reverso lê o agregado de portas');
+    assert.ok(sql.includes('BETWEEN'), 'consulta por caixa de lat/lng (índice)');
+    assert.equal((params as number[]).length, 6);
+    // porta a ~22 m do ponto pedido
+    return [{ cep: '13504689', lat: -22.37854, lng: -47.59065 }];
   });
   try {
-    const achado = await resolverCnefePorta({
-      endereco: 'Jd. Boa Vista, Av. 96, nº 157', numero: '157', bairro: 'Jd. Boa Vista', cidade: 'Rio Claro', uf: 'SP',
-    });
+    const achado = await resolverCnefeReverso({ lat: -22.37866, lng: -47.59047 }, { raioM: 60 });
     assert.ok(achado);
-    assert.equal(achado!.pino.precisao, 'porta');
     assert.equal(achado!.cep, '13504689');
-    assert.ok(vistas.some((s) => s.includes('via_canon IN ($2)')));
+    assert.ok(achado!.distM <= 60, `distância medida (${achado!.distM} m) dentro do raio`);
   } finally {
     __setCnefeQueryForTests(null);
-    __resetCnefePortaCacheForTests();
   }
 });
 
-test('resolverCnefePorta: token colado pergunta as DUAS grafias ("Rua M55" e "Rua M 55")', async () => {
-  let paramsVistos: unknown[] = [];
-  __resetCnefePortaCacheForTests();
-  __setCnefeQueryForTests(async (sql, params) => {
-    if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
-    if (sql.includes('to_regclass')) return [{ porta: 'cnefe_porta', mapa: 'cnefe_mun_map' }];
-    if (sql.includes('FROM cnefe_mun_map')) return [{ cod_municipio: '3543907' }];
-    if (sql.includes('FROM cnefe_porta')) {
-      paramsVistos = params;
-      assert.ok(sql.includes('via_canon IN ($2,$3)'));
-      return [];
-    }
-    return [];
-  });
+test('reverso: porta mais próxima FORA do raio → null (CEP de outro lugar não entra)', async () => {
+  __setCnefeQueryForTests(async () => [{ cep: '13504689', lat: -22.39, lng: -47.60 }]);
   try {
-    const achado = await resolverCnefePorta({
-      endereco: 'Jd. Ipanema, Rua M55, nº 2126', numero: '2126', bairro: 'Jd. Ipanema', cidade: 'Rio Claro', uf: 'SP',
-    });
-    assert.equal(achado, null);
-    // separada (casa o extenso do IBGE) E colada (casa o que o banco gravou colado)
-    assert.deepEqual(paramsVistos, ['3543907', 'rua m 55', 'rua m55', 2126]);
+    assert.equal(await resolverCnefeReverso({ lat: -22.37866, lng: -47.59047 }, { raioM: 60 }), null);
   } finally {
     __setCnefeQueryForTests(null);
-    __resetCnefePortaCacheForTests();
   }
 });
 
-test('resolverCnefePorta: vizinho NUNCA carimba CEP no cadastro (faixa é do vizinho, não da casa)', async () => {
-  __resetCnefePortaCacheForTests();
-  __setCnefeQueryForTests(async (sql) => {
-    if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
-    if (sql.includes('to_regclass')) return [{ porta: 'cnefe_porta', mapa: 'cnefe_mun_map' }];
-    if (sql.includes('FROM cnefe_mun_map')) return [{ cod_municipio: '3543907' }];
-    if (sql.includes('FROM cnefe_porta')) return [porta({ numero: 160 })];
-    return [];
-  });
-  try {
-    const achado = await resolverCnefePorta({
-      endereco: 'Jd. Boa Vista, Av. 96, nº 157', numero: '157', bairro: 'Jd. Boa Vista', cidade: 'Rio Claro', uf: 'SP',
-    });
-    assert.ok(achado);
-    assert.equal(achado!.pino.precisao, 'rua');
-    assert.equal(achado!.cep, null);
-  } finally {
-    __setCnefeQueryForTests(null);
-    __resetCnefePortaCacheForTests();
-  }
-});
-
-/* 🔴 O CEP DO TRECHO POR CONSENSO (10/08). A régua de 27/07 — "CEP só da porta
-   exata" — deixava 43 dos 76 clientes sem CEP da company 41 com pino e sem CEP pra
-   sempre. CEP é do TRECHO da rua: vizinho unânime na mesma quadra prova o trecho.
-   Estes três testes são a vacina de que "unânime" continua querendo dizer unânime. */
-test('cepDaQuadra: vizinhos da MESMA quadra unânimes ⇒ o CEP do trecho', () => {
-  const rows = [porta({ numero: 150 }), porta({ numero: 160 }), porta({ numero: 166 })];
-  assert.equal(cepDaQuadra(rows, 157), '13504689');
-});
-
-test('cepDaQuadra: dois CEPs na quadra ⇒ null (o trecho vira aqui, não sei)', () => {
-  const rows = [porta({ numero: 150 }), porta({ numero: 160, cep: '13504690' })];
-  assert.equal(cepDaQuadra(rows, 157), null);
-});
-
-test('cepDaQuadra: um vizinho só NÃO é consenso; e fora da quadra não conta', () => {
-  assert.equal(cepDaQuadra([porta({ numero: 160 })], 157), null);
-  // Δ=100 > CNEFE_CEP_QUADRA_DELTA: outra quadra, outra faixa possível.
-  assert.equal(cepDaQuadra([porta({ numero: 257 }), porta({ numero: 261 })], 157), null);
-});
-
-test('resolverCnefePorta: vizinhos unânimes carimbam o CEP do trecho (fonte "quadra")', async () => {
-  __resetCnefePortaCacheForTests();
-  __setCnefeQueryForTests(async (sql) => {
-    if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
-    if (sql.includes('to_regclass')) return [{ porta: 'cnefe_porta', mapa: 'cnefe_mun_map' }];
-    if (sql.includes('FROM cnefe_mun_map')) return [{ cod_municipio: '3543907' }];
-    if (sql.includes('FROM cnefe_porta')) return [porta({ numero: 160 }), porta({ numero: 150 })];
-    return [];
-  });
-  try {
-    const achado = await resolverCnefePorta({
-      endereco: 'Jd. Boa Vista, Av. 96, nº 157', numero: '157', bairro: 'Jd. Boa Vista', cidade: 'Rio Claro', uf: 'SP',
-    });
-    assert.ok(achado);
-    assert.equal(achado!.pino.precisao, 'rua');       // o PINO segue sendo do vizinho
-    assert.equal(achado!.cep, '13504689');            // o CEP é do trecho, provado
-    assert.equal(achado!.cepFonte, 'quadra');
-  } finally {
-    __setCnefeQueryForTests(null);
-    __resetCnefePortaCacheForTests();
-  }
-});
-
-test('resolverCnefePorta: banco sem os agregados → null, e SEM derrubar a cura por CEP', async () => {
-  __resetCnefePortaCacheForTests();
-  __setCnefeQueryForTests(async (sql) => {
-    if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
-    if (sql.includes('to_regclass')) return [{ porta: null, mapa: null }];
-    throw new Error('não devia consultar agregado que não existe');
-  });
-  try {
-    const achado = await resolverCnefePorta({
-      endereco: 'Av. 96, nº 157', numero: '157', cidade: 'Rio Claro', uf: 'SP',
-    });
-    assert.equal(achado, null);
-  } finally {
-    __setCnefeQueryForTests(null);
-    __resetCnefePortaCacheForTests();
-  }
-});
-
-test('resolverCnefePorta: sem cidade/UF/rua/número não consulta nada', async () => {
+test('reverso: posição inválida não consulta nada; banco quebrado NUNCA lança', async () => {
   let consultou = false;
-  __resetCnefePortaCacheForTests();
   __setCnefeQueryForTests(async () => { consultou = true; return []; });
   try {
-    assert.equal(await resolverCnefePorta({ endereco: 'Av. 96', numero: null, cidade: 'Rio Claro', uf: 'SP' }), null);
-    assert.equal(await resolverCnefePorta({ endereco: 'Av. 96', numero: 157, cidade: '', uf: 'SP' }), null);
-    assert.equal(await resolverCnefePorta({ endereco: '', numero: 157, cidade: 'Rio Claro', uf: 'SP' }), null);
-    assert.equal(consultou, false);
+    assert.equal(await resolverCnefeReverso(null), null);
+    assert.equal(await resolverCnefeReverso({ lat: 0, lng: 0 }), null);
+    assert.equal(consultou, false, '(0,0) e null não valem uma ida ao banco');
   } finally {
     __setCnefeQueryForTests(null);
-    __resetCnefePortaCacheForTests();
+  }
+  __setCnefeQueryForTests(async () => { throw new Error('conexão recusada'); });
+  try {
+    assert.equal(await resolverCnefeReverso({ lat: -22.4, lng: -47.5 }), null);
+  } finally {
+    __setCnefeQueryForTests(null);
   }
 });

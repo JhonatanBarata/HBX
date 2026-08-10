@@ -13,11 +13,9 @@ import {
 import { pinoValido } from '../nucleo/nucleo-geo.util';
 import {
   conferirCepsEmLote,
-  descobrirCepsPorEndereco,
   enderecoSemNumero,
   logradouroDoCadastro,
   normalizarCep,
-  temBairroNoCadastro,
   type CepVeredito,
   type EnderecoCadastrado,
 } from './logistica-cep.util';
@@ -25,8 +23,8 @@ import {
   aquecerCnefe,
   extrairNumeroPorta,
   resolverCnefe,
-  resolverCnefeLote,
-  resolverCnefePorta,
+  resolverCnefeCep,
+  resolverCnefeReverso,
   viasCompativeisCnefe,
   type CnefePino,
 } from '../nucleo/cnefe-resolver.util';
@@ -858,9 +856,10 @@ const CNEFE_CURA_TETO = 150;
 
 export interface AlvoCuraCnefe {
   tipo: 'local' | 'perfil';
-  /** null = cadastro SEM CEP, mas com rua+cidade+UF: o CEP se descobre pelo endereço
-   *  (ViaCEP busca por rua) antes de entrar no CNEFE — ver `resolverCuraCnefe`. */
+  /** null SÓ no alvo `soCep` (o CEP sai do reverso pela posição). Fora dele, cadastro
+   *  sem CEP não tem cura — o CEP é obrigatório na entrada (10/08). */
   cep: string | null;
+  /** 0 = sem número (S/N): o pino sai do TRECHO do CEP, rotulado `cep`. */
   numero: number;
   endereco: string | null;
   bairro: string | null;
@@ -914,70 +913,48 @@ export function alvoCuraCnefe(r: ParadaConferenciaRow): AlvoCuraCnefe | null {
   const monta = (tipo: 'local' | 'perfil', cad: NonNullable<typeof candidatos[number]['cad']>, cep: string | null, numero: number): AlvoCuraCnefe => ({
     tipo, cep, numero, endereco: cad.endereco ?? null, bairro: cad.bairro ?? null, cidade: cad.cidade ?? null, uf: cad.uf ?? null,
   });
-  /* 🔴 PINO PROVADO E SEM CEP ENTRA — SÓ PELO CEP (10/08). Antes esta função devolvia
-     `null` aqui e pronto: quem tinha a porta marcada pelo motorista mas o cadastro sem
-     CEP ficava fora da fila pra sempre. O alvo é o DONO do endereço que está sem CEP
-     (local primeiro, como no resto), e a única escrita possível é a do CEP. */
+  /* 🔴 PINO PROVADO E SEM CEP ENTRA — SÓ PELO CEP (10/08). O alvo é o DONO do
+     endereço que está sem CEP (local primeiro, como no resto), e a única escrita
+     possível é a do CEP. Quem descobre é o REVERSO (posição → porta do Censo →
+     CEP): a porta já está marcada, não há nome de rua na conversa. */
   if (jaProvado) {
     for (const { tipo, cad } of candidatos) {
       if (!cad) continue;
       if (normalizarCep(cad.cep)) continue;                 // já tem CEP: nada a fazer
-      const numero = extrairNumeroPorta(cad);
-      if (!numero) continue;
-      if (logradouroDoCadastro(cad.endereco).length < 3) continue;
-      if (String(cad.cidade ?? '').trim().length < 3) continue;
-      if (!/^[A-Za-z]{2}$/.test(String(cad.uf ?? '').trim())) continue;
       return {
-        ...monta(tipo, cad, null, numero),
+        ...monta(tipo, cad, null, extrairNumeroPorta(cad) ?? 0),
         soCep: true,
         pinoAtual: { lat: coord.lat as number, lng: coord.lng as number },
       };
     }
     return null;
   }
-  // 1ª passada: quem TEM CEP (caminho direto e mais barato — zero rede externa).
+  /* Única passada: quem TEM CEP. Sem CEP não há cura (10/08, "o CEP vai mandar em
+     tudo — sanitização por nome da rua morreu"): o cadastro exige CEP na entrada e o
+     legado sem CEP é pendência de gente ("Falta o CEP" + botão GPS), não de máquina.
+     Número ausente NÃO barra mais: S/N é endereço válido e o pino sai do TRECHO do
+     CEP (`resolverCnefeCep`), rotulado `cep`. */
   for (const { tipo, cad } of candidatos) {
     if (!cad) continue;
     const cep = normalizarCep(cad.cep);
-    const numero = extrairNumeroPorta(cad);
-    if (!cep || !numero) continue;
-    return monta(tipo, cad, cep, numero);
-  }
-  // 2ª passada: sem CEP em lugar nenhum, mas com endereço completo o bastante pra
-  // achar a rua (rua + cidade + UF de 2 letras + número da porta).
-  for (const { tipo, cad } of candidatos) {
-    if (!cad) continue;
-    const numero = extrairNumeroPorta(cad);
-    if (!numero) continue;
-    if (logradouroDoCadastro(cad.endereco).length < 3) continue;
-    if (String(cad.cidade ?? '').trim().length < 3) continue;
-    if (!/^[A-Za-z]{2}$/.test(String(cad.uf ?? '').trim())) continue;
-    return monta(tipo, cad, null, numero);
+    if (!cep) continue;
+    return monta(tipo, cad, cep, extrairNumeroPorta(cad) ?? 0);
   }
   return null;
 }
 
 /** O que a cura conseguiu apurar sobre um alvo. `pino` null com `cepDescoberto`
- *  preenchido = achou o CEP da rua mas o CNEFE não provou a porta: grava o CEP
- *  (o furo do cadastro some) e a parada segue pendente, sem mentir que curou. */
+ *  preenchido = o alvo era só-CEP: grava o CEP (o furo do cadastro some) e o pino
+ *  provado não se toca. */
 /**
  * 🔴 "É A MESMA CASA?" — a régua do alvo só-CEP (10/08).
  *
  * 60 m é a MESMA medida que o app já usa pra decidir se o motorista está na porta
  * (`presoNaRota`/GPS): dentro disso é o mesmo imóvel visto por dois instrumentos (o
  * fix do celular e a porta do Censo); acima disso são endereços diferentes e o CEP
- * seria de outro lugar. Sem pino atual não há o que comparar ⇒ recusa.
+ * seria de outro lugar. É o raio que o `resolverCnefeReverso` recebe no alvo só-CEP.
  */
 export const CURA_CEP_RAIO_M = 60;
-
-export function mesmaCasa(
-  atual: { lat: number; lng: number } | null | undefined,
-  porta: { lat: number; lng: number } | null | undefined,
-): boolean {
-  if (!atual || !porta) return false;
-  if (!pinoValido(atual.lat, atual.lng) || !pinoValido(porta.lat, porta.lng)) return false;
-  return haversineKm(atual, porta) * 1000 <= CURA_CEP_RAIO_M;
-}
 
 export interface CuraCnefeResultado {
   pino: CnefePino | null;
@@ -1002,75 +979,42 @@ export async function resolverCuraCnefe(
   opts?: { queryTimeoutMs?: number },
 ): Promise<CuraCnefeResultado | null> {
   const base = { numero: alvo.numero, endereco: alvo.endereco, uf: alvo.uf };
-  /* 🔴 A PORTA DIRETA VEM PRIMEIRO (09/08) — município + rua + número, dentro do
-     próprio Censo, sem CEP e sem uma única chamada de rede. Antes de existir, o
-     cadastro SEM CEP dependia de três apostas em série no ViaCEP (achar a rua, casar
-     o nome do trecho com o bairro que o cliente usa, e a faixa de numeração do
-     Correio bater com a do Censo) — medido na company 41: 18 dos 91 clientes sem
-     pino curavam. Por aqui, 56. Vem antes de QUEM TEM CEP também: é a mesma prova
-     (a porta no Censo) por um caminho mais curto e sem ambiguidade de faixa.
-     Ver `resolverCnefePorta` pro porquê disto não afrouxar a Lei nº1. */
-  const direta = await resolverCnefePorta(
-    { ...base, bairro: alvo.bairro, cidade: alvo.cidade },
-    opts,
-  );
-  /* 🔴 ALVO "SÓ CEP": o pino JÁ está provado no cadastro e não se toca. A única
-     pergunta é se o Censo achou a MESMA CASA — se a porta que ele devolveu está a
-     mais de `CURA_CEP_RAIO_M` do ponto que o motorista marcou, são casas diferentes
-     e o CEP é de outro lugar. Sem prova de identidade, "não sei" (a lei do dono:
-     endereço errado é pior que endereço faltando). */
+  /* 🔴 ALVO "SÓ CEP": o pino JÁ está provado no cadastro e não se toca. O CEP sai do
+     REVERSO — a porta do Censo mais próxima do ponto que o motorista marcou, dentro
+     do raio de "é a mesma casa" (`CURA_CEP_RAIO_M`, a régua que o app já usa na
+     chegada). Fora do raio, "não sei" (a lei do dono: endereço errado é pior que
+     endereço faltando). Nome de rua não participa: sanitização por nome morreu em
+     10/08, e aqui nunca houve nome melhor que a posição. */
   if (alvo.soCep) {
-    if (!direta || !direta.cep) return null;
-    if (!mesmaCasa(alvo.pinoAtual, direta.pino)) return null;
-    return { pino: null, cepDescoberto: direta.cep, logradouroOficial: null };
+    const achado = await resolverCnefeReverso(alvo.pinoAtual, { raioM: CURA_CEP_RAIO_M, ...opts });
+    return achado ? { pino: null, cepDescoberto: achado.cep, logradouroOficial: null } : null;
   }
-  // `cepDescoberto` só quando o Censo PROVOU o CEP (porta exata ou consenso da quadra
-  // — ver `cepDaQuadra`) e o cadastro está sem CEP: nunca trocar o que o dono digitou.
-  if (direta) return { pino: direta.pino, cepDescoberto: alvo.cep ? null : direta.cep, logradouroOficial: null };
-  if (alvo.cep) {
-    /* 🔴 COM CEP NO CADASTRO, O CEP MANDA NO NOME DA RUA (09/08, ordem do dono: "se o
-       nome da rua está errado, puxe pelo CEP, e acabou — apague o nome da rua que o
-       cliente está e preencha com o do CEP").
-       `cepDoCadastro` tira o veto de `viasCompativeisCnefe` lá no resolver. Medido na
-       company 41: "Rua 18, 864" com o CEP 13504363, que o Censo chama de RUA DEZENOVE;
-       "Rua Jacutinga" onde a base tem "Estrada de Jacutinga". O cliente ficava sem pino
-       por causa de uma palavra digitada, com o CEP certo do lado.
-       A PROVA não afrouxou: continua sendo a porta (ou o vizinho do MESMO CEP dentro
-       do teto de numeração e de dispersão). O que mudou é quem perde a discussão sobre
-       o NOME — o cadastro, não a base oficial. */
-    const pino = await resolverCnefe({ ...base, cep: alvo.cep, cepDoCadastro: true }, opts);
-    if (!pino) return null;
-    // Nome novo só quando REALMENTE difere do que está gravado: reescrever cadastro
-    // certo é mexer no que não está quebrado.
-    const oficial = String(pino.logradouro ?? '').trim();
-    const atual = logradouroDoCadastro(alvo.endereco);
-    const divergiu = !!oficial && (!atual || !viasCompativeisCnefe(atual, oficial));
-    return { pino, cepDescoberto: null, logradouroOficial: divergiu ? oficial : null };
-  }
-  // ── ESCOPO (27/07, ordem do dono, depois da pesquisa dele) ────────────────────
-  // "Não existe entrega sem o endereço certo. Eu queria um sistema que limpasse
-  // errinhos bobos, não que ACHASSE endereço — nem IA adivinha onde o cliente mora."
-  // A auditoria dele provou o estrago da versão anterior: "Avenida 3" virava o CEP da
-  // Avenida 3 do Centro quando o cliente mora na Avenida 3 SCT do São Caetano II; nº
-  // 1486 recebia CEP de faixa que só atende 1601-2999 ímpar. Então, sem CEP no cadastro,
-  // a cura só aceita PROVA, nas três travas abaixo — e "não sei" é resposta legítima:
-  //   1. cadastro COMPLETO (rua + número + bairro). Incompleto não vira endereço válido.
-  //   2. BAIRRO PREDOMINANTE: o trecho tem que bater o bairro do cadastro. A rua é
-  //      AJUDANTE — é o bairro que distingue "Avenida 3" de "Avenida 3 SCT"/"3 PA".
-  //   3. PORTA EXATA no Censo. Nada de vizinho de número: é aí que se inventa endereço,
-  //      e é o que faz uma faixa de CEP errada passar por certa.
-  if (!temBairroNoCadastro({ endereco: alvo.endereco, bairro: alvo.bairro })) return null;
-  const ruas = await descobrirCepsPorEndereco({
-    endereco: alvo.endereco, bairro: alvo.bairro, cidade: alvo.cidade, uf: alvo.uf,
-  });
-  const comBairro = ruas.filter((r) => r.bairroBate);
-  if (!comBairro.length) return null;
-  // 1 consulta cobrindo os trechos do bairro (nunca um laço por CEP: com 37 trechos e
-  // 4s de teto por consulta, a cura morria no orçamento antes de curar alguém).
-  const emLote = await resolverCnefeLote(comBairro.map((r) => r.cep), base, { ...opts, exigirPorta: true });
-  // CEP ADIVINHADO mantém o veto do nome (ver CnefeInput#cepDoCadastro): aqui o nome
-  // da rua é a única evidência de que se está no trecho certo.
-  return emLote ? { pino: emLote.pino, cepDescoberto: emLote.cep, logradouroOficial: null } : null;
+  /* Sem CEP não há cura (10/08, ordem do dono: "o CEP vai mandar em tudo"). O caminho
+     que descobria CEP pelo NOME da rua (ViaCEP + porta direta) foi removido sem
+     vestígios; cadastro sem CEP é pendência de gente, não de máquina. */
+  if (!alvo.cep) return null;
+  /* 🔴 COM CEP NO CADASTRO, O CEP MANDA NO NOME DA RUA (09/08, ordem do dono: "se o
+     nome da rua está errado, puxe pelo CEP, e acabou — apague o nome da rua que o
+     cliente está e preencha com o do CEP").
+     `cepDoCadastro` tira o veto de `viasCompativeisCnefe` lá no resolver. Medido na
+     company 41: "Rua 18, 864" com o CEP 13504363, que o Censo chama de RUA DEZENOVE;
+     "Rua Jacutinga" onde a base tem "Estrada de Jacutinga". O cliente ficava sem pino
+     por causa de uma palavra digitada, com o CEP certo do lado.
+     A PROVA não afrouxou: continua sendo a porta (ou o vizinho do MESMO CEP dentro
+     do teto de numeração e de dispersão). O que mudou é quem perde a discussão sobre
+     o NOME — o cadastro, não a base oficial.
+     SEM NÚMERO (S/N): o pino é o do TRECHO do CEP (`resolverCnefeCep`), rotulado
+     `cep` — quem exibe já diferencia ponto de conferência de porta provada. */
+  const pino = alvo.numero > 0
+    ? await resolverCnefe({ ...base, cep: alvo.cep, cepDoCadastro: true }, opts)
+    : await resolverCnefeCep({ cep: alvo.cep, uf: alvo.uf, cepDoCadastro: true }, opts);
+  if (!pino) return null;
+  // Nome novo só quando REALMENTE difere do que está gravado: reescrever cadastro
+  // certo é mexer no que não está quebrado.
+  const oficial = String(pino.logradouro ?? '').trim();
+  const atual = logradouroDoCadastro(alvo.endereco);
+  const divergiu = !!oficial && (!atual || !viasCompativeisCnefe(atual, oficial));
+  return { pino, cepDescoberto: null, logradouroOficial: divergiu ? oficial : null };
 }
 
 /**
@@ -1084,10 +1028,11 @@ export function problemaDoCadastro(r: ParadaConferenciaRow): string {
   const cadastros = [r.localId ? r.local : null, r.customerProfile].filter(
     (c): c is NonNullable<ParadaConferenciaRow['customerProfile']> => !!c,
   );
-  if (!cadastros.some((c) => extrairNumeroPorta(c) != null)) return 'Falta o número da casa';
-  if (!cadastros.some((c) => logradouroDoCadastro(c.endereco).length >= 3)) return 'Falta a rua';
-  if (!cadastros.some((c) => String(c.cidade ?? '').trim().length >= 3)) return 'Falta a cidade';
-  return 'Falta o estado (UF)';
+  // 10/08 — o CEP manda em tudo: sem ele não há cura nenhuma, então ele vem primeiro.
+  // Com CEP e ainda sem pino, o CEP gravado não localiza (digitado errado ou UF sem
+  // carga no Censo) — a ação é conferir o CEP ou marcar no mapa (botão GPS).
+  if (!cadastros.some((c) => normalizarCep(c.cep))) return 'Falta o CEP';
+  return 'CEP não localiza — confira o CEP ou marque no mapa';
 }
 
 
@@ -1108,7 +1053,7 @@ function jaSanitizado(cad: { sanitizadoEm?: Date | null; updatedAt?: Date | null
 }
 
 /**
- * 🔴 QUANDO A RÉGUA DA CURA MUDOU PELA ÚLTIMA VEZ (09/08 — a porta direta).
+ * 🔴 QUANDO A RÉGUA DA CURA MUDOU PELA ÚLTIMA VEZ (10/08 — só-CEP + reverso).
  *
  * O carimbo `sanitizadoEm` existe pra cura CONVERGIR ("não sanitizar 2x"): quem já foi
  * tentado e não teve o cadastro tocado fica de fora. Só que ele guarda uma resposta
@@ -1121,12 +1066,13 @@ function jaSanitizado(cad: { sanitizadoEm?: Date | null; updatedAt?: Date | null
  * MEXER AQUI SÓ AO MUDAR A REGRA DE VERDADE: cada data nova custa uma passada de cura
  * na base inteira de todos os tenants.
  */
-// 10/08 06:00Z — DUAS mudanças de régua na mesma leva (ordem do dono: "preencher os
-// 90 CEPs"): o CEP passou a se provar por CONSENSO DA QUADRA (`cepDaQuadra`) e quem
-// TEM pino provado e está sem CEP passou a entrar na fila (alvo `soCep`). Sem subir
-// esta data, os carimbados de 09/08 — que é justamente a base inteira da 41 — nunca
-// veriam nenhuma das duas.
-const CURA_REGUA_DESDE = Date.parse('2026-08-10T06:00:00Z');
+// 10/08 08:00Z — A RÉGUA VIROU SÓ-CEP (ordem do dono: "sanitização por nome da rua,
+// remover sem vestígios — o CEP vai mandar em tudo"): morreu a porta direta por nome
+// e a descoberta de CEP no ViaCEP; nasceram o REVERSO (posição → CEP) no alvo soCep
+// e o pino de TRECHO pra quem tem CEP e número S/N. Sem subir esta data, os
+// carimbados da madrugada de 10/08 (a base inteira da 41, que acabou de ganhar CEP
+// no backfill) nunca ganhariam o pino pelo caminho novo.
+const CURA_REGUA_DESDE = Date.parse('2026-08-10T08:00:00Z');
 
 /** Aplica o pino curado na linha EM MEMÓRIA (a fonte inteira, nunca campo solto) —
  *  esta mesma conferência já roda com o pino novo, sem re-consultar o banco. */

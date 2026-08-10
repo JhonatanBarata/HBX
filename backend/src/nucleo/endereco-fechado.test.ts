@@ -37,9 +37,18 @@ test('sem CEP não entra, por mais completo que esteja o resto', () => {
   assert.ok(barra({ cep: '1350', numero: '1280', endereco: 'Jacutinga' }));
 });
 
-test('CEP sem número e sem SO declarado não entra — campo em branco não diz nada', () => {
-  assert.ok(barra({ cep: '13504-689', numero: null, endereco: 'Avenida 96 BV' }));
-  assert.ok(barra({ cep: '13504-689', numero: '   ', endereco: 'Avenida 96 BV' }));
+test('número em BRANCO não barra mais: vira "S/N" automático (regra 4, 10/08)', () => {
+  assert.equal(exigirEnderecoFechado({ cep: '13504-689', numero: null, endereco: 'Avenida 96 BV' }, true).numeroAutomatico, 'S/N');
+  assert.equal(exigirEnderecoFechado({ cep: '13504-689', numero: '   ', endereco: 'Avenida 96 BV' }, true).numeroAutomatico, 'S/N');
+  // com número (ou SN declarado), nada a preencher.
+  assert.equal(exigirEnderecoFechado({ cep: '13504-726', numero: '197', endereco: 'Avenida 74' }, true).numeroAutomatico, null);
+  assert.equal(exigirEnderecoFechado({ cep: '13505-540', numero: 's/n', endereco: 'Av. M47' }, true).numeroAutomatico, null);
+});
+
+test('updateConta: cliente com CEP e número em branco GANHA "S/N" gravado', async () => {
+  const { prisma, escrito } = mockConta({ ...CLIENTE_OK, numero: null });
+  assert.ok(await servico(prisma).updateConta(7, 'c1', { endereco: 'Avenida 74' }));
+  assert.equal(escrito[0].numero, 'S/N', 'o afrouxo da regra 4 grava, não barra');
 });
 
 test('a regra é da LOGÍSTICA: lead/fornecedor (isCliente=false) segue entrando sem endereço', () => {

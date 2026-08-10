@@ -5,12 +5,9 @@ import {
   compararCepComEndereco,
   conferirCepsEmLote,
   enderecoSemNumero,
-  descobrirCepsPorEndereco,
-  limparCacheBuscaCep,
   limparCacheCep,
   logradouroDoCadastro,
   normalizarCep,
-  termoBuscaVia,
 } from './logistica-cep.util';
 
 /**
@@ -312,84 +309,3 @@ test('logradouroDoCadastro: pega o trecho que É via, não o primeiro (endereço
   assert.equal(logradouroDoCadastro(null), '');
 });
 
-test('termoBuscaVia: abreviação vira extenso e letra colada se separa (o ViaCEP não entende "Av. 54a")', () => {
-  assert.equal(termoBuscaVia('Av. 54a'), 'avenida 54 a');
-  assert.equal(termoBuscaVia('Rua M22'), 'rua m 22');
-  assert.equal(termoBuscaVia('Rua 4-a'), 'rua 4 a');
-  assert.equal(termoBuscaVia('Av. 3'), 'avenida 3');
-  assert.equal(termoBuscaVia('Rua das Flores'), 'rua das flores');
-  // Sem tipo de via reconhecido, passa como está (o filtro local decide depois).
-  assert.equal(termoBuscaVia('Jd. Ipanema'), 'jd ipanema');
-  // Tipo GRUDADO no nome + número (cadastro digitado correndo) — casos reais da base.
-  assert.equal(termoBuscaVia('Avm19'), 'avenida m 19');
-  assert.equal(termoBuscaVia('Ruam20a'), 'rua m 20 a');
-  assert.equal(termoBuscaVia('Rua38'), 'rua 38');
-  // E o estrago que a regra NÃO pode causar: nome comum que começa com tipo de via.
-  assert.equal(termoBuscaVia('Rua Rui Barbosa'), 'rua rui barbosa');
-  assert.equal(termoBuscaVia('Alameda dos Anjos'), 'alameda dos anjos');
-});
-
-test('descobrirCepsPorEndereco: só CEP com cidade E via provadas; bairro do cadastro vai na FRENTE', async () => {
-  const original = globalThis.fetch;
-  const urls: string[] = [];
-  globalThis.fetch = (async (url: any) => {
-    urls.push(String(url));
-    return {
-      ok: true,
-      json: async () => [
-        { cep: '13505-506', logradouro: 'Rua 9', bairro: 'Cidade Nova', localidade: 'Rio Claro', uf: 'SP' },
-        { cep: '13400-000', logradouro: 'Rua 9', bairro: 'Centro', localidade: 'Piracicaba', uf: 'SP' },
-        { cep: '13505-900', logradouro: 'Rua 90', bairro: 'Outro', localidade: 'Rio Claro', uf: 'SP' },
-        { cep: '13505-111', logradouro: 'Rua 9', bairro: 'São Miguel', localidade: 'Rio Claro', uf: 'SP' },
-      ],
-    };
-  }) as any;
-  try {
-    limparCacheBuscaCep();
-    const achados = await descobrirCepsPorEndereco({ endereco: 'Rua 9,, 2545 - São Miguel', cidade: 'Rio Claro', uf: 'SP' });
-    assert.deepEqual(achados.map((c) => c.cep), ['13505111', '13505506'], 'São Miguel primeiro; outra cidade e "Rua 90" fora');
-    assert.equal(achados[0].bairroBate, true);
-    assert.equal(achados[1].bairroBate, false);
-    assert.ok(urls[0].includes(encodeURIComponent('rua 9')), `busca pelo termo normalizado: ${urls[0]}`);
-  } finally {
-    globalThis.fetch = original;
-    limparCacheBuscaCep();
-  }
-});
-
-test('descobrirCepsPorEndereco: bairro casa pelo NÚCLEO ("Jd. Santa Cruz" = "Jardim Santa Cruz")', async () => {
-  const original = globalThis.fetch;
-  globalThis.fetch = (async () => ({
-    ok: true,
-    json: async () => [
-      { cep: '13500-001', logradouro: 'Rua 15', bairro: 'Jardim Guanabara', localidade: 'Rio Claro', uf: 'SP' },
-      { cep: '13500-002', logradouro: 'Rua 15', bairro: 'Jardim Santa Cruz', localidade: 'Rio Claro', uf: 'SP' },
-    ],
-  })) as any;
-  try {
-    limparCacheBuscaCep();
-    const achados = await descobrirCepsPorEndereco({ endereco: 'Rua 15, 2030 - Jd. Santa Cruz', cidade: 'Rio Claro', uf: 'SP' });
-    assert.equal(achados[0].cep, '13500002', 'o trecho do bairro do cadastro vem primeiro');
-    assert.equal(achados[0].bairroBate, true);
-    assert.equal(achados[1].bairroBate, false, '"Guanabara" não está no cadastro');
-  } finally {
-    globalThis.fetch = original;
-    limparCacheBuscaCep();
-  }
-});
-
-test('descobrirCepsPorEndereco: sem cidade/UF não toca a rede (fail-closed antes do fetch)', async () => {
-  const original = globalThis.fetch;
-  let chamou = 0;
-  globalThis.fetch = (async () => { chamou += 1; return { ok: true, json: async () => [] }; }) as any;
-  try {
-    limparCacheBuscaCep();
-    assert.deepEqual(await descobrirCepsPorEndereco({ endereco: 'Rua 9', cidade: null, uf: 'SP' }), []);
-    assert.deepEqual(await descobrirCepsPorEndereco({ endereco: 'Rua 9', cidade: 'Rio Claro', uf: null }), []);
-    assert.deepEqual(await descobrirCepsPorEndereco({ endereco: null, cidade: 'Rio Claro', uf: 'SP' }), []);
-    assert.equal(chamou, 0);
-  } finally {
-    globalThis.fetch = original;
-    limparCacheBuscaCep();
-  }
-});

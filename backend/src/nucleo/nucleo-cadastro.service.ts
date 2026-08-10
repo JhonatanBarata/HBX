@@ -1191,7 +1191,11 @@ export class NucleoCadastroService {
     // caía aqui vazio pós-trim; entrada inválida do USUÁRIO é 400, nunca Error puro (o
     // filtro global vira 500 sem isso).
     if (!nome) throw new BadRequestException('Nome é obrigatório');
-    exigirEnderecoFechado(input, input.isCliente ?? true);
+    {
+      // Regra 4 (10/08): número em branco vira "S/N" automático — grava, não barra.
+      const fechado = exigirEnderecoFechado(input, input.isCliente ?? true);
+      if (fechado.numeroAutomatico) input.numero = fechado.numeroAutomatico;
+    }
 
     const tipo = input.tipo === 'pj' ? 'pj' : 'pf';
     const cnpj = tipo === 'pj' ? normalizeDigits(input.cnpj ?? input.document) : '';
@@ -1489,7 +1493,7 @@ export class NucleoCadastroService {
     const seraCliente = input.isCliente !== undefined ? Boolean(input.isCliente) : Boolean(found.isCliente);
     const virouCliente = input.isCliente === true && !found.isCliente;
     if (seraCliente && (enderecoEscritoTocado(input) || virouCliente)) {
-      exigirEnderecoFechado(
+      const fechado = exigirEnderecoFechado(
         {
           cep: input.cep !== undefined ? input.cep : found.cep,
           numero: input.numero !== undefined ? input.numero : found.numero,
@@ -1497,6 +1501,8 @@ export class NucleoCadastroService {
         },
         true,
       );
+      // Regra 4 (10/08): resultado sem número ganha "S/N" gravado — nunca 400.
+      if (fechado.numeroAutomatico) data.numero = fechado.numeroAutomatico;
     }
 
     const updated = await this.prisma.customerProfile.update({
@@ -1857,7 +1863,10 @@ export class NucleoCadastroService {
        perfeito e um local sem CEP entrega pelo local, e o local é que manda. A regra
        de endereço fechado nascera só no `createConta`, então a segunda casa do
        cliente entrava por aqui sem CEP nenhum e desfazia o que o perfil garantia. */
-    exigirEnderecoFechado(input, Boolean(conta.isCliente));
+    {
+      const fechado = exigirEnderecoFechado(input, Boolean(conta.isCliente));
+      if (fechado.numeroAutomatico) input.numero = fechado.numeroAutomatico;
+    }
 
     // 1º local ativo nasce principal (ou quando o cliente pede explicitamente).
     const ativosCount = await this.prisma.localEntrega.count({
@@ -1936,7 +1945,7 @@ export class NucleoCadastroService {
     // Mesma regra do `createLocal`, e pelo mesmo motivo: editar o local até deixá-lo
     // sem CEP é o mesmo buraco, feito em dois passos.
     if (enderecoEscritoTocado(input)) {
-      exigirEnderecoFechado(
+      const fechado = exigirEnderecoFechado(
         {
           cep: input.cep !== undefined ? input.cep : found.cep,
           numero: input.numero !== undefined ? input.numero : found.numero,
@@ -1944,6 +1953,8 @@ export class NucleoCadastroService {
         },
         Boolean(found.customerProfile?.isCliente),
       );
+      // Regra 4 (10/08): número em branco vira "S/N" gravado — nunca 400.
+      if (fechado.numeroAutomatico) input.numero = fechado.numeroAutomatico;
     }
 
     const data: any = {};
@@ -2458,9 +2469,12 @@ function round2(value: number): number {
  *
  * Duas frouxidões DE PROPÓSITO, porque endereço de rua real é assim:
  *  · o número vale da coluna `numero` OU de dentro do texto composto (legado);
- *  · "SN"/"S/N"/"sem número" é resposta VÁLIDA — casa sem número existe, e o dono já
- *    escreve isso à mão em 10 cadastros. O que não vale é o campo em BRANCO, que não
- *    diz se é sem número ou se ninguém perguntou.
+ *  · "SN"/"S/N"/"sem número" é resposta VÁLIDA — casa sem número existe.
+ *
+ * 🔴 10/08 (regra 4 do dono): número em BRANCO não barra mais ninguém — ele é
+ * preenchido AUTOMATICAMENTE com "S/N" (o chamador grava o `numeroAutomatico`
+ * devolvido). O que continua barrando é só o CEP: sem ele não existe cadastro de
+ * cliente, porque o CEP é quem manda em pino, rua e rota.
  *
  * Só vale pra CLIENTE (quem recebe entrega). Lead/fornecedor/contato seguem entrando
  * sem endereço — a regra é da logística, não do CRM.
@@ -2470,8 +2484,8 @@ const SEM_NUMERO_DECLARADO = /^(s\.?\/?\s*n\.?|sem\s*n[uú]?mero?)$/i;
 export function exigirEnderecoFechado(
   cadastro: { cep?: string | null; numero?: string | null; endereco?: string | null },
   isCliente: boolean,
-): void {
-  if (!isCliente) return;
+): { numeroAutomatico: string | null } {
+  if (!isCliente) return { numeroAutomatico: null };
   const cep = String(cadastro.cep ?? '').replace(/\D+/g, '');
   if (cep.length !== 8) {
     throw new BadRequestException('Informe o CEP do cliente (8 dígitos) — sem ele não dá pra achar a casa.');
@@ -2480,9 +2494,7 @@ export function exigirEnderecoFechado(
   const declarouSemNumero = SEM_NUMERO_DECLARADO.test(numeroTexto)
     || /sem\s*n[uú]?mero|\bs\/?n\b/i.test(String(cadastro.endereco ?? ''));
   const temNumero = !!extrairNumeroPorta({ numero: cadastro.numero ?? null, endereco: cadastro.endereco ?? null });
-  if (!temNumero && !declarouSemNumero) {
-    throw new BadRequestException('Informe o número da casa — se não tiver, escreva SN.');
-  }
+  return { numeroAutomatico: !temNumero && !declarouSemNumero ? 'S/N' : null };
 }
 
 /* A ESCADA DA PROCEDENCIA DO PINO mudou de casa em 09/08 (logistica-geo-fonte.util.ts):

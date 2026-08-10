@@ -30,14 +30,7 @@ import { normalizeVia } from '../nucleo/nucleo-geo.util';
 // 27/07 (caso Dona Maria) — a MESMA régua de via do resolver CNEFE, que entende
 // numeral por extenso e token colado ("M22A" ↔ "Rua M 22A" ↔ "M VINTE E DOIS A").
 // Régua velha aqui e nova lá = "CEP e endereço não batem" mentindo na conferência.
-import {
-  logradouroDoCadastro,
-  nucleoBairro,
-  separarTipoColado,
-  tokensBairro,
-  viasCompativeisCnefe,
-  TIPO_VIA_EXTENSO,
-} from '../nucleo/cnefe-resolver.util';
+import { logradouroDoCadastro, viasCompativeisCnefe } from '../nucleo/cnefe-resolver.util';
 
 const VIACEP_URL = 'https://viacep.com.br/ws';
 const VIACEP_TIMEOUT_MS = 2500;
@@ -209,182 +202,16 @@ export async function consultarCepPublico(cepRaw: string | null | undefined): Pr
   };
 }
 
-// ── BUSCA REVERSA: endereço → CEP (27/07, ordem do dono) ──────────────────────────
-/**
- * "Ela não tem CEP, mas o endereço está PERFEITO" — o buraco que fazia a sanitização
- * não ser funcional: a cura do pino (CNEFE) entra por (cep, número), então cadastro
- * completo SEM CEP caía em "Sem CEP e número" e nunca saía de vermelho, por mais certo
- * que estivesse. Com UF + cidade + logradouro o ViaCEP devolve o(s) CEP(s) daquela rua
- * e a cura segue o caminho normal — o CEP descoberto ainda é GRAVADO no cadastro, que
- * é o que "sanitizar" quer dizer: o furo some, não volta na próxima rota.
- *
- * Fail-CLOSED (ao contrário do resto deste arquivo): aqui o resultado vira ESCRITA de
- * cadastro e pino, não um aviso na tela — vale a mesma lei do freio do geocode (Lei nº1,
- * pino errado é pior que pino vazio). Só volta rua cuja CIDADE bate e cuja VIA bate pela
- * mesma régua do CNEFE; qualquer dúvida (rede fora, cidade divergente, rua ambígua)
- * devolve lista vazia e o cadastro segue como estava.
- */
-/** Teto de CEPs devolvidos por rua — rua longa tem CEP por trecho; cada um é 1 tentativa
- *  no CNEFE, e é o CNEFE (fail-closed) que decide qual casa com o número da casa.
- *  16 porque avenida de cidade média passa de 30 trechos (medido: "Avenida 3" em Rio
- *  Claro devolve 14 CEPs compatíveis, "Rua 9" devolve 37). */
-const VIACEP_BUSCA_MAX = 16;
-
-export interface CepDaRua {
-  cep: string;
-  logradouro: string;
-  bairro: string;
-  localidade: string;
-  uf: string;
-  /** O bairro deste trecho é o bairro do cadastro? É o desempate que decide QUAL pedaço
-   *  de uma rua comprida é o do cliente. */
-  bairroBate: boolean;
-}
-
-/**
- * O cadastro DIZ um bairro? (coluna própria, ou um trecho do texto que não é a via nem
- * um número solto). É o que decide se o bairro pode ser EXIGIDO: quem informou bairro
- * tem direito a que ele mande; quem não informou só tem a rua.
- */
-export function temBairroNoCadastro(cadastro: EnderecoCadastrado): boolean {
-  if (String(cadastro.bairro ?? '').trim()) return true;
-  const via = logradouroDoCadastro(cadastro.endereco);
-  return String(cadastro.endereco ?? '')
-    .split(/\s*[,;]\s*|\s+[-—–]\s+/)
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .some((trecho) => trecho !== via && /[a-zà-ú]{3}/i.test(trecho));
-}
-
-const cacheBusca = new Map<string, { valor: ViaCepPayload[]; expiraEm: number }>();
-
-/** Sem acento, minúsculo — só pra COMPARAR/BUSCAR, nunca pra gravar. */
-function semAcento(valor: string | null | undefined): string {
-  return normalizar(valor);
-}
+/* ── A BUSCA REVERSA POR NOME DE RUA MORREU AQUI (10/08, ordem do dono) ────────────
+   "Sanitização por nome da rua: remover agora, sem vestígios — o CEP vai mandar em
+   tudo." `descobrirCepsPorEndereco`/`termoBuscaVia`/`temBairroNoCadastro` (ViaCEP por
+   rua) saíram inteiras: CEP não se descobre por nome — se digita no cadastro (regra),
+   sai do botão GPS (posição → `resolverCnefeReverso`) ou não existe. */
 
 /* `pareceVia`, `separarTipoColado`, `TIPO_VIA_EXTENSO` e `logradouroDoCadastro`
-   MUDARAM DE CASA em 09/08 (`nucleo/cnefe-resolver.util.ts`): a porta direta — a cura
-   que acha o pino por município+rua+número, sem CEP — precisa da MESMA régua de "o que
-   é a rua deste texto". Régua duplicada é como as duas curas passariam a discordar
-   sobre o mesmo cadastro. Re-exportado daqui pra ninguém ter que trocar de import. */
+   moram em `nucleo/cnefe-resolver.util.ts` desde 09/08. Re-exportado daqui pra
+   ninguém ter que trocar de import. */
 export { logradouroDoCadastro };
-
-/**
- * O termo que o ViaCEP entende, a partir da via do cadastro: pontuação vira espaço
- * (ponto derruba a rota da API), tipo abreviado vira EXTENSO e letra colada em número
- * se separa — "Av. 54a" → "avenida 54 a", "Rua M22" → "rua m 22", que é exatamente como
- * a base guarda ("Avenida 54 A", "Rua M 22"). A precisão fina não é feita aqui: quem
- * decide se a rua devolvida é a MESMA é `viasCompativeisCnefe`, régua de palavra inteira.
- */
-export function termoBuscaVia(via: string | null | undefined): string {
-  const tokens = semAcento(via)
-    .replace(/[.,/\\-]/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    // "54a" → "54 a" e "M22" → "m 22": o ViaCEP separa, o cadastro cola.
-    .flatMap((token) => {
-      const letraDigito = /^([a-z]+?)(\d{1,4})([a-z]?)$/.exec(token);
-      if (letraDigito) {
-        // "Avm19" → av · m · 19 (tipo colado no nome); "Rua38" → rua · 38 (tipo inteiro).
-        const cabeca = separarTipoColado(letraDigito[1]) ?? [letraDigito[1]];
-        return [...cabeca, letraDigito[2], letraDigito[3]].filter(Boolean);
-      }
-      const digitoLetra = /^(\d{1,4})([a-z]{1,2})$/.exec(token);
-      if (digitoLetra) return [digitoLetra[1], digitoLetra[2]];
-      return [token];
-    });
-  if (tokens.length && tokens[0] in TIPO_VIA_EXTENSO) tokens[0] = TIPO_VIA_EXTENSO[tokens[0]];
-  return tokens.join(' ').trim();
-}
-
-/** ViaCEP busca por rua (`/ws/UF/cidade/logradouro/json/`). Best-effort: NUNCA lança.
- *  Resposta legítima (inclusive lista vazia) entra no cache; falha de rede não. */
-async function buscarViaCepPorRua(uf: string, cidade: string, via: string, chave: string): Promise<ViaCepPayload[]> {
-  const cache = cacheBusca.get(chave);
-  if (cache) {
-    if (cache.expiraEm >= Date.now()) return cache.valor;
-    cacheBusca.delete(chave);
-  }
-  try {
-    const url = `${VIACEP_URL}/${uf}/${encodeURIComponent(cidade)}/${encodeURIComponent(via)}/json/`;
-    const res = await fetch(url, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(VIACEP_TIMEOUT_MS),
-    });
-    if (!res.ok) return [];
-    const payload = await res.json();
-    // Resposta de ERRO do ViaCEP (busca com mais de 50 resultados, campo curto) vem
-    // como objeto, não array — trata como "não sei", sem cachear achado nenhum.
-    const lista = Array.isArray(payload) ? (payload as ViaCepPayload[]) : [];
-    if (cacheBusca.size >= CACHE_MAX) {
-      const primeira = cacheBusca.keys().next();
-      if (!primeira.done) cacheBusca.delete(primeira.value);
-    }
-    cacheBusca.set(chave, { valor: lista, expiraEm: Date.now() + CACHE_TTL_MS });
-    return lista;
-  } catch {
-    return [];
-  }
-}
-
-/** Zera os dois caches (consulta por CEP e busca por rua) entre casos de teste. */
-export function limparCacheBuscaCep(): void {
-  cacheBusca.clear();
-}
-
-/**
- * CEP(s) da rua do cadastro. Vazio = não deu pra provar (e aí nada é gravado).
- * Ordenado como o ViaCEP devolveu; quem escolhe o certo é o CNEFE, casando o NÚMERO
- * da casa — este util só entrega os candidatos com cidade e via provadas.
- */
-export async function descobrirCepsPorEndereco(cadastro: EnderecoCadastrado): Promise<CepDaRua[]> {
-  if (!cepCheckHabilitado()) return [];
-  const uf = String(cadastro.uf ?? '').trim().toUpperCase();
-  const cidade = String(cadastro.cidade ?? '').trim();
-  const via = logradouroDoCadastro(cadastro.endereco);
-  const termo = termoBuscaVia(via);
-  // Mínimos do próprio ViaCEP: UF de 2 letras, cidade e logradouro com 3+ caracteres.
-  if (!/^[A-Z]{2}$/.test(uf) || cidade.length < 3 || termo.length < 3) return [];
-
-  const cidadeNorm = normalizar(cidade);
-  const lista = await buscarViaCepPorRua(uf, cidade, termo, `${uf}|${cidadeNorm}|${termo}`);
-
-  const vistos = new Set<string>();
-  const saida: CepDaRua[] = [];
-  for (const item of lista) {
-    const cep = normalizarCep(item.cep);
-    if (!cep || vistos.has(cep)) continue;
-    // Cidade tem que bater (o ViaCEP casa nome de cidade por aproximação) e a via tem
-    // que ser a MESMA rua — mesma régua do CNEFE, que entende "Rua 8" = "RUA OITO".
-    if (normalizar(item.localidade) !== cidadeNorm) continue;
-    if (!viasCompativeisCnefe(via, item.logradouro)) continue;
-    vistos.add(cep);
-    saida.push({
-      cep,
-      logradouro: String(item.logradouro ?? '').trim(),
-      bairro: String(item.bairro ?? '').trim(),
-      localidade: String(item.localidade ?? '').trim(),
-      uf: String(item.uf ?? '').trim().toUpperCase(),
-      bairroBate: false,
-    });
-  }
-  // BAIRRO NA FRENTE (precisão, não capricho): rua comprida tem um CEP por TRECHO — "Rua
-  // 15" em Rio Claro devolve 16. Quem tenta primeiro é o trecho do bairro do cadastro;
-  // sem isso o pino sai no pedaço errado da MESMA rua, que é o erro mais difícil de o
-  // entregador perceber. O bairro vem da coluna OU do texto do endereço (no legado ele
-  // mora lá) e a comparação é por NÚCLEO — medido: comparando texto inteiro, "Jd. Santa
-  // Cruz" nunca casava com "Jardim Santa Cruz" e o desempate simplesmente não existia.
-  // Os DOIS lados passam pela mesma régua (romano → dígito, pontuação → espaço): o
-  // Correio escreve "São Caetano II" e o cadastro "São Caetano 2" — comparar cru nunca
-  // casa, e foi assim que o Eudis ganhou o CEP do Centro (auditoria do dono, 27/07).
-  const textoCadastro = ` ${tokensBairro(`${cadastro.bairro ?? ''} ${cadastro.endereco ?? ''}`).join(' ')} `;
-  for (const c of saida) {
-    const nucleo = nucleoBairro(c.bairro);
-    c.bairroBate = nucleo.length > 0 && nucleo.every((t) => textoCadastro.includes(` ${t} `));
-  }
-  return saida.sort((a, b) => Number(b.bairroBate) - Number(a.bairroBate)).slice(0, VIACEP_BUSCA_MAX);
-}
 
 /**
  * O CEP consultado descreve o MESMO lugar do endereço cadastrado?
