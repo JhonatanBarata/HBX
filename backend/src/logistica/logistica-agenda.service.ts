@@ -4,9 +4,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { LogisticaRotaCobrancaService } from './logistica-rota-cobranca.service';
 import {
   AgendaDivergenciaItemDto,
   AgendaDivergenciasDto,
@@ -77,7 +79,14 @@ type DbLike = PrismaService | any;
 export class LogisticaAgendaService {
   private readonly logger = new Logger(LogisticaAgendaService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // ROTA v2 F3b (10/08) — @Optional() por padrão de módulo: sem o serviço
+    // de cobrança injetado (ex.: instanciação direta em teste), o portão de
+    // assentos simplesmente não roda — materializar continua exatamente como
+    // sempre foi, sem quebrar nenhum teste existente.
+    @Optional() private readonly cobranca?: LogisticaRotaCobrancaService,
+  ) {}
 
   async getSummary(companyId: number) {
     this.assertCompany(companyId);
@@ -1549,6 +1558,15 @@ export class LogisticaAgendaService {
     )].slice(0, 7);
     const driverId = normalizeOptionalUserId(input.driverUserId);
     const actorId = normalizeOptionalUserId(input.actorUserId);
+    // ROTA v2 F3b (10/08) — o portão de assentos: motorista já ocupante do dia
+    // passa liso; motorista NOVO além do teto (nível/override da empresa)
+    // leva 402 ASSENTOS_ESGOTADOS ANTES de qualquer entrega ser movida pra
+    // este dia. `@Optional()` por padrão de módulo (testes que constroem a
+    // classe direto sem o serviço de cobrança continuam válidos — materializar
+    // sem motorista definido também não tem o que gatear).
+    if (this.cobranca && driverId) {
+      await this.cobranca.assertAssentoDoDia(companyId, driverId, dateKey(operationalDate));
+    }
     const deliveryIds = new Set<string>();
     // F0 (27/07) — extrato: ids materializados de uma data de ORIGEM diferente
     // da operacional, agrupados por origem, só pra render OCORRENCIA_ADIANTADA

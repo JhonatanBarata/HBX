@@ -387,32 +387,11 @@ test('confirmarEntrega: flag OFF → NÃO chama WhatsApp e NÃO cria cobrança (
   else process.env.HBX_LOGISTICA_ENABLED = prev;
 });
 
-test('confirmarEntrega consulta cobertura Essencial antes da transação', async () => {
-  const { prisma, entregaUpdates } = buildPrismaMock(
-    buildEntrega(),
-    { id: 'conta-1', formaPagamento: 'avulso', contabilizar: true, avisarEntrega: true },
-  );
-  const { conversations } = buildConversationsMock();
-  const { rota } = buildRotaStub();
-  const { config } = buildConfigMock();
-  const calls: any[] = [];
-  const routeBilling = {
-    assertEssentialDeliveryCovered: async (companyId: number, deliveryId: string) => {
-      calls.push({ companyId, deliveryId });
-      throw new Error('rota sem cobertura');
-    },
-  } as any;
-  const service = new LogisticaService(
-    prisma, conversations, rota, config,
-    undefined, undefined, undefined, undefined, routeBilling,
-  );
-  await assert.rejects(
-    service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 }),
-    /rota sem cobertura/,
-  );
-  assert.deepEqual(calls, [{ companyId: 1, deliveryId: 'entrega-1' }]);
-  assert.equal(entregaUpdates.length, 0, 'gate bloqueia antes do status/GPS');
-});
+// ⛔ ROTA v2 (10/08) — "confirmarEntrega consulta cobertura Essencial antes da
+// transação" MORREU aqui: o gate `assertEssentialDeliveryCovered` era da
+// máquina de cobrar por bloco (logistica-route-billing.service.ts), morta
+// nesta onda. Entrega não tem mais 402 de "bloco não pago" — o dinheiro do
+// dia já foi resolvido no Iniciar (ver logistica-rota-cobranca.service.ts).
 
 // ── L4-A (18/07) — createEntrega (POST /logistica/entregas) sempre marca a
 // Entrega como 'avulsa' (nunca recorrência: essa vem só de gerarDia/materialize).
@@ -2407,14 +2386,13 @@ function buildRotaPrivacyMock(moduloFinanceiroAtivo: boolean) {
   };
   const service = new LogisticaService(
     prisma,
-    {} as any,
-    {} as any,
-    {} as any,
-    undefined,
-    undefined,
-    undefined,
+    {} as any, // conversations
+    {} as any, // rota
+    {} as any, // config
+    undefined, // creditActionUsage
+    undefined, // recovery
+    undefined, // cobrancaAviso
     operacao,
-    undefined,
     tracking,
   );
   return { service, queries };

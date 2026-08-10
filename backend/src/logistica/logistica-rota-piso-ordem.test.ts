@@ -71,27 +71,49 @@ function bancada(cenario: Cenario = {}) {
         return { count: 1 };
       },
     },
-    logisticaRoute: { updateMany: async () => ({ count: 0 }) },
   };
 
-  const routeBilling: any = {
-    prepareRoute: async () => ({
-      routeId: 'route-1',
-      mode: 'ESSENTIAL',
-      status: 'PLANNED',
-      routeDate: DIA,
-      deliveryCount: abertas.length,
-      requiredBlocks: 0,
-      newlyDebitedBlocks: 0,
-      billingRevision: 0,
+  // ROTA v2 (10/08) — iniciarRota gerencia LogisticaRoute/Stop direto (sem a
+  // máquina de billing velha). Dublê MÍNIMO em memória, mesmo padrão de
+  // logistica-rota-prospector.test.ts.
+  const routes: any[] = [];
+  const stops: any[] = [];
+  let routeSeq = 0;
+  let stopSeq = 0;
+  prisma.logisticaRoute = {
+    updateMany: async () => ({ count: 0 }),
+    findFirst: async ({ where }: any) => routes.find((r) => {
+      if (r.companyId !== where.companyId) return false;
+      if (where.id !== undefined) return r.id === where.id;
+      return r.entregadorId === where.entregadorId && r.routeDate === where.routeDate;
+    }) || null,
+    create: async ({ data }: any) => {
+      const row = { id: `route-${++routeSeq}`, createdAt: new Date(), operationalEndedAt: null, ...data };
+      routes.push(row);
+      return row;
+    },
+  };
+  prisma.logisticaRouteStop = {
+    findMany: async ({ where }: any) => stops.filter((s) => where.deliveryId?.in?.includes(s.deliveryId)),
+    aggregate: async ({ where }: any) => ({
+      _max: { snapshotOrder: Math.max(-1, ...stops.filter((s) => s.routeId === where.routeId).map((s) => s.snapshotOrder)) },
     }),
-    beginInitialization: async () => ({ token: 'lease-1', alreadyActive: false }),
-    activateRoute: async () => undefined,
-    failInitialization: async () => undefined,
-    abortPreparedRoute: async () => undefined,
+    create: async ({ data }: any) => {
+      const row = { id: `stop-${++stopSeq}`, billingExempt: false, ...data };
+      stops.push(row);
+      return row;
+    },
+  };
+  prisma.$executeRawUnsafe = async () => 0;
+  prisma.$transaction = async (callback: any) => callback(prisma);
+
+  const cobranca: any = {
+    garantirDiaPago: async () => undefined,
+    assertAssentoDoDia: async () => undefined,
+    garantirPasseDoDia: async () => undefined,
   };
 
-  const rota = new LogisticaRotaService(prisma, routeBilling, undefined);
+  const rota = new LogisticaRotaService(prisma, cobranca, undefined);
   (rota as any).logger = { log: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
 
   return { rota, gravados, agregados, statusGravado, ids: cru.map((p) => p.id) };

@@ -98,7 +98,10 @@ test('provisionTenant persists initial products and support channels for the ten
           return { id: 42 };
         },
       },
-      systemModule: { findMany: async () => [] },
+      // findUnique: seedConversasOptOutTx (S7) — módulo não semeado → no-op.
+      systemModule: { findMany: async () => [], findUnique: async () => null },
+      // seedLogisticaConfigTx (ROTA v2 F2b): linha inexistente → cria CREDITO.
+      logisticaConfig: { findUnique: async () => null, create: async () => ({}) },
       companyModule: { upsert: async () => ({}) },
       companyCommercialEntitlement: { upsert: async () => ({}) },
       user: { create: async () => ({ id: 77 }) },
@@ -177,7 +180,11 @@ test('provisionTenant WITHOUT explicit modules does NOT write CompanyModule (pos
           systemModuleQueried = true;
           return [];
         },
+        // seedConversasOptOutTx (S7) usa findUnique — consulta deliberada do
+        // opt-out, fora do systemModuleQueried (que mede módulos de PLANO).
+        findUnique: async () => null,
       },
+      logisticaConfig: { findUnique: async () => null, create: async () => ({}) },
       companyModule: { upsert: async (args: any) => { moduleUpserts.push(args); return {}; } },
       companyCommercialEntitlement: { upsert: async () => ({}) },
       user: { create: async () => ({ id: 1 }) },
@@ -204,7 +211,10 @@ test('provisionTenant WITH explicit modules writes CompanyModule (exceção do m
       company: { create: async () => ({ id: 7 }), update: async () => ({ id: 7 }) },
       systemModule: {
         findMany: async ({ where }: any) => where.key.in.map((key: string, index: number) => ({ id: index + 1, key })),
+        // seedConversasOptOutTx: null → sem post-it extra (moduleUpserts fica em 2).
+        findUnique: async () => null,
       },
+      logisticaConfig: { findUnique: async () => null, create: async () => ({}) },
       companyModule: { upsert: async (args: any) => { moduleUpserts.push(args); return {}; } },
       companyCommercialEntitlement: { upsert: async () => ({}) },
       user: { create: async () => ({ id: 1 }) },

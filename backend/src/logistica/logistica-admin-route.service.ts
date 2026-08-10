@@ -3,7 +3,7 @@ import { isBillingOwnerActor } from '../access/actor-kind';
 import { PrismaService } from '../prisma/prisma.service';
 import { addCivilDays, isoWeekdayForDate, saoPauloDateKey } from './logistica-dia.util';
 import type { LogisticaActor } from './logistica-operacao.service';
-import { canonicalRouteDate } from './logistica-route-billing.service';
+import { canonicalRouteDate } from './logistica-route-billing.util';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaService } from './logistica.service';
 import { DAY_ABBR, LogisticaAgendaService } from './logistica-agenda.service';

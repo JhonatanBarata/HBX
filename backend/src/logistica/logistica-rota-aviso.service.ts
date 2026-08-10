@@ -3,7 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 
 import { MobilePushService } from '../auth/mobile-push.service';
-import { canonicalRouteDate } from './logistica-route-billing.service';
+import { canonicalRouteDate } from './logistica-route-billing.util';
 import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 import { haversineMeters } from './logistica-tracking.service';
 

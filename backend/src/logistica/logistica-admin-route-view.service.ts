@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { isBillingOwnerActor } from '../access/actor-kind';
 import { PrismaService } from '../prisma/prisma.service';
 import type { LogisticaActor } from './logistica-operacao.service';
-import { canonicalRouteDate } from './logistica-route-billing.service';
+import { canonicalRouteDate } from './logistica-route-billing.util';
 import { LogisticaService } from './logistica.service';
 
 function actorId(actor?: LogisticaActor | null): number {

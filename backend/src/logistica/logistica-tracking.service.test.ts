@@ -355,112 +355,122 @@ test('rota TRACKED cria sessão no start web e o primeiro aparelho do próprio m
 });
 
 test('POST rota/iniciar cria a sessão TRACKED antes de ativar a rota e expõe somente metadados operacionais', async () => {
-  const calls: string[] = [];
-  const delivery: any = {
-    id: 'delivery-1',
-    entregadorId: 7,
-    status: 'agendada',
-    rotaOrdem: null,
-    scheduledAt: new Date('2026-07-13T12:00:00.000Z'),
-    local: null,
-    customerProfile: { name: 'Cliente', lat: -23.55, lng: -46.63 },
-  };
-  const prisma: any = {
-    logisticaConfig: { findUnique: async () => ({ velocidadeMediaKmH: 25, tempoParadaMin: 5 }) },
-    entrega: {
-      findMany: async () => [delivery],
-      // piso da numeração: nada fechado nesta bancada ⇒ piso 0.
-      aggregate: async () => ({ _max: { rotaOrdem: null } }),
-      updateMany: async (args: any) => {
-        if (args.data.status === 'em_rota') Object.assign(delivery, args.data);
-        return { count: 1 };
+  await withTrackingEnabled(async () => {
+    const calls: string[] = [];
+    const delivery: any = {
+      id: 'delivery-1',
+      entregadorId: 7,
+      status: 'agendada',
+      rotaOrdem: null,
+      scheduledAt: new Date('2026-07-13T12:00:00.000Z'),
+      local: null,
+      customerProfile: { name: 'Cliente', lat: -23.55, lng: -46.63 },
+    };
+    const routes: any[] = [];
+    const stops: any[] = [];
+    let routeSeq = 0;
+    let stopSeq = 0;
+    const prisma: any = {
+      logisticaConfig: {
+        // ROTA v2 (10/08) — 2 seleções diferentes na MESMA porta: o planejador
+        // pede velocidade/tempo de parada; resolveRouteModeForCompany pede as
+        // 3 chaves do modo TRACKED. Mesma config, campos diferentes.
+        findUnique: async (args: any) => {
+          const campos = Object.keys(args?.select || {});
+          if (campos.includes('velocidadeMediaKmH')) return { velocidadeMediaKmH: 25, tempoParadaMin: 5 };
+          return { trackingAtivo: true, logisticaNivel: 'FULL', modoRotaPadrao: 'TRACKED' };
+        },
       },
-    },
-    // PR17072026 — iniciarRota zera operationalEndedAt (marca de rota encerrada,
-    // decoupled da cobrança) ao (re)iniciar. Mock no-op: sem rota encerrada aqui.
-    logisticaRoute: { updateMany: async () => ({ count: 0 }) },
-  };
-  const routeBilling: any = {
-    prepareRoute: async () => ({
-      routeId: 'route-1',
-      mode: 'TRACKED',
-      status: 'PLANNED',
-      routeDate: '2026-07-13',
-      deliveryCount: 1,
-      requiredBlocks: 0,
-      newlyDebitedBlocks: 0,
-      billingRevision: 0,
-    }),
-    beginInitialization: async () => ({ token: 'lease-1', alreadyActive: false }),
-    activateRoute: async () => { calls.push('activate'); },
-    failInitialization: async () => { calls.push('fail'); },
-  };
-  const tracking: any = {
-    ensureSessionForStartedRoute: async () => {
-      calls.push('session');
-      return { id: 'session-1' };
-    },
-    discardUnboundSessionAfterRouteFailure: async () => undefined,
-    getOperationalRouteMetadata: async () => ({
-      routeId: 'route-1',
-      trackingRequired: true,
-      routeMode: 'TRACKED',
-      routeStatus: 'ACTIVE',
-      trackingSessionId: 'session-1',
-      trackingStatus: 'ACTIVE',
-    }),
-  };
-  const rota = new LogisticaRotaService(prisma, routeBilling, tracking);
-  const result = await rota.iniciarRota(
-    3,
-    { date: '2026-07-13', origemLat: -23.55, origemLng: -46.63 },
-    7,
-    7,
-  );
-  assert.deepEqual(calls, ['session', 'activate']);
-  assert.equal(result.routeId, 'route-1');
-  assert.equal(result.trackingRequired, true);
-  assert.equal(result.trackingSessionId, 'session-1');
-  assert.equal(Object.prototype.hasOwnProperty.call(result, 'routeMode'), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(result, 'billingRevision'), false);
+      entrega: {
+        findMany: async () => [delivery],
+        // piso da numeração: nada fechado nesta bancada ⇒ piso 0.
+        aggregate: async () => ({ _max: { rotaOrdem: null } }),
+        updateMany: async (args: any) => {
+          if (args.data.status === 'em_rota') Object.assign(delivery, args.data);
+          return { count: 1 };
+        },
+      },
+      // ROTA v2 (10/08) — iniciarRota gerencia LogisticaRoute/Stop direto.
+      logisticaRoute: {
+        // PR17072026 — iniciarRota zera operationalEndedAt (marca de rota
+        // encerrada) ao (re)iniciar. Mock no-op: sem rota encerrada aqui.
+        updateMany: async ({ where, data }: any) => {
+          if (where.status === 'PLANNED') {
+            const row = routes.find((r) => r.id === where.id);
+            if (row) Object.assign(row, data);
+          }
+          return { count: 0 };
+        },
+        findFirst: async ({ where }: any) => routes.find((r) => {
+          if (r.companyId !== where.companyId) return false;
+          if (where.id !== undefined) return r.id === where.id;
+          return r.entregadorId === where.entregadorId && r.routeDate === where.routeDate;
+        }) || null,
+        create: async ({ data }: any) => {
+          const row = { id: `route-${++routeSeq}`, createdAt: new Date(), operationalEndedAt: null, ...data };
+          routes.push(row);
+          return row;
+        },
+      },
+      logisticaRouteStop: {
+        findMany: async ({ where }: any) => stops.filter((s) => where.deliveryId?.in?.includes(s.deliveryId)),
+        aggregate: async ({ where }: any) => ({
+          _max: { snapshotOrder: Math.max(-1, ...stops.filter((s) => s.routeId === where.routeId).map((s) => s.snapshotOrder)) },
+        }),
+        create: async ({ data }: any) => {
+          const row = { id: `stop-${++stopSeq}`, billingExempt: false, ...data };
+          stops.push(row);
+          return row;
+        },
+      },
+      $executeRawUnsafe: async () => 0,
+      $transaction: async (callback: any) => callback(prisma),
+    };
+    const cobranca: any = {
+      garantirDiaPago: async () => undefined,
+      assertAssentoDoDia: async () => undefined,
+      garantirPasseDoDia: async () => undefined,
+    };
+    const tracking: any = {
+      ensureSessionForStartedRoute: async () => {
+        calls.push('session');
+        return { id: 'session-1' };
+      },
+      discardUnboundSessionAfterRouteFailure: async () => undefined,
+      getOperationalRouteMetadata: async () => ({
+        routeId: routes[0]?.id ?? 'route-1',
+        trackingRequired: true,
+        routeMode: 'TRACKED',
+        routeStatus: 'ACTIVE',
+        trackingSessionId: 'session-1',
+        trackingStatus: 'ACTIVE',
+      }),
+    };
+    const rota = new LogisticaRotaService(prisma, cobranca, tracking);
+    const result = await rota.iniciarRota(
+      3,
+      { date: '2026-07-13', origemLat: -23.55, origemLng: -46.63 },
+      7,
+      7,
+    );
+    assert.deepEqual(calls, ['session']);
+    assert.equal(routes.length, 1, 'a LogisticaRoute nasceu direto (sem a máquina de billing velha)');
+    assert.equal(routes[0].mode, 'TRACKED');
+    assert.equal(routes[0].status, 'ACTIVE');
+    assert.equal(result.trackingRequired, true);
+    assert.equal(result.trackingSessionId, 'session-1');
+    assert.equal(Object.prototype.hasOwnProperty.call(result, 'routeMode'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(result, 'billingRevision'), false);
+  });
 });
 
-test('POST rota/iniciar não move a entrega para em_rota quando a rota comercial já está COMPLETED', async () => {
-  const delivery: any = {
-    id: 'delivery-completed',
-    entregadorId: 7,
-    status: 'agendada',
-    rotaOrdem: null,
-    scheduledAt: new Date('2026-07-13T12:00:00.000Z'),
-    local: null,
-    customerProfile: { name: 'Cliente', lat: -23.55, lng: -46.63 },
-  };
-  let beginCalls = 0;
-  const prisma: any = {
-    logisticaConfig: { findUnique: async () => ({ velocidadeMediaKmH: 25, tempoParadaMin: 5 }) },
-    entrega: {
-      findMany: async () => [delivery],
-      // piso da numeração: nada fechado nesta bancada ⇒ piso 0.
-      aggregate: async () => ({ _max: { rotaOrdem: null } }),
-      updateMany: async (args: any) => {
-        if (args.data.status) Object.assign(delivery, args.data);
-        return { count: 1 };
-      },
-    },
-  };
-  const routeBilling: any = {
-    prepareRoute: async () => { throw new Error('Esta rota já foi concluída e não pode ser iniciada novamente.'); },
-    beginInitialization: async () => { beginCalls += 1; },
-  };
-  const rota = new LogisticaRotaService(prisma, routeBilling, undefined);
-
-  await assert.rejects(
-    rota.iniciarRota(3, { date: '2026-07-13' }, 7, 7),
-    /já foi concluída/i,
-  );
-  assert.equal(delivery.status, 'agendada');
-  assert.equal(beginCalls, 0);
-});
+// ⛔ ROTA v2 (10/08) — "POST rota/iniciar não move a entrega para em_rota
+// quando a rota comercial já está COMPLETED" MORREU aqui: sob a máquina
+// velha, COMPLETED era terminal (prepareRoute recusava iniciar de novo no
+// mesmo dia). No modelo novo (ensureLogisticaRoute,
+// logistica-rota.service.ts) COMPLETED deixou de bloquear — uma rota nova
+// nasce do lado ("2ª leva no mesmo dia", já era assim pro campo
+// `operationalEndedAt` desde o PR17072026; agora vale pro `status` inteiro).
 
 test('start/bind rejeita aparelho cross-driver e cross-company antes de tocar a sessão', async () => {
   await withTrackingEnabled(async () => {

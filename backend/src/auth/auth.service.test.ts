@@ -540,7 +540,9 @@ test('gate de login: entregador sem SELLER cai direto em Entregas', async () => 
     },
   );
   const result = await loginAsSeller(service);
-  assert.equal(result.next, '/entrega');
+  // 06/08: '/entrega' (app de celular no navegador) foi apagado — no desktop o
+  // entregador cai no /logistica; no telefone a ParedeCelular manda baixar o APK.
+  assert.equal(result.next, '/logistica');
   assert.deepEqual(result.operationalCapabilities, ['DRIVER']);
   assert.equal(result.defaultWorkspace, 'entregas');
 });
@@ -1091,6 +1093,15 @@ function buildAuthServiceForNeutralSignup() {
         systemModuleFinds.push(args);
         return [];
       },
+      // seedConversasOptOutTx (S7): módulo 'conversas' não semeado → best-effort
+      // vira no-op e o nascimento segue sem post-it (fora do systemModuleFinds,
+      // que mede só a consulta de módulos de PLANO).
+      findUnique: async () => null,
+    },
+    // seedLogisticaConfigTx (ROTA v2 F2b): linha inexistente → cria CREDITO.
+    logisticaConfig: {
+      findUnique: async () => null,
+      create: async () => ({}),
     },
     companyModule: {
       updateMany: async (args: any) => {

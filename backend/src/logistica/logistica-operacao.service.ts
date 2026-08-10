@@ -3,11 +3,14 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { createHash, randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from 'crypto';
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises';
 import { extname, join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
+import { canonicalRouteDate } from './logistica-route-billing.util';
+import { LogisticaRotaCobrancaService } from './logistica-rota-cobranca.service';
 import {
   assertOperationalCapability,
   resolveOperationalCapabilities,
@@ -90,7 +93,13 @@ function detectarImagem(buffer: Buffer): { contentType: string; extension: strin
 
 @Injectable()
 export class LogisticaOperacaoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // ROTA v2 F3b (10/08) — @Optional() por padrão de módulo: instanciação
+    // direta em teste sem o serviço de cobrança segue válida (o portão
+    // simplesmente não roda).
+    @Optional() private readonly cobranca?: LogisticaRotaCobrancaService,
+  ) {}
 
   async assertCapacidade(actor: LogisticaActor, capability: OperationalCapability): Promise<void> {
     if (isLogisticaAdmin(actor)) return;
@@ -143,7 +152,7 @@ export class LogisticaOperacaoService {
     const id = String(entregaId || '').trim();
     const entrega = await this.prisma.entrega.findFirst({
       where: { id, companyId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, scheduledAt: true },
     });
     if (!entrega) return null;
     if (entrega.status === 'entregue' || entrega.status === 'cancelada') {
@@ -160,6 +169,17 @@ export class LogisticaOperacaoService {
       const caps = await resolveOperationalCapabilities(this.prisma, target);
       if (!caps.includes('DRIVER')) {
         throw new BadRequestException('Este usuário não possui a capacidade Entregas.');
+      }
+      // ROTA v2 F3b (10/08) — o portão de assentos: só quando um motorista
+      // está SENDO POSTO na entrega (nunca ao limpar — `entregadorId: null`
+      // nunca gasta assento). A data é a da PRÓPRIA entrega (sem data, cai em
+      // hoje — mesma régua de sempre pra entrega perpétua/avulsa).
+      if (this.cobranca) {
+        await this.cobranca.assertAssentoDoDia(
+          companyId,
+          target.id,
+          canonicalRouteDate(undefined, entrega.scheduledAt ?? new Date()),
+        );
       }
     }
 

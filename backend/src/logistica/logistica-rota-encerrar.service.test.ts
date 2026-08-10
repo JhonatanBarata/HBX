@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { LogisticaRotaService, resolveDayRange } from './logistica-rota.service';
-import { canonicalRouteDate } from './logistica-route-billing.service';
+import { canonicalRouteDate } from './logistica-route-billing.util';
 
 /**
  * PR17072026 Onda 1 — testes de `encerrarRota` (docs/PLANEJAMENTOS/PR17072026/

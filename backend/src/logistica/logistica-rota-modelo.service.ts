@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { PrismaService } from '../prisma/prisma.service';
 import { parseDateOrNull, resolveValorUnit } from './logistica-recorrencia.service';
 import { resolvePrincipalContatoId } from './logistica-contato.util';
-import { canonicalRouteDate } from './logistica-route-billing.service';
+import { canonicalRouteDate } from './logistica-route-billing.util';
 
 /**
  * PR18072026 W1 — CRUD de "rota-modelo" (roteiro salvo): nome + dia da semana

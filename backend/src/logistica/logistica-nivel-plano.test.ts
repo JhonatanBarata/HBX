@@ -12,10 +12,11 @@ import {
 import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
 
 /**
- * PR28072026 HÍBRIDO (28/07) — o catálogo comercial dos 3 níveis e a conta da
- * franquia do mês. Aqui vive a matemática do dinheiro: preço editável pelo
- * master, franquia em paradas e a soma dos DOIS jeitos de queimar crédito
- * (bloco da Essencial = 5 paradas, entrega da Rastreada = 1 parada).
+ * PR28072026 HÍBRIDO (28/07) / ROTA v2 (10/08) — o catálogo comercial dos 4
+ * níveis (CREDITO entrou na v2). Preço, franquia (só vitrine, ver
+ * logistica-nivel-catalog.ts) e assentos editáveis pelo master.
+ * ⛔ A conta de "consumo do mês" morreu na v2: plano com nível virou rota
+ * ILIMITADA — o que resta pra medir é ASSENTO, não parada.
  */
 
 function limparOverlay() {
@@ -92,140 +93,99 @@ test('franquia em paradas é 1:1 — nenhuma parada vendida se perde', () => {
   assert.equal(franquiaEmBlocos(-10), 0);
 });
 
-// ── Conta do mês ────────────────────────────────────────────────────────────
-function makeService(opts: { nivel?: string; blocosEssenciais?: number; entregasRastreadas?: number } = {}) {
-  const queries: any[] = [];
+// ── Status do nível (tela do tenant) ─────────────────────────────────────────
+// ⛔ ROTA v2 (10/08) — franquiaDoMes/franquiaDoMesEmParadas morreram: plano
+// com nível virou rota ILIMITADA, não existe mais consumo de paradas a somar.
+// `statusDoNivel` é a sucessora: nível + assentos, sem contar claim nenhum.
+function makeService(opts: { nivel?: string } = {}) {
   const prisma: any = {
     logisticaConfig: {
-      findUnique: async () => ({ logisticaNivel: opts.nivel ?? 'ADVANCED' }),
-    },
-    logisticaEssentialCreditClaim: {
-      count: async (args: any) => { queries.push({ tabela: 'essential', args }); return opts.blocosEssenciais ?? 0; },
-    },
-    logisticaTrackedCreditClaim: {
-      count: async (args: any) => { queries.push({ tabela: 'tracked', args }); return opts.entregasRastreadas ?? 0; },
+      findUnique: async () => ({ logisticaNivel: opts.nivel ?? 'ADVANCED', logisticaAssentos: null }),
     },
   };
-  return { service: new LogisticaNivelPlanoService(prisma), queries };
+  return { service: new LogisticaNivelPlanoService(prisma) };
 }
 
-// 28/07 (dono) — Simples deixou de contar em bloco de 5: agora 1 claim = 1
-// parada, a MESMA unidade da Rastreada. As duas somam direto, sem fator.
-test('franquia do mês soma os DOIS caminhos na mesma unidade: Simples (×1) + Rastreada (×1)', async () => {
+test('statusDoNivel: nível + assentos inclusos, sem consumo de paradas', async () => {
   limparOverlay();
-  // ADVANCED = 600 paradas. 40 paradas Simples + 50 entregas rastreadas.
-  const { service } = makeService({ blocosEssenciais: 40, entregasRastreadas: 50 });
-  const f = await service.franquiaDoMes(7, '2026-07-13');
-  assert.equal(f.paradasInclusas, 600);
-  assert.equal(f.paradasUsadas, 90, '40 + 50 — sem multiplicar por bloco');
-  assert.equal(f.paradasRestantes, 510);
-  assert.equal(f.blocosRestantes, 510, 'unidade de cobrança = parada, conversão 1:1');
+  const { service } = makeService({ nivel: 'BASIC' });
+  const status = await service.statusDoNivel(7);
+  assert.equal(status.nivel, 'BASIC');
+  assert.equal(status.titulo, 'Rota Basic');
+  assert.equal(status.precoMensal, 99);
+  assert.equal(status.assentosInclusos, 1);
+  assert.equal(status.logisticaAssentos, null, 'sem override — herda do nível');
 });
 
-test('franquia do mês usa o mês da ROTA (fuso da operação), nunca o relógio do container', async () => {
+test('statusDoNivel: override de assentos da empresa aparece explícito', async () => {
   limparOverlay();
-  const { service, queries } = makeService({ blocosEssenciais: 1 });
-  await service.franquiaDoMes(7, '2026-07-13');
-  const essential = queries.find((q) => q.tabela === 'essential');
-  assert.equal(essential.args.where.routeDate.startsWith, '2026-07');
-  const tracked = queries.find((q) => q.tabela === 'tracked');
-  assert.equal(tracked.args.where.route.routeDate.startsWith, '2026-07');
+  const prisma: any = {
+    logisticaConfig: { findUnique: async () => ({ logisticaNivel: 'ADVANCED', logisticaAssentos: 5 }) },
+  };
+  const service = new LogisticaNivelPlanoService(prisma);
+  const status = await service.statusDoNivel(7);
+  assert.equal(status.assentosInclusos, 2, 'default do nível continua exposto');
+  assert.equal(status.logisticaAssentos, 5, 'override da empresa vem junto');
 });
 
-test('franquia estourada nunca fica negativa', async () => {
+test('statusDoNivel: nível sujo/ausente cai em ADVANCED (grandfathering)', async () => {
   limparOverlay();
-  const { service } = makeService({ nivel: 'BASIC', blocosEssenciais: 400 }); // 400 paradas > 300
-  const f = await service.franquiaDoMes(7, '2026-08-02');
-  assert.equal(f.paradasRestantes, 0);
-  assert.equal(f.blocosRestantes, 0);
+  const prisma: any = { logisticaConfig: { findUnique: async () => null } };
+  const service = new LogisticaNivelPlanoService(prisma);
+  const status = await service.statusDoNivel(7);
+  assert.equal(status.nivel, 'ADVANCED');
 });
 
-test('nível sem franquia (editado pra 0) desliga o benefício sem quebrar a conta', async () => {
-  limparOverlay();
-  applyLogisticaNivelOverrides([{ nivel: 'ADVANCED', override: { franquiaParadasMes: 0 } }]);
-  const { service, queries } = makeService({ blocosEssenciais: 10 });
-  const f = await service.franquiaDoMes(7, '2026-07-13');
-  assert.equal(f.paradasInclusas, 0);
-  assert.equal(f.blocosRestantes, 0);
-  assert.equal(queries.length, 0, 'sem franquia nem consulta o banco — caminho de sempre, custo zero');
-  limparOverlay();
-});
-
-test('tela do tenant fala em PARADAS e nunca passa do total do plano', async () => {
-  limparOverlay();
-  const { service } = makeService({ nivel: 'BASIC', blocosEssenciais: 500 });
-  const visao = await service.franquiaDoMesEmParadas(7, '2026-07-13');
-  assert.equal(visao.nivel, 'BASIC');
-  assert.equal(visao.titulo, 'Rota Basic');
-  assert.equal(visao.precoMensal, 99);
-  assert.equal(visao.paradasInclusas, 300);
-  assert.equal(visao.paradasUsadas, 300, 'usou tudo — nunca mostra 500 de 300');
-  assert.equal(visao.paradasRestantes, 0);
-});
-
-// ── Painel do Master: uma linha por empresa (28/07) ──────────────────────────
+// ── Painel do Master: uma linha por empresa (28/07, ROTA v2 10/08) ──────────
 // Pedido do dono: "quero controle sem depender de vc". Responde "quem está no
-// crédito puro × quem está num plano" sem abrir ficha por ficha.
-function makeServicePainel(opts: {
-  configs: Array<{ companyId: number; logisticaNivel: string | null }>;
-  essenciais?: Array<{ companyId: number; _count: { _all: number } }>;
-  rastreadas?: Array<{ companyId: number; _count: { _all: number } }>;
-}) {
+// crédito puro × quem está num plano" — hoje só com nível+assentos, sem franquia.
+function makeServicePainel(configs: Array<{ companyId: number; logisticaNivel: string | null; logisticaAssentos?: number | null }>) {
   let queries = 0;
   const prisma: any = {
-    logisticaConfig: { findMany: async () => { queries += 1; return opts.configs; } },
-    logisticaEssentialCreditClaim: { groupBy: async () => { queries += 1; return opts.essenciais ?? []; } },
-    logisticaTrackedCreditClaim: { groupBy: async () => { queries += 1; return opts.rastreadas ?? []; } },
+    logisticaConfig: { findMany: async () => { queries += 1; return configs; } },
   };
   return { service: new LogisticaNivelPlanoService(prisma), contarQueries: () => queries };
 }
 
-test('painel do master: 3 queries fixas, some quantas empresas forem (sem N+1)', async () => {
+test('painel do master: 1 query fixa, some quantas empresas forem (sem N+1)', async () => {
   limparOverlay();
   const configs = Array.from({ length: 50 }, (_, i) => ({ companyId: i + 1, logisticaNivel: 'ADVANCED' }));
-  const { service, contarQueries } = makeServicePainel({ configs });
-  const linhas = await service.listarEmpresasParaMaster('2026-07-13');
+  const { service, contarQueries } = makeServicePainel(configs);
+  const linhas = await service.listarEmpresasParaMaster();
   assert.equal(linhas.length, 50);
-  assert.equal(contarQueries(), 3, '1 config + 2 groupBy, com 50 empresas ou 5000');
+  assert.equal(contarQueries(), 1, 'sem claim pra somar — 1 leitura de config basta, com 50 empresas ou 5000');
 });
 
-test('painel do master: junta o consumo dos dois caminhos por empresa', async () => {
+test('painel do master: cada linha mostra nível, mensalidade e assentos (override quando houver)', async () => {
   limparOverlay();
-  const { service } = makeServicePainel({
-    configs: [
-      { companyId: 41, logisticaNivel: 'ADVANCED' },
-      { companyId: 48, logisticaNivel: 'BASIC' },
-      { companyId: 5, logisticaNivel: 'FULL' },
-    ],
-    // Desde 28/07 a Simples cobra POR PARADA: 1 claim = 1 parada, igual à Rastreada.
-    essenciais: [{ companyId: 41, _count: { _all: 410 } }, { companyId: 48, _count: { _all: 325 } }],
-    rastreadas: [{ companyId: 5, _count: { _all: 5 } }],
-  });
-  const linhas = await service.listarEmpresasParaMaster('2026-07-13');
+  const { service } = makeServicePainel([
+    { companyId: 41, logisticaNivel: 'ADVANCED' },
+    { companyId: 48, logisticaNivel: 'BASIC', logisticaAssentos: 3 },
+    { companyId: 5, logisticaNivel: 'FULL' },
+    { companyId: 9, logisticaNivel: 'CREDITO' },
+  ]);
+  const linhas = await service.listarEmpresasParaMaster();
   const por = new Map(linhas.map((l) => [l.companyId, l]));
 
-  // 41: 410 paradas de 600 (Advanced R$ 199).
   assert.equal(por.get(41)!.precoMensal, 199);
-  assert.equal(por.get(41)!.paradasUsadas, 410);
-  assert.equal(por.get(41)!.paradasRestantes, 190);
+  assert.equal(por.get(41)!.assentosInclusos, 2);
+  assert.equal(por.get(41)!.logisticaAssentos, null);
 
-  // 48: 325 paradas, mas o Basic só inclui 300 → estourou.
-  assert.equal(por.get(48)!.paradasInclusas, 300);
-  assert.equal(por.get(48)!.paradasUsadas, 300, 'nunca mostra 325 de 300');
-  assert.equal(por.get(48)!.paradasRestantes, 0, 'franquia esgotada = consumindo crédito');
+  assert.equal(por.get(48)!.assentosInclusos, 1, 'default do BASIC continua exposto');
+  assert.equal(por.get(48)!.logisticaAssentos, 3, 'override da empresa aparece separado');
 
-  // 5: rastreada conta 1 parada por entrega — mesma unidade da Simples.
-  assert.equal(por.get(5)!.paradasUsadas, 5);
   assert.equal(por.get(5)!.precoMensal, 299);
+  assert.equal(por.get(5)!.assentosInclusos, 3);
+
+  assert.equal(por.get(9)!.nivel, 'CREDITO');
+  assert.equal(por.get(9)!.precoMensal, 0);
 });
 
-test('painel do master: empresa sem claim nenhum aparece com a franquia inteira', async () => {
+test('painel do master: nível sujo/ausente cai em ADVANCED', async () => {
   limparOverlay();
-  const { service } = makeServicePainel({ configs: [{ companyId: 7, logisticaNivel: null }] });
-  const [linha] = await service.listarEmpresasParaMaster('2026-07-13');
+  const { service } = makeServicePainel([{ companyId: 7, logisticaNivel: null }]);
+  const [linha] = await service.listarEmpresasParaMaster();
   assert.equal(linha.nivel, 'ADVANCED', 'nível sujo/ausente cai em ADVANCED');
-  assert.equal(linha.paradasUsadas, 0);
-  assert.equal(linha.paradasRestantes, 600);
 });
 
 // ── Vitrine pública do site (/rota) ─────────────────────────────────────────

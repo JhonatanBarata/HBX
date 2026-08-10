@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MobilePushService } from '../auth/mobile-push.service';
-import { canonicalRouteDate } from './logistica-route-billing.service';
+import { canonicalRouteDate } from './logistica-route-billing.util';
 import { resolveOperationalCapabilities } from '../team/operational-capabilities';
 import {
   AparelhoCandidato,

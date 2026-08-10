@@ -88,6 +88,7 @@ function montarController(deps: { rota?: any; rotaAviso?: any }) {
     {} as any, // config
     {} as any, // recovery
     operacaoReal, // operacao
+    null as any, // cobranca
     null as any, // tracking
     null as any, // trackingBonus
     null as any, // rotaModelo

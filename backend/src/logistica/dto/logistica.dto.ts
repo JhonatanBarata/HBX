@@ -865,6 +865,20 @@ export class SetLogisticaNivelDto {
   logisticaAssentos?: number;
 }
 
+// ── ROTA v2 F3c (10/08) — PASSE DO DIA ────────────────────────────────────────
+// POST /logistica/rota/passe-do-dia. Compra explícita do assento extra pra UM
+// motorista+dia (qualquer nível com plano — BASIC/ADVANCED/FULL). `date`
+// ausente = hoje (mesma régua de canonicalRouteDate).
+export class PasseDoDiaDto {
+  @IsInt()
+  @Min(1)
+  driverUserId!: number;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'date deve estar em YYYY-MM-DD' })
+  date?: string;
+}
+
 // ── PROSPECTOR: AUTOMAÇÃO COBRADA (PR07082026, decisão nº8 do dono) ──────────
 // PUT /logistica/master/company/:companyId/prospector-automacao. Endereço
 // PRÓPRIO, só Master (MasterGuard) — MESMO motivo do nível acima: o disparo

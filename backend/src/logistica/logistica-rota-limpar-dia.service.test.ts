@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { LogisticaRotaService, resolveDayRange, saoPauloMidnight } from './logistica-rota.service';
-import { canonicalRouteDate } from './logistica-route-billing.service';
+import { canonicalRouteDate } from './logistica-route-billing.util';
 
 /**
  * PR18072026 Onda 1 — testes de `limparDia`. Espelha o harness de

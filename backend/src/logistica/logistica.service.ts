@@ -20,15 +20,11 @@ import { resolvePrincipalContato, resolvePrincipalContatoId } from './logistica-
 import { normalizeBrPhoneE164 } from '../messaging/whatsapp-channel';
 import { LogisticaActor, LogisticaOperacaoService, isLogisticaAdmin } from './logistica-operacao.service';
 import { isBillingOwnerActor } from '../access/actor-kind';
-import { canonicalRouteDate, LogisticaRouteBillingService } from './logistica-route-billing.service';
+import { canonicalRouteDate } from './logistica-route-billing.util';
 import {
   LogisticaTrackingService,
   type OperationalRouteMetadata,
 } from './logistica-tracking.service';
-import {
-  LogisticaTrackedBillingService,
-  type PreparedTrackedDeliveryCharge,
-} from './logistica-tracked-billing.service';
 import {
   enderecoDaFonteMultilocal,
   linhaEnderecoDaFonte,
@@ -96,15 +92,9 @@ export class LogisticaService {
     // Operação por usuário/atribuição + comprovantes. Optional só preserva os
     // testes legados que instanciam o serviço diretamente; rotas HTTP sempre DI.
     @Optional() private readonly operacao?: LogisticaOperacaoService,
-    // Gate comercial dos modos de rota. Optional preserva testes unitários
-    // legados; no módulo HTTP o provider é obrigatório e sempre injetado.
-    @Optional() private readonly routeBilling?: LogisticaRouteBillingService,
     // Metadados operacionais seguros da rota/sessão (sem preço/saldo). Optional
     // apenas para preservar instanciações diretas de testes legados.
     @Optional() private readonly tracking?: LogisticaTrackingService,
-    // Cobrança fail-closed da Rota Rastreada. Optional só mantém os testes
-    // legados com `new LogisticaService(...)`; no módulo HTTP sempre existe.
-    @Optional() private readonly trackedBilling?: LogisticaTrackedBillingService,
     // FISCAL F2a — comprovante SEM VALOR FISCAL pega carona no aviso "entregue"
     // (gate por empresa DENTRO do serviço fiscal). @Optional() (ausente nos
     // testes = texto puro). Sem ciclo: o fiscal não injeta LogisticaService.
@@ -905,12 +895,11 @@ export class LogisticaService {
       };
     }
 
-    // Antes de qualquer transação/efeito, garante que a entrega está coberta
-    // pelo bloco Essencial pago. Fecha o caso de uma 6ª parada sincronizada no
-    // snapshot cujo novo bloco não pôde ser debitado.
-    if (this.routeBilling) {
-      await this.routeBilling.assertEssentialDeliveryCovered(companyId, entrega.id);
-    }
+    // ⛔ ROTA v2 (10/08) — o gate `assertEssentialDeliveryCovered` morreu aqui
+    // junto com a máquina de cobrar por bloco/entrega
+    // (logistica-route-billing.service.ts): entrega não tem mais 402 de
+    // "bloco não pago" — o dinheiro já foi resolvido no Iniciar (dia pago
+    // CREDITO) ou nem existe (plano ilimitado).
 
     const lat = typeof gps.lat === 'number' && Number.isFinite(gps.lat) ? gps.lat : null;
     const lng = typeof gps.lng === 'number' && Number.isFinite(gps.lng) ? gps.lng : null;
@@ -976,17 +965,11 @@ export class LogisticaService {
     const gravarKey = key && !entrega.idempotencyKey ? key : undefined;
     // F1 — valor que a cobrança vai usar (recalculado na tx quando o stepper mudou).
     let valorCobranca = entrega.valor;
-    // Rota Rastreada: reserva e debita antes do efeito. A claim só é concluída
-    // dentro da MESMA transação do status da Entrega; qualquer rollback abaixo
-    // aciona estorno idempotente no catch.
-    let trackedCharge: PreparedTrackedDeliveryCharge | null = null;
-    if (this.trackedBilling && !reabertaParaCorrecao) {
-      trackedCharge = await this.trackedBilling.prepareDeliveryCompletion(
-        companyId,
-        entrega.id,
-        actorIdOrNull(actor),
-      );
-    }
+    // ⛔ ROTA v2 (10/08) — a reserva/débito por ENTREGA da Rota Rastreada
+    // morreu aqui (logistica-tracked-billing.service.ts, MORTO nesta onda):
+    // TRACKED hoje só decide GPS/rastreio, nunca dinheiro por entrega. O que
+    // sobra da eligibilidade de rastreio (sessão ACTIVE, GPS válido) é
+    // assunto do próprio LogisticaTrackingService, não desta confirmação.
     // F0 (27/07) — avanço do cursor acontece NA tx; o evento de extrato só grava
     // DEPOIS do commit (ver contrato em logistica-agenda-evento.util.ts).
     let avancoAgenda: { origemKey: string; proximaKey: string | null } | null = null;
@@ -996,9 +979,6 @@ export class LogisticaService {
           ? await this.operacao.validarParaConfirmacao(tx, companyId, entrega, gps, actor)
           : { ids: [] as string[], exigiuComprovante: false };
         const confirmadoAt = new Date();
-        if (trackedCharge && this.trackedBilling) {
-          await this.trackedBilling.completeWithinTransaction(tx, trackedCharge, confirmadoAt);
-        }
         // CARIMBO DE CHEGADA (06/08) — a 1ª gravação VENCE. Reconfirmar (correção
         // de itens, replay da fila offline) não reescreve a chegada: a visita
         // aconteceu uma vez só, por mais vezes que o desfecho seja reenviado.
@@ -1131,13 +1111,6 @@ export class LogisticaService {
         }
       });
     } catch (e: any) {
-      if (trackedCharge && this.trackedBilling) {
-        await this.trackedBilling.refundFailedCompletion(
-          trackedCharge,
-          e,
-          actorIdOrNull(actor),
-        );
-      }
       // Corrida de reentregas com a MESMA key: a unique barrou. Não re-executa efeito —
       // relê o desfecho já persistido e devolve como replay (idempotência dura do M8).
       if (isUniqueViolation(e)) {

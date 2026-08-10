@@ -22,10 +22,7 @@ import {
   type OfflineRouteGrantPayload,
   verifyOfflineRouteGrant,
 } from './logistica-offline-grant';
-import { LogisticaOfflineReservationReconcilerService } from './logistica-offline-reservation-reconciler.service';
-import { OfflineAwareLogisticaTrackedBillingService } from './logistica-offline-tracked-billing.service';
 import { LogisticaOperacaoService, type LogisticaActor } from './logistica-operacao.service';
-import { LogisticaRouteBillingService } from './logistica-route-billing.service';
 import { LogisticaService } from './logistica.service';
 
 const SYNC_GRACE_SECONDS = 7 * 24 * 60 * 60;
@@ -50,9 +47,6 @@ export class LogisticaOfflineService {
     private readonly mobileDevices: MobileDevicePresenceService,
     private readonly logistica: LogisticaService,
     private readonly operacao: LogisticaOperacaoService,
-    private readonly routeBilling: LogisticaRouteBillingService,
-    private readonly trackedBilling: OfflineAwareLogisticaTrackedBillingService,
-    private readonly reservationReconciler: LogisticaOfflineReservationReconcilerService,
   ) {}
 
   async prepare(dto: PrepareLogisticaOfflineRouteDto) {
@@ -80,23 +74,12 @@ export class LogisticaOfflineService {
       throw new ConflictException('A rota ainda não possui paradas congeladas.');
     }
 
-    let trackedReservation: { reserved: number; alreadyReserved: number; releaseAt: Date } | null = null;
-    if (route.mode === 'ESSENTIAL') {
-      // O início já debitou blocos de 5. Este gate confirma que todos os stops da
-      // cápsula continuam cobertos antes de permitir execução sem rede.
-      for (const stop of route.stops) {
-        await this.routeBilling.assertEssentialDeliveryCovered(device.companyId, String(stop.deliveryId));
-      }
-    } else {
-      trackedReservation = await this.trackedBilling.reserveRouteDeliveries({
-        companyId: device.companyId,
-        routeId: route.id,
-        deviceId: device.id,
-        userId: device.userId,
-        actorUserId: Number(actor.id) || null,
-        routeExpiresAt: expiresAt,
-      });
-    }
+    // ⛔ ROTA v2 (10/08) — os 2 gates de billing por parada/entrega morreram
+    // aqui (logistica-route-billing.service.ts e
+    // logistica-offline-tracked-billing.service.ts, MORTOS nesta onda): o
+    // dinheiro do dia já foi resolvido no Iniciar (dia pago CREDITO ou plano
+    // ilimitado) — a cápsula offline não tem mais nada a reservar/conferir
+    // por parada, só o manifesto (stops já congelados) e a janela de validade.
 
     const grant = createOfflineRouteGrant({
       deviceId: device.id,
@@ -119,14 +102,18 @@ export class LogisticaOfflineService {
       issuedAt: new Date(grant.payload.issuedAt * 1000).toISOString(),
       expiresAt: expiresAt.toISOString(),
       stopCount: route.stops.length,
+      // ROTA v2 (10/08) — vestigial: o dinheiro do dia já foi resolvido no
+      // Iniciar (não existe mais reserva/débito por parada pra "autorizar"
+      // aqui). Shape MANTIDO de propósito (nomes de campo intactos — o APK
+      // lê isto) com os valores que dizem "está tudo liberado, nada a reservar".
       credits: route.mode === 'TRACKED'
         ? {
-            authorized: route.stops.length * 2,
-            newlyReserved: (trackedReservation?.reserved || 0) * 2,
-            alreadyReserved: (trackedReservation?.alreadyReserved || 0) * 2,
-            unusedReleaseAt: trackedReservation?.releaseAt.toISOString() || null,
+            authorized: route.stops.length,
+            newlyReserved: 0,
+            alreadyReserved: route.stops.length,
+            unusedReleaseAt: null,
           }
-        : { authorizedBlocks: Math.ceil(route.stops.length / 5) },
+        : { authorizedBlocks: route.stops.length },
       serverTime: new Date().toISOString(),
     };
   }
@@ -198,22 +185,15 @@ export class LogisticaOfflineService {
       if (command.deliveryId !== grant.routeId || String((command.payload as any)?.routeId || '') !== grant.routeId) {
         throw new ForbiddenException('A finalização não pertence à rota autorizada.');
       }
-      if (grant.routeMode === 'ESSENTIAL') {
-        return { commandId: command.commandId, status: 'ACK', details: { releasedCredits: 0 } };
-      }
-      const released = await this.reservationReconciler.releaseRouteReservations({
-        companyId: context.device.companyId,
-        routeId: grant.routeId,
-        actorUserId: Number(context.actor.id) || null,
-      });
+      // ⛔ ROTA v2 (10/08) — a liberação de reserva por entrega morreu junto
+      // com a máquina TRACKED de billing
+      // (logistica-offline-reservation-reconciler.service.ts, MORTO nesta
+      // onda): não existe mais crédito reservado pra "soltar" ao finalizar.
+      // Shape MANTIDO de propósito (o APK lê `details`), zerado.
       return {
         commandId: command.commandId,
         status: 'ACK',
-        details: {
-          releasedCredits: released.released * 2,
-          consumedCredits: released.consumed * 2,
-          alreadyReleasedCredits: released.alreadyReleased * 2,
-        },
+        details: { releasedCredits: 0, consumedCredits: 0, alreadyReleasedCredits: 0 },
       };
     }
 

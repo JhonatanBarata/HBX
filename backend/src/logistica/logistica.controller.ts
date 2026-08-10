@@ -40,9 +40,10 @@ import { LogisticaRotaAvisoService } from './logistica-rota-aviso.service';
 import { LogisticaRecadoService } from './logistica-recado.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
-import { canonicalRouteDate } from './logistica-route-billing.service';
+import { canonicalRouteDate } from './logistica-route-billing.util';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
+import { LogisticaRotaCobrancaService } from './logistica-rota-cobranca.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
 import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.service';
 import { LogisticaGeoService } from './logistica-geo.service';
@@ -78,6 +79,7 @@ import {
   IniciarPasseioDto,
   IniciarRotaDto,
   LimparDiaDto,
+  PasseDoDiaDto,
   PlanejarRotaDto,
   PulsoRecadosDto,
   EspelhoQuadroDto,
@@ -125,6 +127,7 @@ export class LogisticaController {
     // Default preserva testes legados que instanciam o controller diretamente;
     // no módulo Nest o provider é sempre injetado.
     private readonly operacao: LogisticaOperacaoService = null as any,
+    private readonly cobranca: LogisticaRotaCobrancaService = null as any,
     private readonly tracking: LogisticaTrackingService = null as any,
     private readonly trackingBonus: LogisticaTrackingBonusService = null as any,
     // PR18072026 W1 — CRUD de rota-modelo. Default preserva testes legados que
@@ -917,6 +920,26 @@ export class LogisticaController {
   }
 
   /**
+   * ROTA v2 F3c (10/08) — PASSE DO DIA: compra explícita do assento extra pra
+   * UM motorista+dia, quando o plano (BASIC/ADVANCED/FULL) já estourou o teto
+   * de assentos inclusos (ver `assertAssentoDoDia`,
+   * logistica-rota-cobranca.service.ts). Só billing owner/admin — é dinheiro
+   * saindo da conta, mesma régua de sempre (LEI DO VENDEDOR: quem opera pede
+   * pro dono, nunca compra sozinho). Idempotente por motorista+dia: apertar
+   * 2× não cobra 2×.
+   */
+  @Post('rota/passe-do-dia')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  async passeDoDia(@Req() req: any, @Body() dto: PasseDoDiaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
+    const actorId = this.ensureUserId(req.user);
+    const date = canonicalRouteDate(dto.date);
+    await this.cobranca.garantirPasseDoDia(companyId, dto.driverUserId, date, actorId);
+    return { ok: true };
+  }
+
+  /**
    * Inicia a rota: re-planeja com a origem atual e marca a 1ª parada em rota
    * (status 'em_rota' + startedAt). Devolve a rota ordenada + término previsto.
    */
@@ -1485,23 +1508,22 @@ export class LogisticaController {
   }
 
   /**
-   * PR28072026 HÍBRIDO (28/07) — O PLANO DA EMPRESA: nível, mensalidade e a
-   * franquia de paradas DESTE mês (usadas × inclusas).
+   * PR28072026 HÍBRIDO (28/07) / ROTA v2 (10/08) — O PLANO DA EMPRESA: nível,
+   * mensalidade e os assentos (inclusos do nível + override, se houver).
    *
    * ADMIN-only por causa da LEI DO VENDEDOR: carrega VALOR (a mensalidade).
    * Endpoint próprio em vez de engordar o GET /config, que o app do entregador
-   * chama a cada boot — a franquia custa 2 counts e quem olha isso é o dono no
-   * PC, não o motorista na rua.
+   * chama a cada boot — quem olha isso é o dono no PC, não o motorista na rua.
    *
-   * O mês é o da rota de HOJE no fuso da operação (canonicalRouteDate), nunca o
-   * relógio UTC do container.
+   * ⛔ ROTA v2 (10/08): a franquia de paradas do mês morreu — plano com nível
+   * virou rota ILIMITADA, o limite agora é de ASSENTO.
    */
   @Get('plano')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Admin()
   plano(@Req() req: any) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.nivelPlano.franquiaDoMesEmParadas(companyId, canonicalRouteDate(undefined));
+    return this.nivelPlano.statusDoNivel(companyId);
   }
 
   /**

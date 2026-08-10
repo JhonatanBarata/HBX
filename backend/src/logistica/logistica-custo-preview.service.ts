@@ -3,12 +3,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreditWalletService } from '../credits/credit-wallet.service';
 import { CREDIT_ACTION_KEYS } from '../credits/credit-action-catalog';
 import { CreditActionConfigService } from '../credits/credit-action-config.service';
-import { LogisticaConfigService } from './logistica-config.service';
-import {
-  canonicalRouteDate,
-  essentialBlocksForDeliveries,
-  type LogisticaRouteMode,
-} from './logistica-route-billing.service';
+import { LogisticaConfigService, storedNivel } from './logistica-config.service';
+import { getLogisticaNivelDefinition } from './logistica-nivel-catalog';
+import { canonicalRouteDate } from './logistica-route-billing.util';
+import { diaDeRotaUsageKey, passeDoDiaUsageKey } from './logistica-rota-cobranca.service';
 import { resolveDayRange } from './logistica-rota.service';
 import { diagnosticarMotoristaUnico } from './logistica-motorista-unico.util';
 import { isLogisticaAdmin, type LogisticaActor } from './logistica-operacao.service';
@@ -27,6 +25,11 @@ export interface CustoPreviewInput {
 }
 
 export interface CustoPreviewResult {
+  // ROTA v2 (10/08) — SHAPE MANTIDO de propósito (o front lê estes 5 campos),
+  // significado adaptado ao modelo por NÍVEL: não existe mais bloco de
+  // parada — "1" aqui é "existe 1 cobrança pendente pra este dia/motorista"
+  // (dia CREDITO ou passe de assento), "0" é "nada a pagar" (rota ilimitada,
+  // dia já pago, motorista já ocupante do assento).
   blocosTotais: number;
   blocosJaDebitados: number;
   creditosAIniciar: number;
@@ -35,35 +38,22 @@ export interface CustoPreviewResult {
 }
 
 /**
- * S6 (25/07, PR25072026-ROTA-CONFERIDA) — "preview de créditos": quanto o
- * Iniciar VAI debitar se rodar AGORA, antes do operador apertar o botão.
+ * S6 (25/07) / ROTA v2 (10/08) — "preview de créditos": quanto o Iniciar VAI
+ * debitar se rodar AGORA, antes do operador apertar o botão.
  *
  * 100% LEITURA (Lei nº3 da frente: "conferir nunca debita crédito" — nenhum
- * caminho novo chama `prepareRoute`/`wallet.debit` aqui). A matemática de
- * blocos é a MESMA do billing real: `essentialBlocksForDeliveries`, importada
- * direto de `logistica-route-billing.service.ts` — nunca reimplementada —
- * pra preview e débito nunca divergirem (o próprio nome da fórmula é o
- * contrato).
+ * caminho aqui chama `garantirDiaPago`/`garantirPasseDoDia`/`wallet.debit`).
  *
- * ── POR QUE NÃO CHAMA prepareRoute EM "MODO SÓ LER" ─────────────────────────
- * `prepareRoute()` sempre pode CRIAR a rota (`createIfMissing`) e sempre
- * grava stop novo (`appendStop`) pra descobrir quantos são cobráveis — não
- * existe modo dele que só leia. Espelhar a MESMA decisão aqui com
- * find/count puros (nunca create/update) é o único jeito de cumprir a Lei
- * nº3 e a exigência de "zero mutação" (teste-invariante do S6) ao mesmo
- * tempo.
- *
- * ── COMO A CONTA FECHA COM O DÉBITO REAL ────────────────────────────────────
- * billableDeliveries = (stops JÁ gravados da rota viva de hoje, não-isentos,
- * entrega não cancelada — MESMO filtro de `syncSnapshot` em
- * logistica-route-billing.service.ts ~L331) + (ids pedidos que ainda NÃO são
- * stop de rota nenhuma, entrega não cancelada). Um id já stopado em OUTRA
- * rota nunca soma aqui: se a rota dona está morta (COMPLETED/encerrada
- * operacionalmente/dia anterior), o id migraria de graça (`billingExempt`,
- * decisão do dono 18/07); se está viva, o Iniciar de verdade travaria a
- * operação inteira com 409 (`ENTREGA_EM_OUTRA_ROTA`) antes de cobrar
- * qualquer bloco. Nos dois casos o débito real desse id é ZERO — igual ao
- * preview.
+ * ── O MODELO (10/08, "PICAR A PONTE") ────────────────────────────────────────
+ * Não existe mais bloco por parada. Dois casos, mutuamente exclusivos por
+ * NÍVEL da empresa:
+ *  - CREDITO: 1 débito por EMPRESA+DATA (usageKey `logistica:dia:...`).
+ *    Preview olha se essa usageKey já tem `debit` no ledger — se sim, 0; se
+ *    não E o dia tem paradas, o custo de `logistica_dia_de_rota`.
+ *  - BASIC/ADVANCED/FULL (rota ILIMITADA): só paga se o motorista estourar o
+ *    teto de assentos (nível/override da empresa) e ainda não tiver passe
+ *    pago pra hoje — mesma régua de `assertAssentoDoDia`
+ *    (logistica-rota-cobranca.service.ts), espelhada aqui em modo LEITURA.
  */
 @Injectable()
 export class LogisticaCustoPreviewService {
@@ -88,86 +78,86 @@ export class LogisticaCustoPreviewService {
       ? (entregadorIdAtor as number)
       : await this.resolveSingleDriver(cid, input.date, deliveryIds, actor);
 
-    // Mesma chave/ordenação de ensureRoute em logistica-route-billing.service.ts
-    // (companyId+entregadorId+routeDate, createdAt desc): pode existir mais de
-    // uma linha histórica quando uma saída anterior já COMPLETOU no mesmo dia.
-    const route = (await (this.prisma as any).logisticaRoute.findFirst({
-      where: { companyId: cid, entregadorId, routeDate },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    })) as { id: string; mode: LogisticaRouteMode; status: string; billingRevision: number } | null;
-    // COMPLETED é terminal (mesma regra de ensureRoute): um Iniciar hoje
-    // nasceria numa rota NOVA (routeId novo, zero claims) — trata como "sem
-    // rota viva" pra não emprestar claims de uma linha morta.
-    const rotaViva = !!route && route.status !== 'COMPLETED';
-
     const saldoAtual = await this.wallet.getBalance(cid);
-    const mode: LogisticaRouteMode = rotaViva ? (route as any).mode : await this.config.resolveRouteMode(cid);
-    if (mode !== 'ESSENTIAL') {
-      // Rota Rastreada não cobra por bloco de 5 entregas — esta é a única
-      // regra de crédito-por-bloco que existe hoje (ver S6-CREDITOS-PREVIEW.md).
+
+    const candidatos = deliveryIds.length ? deliveryIds : await this.fetchOpenDeliveryIds(cid, entregadorId, input.date);
+    if (!candidatos.length) {
       return { blocosTotais: 0, blocosJaDebitados: 0, creditosAIniciar: 0, saldoAtual, saldoCobre: true };
     }
 
-    const candidatos = deliveryIds.length ? deliveryIds : await this.fetchOpenDeliveryIds(cid, entregadorId, input.date);
-    const existingBillable = rotaViva
-      ? await (this.prisma as any).logisticaRouteStop.count({
-          where: {
-            companyId: cid,
-            routeId: (route as any).id,
-            billingExempt: false,
-            delivery: { status: { not: 'cancelada' } },
-          },
-        })
-      : 0;
-    const novosBillable = await this.contarNovosBillaveis(cid, candidatos);
-    const blocosTotais = essentialBlocksForDeliveries(existingBillable + novosBillable);
+    const cfg = await this.prisma.logisticaConfig.findUnique({
+      where: { companyId: cid },
+      select: { logisticaNivel: true, logisticaAssentos: true },
+    });
+    const nivel = storedNivel((cfg as any)?.logisticaNivel);
 
-    const blocosJaDebitados = rotaViva
-      ? await (this.prisma as any).logisticaEssentialCreditClaim.count({
-          where: {
-            companyId: cid,
-            routeId: (route as any).id,
-            billingRevision: (route as any).billingRevision,
-            blockIndex: { lte: blocosTotais },
-            status: 'DEBITED',
-          },
-        })
-      : 0;
+    if (nivel === 'CREDITO') {
+      const jaPago = await this.prisma.creditLedgerEntry.findFirst({
+        where: { companyId: cid, usageKey: diaDeRotaUsageKey(cid, routeDate), kind: 'debit' },
+        select: { id: true },
+      });
+      if (jaPago) {
+        return { blocosTotais: 1, blocosJaDebitados: 1, creditosAIniciar: 0, saldoAtual, saldoCobre: true };
+      }
+      const definition = await this.actionConfig.resolveEffective(CREDIT_ACTION_KEYS.LOGISTICA_DIA_DE_ROTA);
+      const custo = definition && definition.mode === 'debit' ? definition.cost : 0;
+      return {
+        blocosTotais: 1,
+        blocosJaDebitados: 0,
+        creditosAIniciar: custo,
+        saldoAtual,
+        saldoCobre: saldoAtual >= custo,
+      };
+    }
 
-    // 💰 27/07 — a MESMA fonte do débito real (resolveEffective, banco a cada
-    // chamada): blocos pendentes × custo do catálogo. mode 'free' = preview 0,
-    // igual ao prepareRoute que pula a cobrança inteira. Sem isso a tela
-    // prometia "1 crédito/bloco" cravado enquanto o dono muda o preço no /master.
-    const blocosPendentes = Math.max(0, blocosTotais - blocosJaDebitados);
-    const definition = await this.actionConfig.resolveEffective(CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK);
-    const custoBloco = definition && definition.mode === 'debit' ? definition.cost : 0;
-    const creditosAIniciar = Math.round(blocosPendentes * custoBloco * 1000) / 1000;
-    const saldoCobre = saldoAtual >= creditosAIniciar;
-    return { blocosTotais, blocosJaDebitados, creditosAIniciar, saldoAtual, saldoCobre };
+    // Rota ILIMITADA (BASIC/ADVANCED/FULL): só o ASSENTO pode custar.
+    const { start, end } = resolveDayRange(input.date);
+    const ocupantes = await this.ocupantesDoDia(cid, start, end);
+    if (ocupantes.includes(entregadorId)) {
+      return { blocosTotais: 0, blocosJaDebitados: 1, creditosAIniciar: 0, saldoAtual, saldoCobre: true };
+    }
+    const override = typeof (cfg as any)?.logisticaAssentos === 'number' ? (cfg as any).logisticaAssentos : null;
+    const assentos = override ?? getLogisticaNivelDefinition(nivel).assentosInclusos;
+    if (ocupantes.length < assentos) {
+      return { blocosTotais: 0, blocosJaDebitados: 0, creditosAIniciar: 0, saldoAtual, saldoCobre: true };
+    }
+    const passeJaPago = await this.prisma.creditLedgerEntry.findFirst({
+      where: { companyId: cid, usageKey: passeDoDiaUsageKey(cid, entregadorId, routeDate), kind: 'debit' },
+      select: { id: true },
+    });
+    if (passeJaPago) {
+      return { blocosTotais: 1, blocosJaDebitados: 1, creditosAIniciar: 0, saldoAtual, saldoCobre: true };
+    }
+    const definition = await this.actionConfig.resolveEffective(CREDIT_ACTION_KEYS.LOGISTICA_PASSE_MOTORISTA_DIA);
+    const custoPasse = definition && definition.mode === 'debit' ? definition.cost : 0;
+    return {
+      blocosTotais: 1,
+      blocosJaDebitados: 0,
+      creditosAIniciar: custoPasse,
+      saldoAtual,
+      saldoCobre: saldoAtual >= custoPasse,
+    };
   }
 
-  /**
-   * ids que JÁ são stop de QUALQUER rota (desta ou de outra) nunca contam
-   * como NOVO billable — ver o comentário de topo do arquivo (migração de
-   * graça ou 409 travando a operação inteira: os dois casos somam zero de
-   * verdade). ids sem stop nenhum nascem billable, exceto se a entrega já
-   * está cancelada (mesmo filtro `delivery.status !== 'cancelada'` do
-   * billing real).
-   */
-  private async contarNovosBillaveis(companyId: number, deliveryIds: string[]): Promise<number> {
-    if (!deliveryIds.length) return 0;
-    const stops = (await (this.prisma as any).logisticaRouteStop.findMany({
-      where: { companyId, deliveryId: { in: deliveryIds } },
-      select: { deliveryId: true },
-    })) as Array<{ deliveryId: string }>;
-    const jaTemStop = new Set(stops.map((s) => String(s.deliveryId)));
-    const semStop = deliveryIds.filter((id) => !jaTemStop.has(id));
-    if (!semStop.length) return 0;
-    const entregas = await this.prisma.entrega.findMany({
-      where: { companyId, id: { in: semStop } },
-      select: { id: true, status: true },
+  /** Motoristas distintos com entrega NÃO-cancelada no dia — espelha `assertAssentoDoDia`. */
+  private async ocupantesDoDia(companyId: number, start: Date, end: Date): Promise<number[]> {
+    const rows = await this.prisma.entrega.findMany({
+      where: {
+        companyId,
+        status: { not: 'cancelada' },
+        entregadorId: { not: null },
+        OR: [{ scheduledAt: { gte: start, lte: end } }, { scheduledAt: null }],
+      },
+      select: { entregadorId: true },
+      distinct: ['entregadorId'],
     });
-    return entregas.filter((e: any) => e.status !== 'cancelada').length;
+    return [
+      ...new Set(
+        (rows as Array<{ entregadorId: number | null }>)
+          .map((r) => Number(r.entregadorId))
+          .filter((id) => Number.isInteger(id) && id > 0),
+      ),
+    ];
   }
 
   /**
@@ -199,7 +189,7 @@ export class LogisticaCustoPreviewService {
    * paralelo nesta mesma frente). Ator ADMIN (whereForActor devolve `{}`, sem
    * entregadorId) só recebe preview quando o dia tem exatamente 1 motorista
    * nas entregas abertas — mesma exigência que o Iniciar de verdade cobra
-   * antes de cobrar qualquer bloco.
+   * antes de cobrar qualquer coisa.
    */
   private async resolveSingleDriver(
     companyId: number,

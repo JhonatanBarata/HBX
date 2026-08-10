@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { EstoqueService } from '../fiscal/estoque.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { addCivilDays } from './logistica-dia.util';
-import { canonicalRouteDate } from './logistica-route-billing.service';
+import { canonicalRouteDate } from './logistica-route-billing.util';
 import type { ConferirRetornoCargaDiaDto, DeclararCargaDiaDto } from './dto/logistica-estoque.dto';
 
 /**

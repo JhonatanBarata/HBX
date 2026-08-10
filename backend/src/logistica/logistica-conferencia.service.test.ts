@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { alvoCuraCnefe, LogisticaConferenciaService } from './logistica-conferencia.service';
 import { limparCacheCep } from './logistica-cep.util';
 import { __setCnefeQueryForTests } from '../nucleo/cnefe-resolver.util';
-import { LogisticaRouteBillingService } from './logistica-route-billing.service';
+import { LogisticaRotaCobrancaService } from './logistica-rota-cobranca.service';
 import { haversineKm, type Coord } from './logistica-rota.service';
 
 /**
@@ -12,7 +12,8 @@ import { haversineKm, type Coord } from './logistica-rota.service';
  * OSRM determinístico, ZERO rede real — a suite não pode nunca tentar
  * `router.project-osrm.org` de verdade) e, principalmente, o TESTE-INVARIANTE da Lei
  * nº3: conferir é DRY-RUN ABSOLUTO — nenhum `update`/`updateMany` em Entrega, nenhuma
- * chamada a `LogisticaRouteBillingService.prepareRoute`.
+ * chamada de cobrança (ROTA v2, 10/08: `LogisticaRotaCobrancaService.garantirDiaPago`
+ * — sucessora de `LogisticaRouteBillingService.prepareRoute`, morta nesta onda).
  *
  * Fixture: 4 "entregas" abertas (estilo empresa 41) — cli-1/cli-2/cli-3 num cluster
  * apertado (~150-300m entre si), cli-4 isolada a dezenas de km (fora do casulo):
@@ -149,17 +150,22 @@ function buildFakeOsrm() {
 
 test('Lei nº3 (invariante) — conferir NUNCA grava rotaOrdem/etaAt nem chama billing (dry-run absoluto)', async () => {
   const service = new LogisticaConferenciaService(buildPrismaMock() as any, configMock, buildFakeOsrm() as any);
-  const spy = mock.method(LogisticaRouteBillingService.prototype, 'prepareRoute', async () => {
-    throw new Error('LEI Nº3 VIOLADA: conferir chamou LogisticaRouteBillingService.prepareRoute');
+  const spyDia = mock.method(LogisticaRotaCobrancaService.prototype, 'garantirDiaPago', async () => {
+    throw new Error('LEI Nº3 VIOLADA: conferir chamou LogisticaRotaCobrancaService.garantirDiaPago');
+  });
+  const spyAssento = mock.method(LogisticaRotaCobrancaService.prototype, 'assertAssentoDoDia', async () => {
+    throw new Error('LEI Nº3 VIOLADA: conferir chamou LogisticaRotaCobrancaService.assertAssentoDoDia');
   });
   try {
     const resultado = await service.conferir(41, { date: '2026-07-25' });
     // Se update/updateMany tivessem sido chamados, a Promise acima já teria rejeitado
     // (guard lança) — chegar aqui já é metade da prova. A outra metade é o spy:
     assert.equal(resultado.total, ROWS.length);
-    assert.equal(spy.mock.callCount(), 0, 'prepareRoute/billing NUNCA deve ser chamado por conferir');
+    assert.equal(spyDia.mock.callCount(), 0, 'garantirDiaPago NUNCA deve ser chamado por conferir');
+    assert.equal(spyAssento.mock.callCount(), 0, 'assertAssentoDoDia NUNCA deve ser chamado por conferir');
   } finally {
-    spy.mock.restore();
+    spyDia.mock.restore();
+    spyAssento.mock.restore();
   }
 });
 

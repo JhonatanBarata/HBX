@@ -2,7 +2,6 @@ import { Body, Controller, Delete, Get, Param, Put, UseGuards } from '@nestjs/co
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
-import { canonicalRouteDate } from './logistica-route-billing.service';
 
 /**
  * PR28072026 HÍBRIDO (28/07) — o master edita a MENSALIDADE e a FRANQUIA de
@@ -29,14 +28,16 @@ export class LogisticaNivelMasterController {
   }
 
   /**
-   * 28/07 — PAINEL DE CONTROLE: uma linha por empresa com plano, mensalidade e
-   * consumo do mês. Responde "quem está no crédito puro × quem está num plano"
-   * sem abrir ficha por ficha. Rota mais específica ANTES de `:nivel` pra
+   * 28/07 — PAINEL DE CONTROLE: uma linha por empresa com nível, mensalidade e
+   * assentos. Responde "quem está no crédito puro × quem está num plano" sem
+   * abrir ficha por ficha. Rota mais específica ANTES de `:nivel` pra
    * "empresas" não ser lido como nome de nível.
+   * ⛔ ROTA v2 (10/08): a coluna de consumo do mês (franquia) morreu — plano
+   * com nível virou rota ILIMITADA, o limite agora é de ASSENTO.
    */
   @Get('empresas')
   empresas() {
-    return { empresas: this.service.listarEmpresasParaMaster(canonicalRouteDate(undefined)) };
+    return { empresas: this.service.listarEmpresasParaMaster() };
   }
 
   /** PATCH parcial: mandar só o preço não apaga a franquia editada antes. */

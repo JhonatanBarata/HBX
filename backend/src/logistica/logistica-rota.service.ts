@@ -1,10 +1,10 @@
 import { BadRequestException, ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  canonicalRouteDate,
-  LogisticaRouteBillingService,
-  type PreparedLogisticaRoute,
-} from './logistica-route-billing.service';
+import { canonicalRouteDate, type LogisticaRouteMode } from './logistica-route-billing.util';
+import { storedNivel } from './logistica-config.service';
+import { isLogisticaTrackingEnabled } from './logistica-tracking.flags';
+import { LogisticaRotaCobrancaService } from './logistica-rota-cobranca.service';
+import { lockLogisticaRouteTransaction } from './logistica-route-lock';
 import { LogisticaTrackingService } from './logistica-tracking.service';
 import {
   resolverCoordenadaMultilocal,
@@ -32,9 +32,6 @@ import {
 import { isAdminTierActor, type ActorKindUserLike } from '../access/actor-kind';
 import { isLogisticaAdmin } from './logistica-operacao.service';
 import { quemMontouODia, rotaDeOutroMotoristaError } from './logistica-quem-montou.util';
-
-const ROUTE_BILLING_CONTEXT = Symbol('routeBillingContext');
-type InternalPlanResult = PlanejarRotaResult & { [ROUTE_BILLING_CONTEXT]?: PreparedLogisticaRoute };
 
 /**
  * LOGÍSTICA-MOBILE M3 (05/07) — MOTOR DE ROTA + ETA (100% local, sem API paga).
@@ -73,12 +70,12 @@ export class LogisticaRotaService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly routeBilling: LogisticaRouteBillingService,
+    private readonly cobranca: LogisticaRotaCobrancaService,
     @Optional() private readonly tracking?: LogisticaTrackingService,
     // S1 (25/07, PR25072026-ROTA-CONFERIDA) — DEGRAU 1 do planejamento por
     // ruas (cache + rate-limit por empresa). @Optional() e por ÚLTIMO no
     // construtor de propósito: instanciações diretas existentes em teste
-    // (`new LogisticaRotaService(prisma, routeBilling)`) continuam válidas
+    // (`new LogisticaRotaService(prisma, cobranca)`) continuam válidas
     // sem o proxy — planRouteByRoads simplesmente pula pro degrau 2 (público
     // direto), mesmo comportamento de antes desta sprint.
     @Optional() private readonly osrm?: LogisticaOsrmService,
@@ -361,9 +358,16 @@ export class LogisticaRotaService {
     input: PlanejarRotaInput = {},
     entregadorId?: number,
     actorUserId?: number | null,
+    // ROTA v2 (10/08) — vestigial: era "cobrar agora ou só prever" da máquina
+    // velha (logistica-route-billing.service.ts, morta nesta onda). O portão
+    // novo (assento + dia pago, abaixo) não distingue mais "prever" de
+    // "cobrar" — dispara sempre que o dia ganha paradas de verdade, porque o
+    // dia PAGO é a régua (`quemMontouODia`, F1b), não a intenção de quem
+    // chamou. Mantido na assinatura só pra não quebrar os chamadores existentes.
     chargeEssential = false,
   ): Promise<PlanejarRotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
+    void chargeEssential;
     const routeDate = canonicalRouteDate(input.date);
     const { start, end, dayISO } = resolveDayRange(input.date);
     const config = await this.loadConfig(companyId);
@@ -400,6 +404,19 @@ export class LogisticaRotaService {
           },
         );
 
+    // ROTA v2 F3a/F3b (10/08) — os 2 portões, ANTES de persistir rotaOrdem
+    // (ordem: leitura barata primeiro, dinheiro por último):
+    //  1) ASSENTO — só quando HÁ um motorista definido (o gate é POR
+    //     motorista); planejamento amplo do admin (sem entregadorId) não gateia
+    //     ninguém aqui — o gate de verdade pega o motorista no Iniciar/atribuir.
+    //  2) DIA PAGO — só nível CREDITO, por EMPRESA+DATA (qualquer motorista);
+    //     idempotente: remontar, trocar de motorista ou reabrir o dia nunca
+    //     cobra 2×.
+    if (plan.paradas.length > 0) {
+      if (entregadorId) await this.cobranca.assertAssentoDoDia(companyId, entregadorId, routeDate);
+      await this.cobranca.garantirDiaPago(companyId, routeDate, actorUserId);
+    }
+
     // O piso da numeração (ver `maiorOrdemFechadaDoDia`): as abertas continuam
     // 0..N-1 entre elas — o que muda é onde essa régua COMEÇA, pra não colidir
     // com quem o dia já fechou. Manhã limpa = piso 0 = nada muda.
@@ -415,52 +432,12 @@ export class LogisticaRotaService {
     }
 
     const semCoordenada = plan.paradas.filter((p) => p.semCoordenada).length;
-
-    // Admin pode continuar usando o planejamento amplo (vários motoristas) sem
-    // gerar agregado/cobrança. Quando há motorista definido, congela snapshot e
-    // cobra somente os blocos novos; retries/recalcular são idempotentes.
-    let prepared: PreparedLogisticaRoute | undefined;
-    if (entregadorId && plan.paradas.length > 0) {
-      prepared = (await this.routeBilling.prepareRoute({
-        companyId,
-        entregadorId,
-        routeDate,
-        deliveryIds: plan.paradas.map((p) => p.id),
-        actorUserId,
-        chargeEssential,
-        createIfMissing: chargeEssential,
-      })) ?? undefined;
-    } else if (plan.paradas.length > 0) {
-      // Planejamento amplo do admin não cria rota comercial, mas precisa
-      // reconciliar blocos novos das rotas que JÁ estão ACTIVE. Agrupa por
-      // motorista para nunca misturar chaves empresa+motorista+data.
-      const driverByDelivery = new Map(rows.map((row) => [row.id, row.entregadorId]));
-      const byDriver = new Map<number, string[]>();
-      for (const stop of plan.paradas) {
-        const driverId = driverByDelivery.get(stop.id);
-        if (!driverId) continue;
-        const ids = byDriver.get(driverId) || [];
-        ids.push(stop.id);
-        byDriver.set(driverId, ids);
-      }
-      for (const [driverId, deliveryIds] of byDriver) {
-        await this.routeBilling.prepareRoute({
-          companyId,
-          entregadorId: driverId,
-          routeDate,
-          deliveryIds,
-          actorUserId,
-          chargeEssential: false,
-          createIfMissing: false,
-        });
-      }
-    }
     this.logger.log(
       `[logistica] rota planejada ${dayISO} company=${companyId}: ${plan.paradas.length} parada(s), ` +
         `${semCoordenada} sem coord, término ~${plan.terminoPrevisto ?? 'n/a'}.`,
     );
 
-    const result: InternalPlanResult = {
+    return {
       date: dayISO,
       total: plan.paradas.length,
       semCoordenada,
@@ -490,10 +467,6 @@ export class LogisticaRotaService {
         legDurationS: p.legDurationS,
       })),
     };
-    if (prepared) {
-      Object.defineProperty(result, ROUTE_BILLING_CONTEXT, { value: prepared, enumerable: false });
-    }
-    return result;
   }
 
   // ── INICIAR ROTA ─────────────────────────────────────────────────────────────
@@ -538,24 +511,20 @@ export class LogisticaRotaService {
       if (montadores.length > 0) throw rotaDeOutroMotoristaError(montadores, isLogisticaAdmin(actor));
       throw new BadRequestException('Não há entregas abertas para iniciar.');
     }
-    const prepared = (plan as InternalPlanResult)[ROUTE_BILLING_CONTEXT];
-    if (!prepared) throw new Error('Contexto comercial da rota não foi criado.');
-    let initialization: { token: string | null; alreadyActive: boolean };
-    try {
-      initialization = await this.routeBilling.beginInitialization(
-        companyId,
-        prepared.routeId,
-        prepared.billingRevision,
-      );
-    } catch (error) {
-      await this.routeBilling.abortPreparedRoute({
-        companyId,
-        routeId: prepared.routeId,
-        actorUserId,
-        error,
-      });
-      throw error;
-    }
+
+    // ROTA v2 F3d (10/08, "PICAR A PONTE") — MÁQUINA NOVA. A dança
+    // PLANNED→INITIALIZING→ACTIVE com lease/CAS só existia pra proteger um
+    // débito por bloco que morreu (logistica-route-billing.service.ts). Hoje:
+    // garante a `LogisticaRoute` (reaproveita a não-COMPLETED de
+    // empresa+motorista+data; sem ela, cria PLANNED) e congela os stops —
+    // depois disso, vai DIRETO a ACTIVE+startedAt. `planejarRota` (chamado
+    // acima) já garantiu o assento e o dia pago; o gate aqui de novo é
+    // barato e idempotente (cobre quem chega direto no Iniciar sem
+    // replanejar por um caminho alternativo).
+    const routeDate = canonicalRouteDate(input.date);
+    await this.cobranca.assertAssentoDoDia(companyId, effectiveDriverId, routeDate);
+    const route = await this.ensureLogisticaRoute(companyId, effectiveDriverId, routeDate);
+    await this.congelarStops(companyId, route.id, routeDate, plan.paradas.map((p) => p.id));
 
     // 1ª parada roteável vira 'em_rota' com startedAt — só se ainda estiver
     // 'agendada' (não rebaixa nada já em rota/entregue).
@@ -577,37 +546,31 @@ export class LogisticaRotaService {
         changedFirst = changed.count === 1;
         if (changedFirst) primeira.status = 'em_rota';
       }
-      if (prepared.mode === 'TRACKED') {
+      // TRACKED precisa da sessão de GPS ANTES de a rota virar ACTIVE — se a
+      // sessão falhar, a rota fica PLANNED (retomar tenta de novo, limpo).
+      if (route.mode === 'TRACKED') {
         if (!this.tracking) throw new Error('Serviço de rastreamento indisponível para a Rota Rastreada.');
-        const session = await this.tracking.ensureSessionForStartedRoute(
-          companyId,
-          prepared.routeId,
-          startedAt,
-        );
+        const session = await this.tracking.ensureSessionForStartedRoute(companyId, route.id, startedAt);
         if (!session) throw new Error('Não foi possível criar a sessão da Rota Rastreada.');
         trackingSessionEnsured = true;
       }
-      if (!initialization.alreadyActive && initialization.token) {
-        await this.routeBilling.activateRoute(companyId, prepared.routeId, initialization.token, startedAt);
+      if (route.status !== 'ACTIVE') {
+        // count 0 = outra requisição concorrente já ativou (retomar/duplo-clique)
+        // — idempotente, segue o fluxo normal sem erro.
+        await this.prisma.logisticaRoute.updateMany({
+          where: { companyId, id: route.id, status: 'PLANNED' },
+          data: { status: 'ACTIVE', startedAt },
+        });
       }
     } catch (error) {
-      if (changedFirst && !initialization.alreadyActive) {
+      if (changedFirst) {
         await this.prisma.entrega.updateMany({
           where: { companyId, id: primeira.id, status: 'em_rota', startedAt },
           data: { status: 'agendada', startedAt: null },
         }).catch(() => undefined);
       }
-      if (!initialization.alreadyActive && initialization.token) {
-        if (trackingSessionEnsured && this.tracking) {
-          await this.tracking.discardUnboundSessionAfterRouteFailure(companyId, prepared.routeId).catch(() => undefined);
-        }
-        await this.routeBilling.failInitialization({
-          companyId,
-          routeId: prepared.routeId,
-          token: initialization.token,
-          actorUserId,
-          error,
-        });
+      if (trackingSessionEnsured && this.tracking) {
+        await this.tracking.discardUnboundSessionAfterRouteFailure(companyId, route.id).catch(() => undefined);
       }
       throw error;
     }
@@ -618,7 +581,7 @@ export class LogisticaRotaService {
     // sairia como encerrada. Best-effort: falha aqui não desfaz a rota já ativa.
     await this.prisma.logisticaRoute
       .updateMany({
-        where: { companyId, id: prepared.routeId, operationalEndedAt: { not: null } },
+        where: { companyId, id: route.id, operationalEndedAt: { not: null } },
         data: { operationalEndedAt: null },
       })
       .catch(() => undefined);
@@ -631,33 +594,157 @@ export class LogisticaRotaService {
     const prospectorPayload = await this.embarcarProspectosBestEffort(
       companyId,
       plan,
-      canonicalRouteDate(input.date),
+      routeDate,
       actor,
     );
     const operational = this.tracking
       ? await this.tracking.getOperationalRouteMetadata(
           companyId,
           effectiveDriverId,
-          canonicalRouteDate(input.date),
+          routeDate,
           includeCommercialMode,
         )
       : {
-          routeId: prepared.routeId,
-          trackingRequired: prepared.mode === 'TRACKED',
+          routeId: route.id,
+          trackingRequired: route.mode === 'TRACKED',
           routeStatus: 'ACTIVE',
           trackingSessionId: null,
           trackingStatus: null,
-          ...(includeCommercialMode ? { routeMode: prepared.mode } : {}),
+          ...(includeCommercialMode ? { routeMode: route.mode } : {}),
         };
     const { routeMode, ...operationalOnly } = operational;
     return {
       ...plan,
       ...operationalOnly,
-      ...(includeCommercialMode ? { routeMode: routeMode ?? prepared.mode } : {}),
+      ...(includeCommercialMode ? { routeMode: routeMode ?? route.mode } : {}),
       // ADITIVO: a chave só existe quando o prospector rodou de verdade (4
       // chaves abertas). Gate fechado ou falha = payload byte a byte o de hoje.
       ...(prospectorPayload ? { prospector: prospectorPayload } : {}),
     };
+  }
+
+  /**
+   * ROTA v2 F3d — garante a `LogisticaRoute` do dia: reaproveita a mais
+   * recente que ainda não é terminal/morta (PLANNED ou ACTIVE); sem ela,
+   * cria PLANNED. Estados antigos da máquina morta (REFUNDING/FAILED/
+   * INITIALIZING) NUNCA são reaproveitados — ficam quietos (o expurgo já
+   * limpa rota morta vazia); uma linha nova nasce do lado deles. `mode`
+   * (ESSENTIAL|TRACKED) só é decidido na CRIAÇÃO e congela ali — mudar a
+   * config depois não move rota em andamento, mesma lei de sempre.
+   */
+  private async ensureLogisticaRoute(
+    companyId: number,
+    entregadorId: number,
+    routeDate: string,
+  ): Promise<{ id: string; mode: LogisticaRouteMode; status: string; operationalEndedAt: Date | null }> {
+    return this.prisma.$transaction(async (tx) => {
+      // Mesma chave/lock de sempre (driver+data): evita duas requisições
+      // concorrentes criando duas linhas novas pro mesmo motorista+dia.
+      await lockLogisticaRouteTransaction(tx, companyId, `driver:${entregadorId}:date:${routeDate}`);
+      const existing = await tx.logisticaRoute.findFirst({
+        where: { companyId, entregadorId, routeDate },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      });
+      if (existing && (existing.status === 'PLANNED' || existing.status === 'ACTIVE')) {
+        return existing as any;
+      }
+      const mode = await this.resolveRouteModeForCompany(companyId);
+      return tx.logisticaRoute.create({
+        data: { companyId, entregadorId, routeDate, mode, status: 'PLANNED' },
+      }) as any;
+    });
+  }
+
+  /**
+   * ROTA v2 F3d — o modo (ESSENTIAL|TRACKED) da PRÓXIMA rota a nascer.
+   * Réplica enxuta de `effectiveRouteMode` (logistica-config.service.ts,
+   * privada lá) — os 4 gates de sempre: flag global + toggle do tenant +
+   * nível FULL + preferência salva. Qualquer buraco cai em ESSENTIAL.
+   */
+  private async resolveRouteModeForCompany(companyId: number): Promise<LogisticaRouteMode> {
+    if (!isLogisticaTrackingEnabled()) return 'ESSENTIAL';
+    const cfg = await this.prisma.logisticaConfig
+      .findUnique({
+        where: { companyId },
+        select: { trackingAtivo: true, logisticaNivel: true, modoRotaPadrao: true },
+      })
+      .catch(() => null);
+    if (!cfg?.trackingAtivo) return 'ESSENTIAL';
+    if (storedNivel((cfg as any).logisticaNivel) !== 'FULL') return 'ESSENTIAL';
+    return String((cfg as any).modoRotaPadrao || '').trim().toUpperCase() === 'TRACKED' ? 'TRACKED' : 'ESSENTIAL';
+  }
+
+  /**
+   * ROTA v2 F3d — congela as paradas (`LogisticaRouteStop`), append-only e
+   * SEM lease (a dança de retry existia pra proteger claim de cobrança que
+   * morreu — o advisory lock sozinho já serializa quem escreve nesta rota).
+   * Pula `deliveryId` já congelado NESTA rota; migra de graça um stop preso
+   * numa rota MORTA (COMPLETED, encerrada operacionalmente, ou de um dia
+   * anterior — mesma lei de sempre: pendência de ontem entra de graça hoje);
+   * rota estrangeira ainda VIVA no mesmo dia continua 409 humano — a régua
+   * financeira sumiu, mas "duas rotas puxando a mesma entrega" continua bug
+   * operacional de verdade.
+   */
+  private async congelarStops(
+    companyId: number,
+    routeId: string,
+    routeDate: string,
+    deliveryIds: string[],
+  ): Promise<void> {
+    const ids = [...new Set(deliveryIds.filter(Boolean))];
+    if (!ids.length) return;
+    await this.prisma.$transaction(async (tx) => {
+      await lockLogisticaRouteTransaction(tx, companyId, routeId);
+      const atual = await tx.logisticaRoute.findFirst({ where: { companyId, id: routeId } });
+      if (!atual) throw new BadRequestException('Rota não encontrada.');
+      if (atual.status === 'COMPLETED') throw new ConflictException('Rota concluída não aceita novas entregas.');
+
+      const existentes = (await tx.logisticaRouteStop.findMany({
+        where: { companyId, deliveryId: { in: ids } },
+        select: { deliveryId: true, routeId: true },
+      })) as Array<{ deliveryId: string; routeId: string }>;
+      const donoPorEntrega = new Map(existentes.map((e) => [e.deliveryId, e.routeId]));
+      const estrangeiras = [...new Set([...donoPorEntrega.values()].filter((r) => r !== routeId))];
+
+      if (estrangeiras.length > 0) {
+        const donos = (await tx.logisticaRoute.findMany({
+          where: { companyId, id: { in: estrangeiras } },
+        })) as Array<{ id: string; status: string; operationalEndedAt: Date | null; routeDate: string }>;
+        const donoPorId = new Map(donos.map((d) => [d.id, d]));
+        for (const foreignRouteId of estrangeiras) {
+          const dono = donoPorId.get(foreignRouteId);
+          const migravel =
+            !dono ||
+            dono.status === 'COMPLETED' ||
+            dono.operationalEndedAt != null ||
+            String(dono.routeDate) < String(routeDate);
+          if (!migravel) throw stopDeOutraRotaError();
+        }
+        for (const [deliveryId, foreignRouteId] of donoPorEntrega) {
+          if (foreignRouteId === routeId) continue;
+          const aggregate = await tx.logisticaRouteStop.aggregate({
+            where: { companyId, routeId },
+            _max: { snapshotOrder: true },
+          });
+          const snapshotOrder = Number(aggregate?._max?.snapshotOrder ?? -1) + 1;
+          const moved = await tx.logisticaRouteStop.updateMany({
+            where: { companyId, deliveryId, routeId: foreignRouteId },
+            data: { routeId, snapshotOrder, billingExempt: true },
+          });
+          if (moved.count !== 1) throw stopDeOutraRotaError();
+        }
+      }
+
+      for (const deliveryId of ids) {
+        if (donoPorEntrega.has(deliveryId)) continue; // já era desta rota ou migrou acima
+        const aggregate = await tx.logisticaRouteStop.aggregate({
+          where: { companyId, routeId },
+          _max: { snapshotOrder: true },
+        });
+        const snapshotOrder = Number(aggregate?._max?.snapshotOrder ?? -1) + 1;
+        await tx.logisticaRouteStop.create({ data: { companyId, routeId, deliveryId, snapshotOrder } });
+      }
+    });
   }
 
   // ── ENCERRAR ROTA (PR17072026 Onda 1) ────────────────────────────────────────
@@ -2435,6 +2522,18 @@ function coordFromInput(lat?: number | null, lng?: number | null): Coord | null 
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+// ROTA v2 F3d — 409 humano (mesmo shape/lei da máquina velha): nunca vaza id
+// de entrega pra tela do motorista. O app trata o `code` e orienta ("encerre
+// a rota antiga"); a migração automática em `congelarStops` faz este erro só
+// sobrar pra rota dona ainda VIVA no mesmo dia.
+function stopDeOutraRotaError(): ConflictException {
+  return new ConflictException({
+    statusCode: 409,
+    code: 'ENTREGA_EM_OUTRA_ROTA',
+    message: 'Uma das entregas ainda está em outra rota em andamento. Encerre a rota antiga e monte de novo.',
+  });
 }
 
 // NOTA (BUG 5, 11/07): esta resolveDayRange é DUPLICADA em logistica.service.ts —

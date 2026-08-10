@@ -37,14 +37,12 @@ function makeFakes(opts: { fiscal?: any } = {}) {
     conversations,
     {} as any,
     config,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    opts.fiscal,
+    undefined, // creditActionUsage
+    undefined, // recovery
+    undefined, // cobrancaAviso
+    undefined, // operacao
+    undefined, // tracking
+    opts.fiscal, // fiscalComprovante
   );
   return { service, enviados };
 }

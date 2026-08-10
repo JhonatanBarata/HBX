@@ -47,7 +47,7 @@ import { LogisticaMobileController } from './logistica-mobile.controller';
 import { LogisticaMobileService } from './logistica-mobile.service';
 import { LogisticaPedidoPublicoController } from './logistica-pedido-publico.controller';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
-import { LogisticaRouteBillingService } from './logistica-route-billing.service';
+import { LogisticaRotaCobrancaService } from './logistica-rota-cobranca.service';
 import { LogisticaPasseioService } from './logistica-passeio.service';
 import { ProspectorCorredorService } from './prospector-corredor.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
@@ -55,12 +55,9 @@ import { LogisticaTrackingMobileController } from './logistica-tracking-mobile.c
 import { LogisticaTrackingPublicService } from './logistica-tracking-public.service';
 import { LogisticaTrackingPublicController } from './logistica-tracking-public.controller';
 import { LogisticaTrackingShareController } from './logistica-tracking-share.controller';
-import { LogisticaTrackedBillingService } from './logistica-tracked-billing.service';
 import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.service';
 import { LogisticaOfflineController } from './logistica-offline.controller';
 import { LogisticaOfflineService } from './logistica-offline.service';
-import { OfflineAwareLogisticaTrackedBillingService } from './logistica-offline-tracked-billing.service';
-import { LogisticaOfflineReservationReconcilerService } from './logistica-offline-reservation-reconciler.service';
 import { LogisticaAgendaController } from './logistica-agenda.controller';
 import { LogisticaAgendaService } from './logistica-agenda.service';
 import { LogisticaBaseSaudeController } from './logistica-base-saude.controller';
@@ -144,16 +141,20 @@ import { LogisticaTutorialService } from './logistica-tutorial.service';
  *
  * S3 VALIDADOR-CONFERÊNCIA (25/07, PR25072026-ROTA-CONFERIDA): LogisticaConferenciaService
  * roda o MESMO planRouteByRoads em memória (DRY-RUN ABSOLUTO — Lei nº3: nunca grava
- * rotaOrdem/etaAt, nunca chama LogisticaRouteBillingService) e devolve o semáforo de
- * confiança do pino por parada. Reusa LogisticaConfigService/LogisticaOsrmService já
- * providos aqui; não precisa de novo import de módulo.
+ * rotaOrdem/etaAt, nunca debita crédito) e devolve o semáforo de confiança do pino
+ * por parada. Reusa LogisticaConfigService/LogisticaOsrmService já providos aqui;
+ * não precisa de novo import de módulo.
  *
  * S6 CRÉDITOS-PREVIEW (25/07, PR25072026-ROTA-CONFERIDA): LogisticaCustoPreviewService
- * é 100% LEITURA (Lei nº3: nenhum wallet.debit/prepareRoute) — espelha a MESMA
- * fórmula de blocos do billing real (essentialBlocksForDeliveries, importada de
- * logistica-route-billing.service.ts) pra devolver quanto o Iniciar VAI debitar
- * antes do operador apertar o botão. Reusa CreditWalletService/LogisticaConfigService
- * já providos aqui; não precisa de novo import de módulo.
+ * é 100% LEITURA (Lei nº3: nenhum wallet.debit) — mostra o que o Iniciar VAI debitar
+ * (nível CREDITO) ou o assento que vai gastar (nível com plano) antes do operador
+ * apertar o botão. Reusa CreditWalletService/LogisticaConfigService já providos
+ * aqui; não precisa de novo import de módulo.
+ * ⛔ ROTA v2 (10/08, "PICAR A PONTE"): LogisticaRouteBillingService e a fórmula de
+ * blocos (essentialBlocksForDeliveries) morreram nesta onda — plano com nível
+ * (BASIC/ADVANCED/FULL) virou rota ILIMITADA (limite de ASSENTO, não de bloco) e
+ * CREDITO paga o DIA, não a parada. `LogisticaRotaCobrancaService` é a fonte nova
+ * (garantirDiaPago/assertAssentoDoDia/garantirPasseDoDia).
  *
  * S7 SAÚDE-DA-BASE (25/07, PR25072026-ROTA-CONFERIDA): LogisticaBaseSaudeController/
  * Service expõem `/logistica/base-saude` — a MESMA regra da S3 (`conferirParadas`)
@@ -244,18 +245,12 @@ import { LogisticaTutorialService } from './logistica-tutorial.service';
     ResumoDiarioService,
     LogisticaPedidoPublicoService,
     LogisticaOperacaoService,
-    LogisticaRouteBillingService,
+    LogisticaRotaCobrancaService,
     LogisticaPasseioService,
     ProspectorCorredorService,
     LogisticaTrackingService,
     LogisticaTrackingPublicService,
-    OfflineAwareLogisticaTrackedBillingService,
-    {
-      provide: LogisticaTrackedBillingService,
-      useExisting: OfflineAwareLogisticaTrackedBillingService,
-    },
     LogisticaOfflineService,
-    LogisticaOfflineReservationReconcilerService,
     LogisticaTrackingBonusService,
     LogisticaAgendaService,
     LogisticaBaseSaudeService,
@@ -273,9 +268,8 @@ import { LogisticaTutorialService } from './logistica-tutorial.service';
     LogisticaNivelPlanoService,
     LogisticaOperacaoService,
     LogisticaRecoveryService,
-    LogisticaRouteBillingService,
+    LogisticaRotaCobrancaService,
     LogisticaTrackingService,
-    LogisticaTrackedBillingService,
     LogisticaTrackingBonusService,
     LogisticaAgendaService,
   ],

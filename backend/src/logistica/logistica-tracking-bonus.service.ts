@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, OnModuleDes
 import { randomUUID } from 'node:crypto';
 import { CreditWalletService } from '../credits/credit-wallet.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { saoPauloMonth } from './logistica-tracked-billing.service';
+import { saoPauloMonth } from './logistica-route-billing.util';
 
 const BONUS_PERCENT = 20;
 const BONUS_VALIDITY_MS = 30 * 24 * 60 * 60 * 1000;
