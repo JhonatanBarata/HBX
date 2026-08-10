@@ -1620,7 +1620,8 @@
      está aceso e o "nesse dia" tem a quem se referir. Um dia da semana pode vir
      vazio mesmo tendo gente: a cadência (quinzenal, de N em N) decide se ele
      cai NESTA semana. */
-  const textoVazio = (dia) => (dia ? 'Nenhum cliente nesse dia' : 'Nada a exibir hoje');
+  const textoVazio = (dia) => (dia === -1 ? 'Rota avulsa — adicione as paradas'
+    : dia ? 'Nenhum cliente nesse dia' : 'Nada a exibir hoje');
 
   /* 🔴 O CHIP DE DIA TEM QUE TROCAR A LISTA (dono, 07/08: "alterno entre dias
      e só aparece o mesmo cliente"). Antes o chip só mudava a SELEÇÃO — a lista
@@ -1696,6 +1697,18 @@
        dela (ver `ordemDaRotaMontada`), não quem a escreve. */
     const alvo = montarDia;
     const seq = ++previaSeq;
+    /* ROTA AVULSA (`montarDia === -1`): nenhum dia aceso — a agenda fica FORA
+       da tela de propósito. O que sobra é o que o dedo pôs: as avulsas abertas
+       de hoje e o rascunho. Nada de rede: a prévia do dia não é consultada. */
+    if (alvo === -1) {
+      previaCrua = [];
+      previaDoDedo = false;
+      previaAlvo = -1;
+      somarAvulsas(hojeISO());
+      somarRascunho(hojeISO());
+      publicarPrevia();
+      return;
+    }
     const data = alvo ? dataDoDia(alvo) : hojeISO();
     // A lista velha morre ANTES da rede: um fix que chegasse no meio da busca
     // acharia a prévia do chip anterior na memória e a republicaria na tela.
@@ -2045,7 +2058,8 @@
   const NOME_MAX = 10;         // teto do nome: o botão tem 1/3 da largura da tela
 
   const modeloDoModo = () => (modoSel === 's1' ? ESPACOS[0] : modoSel === 's2' ? ESPACOS[1] : null);
-  const diaDosEspacos = () => montarDia || diaDaSemana();
+  // -1 (rota avulsa) não é um dia: os espaços mostrados seguem os de hoje.
+  const diaDosEspacos = () => (montarDia > 0 ? montarDia : diaDaSemana());
 
   /** a fileira do seletor — e o ponto âmbar de "editado" mora no modo ATIVO */
   function publicarModos() {
@@ -2298,10 +2312,12 @@
          quem escolheu um dia futuro vê "Montar rota", que é o verbo verdadeiro
          (prepara aquele dia, no dia dele) — e o chip morre no fim do montar, o
          que devolve o pé pro Iniciar de hoje sozinho. */
-      pronta: previaAlvo ? 0 : 1,
+      // Rota avulsa (-1) é de HOJE: o pé é "Iniciar" igual — só o conjunto
+      // que sai é menor (o que o dedo pôs). "Montar rota" fica pro dia FUTURO.
+      pronta: previaAlvo > 0 ? 0 : 1,
       // Hoje: quem vem primeiro, que é pra onde ele vai agora. Dia futuro: o
       // DIA, porque é ele que responde "montar o quê?".
-      iniciarSub: previaAlvo
+      iniciarSub: previaAlvo > 0
         ? esc(ROTULO_DIA[previaAlvo] || '')
         : esc((clientes[0] && clientes[0].nome) || ''),
       vazio: textoVazio(alvo),
@@ -2477,7 +2493,34 @@
     });
     if (ids.length < 2) return null;
     const atual = [...ENTREGAS.keys()].map(String);
+
     return ids.concat(atual.filter((id) => ids.indexOf(id) < 0));
+  }
+
+  /* O RECORTE DA ROTA AVULSA: os ids de entrega de quem está NA TELA — e só
+     deles. Mesmo casamento por cliente do `idsNaOrdemDaTela`, com duas
+     diferenças de propósito: só entrega ABERTA entra (cancelada com ordem vive
+     em ENTREGAS pra lista, mas não sai pra rua), e não existe piso de 2 nem
+     rabo com o resto do dia — o resto do dia é exatamente o que a avulsa
+     deixou de fora. */
+  function idsDaPrevia() {
+    if (!ENTREGAS.size || !PREVIA.length) return null;
+    const porCliente = new Map();
+    ENTREGAS.forEach((e, id) => {
+      const st = String((e && e.item && e.item.status) || '');
+      if (st === 'entregue' || st === 'cancelada') return;
+      const cid = String((e && e.item && e.item.cliente && e.item.cliente.id) || '');
+      if (!cid) return;
+      const fila = porCliente.get(cid);
+      if (fila) fila.push(String(id));
+      else porCliente.set(cid, [String(id)]);
+    });
+    const ids = [];
+    PREVIA.forEach((p) => {
+      const fila = porCliente.get(String((p && p.customerProfileId) || ''));
+      if (fila && fila.length) ids.push(fila.shift());
+    });
+    return ids;
   }
 
   /* Crava no servidor a ordem que a gente decidiu. Só é chamada quando
@@ -2604,7 +2647,7 @@
       let diaPreparado = '';
       let rotuloPreparado = '';
       try {
-        if (montarDia && montarDia !== diaDaSemana() && ehAdmin()) {
+        if (montarDia > 0 && montarDia !== diaDaSemana() && ehAdmin()) {
           const alvo = dataDoDia(montarDia);
           const prep = await window.API.post('/logistica/admin-route/prepare', {
             operationalDate: alvo, sourceDates: [alvo], ...origemGps(),
@@ -2616,7 +2659,8 @@
           rotuloPreparado = ROTULO_DIA[montarDia] || '';
         } else {
           // A agenda do dia vira entrega ANTES de ordenar (ver `materializarDia`).
-          await materializarDia();
+          // Nunca no modo avulsa: lá a agenda ficou de fora de propósito.
+          if (montarDia !== -1) await materializarDia();
           plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...origemGps() });
         }
       } catch (e) { devolverEstado(); return avisoErro(e); }
@@ -2638,7 +2682,7 @@
       /* A ESCOLHA DE DIA MORRE AQUI. O dia escolhido já foi montado — no dia
          DELE —, e seleção presa deixaria o próximo montar puxando o dia velho
          calado, com o chip aceso mentindo sobre o que está na lista. */
-      if (montarDia) { montarDia = 0; window.usarDados('montagem', { diaSel: 0 }); }
+      if (montarDia > 0) { montarDia = 0; window.usarDados('montagem', { diaSel: 0 }); }
 
       /* 🔴 ROTA DE OUTRO DIA NÃO É A ROTA DE HOJE, E A TELA TEM QUE DIZER ISSO.
          Antes o dia escolhido era despejado em cima de hoje, então o silêncio
@@ -2715,20 +2759,38 @@
       // O rascunho vira parada ANTES de tudo: é o dedo mandando gravar, e é
       // daqui que sai o conjunto que o planejar vai ordenar e o servidor cobrar.
       const mat = await materializarRascunho();
-      if (estadoRota === 'montar' || !ENTREGAS.size) {
+      /* 🔴 ROTA AVULSA SAI SÓ COM O QUE O DEDO PÔS (dono, 10/08: o chip do dia
+         desligado É a rota avulsa). Sem o recorte, o planejar varria as
+         entregas da agenda — que o cron já criou no servidor — pra dentro da
+         rota que ele acabou de enxugar na tela. `deliveryIds` já existe nas
+         três portas (planejar, custo-preview, iniciar); aqui ele carrega a
+         tela ao pé da letra. */
+      const avulsa = montarDia === -1;
+      const idsAvulsa = avulsa ? idsDaPrevia() : null;
+      if (avulsa && (!idsAvulsa || !idsAvulsa.length)) {
+        return avisoErro(new Error('A rota avulsa está vazia. Adicione uma parada antes de iniciar.'));
+      }
+      const recorte = idsAvulsa && idsAvulsa.length ? { deliveryIds: idsAvulsa } : {};
+      if (estadoRota === 'montar' || !ENTREGAS.size || avulsa) {
         try {
           // O MESMO remédio do montar: sem materializar, um dia cancelado em
           // massa batia aqui e morria no "Nenhuma entrega aberta neste dia".
-          await materializarDia();
-          await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...origemGps() });
+          // Na avulsa NÃO: materializar o dia traria a agenda de volta pra
+          // tela que o dono acabou de esvaziar de propósito.
+          if (!avulsa) await materializarDia();
+          await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...recorte, ...origemGps() });
         } catch (e) { return avisoErro(e); }
         if (!(await carregarRota())) return avisoErro(new Error('Não consegui montar agora. Tente de novo.'));
         if (ordemDeGente()) await cravarOrdemDaTela();
       }
       let custo = null;
       // a data vai JUNTO — sem ela o servidor cobra pelo dia UTC dele (ver a
-      // nota no `carregarRota`): das 21h em diante o portão nem abria.
-      try { custo = await window.API.get(`/logistica/rota/custo-preview?date=${encodeURIComponent(hojeISO())}`); } catch (e) { return avisoErro(e); }
+      // nota no `carregarRota`): das 21h em diante o portão nem abria. E na
+      // avulsa o recorte viaja aqui também: o preço tem que ser DESSA rota.
+      try {
+        const qIds = idsAvulsa && idsAvulsa.length ? `&deliveryIds=${encodeURIComponent(idsAvulsa.join(','))}` : '';
+        custo = await window.API.get(`/logistica/rota/custo-preview?date=${encodeURIComponent(hojeISO())}${qIds}`);
+      } catch (e) { return avisoErro(e); }
       // 🔴 NOME DE CAMPO DE DINHEIRO NÃO SE CHUTA. A 1ª versão adivinhou
       // (`custo`/`total`/`creditos`) e a tela mostrou "Debita 0" com o servidor
       // dizendo 4,8 — mentira com cara de app pronto. Estes são os nomes
@@ -2774,7 +2836,7 @@
                dele — que foi o defeito que este trecho já teve. */
         const minha = ordemDeGente() ? idsNaOrdemDaTela() : null;
         aplicarProspector(await window.API.post('/logistica/rota/iniciar', {
-          date: hojeISO(), ...(minha ? { ordemManual: minha } : {}), ...origemGps(),
+          date: hojeISO(), ...recorte, ...(minha ? { ordemManual: minha } : {}), ...origemGps(),
         }));
       } catch (e) {
         // 🔴 NUNCA MORRER CALADO (dono, §1.3): primeiro a verdade do
@@ -2790,6 +2852,9 @@
         return avisoErro(e);
       }
       await carregarRota();
+      // A escolha "sem dia" morreu no Iniciar: a rota avulsa virou A rota em
+      // andamento, e a Montagem seguinte volta a abrir no dia de sempre.
+      if (avulsa) { montarDia = 0; window.usarDados('montagem', { diaSel: 0 }); }
       /* 🔴 INICIAR É UM GESTO SÓ (dono, 10/08: "clico em iniciar, o botão muda
          para navegar NÃO QUERO — é iniciar de uma vez só, ou navegar de uma vez
          só"). Antes o toque deixava o motorista na tela Rota com o dock
@@ -10299,9 +10364,13 @@
     }
     if (chave === 'montar-dia') {
       const n = Number(alvo.dataset.dia) || 0;
-      // 2º toque no mesmo chip volta pra Hoje — chip que só liga prende o
-      // motorista num dia (mesma régua do chip de dia dos Clientes).
-      montarDia = montarDia === n ? 0 : n;
+      /* 🔴 CHIP DE DIA É LIGA/DESLIGA (dono, 10/08: "eu aperto SEG, para
+         remover segunda, ela não some — se ela saísse apareceria essa rota
+         avulsa"). O 2º toque no chip aceso APAGA o dia da tela: sem dia nenhum
+         (`montarDia = -1`) a Montagem é a ROTA AVULSA — a lista fica só com o
+         que o dedo pôs (rascunho e avulsas de hoje) e o Iniciar sai só com
+         elas, sem varrer a agenda junto. Tocar qualquer chip devolve o dia. */
+      montarDia = montarDia === n ? -1 : n;
       // o chip acende JÁ (resposta ao dedo); a lista do dia chega em seguida
       window.usarDados('montagem', { diaSel: montarDia });
       // Os 2 espaços são DO DIA: trocar de chip troca a fileira inteira, senão

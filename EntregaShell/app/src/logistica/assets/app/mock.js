@@ -1312,7 +1312,7 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
        Aqui o encaixe é o que interessa: "No caminho" põe a parada onde ela
        custa menos, em vez de jogar pro fim do dia. -->
   <div class="bar"><span class="t">${ic('list',17)} Sua rota de hoje</span>
-    <button class="ghost" data-ir="rapida" aria-label="Rota avulsa">${ic('plus',15)} Rota avulsa</button>
+    <button class="ghost" data-ir="rapida" aria-label="Adicionar parada">${ic('plus',15)} Adicionar parada</button>
     <button class="ghost" data-ir="rota">${ic('map',15)} Ver mapa</button></div>
   ${emCurso?`<div class="dia-bar"><small>${DADOS.rota.diaFeitas} de ${DADOS.rota.diaTotal}</small><span class="trilho"><i style="width:${DADOS.rota.diaPct}"></i></span><b>${DADOS.rota.diaMarcado}</b><small>marcado</small></div>`:''}
   ${emCurso?`<div class="filtro">
@@ -1954,8 +1954,8 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
      Montar/Iniciar continuam fora nesse caso — montar um dia sem ninguém é o
      botão que promete o que não vai acontecer. */
   const maisParada=(largo)=>`<button class="act${largo?' go wide':''}"
-    style="${largo?'':'flex:0 0 46px;'}justify-content:center" data-ir="rapida" aria-label="Rota avulsa">
-    ${ic('plus',19)}${largo?'<b>Rota avulsa</b>':''}</button>`;
+    style="${largo?'':'flex:0 0 46px;'}justify-content:center" data-ir="rapida" aria-label="Adicionar parada">
+    ${ic('plus',19)}${largo?'<b>Adicionar parada</b>':''}</button>`;
   const pe=!d.linhas.length?`<div class="acts pe-montagem" style="margin-top:0">${maisParada(1)}</div>`
     :`<div class="acts pe-montagem" style="margin-top:0">
     ${maisParada(0)}
@@ -2563,7 +2563,12 @@ T.historico={nome:'Ajustes · Histórico',grupo:'Ajustes',render(){
    o que ela é, dizer onde ela entra — e cada degrau só nasce quando o de cima
    respondeu. Formulário que abre as seis perguntas de uma vez é formulário que
    ninguém termina em pé na porta de um cliente, com o carro ligado. */
-T.rapida={nome:'Rota avulsa',grupo:'Rota',render(){
+/* 🔴 O NOME DIZ O VERBO (dono, 10/08: "o + não é um botão de rota avulsa, ele
+   adiciona clientes na minha rota atual!"). A tela herdou "Rota avulsa" da
+   "Rota rápida" do app antigo e o título mentia a função. ROTA avulsa é o
+   ESTADO da Montagem sem dia aceso (chip desligado); esta tela é só a porta de
+   pôr gente/endereço na rota da vez — em qualquer modo. */
+T.rapida={nome:'Adicionar parada',grupo:'Rota',render(){
   const d=DADOS.rapida;
   const a=d.achado;
   const procurando=!!d.buscando, salvando=!!d.salvando, ocupado=procurando||salvando;
@@ -2792,7 +2797,7 @@ ${hdr({})}
   ${p('longe','Longe do ponto de partida','8,7 km da primeira parada','alerta')}
   ${p('creditos','Créditos acabaram','sem crédito a rota não inicia','trava')}
   <div class="grupo">No meio do dia</div>
-  ${p('fora','Entrega fora da rota de hoje','vira rota avulsa','alerta')}
+  ${p('fora','Entrega fora da rota de hoje','vira parada avulsa','alerta')}
   ${p('ddd','Telefone sem DDD','sem DDD o WhatsApp não abre','alerta')}
   ${p('preco','Preço bloqueado','quem muda preço é o escritório','alerta')}
   <div class="grupo">Aplicativo</div>
@@ -3897,7 +3902,7 @@ const PORTOES={
     acoes:[['Cancelar',''],['Iniciar mesmo assim','principal']]},
 
   fora:{tom:'alerta',ico:'gps',titulo:'Entrega fora da rota de hoje',
-    sub:'Mercado São Judas não está no dia. Ela entra como rota avulsa e conta no fechamento.',
+    sub:'Mercado São Judas não está no dia. Ela entra como parada avulsa e conta no fechamento.',
     acoes:[['Cancelar',''],['Entregar assim','principal']]},
 
   // Portão só informativo: o único botão É a saída, mesmo com cara de ação.
@@ -4456,7 +4461,7 @@ const CAPITULOS={
   ]},
   /* Os do AVANÇADO que REAPROVEITAM a aula da tela — `aula` em vez de `passos`.
      Copy nova não se inventa: a que está lá já foi lida e aprovada. */
-  avulsa:{titulo:'Rota avulsa — o "+"',ico:'plus',aula:'rapida',tela:'rapida'},
+  avulsa:{titulo:'Adicionar parada — o "+"',ico:'plus',aula:'rapida',tela:'rapida'},
   entregar:{titulo:'Entregar e receber',ico:'check',aula:'folha',tela:'folha'},
   fechamento:{titulo:'Fechamento do dia',ico:'note',aula:'fechamento',tela:'fechamento',
     se:d=>!!d.financeiro},

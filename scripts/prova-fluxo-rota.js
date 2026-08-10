@@ -228,7 +228,10 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
       }
       if (caminho.indexOf('/logistica/rota/planejar') === 0 && metodo === 'POST') {
         const manual = corpo && Array.isArray(corpo.ordemManual) ? corpo.ordemManual.map(String) : null;
-        const fila = abertas();
+        // O RECORTE da rota avulsa: com `deliveryIds`, só eles são ordenados —
+        // o resto do dia fica como está (é o contrato real do planejar).
+        const soIds = corpo && Array.isArray(corpo.deliveryIds) ? corpo.deliveryIds.map(String) : null;
+        const fila = abertas().filter((e) => !soIds || soIds.indexOf(String(e.id)) >= 0);
         const ordem = manual
           ? manual.filter((id) => fila.some((e) => e.id === id))
             .concat(fila.map((e) => e.id).filter((id) => manual.indexOf(id) < 0))
@@ -243,7 +246,9 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
       if (caminho.indexOf('/logistica/rota/checar-enderecos') === 0) return R({ problemas: [] });
       if (caminho.indexOf('/logistica/rota/iniciar') === 0 && metodo === 'POST') {
         if (!abertas().length) return Promise.reject(new Error('Não há entregas abertas para iniciar.'));
-        abertas().forEach((e, i) => { e.rotaOrdem = i; });
+        const soIniciar = corpo && Array.isArray(corpo.deliveryIds) ? corpo.deliveryIds.map(String) : null;
+        abertas().filter((e) => !soIniciar || soIniciar.indexOf(String(e.id)) >= 0)
+          .forEach((e, i) => { e.rotaOrdem = i; });
         S.routeStatus = 'ACTIVE';
         S.custo = Object.assign({}, S.custo, { blocosJaDebitados: S.custo.blocosTotais, creditosAIniciar: 0 });
         return R({ ok: true });
@@ -981,6 +986,73 @@ const SO_MEDIR = process.argv.includes('--antes');
     !/Não deu certo|Nenhuma entrega aberta/i.test(tG1.portao), tG1.portao);
   eh('G5 · a rota do dia renascido ficou ACTIVE e caiu na navegação',
     tG1.routeStatus === 'ACTIVE' && tG1.tela === 'mapa', `status=${tG1.routeStatus} tela=${tG1.tela}`);
+
+  /* ===================================================================
+     CENA I — A ROTA AVULSA MORA NO CHIP DESLIGADO (dono, 10/08: "eu aperto
+     SEG, para remover segunda, ela não some — se ela saísse apareceria essa
+     rota avulsa").
+
+     O dia JÁ EXISTE no servidor (o cron materializou a agenda, sem ordem).
+     Toque no chip aceso → a agenda SOME da tela e a Montagem vira a rota
+     avulsa: lista só com o que o dedo puser, e o Iniciar sai SÓ com ela —
+     `deliveryIds` recorta planejar/custo/iniciar, e o materialize NÃO roda
+     (rodar traria a agenda de volta pra tela que ele acabou de esvaziar).
+     =================================================================== */
+  await cena({
+    entregas: [
+      { id: 'ag1', status: 'agendada', rotaOrdem: null, origem: 'recorrente', cliente: CLI_C1 },
+      { id: 'ag2', status: 'agendada', rotaOrdem: null, origem: 'recorrente', cliente: CLI_C5 },
+    ],
+    agendaHoje: AGENDA_HOJE, mesmaBase: true,
+  });
+  await irPara('montagem', 2200);
+  const tI0 = await espiar();
+  nota(`[I] montagem com agenda: stops=${tI0.nStops} · chips=${tI0.chips.map((c) => c[0] + (c[1] ? '*' : '')).join(' ')}`);
+  await zerar();
+  await p.evaluate(() => {
+    const x = [...document.querySelectorAll('[data-acao="montar-dia"]')].find((e) => Number(e.dataset.dia) === 0);
+    if (!x) throw new Error('sem chip do dia de hoje');
+    x.click();
+  });
+  await p.waitForTimeout(900);
+  const tI1 = await espiar();
+  nota(`[I] chip desligado: stops=${tI1.nStops} · vazio="${tI1.vazio}" · POSTs=${(await posts()).join(',') || '(nenhum)'}`);
+  eh('I1 · tocar o chip aceso APAGA a agenda da tela', tI1.nStops === 0, `stops=${tI1.nStops}`);
+  eh('I2 · a tela se apresenta como Rota avulsa', /Rota avulsa/i.test(tI1.vazio), tI1.vazio);
+  eh('I3 · desligar o chip nao grava nada', (await posts()).length === 0, (await posts()).join(','));
+  // o construtor: um cliente que NÃO está na agenda de hoje (Alfredo)
+  await irPara('rapida', 900);
+  await p.waitForSelector('[data-acao="rapida-marcar"]', { timeout: 8000 });
+  await p.evaluate(() => {
+    const alvo = [...document.querySelectorAll('[data-acao="rapida-marcar"]')]
+      .find((e) => /Alfredo/.test(e.textContent));
+    if (!alvo) throw new Error('sem Alfredo na lista');
+    alvo.click();
+  });
+  await p.waitForTimeout(200);
+  await p.evaluate(() => document.querySelector('[data-acao="rapida-adicionar-escolhidos"]').click());
+  await p.waitForTimeout(1800);
+  await p.evaluate(() => { const x = document.querySelector('.portao-wrap .principal'); if (x) x.click(); });
+  await p.waitForTimeout(600);
+  const tI2 = await espiar();
+  nota(`[I] avulsa com 1 escolhido: stops=${tI2.nStops} · pe="${tI2.pe}" · linhas: ${tI2.linhas.join(' | ')}`);
+  eh('I4 · so o escolhido esta na lista (a agenda continua fora)', tI2.nStops === 1 && /Alfredo/.test(tI2.linhas[0] || ''), tI2.linhas.join('|'));
+  await zerar();
+  await p.waitForSelector('.pe-montagem [data-acao="iniciar-rota"]', { timeout: 8000 });
+  await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="iniciar-rota"]').click());
+  await p.waitForTimeout(2400);
+  const tI3 = await espiar();
+  const postsI = await posts();
+  const corpoIniciar = (await postsDe('/logistica/rota/iniciar'))[0] || {};
+  const idsIniciar = Array.isArray(corpoIniciar.deliveryIds) ? corpoIniciar.deliveryIds : [];
+  const agendaIntocada = await p.evaluate(() => window.__S.entregas
+    .filter((e) => e.id.indexOf('ag') === 0).every((e) => e.rotaOrdem === null || e.rotaOrdem === undefined));
+  nota(`[I] iniciar avulsa: deliveryIds=${JSON.stringify(idsIniciar)} · POSTs=${postsI.join(',')}`);
+  nota(`    tela=${tI3.tela} · routeStatus=${tI3.routeStatus} · agenda intocada=${agendaIntocada}`);
+  eh('I5 · o Iniciar leva o RECORTE: deliveryIds so da avulsa', idsIniciar.length === 1 && !idsIniciar.some((id) => String(id).indexOf('ag') === 0), JSON.stringify(idsIniciar));
+  eh('I6 · avulsa NAO materializa a agenda', postsI.indexOf('/logistica/mobile/materialize') < 0, postsI.join(','));
+  eh('I7 · a agenda do dia fica como estava (sem ordem carimbada)', agendaIntocada);
+  eh('I8 · a avulsa inicia e cai na navegacao', tI3.routeStatus === 'ACTIVE' && tI3.tela === 'mapa', `tela=${tI3.tela} status=${tI3.routeStatus}`);
 
   await b.close();
   console.log('\n=== MEDIDAS ===');
