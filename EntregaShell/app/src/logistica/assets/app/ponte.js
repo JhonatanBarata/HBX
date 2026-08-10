@@ -1026,7 +1026,17 @@
   window.HBXSaida = function () {
     try {
       if (typeof window.ir !== 'function') return 0;
-      window.ir('saida');
+      /* 🔴 O REVERSO COMEÇA PELO MAPA (ordem do dono, 09/08). A entrada TERMINA
+         no mapa desenhado; então a saída começa desfazendo ele — as ruas
+         recolhem, os nomes se apagam letra a letra — e só depois o HBX desce do
+         cabeçalho. Sem mapa na tela (o motorista fechou o app no Chat ou nos
+         Ajustes) a conta dá zero e a marca desce na hora: a saída nunca espera
+         por uma cena que não tem palco. */
+      const mapaEm = cenaAoContrario();
+      // os 200 ms de sobreposição são de propósito: a marca começa a descer
+      // enquanto as últimas ruas ainda recolhem, senão a saída tem um vão morto.
+      if (mapaEm) setTimeout(() => { try { window.ir('saida'); } catch (_) { /* fechando */ } }, Math.max(0, mapaEm - 200));
+      else window.ir('saida');
       return 1;
     } catch (_) { return 0; }
   };
@@ -4222,6 +4232,240 @@
     fantasma.style.cssText = 'position:absolute;left:0;top:0;width:' + L + 'px;height:' + A + 'px';
     BOX.appendChild(fantasma);
     montarMapa(fantasma);
+  }
+
+
+  /* ==========================================================================
+     A CENA AO CONTRÁRIO — o mapa desfaz o que desenhou.
+
+     Ordem do dono (09/08): *"o efeito reverso tem q começar pelo mapa"*. A saída
+     é a entrada de trás pra frente, e a entrada TERMINA no mapa: então a saída
+     COMEÇA nele. As ruas recolhem pela ponta por onde cresceram, os nomes se
+     apagam letra a letra, e só quando a cidade sumiu é que o HBX desce do
+     cabeçalho pra se desmontar (§ `T.saida`, no mock).
+
+     🔴 É A MESMA CENA, COM O SINAL TROCADO. Mesma geometria (`ruasDaCena`),
+     mesmas ondas (`ondasDasRuas`), mesmos nomes (`nomesDaCena`), mesma régua de
+     66 ms por letra. O que muda são três coisas: o gradiente anda de 1 pra 0, a
+     fila das ondas é a INVERSA (a última que fechou é a primeira que abre) e a
+     letra é retirada em vez de posta. Cena de saída com desenho próprio seria
+     uma segunda cidade — e duas cidades discordam.
+
+     🔴 A TROCA DE TINTA TAMBÉM É O INVERSO DO ASSENTAMENTO. Lá o mundo de
+     verdade SOBE por baixo das ruas da cena; aqui as ruas da cena sobem por cima
+     do mundo e ele DESCE. Nos dois casos é a mesma geometria com a mesma
+     largura, então o que a tela mostra é troca de cor — nunca vão nem dobra.
+     ========================================================================== */
+  const VOLTA_TROCA = 240;      // as ruas da cena entram por cima do mundo
+  const VOLTA_MUNDO = 420;      // e o mundo de verdade desce
+  const VOLTA_ESPERA = 380;     // quando a primeira onda começa a recolher
+  const VOLTA_PASSO = 90;
+  const VOLTA_ONDA = 420;
+  const VOLTA_LETRA_EM = 260;   // as letras somem antes das ruas: inverso exato
+  const VOLTA_TETO = 1200;      // o mapa devolve a tela pro HBX aqui
+
+  let volta = null;
+
+  /** o mapa desfaz o desenho; devolve quanto tempo isso vai levar */
+  function cenaAoContrario() {
+    const casa = GARAGEM.get('geral');
+    if (!casa || !casa.mapa || !mapaNaTela(casa) || semMovimento()) return 0;
+    /* Uma cena por vez, sempre: se a de entrada ainda estiver no ar quando o
+       motorista mandar fechar, ela sai SECA e a de volta assume. */
+    if (cena) encerrarCena('saida', true);
+    if (volta) return VOLTA_TETO;
+    const mapa = casa.mapa;
+    const ruas = ruasDaCena(mapa);
+    if (!ruas.length) return 0;
+    ondasDasRuas(casa, ruas);
+    const nomes = nomesDaCena(ruas);
+    const corpo = tinta('--map-cena-rua', '#59677a');
+    const cabeca = tinta('--map-cabeca', '#e8f4ff');
+    const tintaNome = tinta('--map-cena-nome', '#8d9bad');
+    let halo = tinta('--map-fundo', '#1f1f1f');
+    try { const c = mapa.getPaintProperty('earth', 'fill-color'); if (typeof c === 'string') halo = c; } catch (_) { /* estilo sem chão */ }
+
+    const dado = {
+      type: 'FeatureCollection',
+      features: ruas.map((r) => ({
+        type: 'Feature',
+        properties: { w: r.onda, c: r.classe },
+        geometry: { type: 'LineString', coordinates: r.pontos },
+      })),
+    };
+    try {
+      mapa.addSource(CENA_FONTE, { type: 'geojson', lineMetrics: true, data: dado });
+      mapa.addSource(CENA_NOMES, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    } catch (_) { return 0; }
+
+    let antesDe;
+    try { antesDe = mapa.getLayer(`${TRACO}-casca`) ? `${TRACO}-casca` : undefined; } catch (_) { antesDe = undefined; }
+    for (let i = 0; i < CENA_ONDAS; i += 1) {
+      try {
+        mapa.addLayer({
+          id: `${CENA_FONTE}-${i}`,
+          type: 'line',
+          source: CENA_FONTE,
+          filter: ['==', ['get', 'w'], i],
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-width': CENA_LARGURA,
+            // ela ENTRA desbotando por cima do mundo: é o assentamento ao inverso
+            'line-opacity': 0,
+            'line-opacity-transition': { duration: VOLTA_TROCA, delay: 0 },
+            'line-gradient': faixaDaOnda(1, corpo, cabeca),
+          },
+        }, antesDe);
+      } catch (_) { /* uma onda a menos não derruba a saída */ }
+    }
+    try {
+      mapa.addLayer({
+        id: CENA_NOMES_L,
+        type: 'symbol',
+        source: CENA_NOMES,
+        layout: {
+          'symbol-placement': 'line-center',
+          'text-font': ['Noto Sans Regular'],
+          'text-field': ['get', 'txt'],
+          'text-size': 12,
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+        },
+        paint: { 'text-color': tintaNome, 'text-halo-color': halo, 'text-halo-width': 1 },
+      });
+    } catch (_) { /* sem glyph: só as ruas recolhem */ }
+
+    volta = {
+      casa,
+      t0: (window.performance && performance.now) ? performance.now() : Date.now(),
+      ondas: [],
+      nomes: nomes.map((r) => ({ nome: r.nome, pontos: r.pontos, q: -1 })),
+      mundo: null,
+      raf: 0,
+    };
+    // a fila INVERSA: a última onda que fechou na entrada é a primeira que abre
+    for (let i = 0; i < CENA_ONDAS; i += 1) {
+      volta.ondas.push({ em: VOLTA_ESPERA + ((CENA_ONDAS - 1 - i) * VOLTA_PASSO), pronta: false });
+    }
+    // os nomes nascem escritos POR INTEIRO e vão sendo retirados
+    volta.nomes.forEach((n) => { n.q = n.nome.length; });
+    escreverNomesDaVolta();
+
+    // 1º quadro: as ruas da cena acendem por cima. 2º: o mundo desce por baixo.
+    requestAnimationFrame(() => {
+      if (!volta) return;
+      try {
+        for (let i = 0; i < CENA_ONDAS; i += 1) {
+          const id = `${CENA_FONTE}-${i}`;
+          if (mapa.getLayer(id)) mapa.setPaintProperty(id, 'line-opacity', 1);
+        }
+      } catch (_) { /* estilo trocando */ }
+      setTimeout(() => {
+        if (!volta) return;
+        volta.mundo = esconderMundoDesbotando(mapa);
+      }, VOLTA_TROCA - 60);
+    });
+    volta.raf = requestAnimationFrame(quadroDaVolta);
+    return VOLTA_TETO;
+  }
+
+  /* o mundo DESCE — o inverso exato do `devolverMundo`: mesma lista de camadas,
+     mesma opacidade, só que indo pra zero. Ele não usa `visibility`: sumir de um
+     quadro pro outro é o pisca que esta casa matou hoje de manhã. */
+  function esconderMundoDesbotando(mapa) {
+    let camadas = [];
+    try { camadas = (mapa.getStyle().layers || []); } catch (_) { return null; }
+    const antes = new Map();
+    camadas.forEach((l) => {
+      if (!cenaEscondeCamada(l)) return;
+      const op = {};
+      (CENA_OPACIDADE[l.type] || []).forEach((p) => {
+        try { op[p] = mapa.getPaintProperty(l.id, p); } catch (_) { op[p] = undefined; }
+      });
+      antes.set(l.id, { vis: (l.layout && l.layout.visibility) || 'visible', op });
+      try {
+        Object.keys(op).forEach((p) => {
+          mapa.setPaintProperty(l.id, p + '-transition', { duration: VOLTA_MUNDO, delay: 0 });
+          mapa.setPaintProperty(l.id, p, 0);
+        });
+      } catch (_) { /* estilo trocando */ }
+    });
+    return antes.size ? antes : null;
+  }
+
+  function escreverNomesDaVolta() {
+    if (!volta) return;
+    let fonte;
+    try { fonte = volta.casa.mapa.getSource(CENA_NOMES); } catch (_) { return; }
+    if (!fonte) return;
+    const features = [];
+    volta.nomes.forEach((n) => {
+      if (n.q <= 0) return;
+      features.push({
+        type: 'Feature',
+        properties: { txt: n.nome.slice(0, n.q) },
+        geometry: { type: 'LineString', coordinates: n.pontos },
+      });
+    });
+    try { fonte.setData({ type: 'FeatureCollection', features }); } catch (_) { /* fonte saindo */ }
+  }
+
+  function quadroDaVolta() {
+    if (!volta) return;
+    const mapa = volta.casa.mapa;
+    const agora = (window.performance && performance.now) ? performance.now() : Date.now();
+    const t = agora - volta.t0;
+    const corpo = tinta('--map-cena-rua', '#59677a');
+    const cabeca = tinta('--map-cabeca', '#e8f4ff');
+
+    for (let i = 0; i < volta.ondas.length; i += 1) {
+      const o = volta.ondas[i];
+      if (o.pronta) continue;
+      const p = 1 - ((t - o.em) / VOLTA_ONDA);
+      if (p >= 1) continue;
+      const id = `${CENA_FONTE}-${i}`;
+      try { mapa.setPaintProperty(id, 'line-gradient', faixaDaOnda(Math.max(0, p), corpo, cabeca)); }
+      catch (_) { o.pronta = true; continue; }
+      if (p <= 0) o.pronta = true;
+    }
+
+    let mudou = false;
+    volta.nomes.forEach((n) => {
+      const fora = Math.floor((t - VOLTA_LETRA_EM) / CENA_LETRA);
+      const q = Math.max(0, Math.min(n.nome.length, n.nome.length - Math.max(0, fora)));
+      if (q !== n.q) { n.q = q; mudou = true; }
+    });
+    if (mudou) escreverNomesDaVolta();
+
+    if (t > VOLTA_TETO + 400) { limparVolta(); return; }
+    volta.raf = requestAnimationFrame(quadroDaVolta);
+  }
+
+  /* 🔴 A SAÍDA TAMBÉM TEM UM SÓ DESFECHO. O app está fechando, mas "está
+     fechando" não é licença pra deixar o mapa sem cidade: se o fechamento for
+     abortado (o sistema decide não matar a tarefa), quem volta pro app tem que
+     achar o mapa inteiro. */
+  function limparVolta() {
+    const v = volta;
+    if (!v) return;
+    volta = null;
+    if (v.raf) { try { cancelAnimationFrame(v.raf); } catch (_) { /* já passou */ } }
+    const mapa = v.casa && v.casa.mapa;
+    limparCena(mapa);
+    devolverMundo(mapa, v.mundo, 0);
+    if (v.mundo && mapa) {
+      // e a opacidade volta ao que o estilo pedia (o `devolverMundo` seco só
+      // acerta a visibilidade; aqui quem foi a zero foi a TINTA).
+      v.mundo.forEach((d, id) => {
+        try {
+          if (!mapa.getLayer(id)) return;
+          Object.keys(d.op).forEach((p) => {
+            mapa.setPaintProperty(id, p + '-transition', undefined);
+            mapa.setPaintProperty(id, p, d.op[p]);
+          });
+        } catch (_) { /* estilo trocando */ }
+      });
+    }
   }
 
   /* A LUZ agora é do MAPA, não do nascimento dele. Antes o tema trocava porque

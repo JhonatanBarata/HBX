@@ -497,7 +497,7 @@ class MainActivity : AppCompatActivity() {
                 webView.evaluateJavascript("window.HBXSaida&&window.HBXSaida()", null)
                 webView.postDelayed({
                     if (!isFinishing && !isDestroyed) ClosingActivity.start(this, nextPairing = false)
-                }, 1_950L)
+                }, 2_700L)
             } else {
                 finish()
             }

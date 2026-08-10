@@ -144,7 +144,10 @@ plugins {
 // o próximo publish carimbaria max(235,221)+1 = 236, que o g15 JÁ RODA, e o
 // aparelho de prova ficaria cego pro aviso de atualização — exatamente o buraco
 // que custou o "publiquei e não mudou nada" da manhã.
-val hbxLogisticaVersionCodeFloor = 241
+// 241 → 244 na mesma noite: a cena de saída (o reverso começando pelo mapa)
+// custou mais duas builds no g15 (242 publicada e 243 sideloadada). Piso ACIMA
+// do maior número que existe em qualquer celular — a lei de sempre.
+val hbxLogisticaVersionCodeFloor = 244
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
