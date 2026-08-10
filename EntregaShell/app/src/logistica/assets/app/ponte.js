@@ -3567,6 +3567,17 @@
   const CENA_VOLTA_RESTO = 420;
   /** e quanto leva a cena a sair, já com a rua de verdade acesa embaixo */
   const CENA_TROCA = 260;
+  /* 🔴 QUANTO A RUA LEVA PRA ASSENTAR NA COR DE VERDADE (10/08). Esta é a
+     SEGUNDA metade do "as ruas escurecem" — e a que sobrou depois de eu matar o
+     cruzamento de opacidades. MEDIDO no `style-dark.json`: a rua do basemap é
+     `#333333`–`#474747` e a tinta da cena é `#59677a` — o DOBRO do brilho. A
+     troca no fim, por mais bem feita que fosse, sempre ia ler como "escureceu",
+     porque as duas cores nunca foram a mesma.
+     A largura já era igualada classe por classe justamente por isso (§
+     `CENA_LARGURA`); faltava a cor. Agora a rua nasce acesa — que é o efeito —
+     e ESCORREGA até a cor final assim que a onda fecha. Quando a cena sai, a
+     linha por baixo já tem exatamente o tom que está por cima: não há troca. */
+  const CENA_COR_ASSENTA = 420;
   /** e quando é o dedo que encerra, ele sobe em 1/3 disso */
   const CENA_ASSENTA_DEDO = 260;
   /** no Navegar o mundo assenta antes de a câmera começar a descer */
@@ -4154,6 +4165,38 @@
     });
   }
 
+  /* A COR DE VERDADE DA RUA sai do ESTILO, nunca de um token novo: ela mora no
+     `style-*.json` e um token igual a ela seria a mesma verdade em dois
+     arquivos — que é como eles discordam (a mesma lei do halo do nome). */
+  const HEX = /^#([0-9a-f]{6})$/i;
+  function corDaRuaReal(mapa, padrao) {
+    let bruto;
+    try { bruto = mapa.getPaintProperty('roads_minor', 'line-color'); } catch (_) { return padrao; }
+    if (typeof bruto === 'string' && HEX.test(bruto)) return bruto;
+    // expressão por zoom (`interpolate`): vale a cor do zoom mais FECHADO, que é
+    // onde esta cena acontece — é o último literal de cor da lista.
+    if (Array.isArray(bruto)) {
+      for (let i = bruto.length - 1; i >= 0; i -= 1) {
+        if (typeof bruto[i] === 'string' && HEX.test(bruto[i])) return bruto[i];
+      }
+    }
+    return padrao;
+  }
+
+  /** mistura duas cores hex — `t` de 0 (a) a 1 (b) */
+  function misturarCor(a, b, t) {
+    const ma = HEX.exec(a); const mb = HEX.exec(b);
+    if (!ma || !mb) return t >= 0.5 ? b : a;
+    const ca = parseInt(ma[1], 16); const cb = parseInt(mb[1], 16);
+    const q = Math.max(0, Math.min(1, t));
+    const canal = (deslo) => {
+      const x = (ca >> deslo) & 255; const y = (cb >> deslo) & 255;
+      return Math.round(x + (y - x) * q);
+    };
+    const r = canal(16); const g = canal(8); const bl = canal(0);
+    return `#${((1 << 24) + (r << 16) + (g << 8) + bl).toString(16).slice(1)}`;
+  }
+
   /** o gradiente de uma onda no ponto `p` do crescimento (0..1) */
   function faixaDaOnda(p, corpo, cabeca) {
     if (p >= 1) return ['step', ['line-progress'], corpo, 0.999, corpo];
@@ -4194,18 +4237,28 @@
       }
     }
 
+    const corFim = daVez.corFim || (daVez.corFim = corDaRuaReal(mapa, corpo));
     let ruasProntas = true;
     for (let i = 0; i < daVez.ondas.length; i += 1) {
       const o = daVez.ondas[i];
       if (o.pronta) continue;
-      const p = (t - o.em) / (daVez.onda || CENA_ONDA);
+      const onda = daVez.onda || CENA_ONDA;
+      const p = (t - o.em) / onda;
       if (p <= 0) { ruasProntas = false; continue; }
       const id = `${CENA_FONTE}-${i}`;
+      /* 🔴 FECHOU A RUA, A COR ESCORREGA PRO TOM DE VERDADE. Sem isto a onda
+         ficava acesa até o fim da cena e a linha caía do `#59677a` pro `#333333`
+         no instante da troca — o "escurece" que o dono viu, e que nenhuma
+         opacidade bem feita resolveria, porque o problema era a TINTA. */
+      const q = (t - (o.em + onda)) / CENA_COR_ASSENTA;
+      const tom = q > 0 ? misturarCor(corpo, corFim, q) : corpo;
       try {
         if (!o.acesa) { o.acesa = true; mapa.setPaintProperty(id, 'line-opacity', 1); }
-        mapa.setPaintProperty(id, 'line-gradient', faixaDaOnda(Math.min(1, p), corpo, cabeca));
+        mapa.setPaintProperty(id, 'line-gradient', faixaDaOnda(Math.min(1, p), tom, cabeca));
       } catch (_) { o.pronta = true; continue; }
-      if (p >= 1) o.pronta = true; else ruasProntas = false;
+      // a onda só está PRONTA quando cresceu E assentou a cor: é isso que faz o
+      // desfecho encontrar a mesma tinta dos dois lados da troca.
+      if (p >= 1 && q >= 1) o.pronta = true; else ruasProntas = false;
     }
 
     let nomesProntos = true;

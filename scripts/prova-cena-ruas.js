@@ -231,6 +231,25 @@ const GRAVAR = (ondas) => {
         const resto = (m.getStyle().layers || []).find((l) => l.type === 'symbol' && l['source-layer'] === 'roads');
         if (resto) visResto = m.getLayoutProperty(resto.id, 'visibility') || 'visible';
       } catch (_) { /* estilo trocando */ }
+      /* 🔴 A TINTA DOS DOIS LADOS DA TROCA. A rua da cena nasce ACESA (é o
+         efeito) e tem que escorregar até a cor do basemap antes de a cena sair
+         — senão a linha cai de `#59677a` pra `#333333` no instante da troca, e
+         é isso que o dono leu como "as ruas escurecem". O `line-gradient` é
+         `['step', ['line-progress'], CORPO, ...]`: o corpo é o índice 2. */
+      let corCena = null; let corRua = null;
+      try {
+        if (m.getLayer('hbx-cena-ruas-0')) {
+          const g = m.getPaintProperty('hbx-cena-ruas-0', 'line-gradient');
+          if (Array.isArray(g) && typeof g[2] === 'string') corCena = g[2].toLowerCase();
+        }
+        const c = m.getPaintProperty('roads_minor', 'line-color');
+        if (typeof c === 'string') corRua = c.toLowerCase();
+        else if (Array.isArray(c)) {
+          for (let k = c.length - 1; k >= 0; k -= 1) {
+            if (typeof c[k] === 'string' && c[k][0] === '#') { corRua = c[k].toLowerCase(); break; }
+          }
+        }
+      } catch (_) { /* estilo trocando */ }
       const gs = [];
       let camadas = 0;
       for (let i = 0; i < ondas; i += 1) {
@@ -260,7 +279,7 @@ const GRAVAR = (ondas) => {
         t: Math.round(performance.now()),
         vis,
         camadas,
-        opMundo, trMundo, trCena, visResto, opCena,
+        opMundo, trMundo, trCena, visResto, opCena, corCena, corRua,
         telas: document.querySelectorAll('.tela').length,
         caixa: `${Math.round(r.width)}x${Math.round(r.height)}@${Math.round(r.y)}`,
         gs,
@@ -503,6 +522,14 @@ const ultimo = (fita, cond) => { const q = [...fita].reverse().find(cond); retur
     const vale = fita.some((q) => q.vis === 'visible' && q.opMundo === 0 && q.opCena === 0);
     eh('1.26 em NENHUM quadro as duas estao em meia-tinta ao mesmo tempo', !vale,
       vale ? 'houve cruzamento de opacidades' : 'sem vale');
+    /* 🔴 E A TINTA TAMBEM NAO PODE SALTAR. A rua da cena nasce mais clara (o
+       efeito) e assenta na cor do basemap; se ela ainda estiver acesa quando a
+       cena sair, a linha ESCURECE de estalo — o defeito que nenhuma opacidade
+       resolve, porque ele é de cor. */
+    const antesDeSair = cenaSaindo > 0 ? fita[cenaSaindo - 1] : null;
+    eh('1.28 a rua da cena ASSENTA na cor do basemap antes de a cena sair',
+      !!antesDeSair && !!antesDeSair.corCena && antesDeSair.corCena === antesDeSair.corRua,
+      antesDeSair ? `cena=${antesDeSair.corCena} basemap=${antesDeSair.corRua}` : 'a cena nunca saiu');
 
     // --- o desfecho: nada da cena fica pra tras
     const fim = fita[fita.length - 1];
