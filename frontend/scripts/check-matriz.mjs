@@ -2,52 +2,58 @@
 /**
  * FISCAL DA MATRIZ (PR05082026-MATRIZ-DA-TELA, GO 05/08) — roda junto do
  * check-pele no lint. As 5 Leis do design system cobrem a PELE; este fiscal
- * cobre o COMPORTAMENTO e o VOCABULÁRIO ("lei sem fiscal é decoração").
+ * cobre o VOCABULÁRIO ("lei sem fiscal é decoração").
+ *
+ * RENASCIDO 10/08: o alvo era o app.js do app velho, que morreu na fusão de
+ * 07/08 — o fiscal ficou dias estourando ENOENT sem fiscalizar nada. A fonte
+ * viva agora é ponte-src/*.js + o mock (que É o front do APK, ver
+ * scripts/casca-injetar.js). As catracas do app velho (is-hold-arming
+ * artesanal, ${icon()} sem span, data-day+data-action) foram APOSENTADAS:
+ * policiavam idiomas que o app novo nunca teve — 0 ocorrências, e as próprias
+ * funções/classes (icon(), HBXMatriz, data-day) não existem na fonte nova.
  *
  * O que grita:
  *  1. 🔴 Palavra banida em STRING DE TELA (Fiado/Devendo/Ficou Pendente/Un/Total:)
- *     — comentário não conta; o dado do banco ('fiado') não é tela.
- *  2. 🔴 Catraca do hold artesanal: `is-hold-arming` fora do matriz.js SÓ DESCE.
- *     Cada tela migrada pra HBXMatriz.gestos apaga a sua cópia.
- *  3. 🔴 Catraca do rótulo sem <span>: `${icon(...)} Texto` congela no
- *     reconciliador (caso Finalizar/Reabrir). SÓ DESCE.
- *  4. 🔴 Paridade APK×web: os rótulos de dinheiro do matriz.js e do balcão web
- *     têm de ser IDÊNTICOS — mudou um sem o outro, vermelho. É assim que
+ *     — comentário não conta; o dado do banco ('fiado', `devedores`) não é tela.
+ *  2. 🔴 Paridade APK×web: todo botão `data-forma` do mock e o PAGAMENTOS do
+ *     balcão web usam a MESMA palavra por forma — inclusive entre telas do
+ *     próprio mock (pegou "Marcou"≠"Marcar" no acerto em 10/08). É assim que
  *     "varra o sistema" nunca mais acontece.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const raiz = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ler = rel => readFileSync(join(raiz, rel), "utf8");
 
-// Catracas — medidas em 05/08/2026 (M0). Regra: SÓ DESCE. Subiu = reprovado;
-// desceu = atualizar o teto no mesmo commit.
-const TETO_HOLD_ARTESANAL = 55; // ocorrências; era 60 antes do M0 — caderneta já migrou
-const TETO_ROTULO_SEM_SPAN = 33;
-
-const APP = "EntregaShell/app/src/logistica/assets/app/app.js";
-const MATRIZ = "EntregaShell/app/src/logistica/assets/app/matriz.js";
+const PONTE_SRC_DIR = "EntregaShell/app/src/logistica/ponte-src";
+const MOCK = "docs/mockups/logistica2.0/logistica-2.0.html";
 const BALCAO = "frontend/src/app/(app)/balcao/page.client.tsx";
+const PONTE_SRC = readdirSync(join(raiz, PONTE_SRC_DIR))
+  .filter(f => f.endsWith(".js"))
+  .map(f => `${PONTE_SRC_DIR}/${f}`);
 
 let erros = 0;
 const erro = msg => { erros += 1; console.error(`🔴 check-matriz: ${msg}`); };
 
 // ---- 1. palavra banida em string de tela -----------------------------------
-// Tira comentários (// e /* */) e olha o que sobra — string de template é tela.
+// Tira comentários (//, /* */ e <!-- -->) e olha o que sobra — string de
+// template é tela. `\bDevedor` deixa passar identificador camelCase
+// (linhasDevedor é dado, não tela); "Devedor" escrito na tela continua preso.
 const semComentario = codigo => codigo
+  .replace(/<!--[\s\S]*?-->/g, "")
   .replace(/\/\*[\s\S]*?\*\//g, "")
   .replace(/^\s*\/\/.*$/gm, "")
   .replace(/([^:"'`])\/\/[^\n"'`]*$/gm, "$1");
 const BANIDAS = [
   [/Ficou Pendente|Ficou devendo/, "'Ficou Pendente/devendo' morreu — o desfecho é 'Marcou'"],
   [/[Dd]evendo\b/, "'devendo' é proibido em tela — vocabulário é Marcar/Marcou/Total Marcado"],
-  [/Devedor/, "'Devedor' é proibido em tela"],
+  [/\bDevedor/, "'Devedor' é proibido em tela"],
   [/>Fiado</, "'Fiado' é dado de banco, nunca rótulo de tela"],
   [/Un R\$|Total: R\$/, "telegrama (Lei 8): 'Un'/'Total:' morreram — 'Nome N×U,UU = R$T,TT'"],
 ];
-for (const arquivo of [APP, MATRIZ, BALCAO]) {
+for (const arquivo of [...PONTE_SRC, MOCK, BALCAO]) {
   const limpo = semComentario(ler(arquivo));
   for (const [padrao, msg] of BANIDAS) {
     const hit = limpo.match(padrao);
@@ -55,51 +61,31 @@ for (const arquivo of [APP, MATRIZ, BALCAO]) {
   }
 }
 
-// ---- 2. catraca do hold artesanal ------------------------------------------
-const holds = (ler(APP).match(/is-hold-arming/g) || []).length;
-if (holds > TETO_HOLD_ARTESANAL) {
-  erro(`hold artesanal SUBIU: ${holds} ocorrências de is-hold-arming no app.js (teto ${TETO_HOLD_ARTESANAL}). Gesto novo se declara na HBXMatriz.gestos, não se copia.`);
-} else if (holds < TETO_HOLD_ARTESANAL) {
-  console.log(`✅ check-matriz: hold artesanal desceu (${holds} < teto ${TETO_HOLD_ARTESANAL}) — baixe o teto no mesmo commit.`);
+// ---- 2. paridade APK×web dos rótulos de dinheiro ---------------------------
+// APK: todo botão `data-forma="X" ... <b>Rótulo</b>` do mock (a fonte do
+// front do celular). Web: PAGAMENTOS do balcão. A palavra por forma é UMA —
+// entre telas do mock e entre APK e web.
+const rotuloPorForma = new Map();
+for (const m of ler(MOCK).matchAll(/data-forma="(\w+)"[^]*?<b>([^<]+)<\/b>/g)) {
+  const [, forma, rotulo] = m;
+  if (!rotuloPorForma.has(forma)) rotuloPorForma.set(forma, new Set());
+  rotuloPorForma.get(forma).add(rotulo);
 }
-
-// ---- 3. catraca do rótulo sem span -----------------------------------------
-const semSpan = (ler(APP).match(/\$\{icon\([^)]*\)\}\s*[A-ZÀ-Ú]/g) || []).length;
-if (semSpan > TETO_ROTULO_SEM_SPAN) {
-  erro(`rótulo sem <span> SUBIU: ${semSpan} botões com icon()+texto solto (teto ${TETO_ROTULO_SEM_SPAN}). O reconciliador só troca texto em nó folha — embrulhe no <span>.`);
-} else if (semSpan < TETO_ROTULO_SEM_SPAN) {
-  console.log(`✅ check-matriz: rótulo sem span desceu (${semSpan} < teto ${TETO_ROTULO_SEM_SPAN}) — baixe o teto no mesmo commit.`);
-}
-
-// ---- 3b. atributo de gesto tem UM dono (defeito medido 05/08) --------------
-// `data-day` é do Gerenciador de Rota. Um botão que traz `data-day` E
-// `data-action` é sequestrado pelo despacho (que testa data-day primeiro) e o
-// seu handler vira código morto — foi o filtro de Clientes "abrindo rota".
-for (const linha of ler(APP).split("\n")) {
-  if (/data-day=/.test(linha) && /data-action=/.test(linha)) {
-    erro(`${APP}: botão com data-day E data-action na mesma linha — o despacho testa data-day ANTES do data-action e sequestra o toque. Filtro usa data-filtro (HBXMatriz.chips).`);
-  }
-}
-
-// ---- 4. paridade APK×web dos rótulos de dinheiro ---------------------------
-// APK: mapa `botoes` do matriz.js. Web: FORMAS do balcão. Mesmas 4 palavras.
-const mapaMatriz = {};
-const mBotoes = ler(MATRIZ).match(/botoes:\s*\{([^}]*)\}/);
-if (mBotoes) {
-  for (const par of mBotoes[1].matchAll(/(\w+):\s*"([^"]+)"/g)) mapaMatriz[par[1]] = par[2];
+for (const [forma, rotulos] of rotuloPorForma) {
+  if (rotulos.size > 1) erro(`mock: a forma "${forma}" aparece com ${rotulos.size} palavras (${[...rotulos].join(" / ")}) — a palavra de dinheiro é UMA em todas as telas.`);
 }
 const mapaBalcao = {};
 for (const par of ler(BALCAO).matchAll(/id:\s*"(\w+)",\s*rotulo:\s*"([^"]+)"/g)) mapaBalcao[par[1]] = par[2];
-const paridade = [["dinheiro", "DINHEIRO"], ["pix", "PIX"], ["cartao", "CARTAO"], ["marcar", "FIADO"]];
+const paridade = [["dinheiro", "DINHEIRO"], ["pix", "PIX"], ["cartao", "CARTAO"], ["fiado", "FIADO"]];
 for (const [chaveApk, chaveWeb] of paridade) {
-  const apk = mapaMatriz[chaveApk];
+  const apk = rotuloPorForma.get(chaveApk) && [...rotuloPorForma.get(chaveApk)][0];
   const web = mapaBalcao[chaveWeb];
-  if (!apk || !web) { erro(`paridade: não achei o rótulo ${chaveApk}/${chaveWeb} (matriz.js ou balcão mudou de forma — ajuste o fiscal JUNTO).`); continue; }
-  if (apk !== web) erro(`paridade APK×web: "${apk}" (matriz.js) ≠ "${web}" (balcão). A palavra de dinheiro é UMA — mude os dois juntos.`);
+  if (!apk || !web) { erro(`paridade: não achei o rótulo ${chaveApk}/${chaveWeb} (mock ou balcão mudou de forma — ajuste o fiscal JUNTO).`); continue; }
+  if (apk !== web) erro(`paridade APK×web: "${apk}" (mock) ≠ "${web}" (balcão). A palavra de dinheiro é UMA — mude os dois juntos.`);
 }
 
 if (erros) {
   console.error(`\ncheck-matriz: ${erros} violação(ões). O padrão mora em docs/PLANEJAMENTOS/PR05082026-MATRIZ-DA-TELA.md §2b.`);
   process.exit(1);
 }
-console.log(`✅ check-matriz: vocabulário cravado, catracas respeitadas (hold ${holds}/${TETO_HOLD_ARTESANAL}, span ${semSpan}/${TETO_ROTULO_SEM_SPAN}), paridade APK×web ok.`);
+console.log(`✅ check-matriz: vocabulário cravado em ${PONTE_SRC.length + 2} arquivos da fonte viva, paridade APK×web ok (${paridade.length} formas).`);

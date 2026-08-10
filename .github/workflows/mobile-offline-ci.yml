@@ -132,7 +132,6 @@ jobs:
           node --check app/src/logistica/assets/app/native.js
           node --check app/src/logistica/assets/app/mock.js
           node --check app/src/logistica/assets/app/ponte.js
-          node --check app/src/logistica/assets/app/matriz.js
 
   frontend:
     name: Admin mobile frontend

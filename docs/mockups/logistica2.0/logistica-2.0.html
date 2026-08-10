@@ -4505,7 +4505,7 @@ ${hdr({})}
         <button class="pay${d.forma==='dinheiro'?' sel':''}" data-acao="forma" data-forma="dinheiro"><span style="color:var(--lime)">${ic('cash',21)}</span><b>Dinheiro</b>${d.forma==='dinheiro'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
         <button class="pay blue${d.forma==='pix'?' sel':''}" data-acao="forma" data-forma="pix"><span style="color:var(--blue-l)">${ic('pix',21)}</span><b>Pix</b>${d.forma==='pix'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
         <button class="pay${d.forma==='cartao'?' sel':''}" data-acao="forma" data-forma="cartao"><span style="color:var(--ink-2)">${ic('card',21)}</span><b>Cartão</b>${d.forma==='cartao'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
-        <button class="pay${d.forma==='fiado'?' sel':''}" data-acao="forma" data-forma="fiado"><span style="color:var(--ink-2)">${ic('note',21)}</span><b>Marcou</b>${d.forma==='fiado'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+        <button class="pay${d.forma==='fiado'?' sel':''}" data-acao="forma" data-forma="fiado"><span style="color:var(--ink-2)">${ic('note',21)}</span><b>Marcar</b>${d.forma==='fiado'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
       </div>
     </div>
     <div class="box">
@@ -5227,7 +5227,7 @@ T.financeiro={nome:'Ajustes · Financeiro',grupo:'Ajustes',render(){const f=DADO
     ${secao('Por forma, hoje',formas?`<div class="forms">
       ${formas}
     </div>`:'')}
-    ${secao('Quem está devendo',f.devedores.length?`<div class="cartao-lista" style="padding:0 11px">
+    ${secao('Quem marcou',f.devedores.length?`<div class="cartao-lista" style="padding:0 11px">
       ${f.devedores.map(x=>dev(x[0],x[1],x[2],x[3],x[4])).join('')}
     </div>`:'')}
     ${secao('Semana',semana?`<div class="sum" style="margin-top:0">
