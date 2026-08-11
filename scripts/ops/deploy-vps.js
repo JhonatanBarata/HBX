@@ -290,7 +290,7 @@ function resolveAndroidVersion(config) {
       `[apk] não consegui ler a versão publicada — mantendo o piso do gradle (código ${gradle.versionCode}). ` +
         'Se o app mudou, o celular NÃO vai ver a atualização: confira o version-logistica.json no ar.',
     );
-    return { ...gradle, fingerprint, bumped: false, skipBuild: false };
+    return { ...gradle, fingerprint, bumped: false };
   }
   if (published.fingerprint && published.fingerprint === fingerprint) {
     // O PISO do gradle vale AQUI TAMBÉM. Antes este ramo devolvia
@@ -306,23 +306,18 @@ function resolveAndroidVersion(config) {
       console.log(
         `[apk] digital IGUAL, mas o piso do gradle é maior — versão ${published.versionCode} → ${versionCode}. Os celulares vão atualizar.`,
       );
-      return { versionCode, versionName: gradle.versionName, fingerprint, bumped: true, skipBuild: false };
+      return { versionCode, versionName: gradle.versionName, fingerprint, bumped: true };
     }
     console.log(
-      `[apk] fontes do app INALTERADOS — versão mantida em ${published.versionCode}. Nenhum celular vai baixar nada. ` +
-        'Build do gradle pulado — nada novo pra gerar.',
+      `[apk] fontes do app INALTERADOS — versão mantida em ${published.versionCode}. Nenhum celular vai baixar nada.`,
     );
-    // skipBuild só é seguro AQUI: digital idêntica à já publicada E nenhum
-    // bump de versionCode pendente — o binário que subiria seria byte-a-byte
-    // equivalente ao que já está no ar. Os outros ramos (published nulo, piso
-    // subiu, fontes mudaram) sempre exigem um build de verdade.
-    return { versionCode, versionName: gradle.versionName, fingerprint, bumped: false, skipBuild: true };
+    return { versionCode, versionName: gradle.versionName, fingerprint, bumped: false };
   }
   const versionCode = Math.max(published.versionCode, gradle.versionCode) + 1;
   console.log(
     `[apk] fontes do app MUDARAM — versão ${published.versionCode} → ${versionCode}. Os celulares vão atualizar sozinhos.`,
   );
-  return { versionCode, versionName: gradle.versionName, fingerprint, bumped: true, skipBuild: false };
+  return { versionCode, versionName: gradle.versionName, fingerprint, bumped: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -636,15 +631,9 @@ function main(requestedMode) {
   // resolveAndroidVersion(). Nunca deixa o publish cair se der ruim na leitura
   // do que está no ar: cai no piso do gradle e avisa no log.
   const androidVersion = resolveAndroidVersion(config);
-  const androidApks = androidVersion.skipBuild ? null : buildAndroidApk(androidVersion);
+  const androidApks = buildAndroidApk(androidVersion);
   runStep('git', ['push', remote, branch]);
   deploy(config, mode === 'full' || plan.full, plan.services);
-
-  if (!androidApks) {
-    console.log('[apk] publicação pulada — nenhum binário novo pra subir.');
-    return;
-  }
-
   publishAndroidApk(config, androidApks.logistica, config.androidApkRemotePath, config.androidApkUrl);
   publishAndroidApk(config, androidApks.vendas, config.androidVendasApkRemotePath, config.androidVendasApkUrl);
 
