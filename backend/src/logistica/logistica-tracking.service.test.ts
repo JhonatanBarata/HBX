@@ -333,6 +333,16 @@ async function withTrackingEnabled<T>(callback: () => Promise<T>) {
   }
 }
 
+test('rota TRACKED ainda PLANNED abre sessão — é como o iniciar chama, ANTES de ativar', async () => {
+  await withTrackingEnabled(async () => {
+    const { service, state } = setup();
+    state.route.status = 'PLANNED';
+    const created = await service.ensureSessionForStartedRoute(3, 'route-1', state.route.startedAt);
+    assert.ok(created, 'rota PLANNED tem que abrir sessão — sem isso todo Iniciar TRACKED morre em 500');
+    assert.equal(created.deviceId, null);
+  });
+});
+
 test('rota TRACKED cria sessão no start web e o primeiro aparelho do próprio motorista faz binding imutável', async () => {
   await withTrackingEnabled(async () => {
     const { service, state } = setup();

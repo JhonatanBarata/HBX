@@ -106,7 +106,10 @@ export class LogisticaTrackingService {
         companyId,
         id: routeId,
         mode: 'TRACKED',
-        status: { in: ['INITIALIZING', 'ACTIVE'] },
+        // ROTA v2 F3 matou o INITIALIZING: o iniciar cria a sessão com a rota
+        // ainda PLANNED (de propósito, antes de ativar). Sem o PLANNED aqui,
+        // toda rota TRACKED nova morria com 500 no Iniciar (11/08/2026).
+        status: { in: ['PLANNED', 'INITIALIZING', 'ACTIVE'] },
       },
       select: { id: true, entregadorId: true, startedAt: true },
     });
