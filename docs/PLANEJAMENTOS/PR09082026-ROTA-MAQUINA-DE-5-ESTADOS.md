@@ -92,8 +92,13 @@ Sem id, o botão não é desenhado — Lei do IF: melhor vaga vazia que botão q
   começou não existe — e Finalizar abre a CADERNETA, que é dinheiro fechando. O terceiro slot do
   `pronta` continua sendo **Montagem** (a porta de volta pra revisar/salvar/trocar o dia; sem ela
   a montagem fica inalcançável). Finalizar aparece no estado `rodando`, que é quando ele existe.
-- **A câmera 3D não se toca.** `NAV_PITCH=51`, `NAV_ANCORA=0.86`, descida de 2,4 s — calibrado
+- **A câmera 3D não se toca.** `NAV_PITCH=51`, âncora do ponteiro, descida de 2,4 s — calibrado
   contra o V4 e aprovado em 09/08. Mexer aqui é reabrir trabalho fechado.
+  **Atualizado em 11/08:** o `NAV_ANCORA=0.86` desta linha morreu. Ele era cópia do `top:86%` do
+  mock, e o rodapé cresceu 41px em 10/08 sem que a seta acompanhasse — ela passou a ser cortada
+  pelo rodapé. Hoje o mock pousa a seta no `--gps-piso` (pixel contado a partir do rodapé, não
+  porcentagem da tela) e a ponte **mede** o puck (`ancoraDoPuck`); `NAV_ANCORA` sobrou só como
+  valor de reserva. A pose (pitch, zoom, duração) segue intocada.
 - **`pronta` = Iniciar no meio, Cancelar como satélite de PERIGO.** Já está assim; o destrutivo
   não é o botão verde.
 

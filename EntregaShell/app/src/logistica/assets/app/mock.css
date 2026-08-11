@@ -1174,6 +1174,42 @@ button,input{font:inherit;color:inherit}
 .ocupado{opacity:.62;box-shadow:none!important;animation:respira 1.15s ease-in-out infinite}
 @keyframes respira{50%{opacity:.34}}
 
+/* 🔴 O VÉU DE MONTAR (11/08 — dono: "demora muito, coloque um carregando aí,
+   altíssima qualidade"). Montar são 3 idas ao servidor e passa de 2 s; o
+   recibo do toque continua no BOTÃO ("Montando…", lei de 08/08) — o véu é o
+   TEATRO da espera por cima da lista, com a ETAPA REAL do trabalho escrita
+   nele (quem escreve é a ponte, direto no nó — regra do `data-vivo`).
+   Ele mora como IRMÃO do `.body` (dentro dele rolaria junto com a lista), em
+   z 25: acima do conteúdo (20), abaixo do dock (30), do cabeçalho (40), das
+   abas (45) e de todo diálogo (59) — o "Montando…" respira à vista e o portão
+   de erro abre por cima.
+   🔴 SÓ ANIMAÇÃO DE LOOP AQUI DENTRO. O seam repinta no meio do montar e,
+   passada a janela de entrada, todo keyframe recomeça do zero a cada repinte
+   — one-shot de entrada viraria soluço; loop com from==to recomeça invisível.
+   O escurecedor é o MESMO tom do portão (rgba escura nos dois modos, como
+   `.portao-wrap` e `.scrim`); o desfoque segue o padrão do `.aula-veu`, com o
+   mesmo fallback de aparelho sem `backdrop-filter`. */
+.veu-montar{position:absolute;inset:0;z-index:25;display:grid;place-items:center;
+  background:rgba(3,7,14,.62)}
+@supports (backdrop-filter:blur(2px)) or (-webkit-backdrop-filter:blur(2px)){
+  .veu-montar{-webkit-backdrop-filter:blur(5px);backdrop-filter:blur(5px);background:rgba(3,7,14,.45)}}
+.veu-montar .vm{display:flex;flex-direction:column;align-items:center;gap:11px;
+  padding:22px 26px;border-radius:18px;background:var(--card);border:.7px solid var(--line);
+  box-shadow:0 18px 44px rgba(0,0,0,.5);min-width:216px}
+/* o glifo da rota no mesmo par de tinta do "chegou" da manobra (lima sobre
+   lima-fundo, aprovado nos 2 modos); o anel respira em OPACIDADE, não em
+   tamanho de verdade — lei do `alvoBusca`: pulso de opacidade, escala mínima */
+.veu-montar .vm-glifo{position:relative;width:62px;height:62px;border-radius:50%;
+  display:grid;place-items:center;color:var(--lime);background:var(--lime-bg-2)}
+.veu-montar .vm-glifo::after{content:"";position:absolute;inset:-7px;border-radius:50%;
+  border:1.5px solid var(--lime);animation:vmAnel 1.6s ease-in-out infinite}
+@keyframes vmAnel{0%,100%{opacity:.14;transform:scale(.94)}50%{opacity:.6;transform:scale(1.04)}}
+.veu-montar .vm b{font-size:13.5px;font-weight:500;text-align:center}
+.veu-montar .vm small{font-size:11px;color:var(--ink-2);margin-top:-7px}
+.veu-montar .vm-barra{width:168px;height:4px;border-radius:99px;background:var(--trilho);overflow:hidden}
+.veu-montar .vm-barra i{display:block;height:100%;border-radius:99px;
+  background:linear-gradient(90deg,var(--prog-1),var(--prog-2));transition:width .5s ease}
+
 /* ---------- progresso do dia ---------- */
 .dia-bar{display:flex;align-items:center;gap:9px;margin-top:7px;padding:8px 11px;border-radius:12px;
   background:var(--card);border:.7px solid var(--line)}
@@ -1393,7 +1429,24 @@ button,input{font:inherit;color:inherit}
    6. Velocímetro embaixo à esquerda; recentralizar só faz sentido perto do
       polegar, do lado direito.
    ========================================================================== */
-.gps{position:absolute;inset:0;overflow:hidden;background:var(--fog)}
+/* 🔴 O CHÃO DAS PEÇAS FLUTUANTES (11/08 — dono: "seta cortada, eu quero esse
+   encaixe"). A seta era a ÚNICA medida desta tela em PORCENTAGEM (`top:86%`)
+   enquanto o rodapé mede em PIXEL — então a colisão entre os dois dependia da
+   altura do aparelho: em tela alta sobrava, em tela curta a seta entrava rodapé
+   adentro. E o rodapé CRESCEU 41px em 10/08 (ganhou a linha dos atalhos) sem
+   que ninguém refizesse a conta: medido no moto g15, a cauda da seta, 40% do
+   velocímetro e 57% do botão de baixo passaram a ficar ATRÁS dele.
+   Agora existe UM chão só e todas as peças de beirada pousam nele:
+     `--gps-rodape-h` = a altura do rodapé de DIRIGIR (a conta está no
+        `.gps-rodape`); 128 e não 126,77 porque fonte de aparelho varia e
+        arredondar pra cima só custa folga.
+     `--gps-piso`     = esse chão + 12px de respiro. Velocímetro, coluna de
+        botões e a CAUDA da seta pousam todos nesta mesma linha — é isso que
+        faz a tela parecer encaixada em vez de empilhada.
+   A tela do "Você chegou" tem rodapé mais baixo e não usa nada disto: ela não
+   tem seta nem velocímetro, e a coluna de botões dela manda por style inline. */
+.gps{position:absolute;inset:0;overflow:hidden;background:var(--fog);
+  --gps-rodape-h:128px;--gps-piso:calc(var(--gps-rodape-h) + 12px)}
 /* 🔴 O PALCO DE ESPERA É COR, NÃO DESENHO (09/08 — a maquete morreu, ver
    `mapa()`). Ele nasce com a cor do mapa e fica assim até o maplibre subir: o
    que o motorista vê antes do mapa é um chão escuro liso, nunca uma cidade
@@ -1549,18 +1602,24 @@ button,input{font:inherit;color:inherit}
 /* z-index 19 e não 12: o VÉU da cena de entrada é 18, e o ponteiro tem que
    surgir EM CIMA dele — é ele quem existe primeiro. Continua abaixo da
    manobra e do rodapé (20), que é onde eles têm que ficar. */
-/* 🔴 86% — o número do V4 ("o ponteiro tem q ficar COLADO NO BOTTOM, igual gps
-   comum"), confirmado pelo dono em 09/08: "a seta tem q descer, ficar mais
-   embaixo, ela está quase no meio da tela". Quanto mais baixo o ponteiro, mais
-   rua À FRENTE cabe na tela — que é a única parte do mapa que serve pra
-   dirigir. O `NAV_ANCORA` da ponte é este mesmo número e o recuo da câmera sai
-   dele; escrever os dois à mão foi o que já deixou a câmera mirando um palmo
-   acima da seta.
+/* 🔴 COLADO NO RODAPÉ, NÃO NUMA PORCENTAGEM (11/08). A ordem do dono continua a
+   mesma do V4 — "o ponteiro tem q ficar COLADO NO BOTTOM, igual gps comum",
+   repetida em 09/08 ("a seta tem q descer, ficar mais embaixo") —, mas o `86%`
+   que a cumpria media a TELA enquanto o rodapé mede em PIXEL: os dois só se
+   encostavam por coincidência, e a coincidência acabou quando o rodapé cresceu.
+   Hoje a seta pousa no `--gps-piso` como as outras peças de beirada. Os 22,5px
+   são METADE da altura dela (`.gps-seta`, 45px): o `bottom` posiciona o PONTO do
+   motorista, e o que tem que encostar no chão é a CAUDA.
+   🔴 E A PONTE NÃO GUARDA MAIS CÓPIA DESTE NÚMERO. Ela MEDE o `.gps-puck` na
+   tela (`ancoraDoPuck`) pra recuar a câmera — escrever a mesma âncora em dois
+   lugares foi o que já deixou a câmera mirando um palmo acima da seta, e com
+   `bottom` em px não haveria nem como repetir o valor do outro lado.
    🔴 E ELE NÃO PEGA TOQUE. O puck tem tamanho 0, mas os filhos NÃO: o facho é
    uma caixa de 104×118 px bem no meio da tela e engolia todo arrasto que
    começasse ali — o mapa parecia travado justamente onde a mão cai primeiro.
    Ponteiro é DESENHO: quem manda no dedo, aqui, é o mapa. */
-.gps-puck{position:absolute;left:50%;top:86%;width:0;height:0;z-index:19;pointer-events:none}
+.gps-puck{position:absolute;left:50%;top:auto;bottom:calc(var(--gps-piso) + 22.5px);
+  width:0;height:0;z-index:19;pointer-events:none}
 /* O ANEL DE POUSO: sai do ponteiro no instante em que ele assenta. Parado ele
    não existe (opacidade 0) — é peça de cena, não de tela. */
 .gps-puck::after{content:"";position:absolute;left:-90px;top:-90px;width:180px;height:180px;
@@ -1587,7 +1646,14 @@ button,input{font:inherit;color:inherit}
    ponte projeta o ponto de verdade e escreve em `--px/--py`, exatamente como
    já faz com os prédios do prospector. Mesma peça, mesmo facho, mesmo anel —
    muda só quem decide onde ela mora. */
-.gps.solta .gps-puck{left:var(--px,50%);top:var(--py,86%)}
+/* 🔴 O `bottom:auto` É OBRIGATÓRIO, e o padrão do `--py` tem que ser o MESMO
+   lugar de onde a seta saiu (11/08). Solta, quem manda é `top`; deixar o
+   `bottom` da regra de cima de pé seria dois donos na mesma peça. E o padrão do
+   `--py` vale por um quadro de verdade — `marcarSolta` liga a classe ANTES de a
+   ponte projetar o ponto —, então um número velho aqui faz a seta PULAR toda
+   vez que o dedo encosta no mapa: defeito de um quadro, que não reproduz em
+   foto. Ele é derivado da âncora, nunca digitado de novo. */
+.gps.solta .gps-puck{left:var(--px,50%);top:var(--py,calc(100% - var(--gps-piso) - 22.5px));bottom:auto}
 
 .gps-manobra{position:absolute;left:9px;right:9px;top:6px;z-index:20;border-radius:15px;
   background:var(--card);border:.7px solid var(--line);box-shadow:0 12px 30px rgba(0,0,0,.5);overflow:hidden}
@@ -1601,22 +1667,50 @@ button,input{font:inherit;color:inherit}
 .gps-manobra.chegou .seta{background:var(--lime-bg-2);color:var(--lime)}
 .gps-manobra.chegou .dist{color:var(--lime)}
 
-.gps-bussola{position:absolute;right:11px;top:96px;z-index:20;width:38px;height:38px;border-radius:50%;
+/* 🔴 114px E NÃO 96 (11/08). A bússola tem o MESMO `z-index` do cartão da
+   manobra e é pintada DEPOIS dele, então ela subia por cima do canto do cartão
+   — 9,6px de sobreposição sempre que existe a tira de baixo ("Avenida Nove ·
+   depois, vire à direita"), que é o caso normal dirigindo. O cartão mede 6px de
+   topo + 99,6px com a tira; 114 deixa a bússola livre nos dois estados, e ela
+   não desce mais que isso pra não invadir o mapa. */
+.gps-bussola{position:absolute;right:11px;top:114px;z-index:20;width:38px;height:38px;border-radius:50%;
   background:var(--glass);border:.7px solid var(--line);display:grid;place-items:center;color:var(--ink-2);font-size:9.5px}
-.gps-vel{position:absolute;left:11px;bottom:104px;z-index:20;width:56px;height:56px;border-radius:50%;
+.gps-vel{position:absolute;left:11px;bottom:var(--gps-piso);z-index:20;width:56px;height:56px;border-radius:50%;
   background:var(--glass);border:.7px solid var(--line);display:grid;place-items:center;text-align:center;line-height:1}
 .gps-vel b{display:block;font-size:19px;font-weight:500}
 .gps-vel small{display:block;font-size:8.5px;color:var(--ink-2);margin-top:2px}
-.gps-lado{position:absolute;right:11px;bottom:104px;z-index:20;display:flex;flex-direction:column;gap:8px}
+/* A coluna cresce PRA CIMA (é ancorada pelo pé), então quem paga qualquer
+   sobra é sempre o botão de baixo — o mais perto do polegar. Por isso ela pousa
+   no mesmo `--gps-piso` do velocímetro: os dois lados da tela na mesma linha. */
+.gps-lado{position:absolute;right:11px;bottom:var(--gps-piso);z-index:20;display:flex;flex-direction:column;gap:8px}
 .gps-lado button{width:40px;height:40px;border-radius:50%;border:.7px solid var(--line);background:var(--glass);
   color:var(--blue-l);display:grid;place-items:center;cursor:pointer}
 /* voz desligada: o botão continua ali, apagado — quem silenciou precisa ver
    COMO religar, e trocar o ícone por um "sem som" seria vocabulário novo. */
 .gps-lado button.mudo{opacity:.45}
 
+/* 🔴 QUEM MEXER AQUI REFAZ O `--gps-rodape-h` LÁ EM CIMA. A altura deste rodapé
+   é o chão de TODAS as peças flutuantes da tela de dirigir — seta, velocímetro
+   e a coluna de botões pousam nele. Ele é `height:auto`, então CSS nenhum
+   percebe quando ele cresce: em 10/08 ele ganhou a linha dos atalhos, engordou
+   41px e a tela ficou 1 mês com a cauda da seta escondida atrás dele.
+   A conta de hoje (Roboto, aparelho): .7 borda + 9 topo + [14,06 da .parada +
+   8 de margem] + 32,01 da linha dos números + [9 de margem + 42 da linha dos
+   atalhos] + 12 de base = 126,77px. `--gps-rodape-h` guarda 128. */
 .gps-rodape{position:absolute;left:0;right:0;bottom:0;z-index:20;background:var(--glass);
   border-top:.7px solid var(--line);padding:9px 12px 12px}
-.gps-rodape .parada{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);margin-bottom:8px}
+/* 🔴 ESTA LINHA NÃO PODE QUEBRAR (11/08). Ela carrega o NOME DO CLIENTE, que é
+   dado de cadastro e não tem tamanho: "Supermercado Nossa Senhora Aparecida
+   Ltda ME" quebrava em duas e engordava o rodapé em 16px — e o rodapé é o CHÃO
+   de toda peça flutuante da tela, então a cauda da seta voltava pra trás dele
+   em aparelho estreito. Altura de rodapé que depende do DADO é o mesmo defeito
+   de 10/08 com outra roupa. Uma linha, sempre, e o que não couber vira "…":
+   é o mesmo tratamento que o `.atalho b` daqui de baixo já dá ao rótulo dele.
+   O `min-width:0` é obrigatório — item de flex não encolhe abaixo do conteúdo
+   sem ele, e o corte nunca aconteceria. */
+.gps-rodape .parada{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);margin-bottom:8px;
+  white-space:nowrap}
+.gps-rodape .parada .txt{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .gps-rodape .parada b{color:var(--ink);font-weight:500}
 .gps-rodape .linha{display:flex;align-items:center;gap:10px}
 .gps-rodape .n{flex:1;text-align:center}

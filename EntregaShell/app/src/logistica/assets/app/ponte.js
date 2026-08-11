@@ -3067,7 +3067,22 @@
       const montando = (v) => {
         try { window.usarDados('rota', { montando: v }); } catch (_) { /* sem seam */ }
       };
+      /* a ETAPA do véu de montar (11/08 — dono: "coloque um carregando aí,
+         altíssima qualidade"): o texto é o passo REAL do trabalho, não teatro
+         de relógio. Escreve DIRETO no nó (regra do `data-vivo` do velocímetro
+         — o que anda rápido não repinta a tela) e espelha no seam sem
+         repintar, pro repinte que chegar no meio renascer com a etapa certa. */
+      const etapa = (pct, texto) => {
+        try {
+          if (typeof DADOS !== 'undefined' && DADOS.rota) Object.assign(DADOS.rota, { etapaMontar: texto, etapaMontarPct: pct });
+          const rotulo = naCamada('[data-etapa-montar]');
+          if (rotulo && rotulo.textContent !== texto) rotulo.textContent = texto;
+          const barra = naCamada('[data-barra-montar]');
+          if (barra) barra.style.width = pct + '%';
+        } catch (_) { /* o véu é enfeite; a rota não depende dele */ }
+      };
       montando(1);
+      etapa(8, 'Organizando as paradas…');
       const devolverEstado = () => montando(0);
 
       /* 🔴 A ROTA SAI COM O QUE ESTÁ NA TELA — o RECORTE (`deliveryIds`) é a
@@ -3086,6 +3101,7 @@
         // ficou de fora de propósito — trazê-la de volta é encher a rota com
         // gente que a tela não está mostrando.
         if (montarDia !== -1 && !outroDia) await materializarDia();
+        etapa(38, 'Calculando o melhor trajeto…');
         plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...recorte, ...origemGps() });
       } catch (e) { devolverEstado(); return avisoErro(e, { repetir: () => montarRota() }); }
       const paradas = Array.isArray(plano && plano.stops) ? plano.stops
@@ -3097,6 +3113,7 @@
       // veio de outra data (é a lei do chip — ver `diaDeOutroDia`).
       let conf = null;
       try {
+        etapa(66, 'Conferindo os endereços…');
         conf = await window.API.post('/logistica/rota/conferir', { date: hojeISO(), ...origemGps() });
       } catch (_) { /* aviso é enfeite, não portão */ }
       const comAviso = conf && Array.isArray(conf.items)
@@ -3114,6 +3131,7 @@
       // o `carregarRota` volta no catch antes de escrever no seam, e a tela de
       // montagem abria com as 6 paradas do desenho e "R$ 336,00" — dinheiro de
       // exemplo numa tela de decisão. Falhou, avisa e fica onde está.
+      etapa(88, 'Trazendo a rota…');
       if (!(await carregarRota())) {
         devolverEstado();
         return avisoErro(new Error('Não consegui montar agora. Tente de novo.'));
@@ -3130,6 +3148,16 @@
          tela é cena que ninguém vê. */
       pedirCena('rota');
       devolverEstado();          // o "Montando…" sai com o dado já na tela
+      /* 🔴 UM STATUS SÓ, NA TELA DO MAPA (dono, 11/08: "esse iniciar rota eu
+         quero aqui [no mapa], quero um status só, mesma tela") — reverte o
+         "Não navega" de 10/08, por ordem dele. Montar POUSA na Rota: a rota
+         verde no mapa com o "Iniciar" único, e a cena das ruas pedida acima
+         toca no pouso. Só navega quem AINDA está na Montagem — o cabeçalho e
+         as abas ficam vivos por cima do véu, e o fim do montar não teleporta
+         quem já foi pra outra tela. Os portões abaixo vêm DEPOIS do `ir` de
+         propósito: troca de tela fecha portão; nascendo na camada nova eles
+         sobrevivem à transição e os repintes os remontam. */
+      if (telaAtual() === 'montagem' && typeof window.ir === 'function') window.ir('rota');
       /* Quem não conseguiu virar parada é dito por NOME, e antes do semáforo de
          endereço: "o Alfredo não entrou" vale mais pra quem vai sair pra rua do
          que "2 endereços com aviso". Nunca "não deu certo" — o resto entrou. */
@@ -3146,12 +3174,10 @@
       if (comAviso && typeof window.portao === 'function') {
         window.portao({
           tom: 'alerta', ico: 'gps', titulo: `${comAviso} ${comAviso === 1 ? 'endereço com aviso' : 'endereços com aviso'}`,
-          sub: 'Dá pra sair assim, mas confira antes.', acoes: [['Ver a rota', 'principal']],
+          // "Entendi", não "Ver a rota": desde 11/08 o montar já pousa NELA
+          sub: 'Dá pra sair assim, mas confira antes.', acoes: [['Entendi', 'principal']],
         });
       }
-      // Não navega: o motorista JÁ está na montagem, e ela acabou de virar a
-      // rota de verdade (o `carregarRota` acima escreveu `pronta:1`, então o
-      // botão do pé agora é "Iniciar rota").
     });
   }
 
@@ -3383,6 +3409,10 @@
      tela depois do cancelar é a mesma mentira que esta seção existe pra matar. */
   function esquecerRotaCarregada() {
     esquecerTraco();
+    // pedido de cena de "rota nova" não sobrevive à rota: cancelada a rota,
+    // a cena dela morre junto (senão o próximo repinte a tocava por cima do
+    // dia limpo — parente do pisca do cancelar)
+    esquecerCenaPedida();
     previaSeq += 1;
     previaCrua = null;
     previaDoDedo = false;
@@ -3412,7 +3442,6 @@
   async function cancelarRota() {
     confirmarLimparDia(() => { if (typeof window.ir === 'function') window.ir('rota'); });
   }
-
   /* ------------------------------------------------------------------------
      6b. O DEDO QUE MEXE NA ROTA — reordenar e retirar, gravados DE VERDADE.
 
@@ -4431,6 +4460,16 @@
     if (mapaNaTela(casa)) atenderCena(casa);
   }
 
+  /* 🔴 CANCELAR ESQUECE O PEDIDO (11/08). O pedido de "rota nova" vive 60 s
+     esperando o palco — e o cancelar mata a rota nesse meio tempo. Sem isto,
+     o repinte do cancelar cobrava o pedido órfão e a cena de rota nascendo
+     tocava por cima de uma rota que acabou de morrer. */
+  function esquecerCenaPedida() { cenaPedido = null; }
+  /* a sonda da prova (`prova-fluxo-rota`): `cenaPedido` é fechadura de IIFE e
+     sem isto a asserção "cancelar não deixa pedido vivo" não teria o que ler.
+     Mesmo precedente do `window.HBXRota`. */
+  window.HBXCena = { pendente: () => !!cenaPedido };
+
   function atenderCena(casa) {
     const p = cenaPedido;
     if (!p) return;
@@ -4951,8 +4990,6 @@
     BOX.appendChild(fantasma);
     montarMapa(fantasma);
   }
-
-
   /* ==========================================================================
      A CENA AO CONTRÁRIO — o mapa desfaz o que desenhou.
 
@@ -6304,17 +6341,13 @@
   const NAV_ZOOM = 16.6;
   /* 51°, o número do V4 (`para={tilt:51,…}`) — era 55 aqui por chute. */
   const NAV_PITCH = 51;
-  /* 🔴 86% — "o ponteiro tem q ficar COLADO NO BOTTOM, igual gps comum"
-     (correção nº2 do V4, repetida pelo dono em 09/08). Foi 68%, virou 78% na
-     primeira passada e agora é o número do mock. Este é o valor MESTRE: o
-     `top` do `.gps-puck` no mock e o `NAV_PUCK` daqui saem os dois dele. */
-  const NAV_ANCORA = 0.86;
-  /* o recuo da câmera até o puck: ela desce o centro até ele, senão o motorista
-     dirige com a seta no meio da tela e metade do mapa mostrando a rua que já
-     passou. Sai do `NAV_ANCORA` em vez de ser digitado — o número existe em UM
-     lugar só, e o `top` do `.gps-puck` no mock é o mesmo. Escrever os dois à
-     mão foi o que deixou a câmera mirando um palmo acima da seta. */
-  const NAV_PUCK = NAV_ANCORA - 0.5;
+  /* 🔴 A ÂNCORA DEIXOU DE SER NÚMERO GÊMEO (11/08): ela é MEDIDA na tela, ver
+     `ancoraDoPuck`. Isto aqui é só o ÚLTIMO RECURSO — o quadro em que a câmera
+     precisa se acertar e a seta ainda não está no DOM (mapa nascendo, camada
+     trocando no repinte). Errar por um dedo aqui não vira defeito: o quadro
+     seguinte já mede. Era 0,86 enquanto o mock ancorava a seta em `top:86%`;
+     hoje o mock a pousa no `--gps-piso`, que em aparelho comum dá ~0,83. */
+  const NAV_ANCORA = 0.83;
 
   const mapaDaNavegacao = () => {
     const palco = naCamada('[data-mapa="gps"]');
@@ -6680,10 +6713,44 @@
   /** a cidade ainda está nascendo no mapa de dirigir? (§ 7a-bis, motivo 'navegar') */
   const cenaDasRuasNoAr = () => !!(cena && cena.casa && cena.casa.nome === 'gps');
 
+  /* 🔴 A CÂMERA PERGUNTA PRA TELA ONDE A SETA ESTÁ (11/08). Ela guardava uma
+     CÓPIA da âncora do desenho (`0.86`, o mesmo número que o mock escrevia em
+     `top:86%`) — dois lugares dizendo a mesma coisa, e o próprio comentário
+     antigo lembrava do dia em que eles discordaram e a câmera passou a mirar um
+     palmo acima da seta. Agora o mock pousa a seta no `--gps-piso`, que é
+     PIXEL contado a partir do rodapé: não existe fração pra copiar, e mesmo que
+     existisse ela mudaria com a altura do aparelho.
+     Então a fração se MEDE: onde o `.gps-puck` está dentro do palco do mapa.
+     Vale porque `.mapa-palco`/`.mapa-vivo` são `inset:0` dentro do `.gps` — o
+     palco e a tela têm a mesma altura, e o puck tem tamanho 0, então o retângulo
+     dele É o ponto do motorista.
+     🔴 SOLTA, NÃO SE MEDE: ali o puck deixou de ser posição de TELA e virou
+     posição de MAPA (`sincronizarPuckSolto` escreve `--px/--py`), então o que
+     se leria seria a projeção do ponto, não a âncora. A câmera nem anda nessa
+     fase; a guarda existe pra ela não voltar torta no `voltarASeguir`. */
+  const ANCORA_MIN = 0.3;
+  const ANCORA_MAX = 0.99;
+  const ancoraDoPuck = (mapa) => {
+    try {
+      const caixa = mapa && mapa.getContainer && mapa.getContainer();
+      const puck = naCamada('.gps-puck');
+      if (!caixa || !puck) return NAV_ANCORA;
+      const gps = puck.closest('.gps');
+      if (gps && gps.classList.contains('solta')) return NAV_ANCORA;
+      const rc = caixa.getBoundingClientRect();
+      if (!rc.height) return NAV_ANCORA;
+      const f = (puck.getBoundingClientRect().top - rc.top) / rc.height;
+      // fora da faixa = o puck não está onde deveria (tela trocando, palco
+      // estacionado off-screen): o número de reserva erra menos que ele.
+      return (f > ANCORA_MIN && f < ANCORA_MAX) ? f : NAV_ANCORA;
+    } catch (_) { return NAV_ANCORA; }
+  };
+
   /** o encaixe do puck é o mesmo nas três fases — por isso mora sozinho aqui */
   const recuoDoPuck = (mapa) => {
     const alto = (mapa.getContainer && mapa.getContainer().clientHeight) || 0;
-    return [0, alto ? alto * NAV_PUCK : 0];
+    // -0,5 porque o `offset` do maplibre parte do CENTRO do palco, não do topo
+    return [0, alto ? alto * (ancoraDoPuck(mapa) - 0.5) : 0];
   };
 
   /* 🔴 O 2D MOSTRA A ROTA INTEIRA — ordem do dono (09/08: "2d = todas rotas"),
@@ -6740,7 +6807,7 @@
         const larg = (caixa && caixa.clientWidth) || 360;
         const alt = (caixa && caixa.clientHeight) || 640;
         // espaço útil: do topo do mapa até a âncora do puck, e meia largura
-        const pxAcima = Math.max(80, alt * NAV_ANCORA - GERAL_MARGEM_TOPO);
+        const pxAcima = Math.max(80, alt * ancoraDoPuck(mapa) - GERAL_MARGEM_TOPO);
         const pxLado = Math.max(80, larg / 2 - GERAL_MARGEM_LADO);
         const porPixel = alcance / Math.min(pxAcima, pxLado);     // metros por pixel
         const noZero = 156543.03392 * Math.cos((eu.lat * Math.PI) / 180);
@@ -6753,7 +6820,20 @@
     }
     if (!poseGeral) return;                     // sem fix ainda: a pose vem no próximo
     const passo = { pitch: 0, bearing: 0, offset: recuoDoPuck(mapa), ...poseGeral };
-    try { mapa.jumpTo(passo); } catch (_) { /* mapa saindo de cena */ }
+    /* 🔴 `easeTo` COM DURAÇÃO ZERO, e não `jumpTo` — porque o `jumpTo` do
+       maplibre NÃO LÊ `offset` (conferido dentro do `vendor/maplibre-gl.js`: o
+       corpo dele só olha zoom, center, elevation, bearing, pitch, roll e
+       padding; `offset` é opção de ANIMAÇÃO, e só `easeTo`/`flyTo` a honram).
+       Esta função vinha calculando o recuo do puck e o mapa jogava o número
+       fora CALADO — medido no g15: o motorista caía no MEIO da tela enquanto a
+       seta continuava desenhada colada no rodapé, 305px abaixo. Nos 400ms de
+       vista de cima a fita verde nascia no meio do vidro, saindo do nada, e a
+       descida escorregava esses 305px de tranco além do zoom e da inclinação —
+       é o "dois efeitos se cruzando" e a "fita descolada da seta" que o dono já
+       tinha reclamado. `duration:0` continua sendo um pulo instantâneo, e é a
+       única forma de o offset valer. Com isto a promessa escrita lá em cima
+       ("o offset é o MESMO nas três fases") passa a ser verdade. */
+    try { mapa.easeTo({ ...passo, duration: 0 }); } catch (_) { /* mapa saindo de cena */ }
   }
 
   /** o movimento: 2,4 s de inclinação, zoom e rumo andando juntos */
@@ -6835,8 +6915,8 @@
   }
 
   /* ---- O DEDO NA CÂMERA ---------------------------------------------------
-     🔴 A SETA PREGADA NO VIDRO. Seguindo, o puck é DESENHO parado a 78% da
-     tela e quem gira é o mundo — é o certo, é o que o V4 promete e é uma seta
+     🔴 A SETA PREGADA NO VIDRO. Seguindo, o puck é DESENHO parado logo acima do
+     rodapé (o `--gps-piso` do mock) e quem gira é o mundo — é o certo, é o que o V4 promete e é uma seta
      só. Com o dedo levando o mapa embora, esse mesmo desenho vira mentira: a
      seta fica no meio da tela apontando pra um lugar onde o motorista não
      está.

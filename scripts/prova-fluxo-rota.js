@@ -277,6 +277,12 @@ const PONTE = ({
           const e = S.entregas.find((x) => x.id === id);
           if (e) e.rotaOrdem = i;
         });
+        /* o servidor REAL deixa a rota PLANNED ao planejar — e é o routeStatus
+           que o `estadoDaRota` lê PRIMEIRO. Sem isto o dublê era mais generoso
+           que o servidor ao contrário: um montar com recorte deixava a agenda
+           de hoje sem ordem e o dock caía em 'montar' (sem o Cancelar), estado
+           que o aparelho de verdade nunca vê depois de planejar. */
+        S.routeStatus = 'PLANNED';
         return R({ stops: ordem.map((id) => ({ id })) });
       }
       if (caminho.indexOf('/logistica/rota/conferir') === 0) return R({ items: [] });
@@ -1186,6 +1192,14 @@ const SO_MEDIR = process.argv.includes('--antes');
   await p.waitForSelector('.pe-montagem [data-acao="montar-agora"], .pe-montagem [data-acao="iniciar-rota"]', { timeout: 8000 });
   await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="montar-agora"], .pe-montagem [data-acao="iniciar-rota"]').click());
   await p.waitForTimeout(2800);
+  /* 🔴 UM STATUS SÓ (dono, 11/08: "quero um status só, mesma tela"): o montar
+     POUSA na tela da rota, onde mora o "Iniciar" único do dock. A leitura do
+     pouso vem ANTES de voltar pra Montagem medir o resto. */
+  const tMr = await espiar();
+  eh('M7a · montar POUSA na rota com o dock "Iniciar" (um status so)',
+    tMr.tela === 'rota' && /Iniciar/i.test(tMr.dock), `tela=${tMr.tela} dock="${tMr.dock}"`);
+  // quem VOLTA à Montagem ainda encontra o dia aceso e o pé de "Iniciar rota"
+  await irPara('montagem', 2200);
   const tM1 = await espiar();
   const postsM = await posts();
   const corposM = await postsDe('/logistica/entregas');
@@ -1195,8 +1209,8 @@ const SO_MEDIR = process.argv.includes('--antes');
     .filter((e) => e.id.indexOf('ag') === 0).every((e) => e.rotaOrdem === null || e.rotaOrdem === undefined));
   const nascidasHoje = await p.evaluate(() => window.__S.entregas
     .filter((e) => e.id.indexOf('e') === 0).map((e) => e.cliente.id));
-  nota(`[M] montar: POSTs=${postsM.join(' , ')} · pe="${tM1.pe}"`);
-  nota(`    portao="${tM1.portao || '(nenhum)'}" · sub="${tM1.portaoSub || '(nenhum)'}"`);
+  nota(`[M] montar: POSTs=${postsM.join(' , ')} · pousou em tela=${tMr.tela} dock="${tMr.dock}" · de volta, pe="${tM1.pe}"`);
+  nota(`    portao no pouso="${tMr.portao || '(nenhum)'}" · sub="${tMr.portaoSub || '(nenhum)'}"`);
   nota(`    entregas criadas hoje=${JSON.stringify(nascidasHoje)} · deliveryIds no planejar=${JSON.stringify(idsPlanejar)}`);
   nota(`    chips=${tM1.chips.map((c) => c[0] + (c[1] ? '*' : '')).join(' ')} · agenda de hoje intocada=${agendaIntocadaM}`);
   /* 🔴 A ASSERÇÃO DE AUSÊNCIA É O CORAÇÃO DESTA CENA. O portão e o `prepare`
@@ -1204,8 +1218,8 @@ const SO_MEDIR = process.argv.includes('--antes');
      produto que uma sessão pode reintroduzir de boa-fé. Peça removida vira
      asserção negativa no portão que a dirigia (mesma lei do A7/A8). */
   eh('M2 · NAO existe mais o aviso "abre sozinha quando o dia chegar"',
-    !/abre sozinha|quando o dia chegar|Rota de .* montada/i.test(`${tM1.portao} ${tM1.portaoSub}`),
-    `${tM1.portao} · ${tM1.portaoSub}`);
+    !/abre sozinha|quando o dia chegar|Rota de .* montada/i.test(`${tMr.portao} ${tMr.portaoSub}`),
+    `${tMr.portao} · ${tMr.portaoSub}`);
   eh('M3 · o celular NAO fala mais com o admin-route/prepare',
     postsM.indexOf('/logistica/admin-route/prepare') < 0, postsM.join(','));
   eh('M4 · a gente do outro dia virou entrega DE HOJE',
@@ -1452,6 +1466,61 @@ const SO_MEDIR = process.argv.includes('--antes');
     postsS.indexOf('/logistica/rota/iniciar') >= 0, postsS.join(','));
   eh('S5 · a rota iniciou de verdade na 2a tentativa e caiu na navegacao',
     tS1.routeStatus === 'ACTIVE' && tS1.tela === 'mapa', `status=${tS1.routeStatus} tela=${tS1.tela}`);
+
+  /* ===================================================================
+     CENA U — CANCELAR LIMPA SEM RASTRO DE CENA (11/08).
+
+     O PISCA visual do cancelar mora na `prova-pisca-cancelar` (é da camada,
+     não do dado). Aqui fica o DADO da mesma cena do dono: montar arma um
+     pedido de cena de "rota nova" (`pedirCena('rota')`, validade 60 s);
+     cancelar mata a rota nesse meio tempo — o pedido NÃO pode sobreviver,
+     senão o próximo repinte toca a cidade nascendo por cima do dia limpo.
+     E a tela termina na rota em estado de montar, limpa, sem desvio.
+     =================================================================== */
+  /* o caminho é o da cena M (dia de OUTRA data): com agenda de HOJE o pé é
+     "Iniciar rota" (o Iniciar monta sozinho, cena G) e o toque cairia no GPS —
+     o Cancelar desta cena mora no dock da ROTA, onde o montar pousa. */
+  await cena({
+    entregas: [{ id: 'ag1', status: 'agendada', rotaOrdem: null, origem: 'recorrente', cliente: CLI_C5 }],
+    agendaHoje: AGENDA_HOJE, mesmaBase: true, custoComoServidor: true,
+  });
+  await irPara('montagem', 2200);
+  await tocarChip(DIA_B);
+  await zerar();
+  await p.waitForSelector('.pe-montagem [data-acao="montar-agora"]', { timeout: 8000 });
+  await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="montar-agora"]').click());
+  await p.waitForTimeout(2800);
+  const pendenteU = await p.evaluate(() => !!(window.HBXCena && window.HBXCena.pendente()));
+  const tUpre = await espiar();
+  nota(`[U] antes do cancelar: tela=${tUpre.tela} · dock="${tUpre.dock}" · status=${tUpre.routeStatus}`);
+  await zerar();
+  /* o achado nao vira crash (licao do M9): toca no que existir e deixa as
+     asserções falarem com a medida na mao */
+  const achouCancelarU = await p.evaluate(() => {
+    const x = document.querySelector('.tmx-sat [data-acao="cancelar-rota"]');
+    if (x) { x.click(); return true; }
+    return false;
+  });
+  await p.waitForTimeout(500);
+  const tU0 = await espiar();
+  eh('U1 · o Cancelar abre a confirmacao da casa',
+    achouCancelarU && /Tem certeza que deseja cancelar/i.test(tU0.portao),
+    `achou=${achouCancelarU} portao="${tU0.portao}" tela=${tU0.tela}`);
+  await p.evaluate(() => {
+    const x = document.querySelector('.portao-wrap .principal');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(2800);
+  const tU1 = await espiar();
+  const postsU = await posts();
+  const pendenteU1 = await p.evaluate(() => !!(window.HBXCena && window.HBXCena.pendente()));
+  nota(`[U] cancelar: POSTs=${postsU.join(' , ')} · tela=${tU1.tela} · dock="${tU1.dock}"`);
+  nota(`    pedido de cena: apos montar=${pendenteU} · apos cancelar=${pendenteU1}`);
+  eh('U2 · confirmar chama o limpar-dia', postsU.indexOf('/logistica/rota/limpar-dia') >= 0, postsU.join(','));
+  eh('U3 · a tela termina na ROTA, limpa, no estado de montar',
+    tU1.tela === 'rota' && /Montar rota/i.test(tU1.dock), `tela=${tU1.tela} dock="${tU1.dock}"`);
+  eh('U4 · o pedido de cena NAO sobrevive ao cancelar', pendenteU1 === false,
+    `apos montar=${pendenteU} apos cancelar=${pendenteU1}`);
 
   await b.close();
   console.log('\n=== MEDIDAS ===');

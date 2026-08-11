@@ -517,7 +517,22 @@
       const montando = (v) => {
         try { window.usarDados('rota', { montando: v }); } catch (_) { /* sem seam */ }
       };
+      /* a ETAPA do véu de montar (11/08 — dono: "coloque um carregando aí,
+         altíssima qualidade"): o texto é o passo REAL do trabalho, não teatro
+         de relógio. Escreve DIRETO no nó (regra do `data-vivo` do velocímetro
+         — o que anda rápido não repinta a tela) e espelha no seam sem
+         repintar, pro repinte que chegar no meio renascer com a etapa certa. */
+      const etapa = (pct, texto) => {
+        try {
+          if (typeof DADOS !== 'undefined' && DADOS.rota) Object.assign(DADOS.rota, { etapaMontar: texto, etapaMontarPct: pct });
+          const rotulo = naCamada('[data-etapa-montar]');
+          if (rotulo && rotulo.textContent !== texto) rotulo.textContent = texto;
+          const barra = naCamada('[data-barra-montar]');
+          if (barra) barra.style.width = pct + '%';
+        } catch (_) { /* o véu é enfeite; a rota não depende dele */ }
+      };
       montando(1);
+      etapa(8, 'Organizando as paradas…');
       const devolverEstado = () => montando(0);
 
       /* 🔴 A ROTA SAI COM O QUE ESTÁ NA TELA — o RECORTE (`deliveryIds`) é a
@@ -536,6 +551,7 @@
         // ficou de fora de propósito — trazê-la de volta é encher a rota com
         // gente que a tela não está mostrando.
         if (montarDia !== -1 && !outroDia) await materializarDia();
+        etapa(38, 'Calculando o melhor trajeto…');
         plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...recorte, ...origemGps() });
       } catch (e) { devolverEstado(); return avisoErro(e, { repetir: () => montarRota() }); }
       const paradas = Array.isArray(plano && plano.stops) ? plano.stops
@@ -547,6 +563,7 @@
       // veio de outra data (é a lei do chip — ver `diaDeOutroDia`).
       let conf = null;
       try {
+        etapa(66, 'Conferindo os endereços…');
         conf = await window.API.post('/logistica/rota/conferir', { date: hojeISO(), ...origemGps() });
       } catch (_) { /* aviso é enfeite, não portão */ }
       const comAviso = conf && Array.isArray(conf.items)
@@ -564,6 +581,7 @@
       // o `carregarRota` volta no catch antes de escrever no seam, e a tela de
       // montagem abria com as 6 paradas do desenho e "R$ 336,00" — dinheiro de
       // exemplo numa tela de decisão. Falhou, avisa e fica onde está.
+      etapa(88, 'Trazendo a rota…');
       if (!(await carregarRota())) {
         devolverEstado();
         return avisoErro(new Error('Não consegui montar agora. Tente de novo.'));
@@ -580,6 +598,16 @@
          tela é cena que ninguém vê. */
       pedirCena('rota');
       devolverEstado();          // o "Montando…" sai com o dado já na tela
+      /* 🔴 UM STATUS SÓ, NA TELA DO MAPA (dono, 11/08: "esse iniciar rota eu
+         quero aqui [no mapa], quero um status só, mesma tela") — reverte o
+         "Não navega" de 10/08, por ordem dele. Montar POUSA na Rota: a rota
+         verde no mapa com o "Iniciar" único, e a cena das ruas pedida acima
+         toca no pouso. Só navega quem AINDA está na Montagem — o cabeçalho e
+         as abas ficam vivos por cima do véu, e o fim do montar não teleporta
+         quem já foi pra outra tela. Os portões abaixo vêm DEPOIS do `ir` de
+         propósito: troca de tela fecha portão; nascendo na camada nova eles
+         sobrevivem à transição e os repintes os remontam. */
+      if (telaAtual() === 'montagem' && typeof window.ir === 'function') window.ir('rota');
       /* Quem não conseguiu virar parada é dito por NOME, e antes do semáforo de
          endereço: "o Alfredo não entrou" vale mais pra quem vai sair pra rua do
          que "2 endereços com aviso". Nunca "não deu certo" — o resto entrou. */
@@ -596,12 +624,10 @@
       if (comAviso && typeof window.portao === 'function') {
         window.portao({
           tom: 'alerta', ico: 'gps', titulo: `${comAviso} ${comAviso === 1 ? 'endereço com aviso' : 'endereços com aviso'}`,
-          sub: 'Dá pra sair assim, mas confira antes.', acoes: [['Ver a rota', 'principal']],
+          // "Entendi", não "Ver a rota": desde 11/08 o montar já pousa NELA
+          sub: 'Dá pra sair assim, mas confira antes.', acoes: [['Entendi', 'principal']],
         });
       }
-      // Não navega: o motorista JÁ está na montagem, e ela acabou de virar a
-      // rota de verdade (o `carregarRota` acima escreveu `pronta:1`, então o
-      // botão do pé agora é "Iniciar rota").
     });
   }
 
@@ -833,6 +859,10 @@
      tela depois do cancelar é a mesma mentira que esta seção existe pra matar. */
   function esquecerRotaCarregada() {
     esquecerTraco();
+    // pedido de cena de "rota nova" não sobrevive à rota: cancelada a rota,
+    // a cena dela morre junto (senão o próximo repinte a tocava por cima do
+    // dia limpo — parente do pisca do cancelar)
+    esquecerCenaPedida();
     previaSeq += 1;
     previaCrua = null;
     previaDoDedo = false;
@@ -862,121 +892,3 @@
   async function cancelarRota() {
     confirmarLimparDia(() => { if (typeof window.ir === 'function') window.ir('rota'); });
   }
-
-  /* ------------------------------------------------------------------------
-     6b. O DEDO QUE MEXE NA ROTA — reordenar e retirar, gravados DE VERDADE.
-
-     Os dois gestos da lista (arrastar pelo punho, deslizar pra retirar) eram
-     só DOM: o `renumerar()` reescrevia os números na tela, ninguém gravava, e
-     o primeiro repinte devolvia a ordem do servidor — provado reiniciando o
-     app, a ordem arrastada sumia. Gesto que promete e não cumpre é pior que
-     gesto que não existe: o motorista sai pra rua confiando numa sequência
-     que só existia na tela dele.
-
-     A casca ANUNCIA (`hbx:ordem` / `hbx:retirar`), esta seção GRAVA. Quem
-     assume chama `preventDefault()` — é o contrato que faz a casca parar de
-     mexer no DOM e esperar o dado real. Sem ponte (mock no navegador)
-     ninguém assume e a maquete continua se virando sozinha.
-     ------------------------------------------------------------------------ */
-
-  /* Uma fila SÉRIE pros dois gestos: eles mexem na MESMA rota, e dois toques
-     rápidos numa rede ruim mandariam duas ordens concorrentes — a última a
-     chegar venceria por acaso. Enfileirando, a última ordem do DEDO vence,
-     que é a que o motorista está vendo. (O `comTrava` global não serve aqui:
-     ele DESCARTA o segundo toque calado, e gesto descartado em silêncio é a
-     mesma mentira que esta seção existe pra matar.) */
-  let filaRota = Promise.resolve();
-  const naFila = (fn) => {
-    filaRota = filaRota.then(fn, fn);
-    return filaRota;
-  };
-
-  /* 🔴 O DEDO MANDOU NA PRÉVIA — e agora o DADO sabe na hora. Antes disto o
-     arrasto da montagem vivia só no DOM até o "Montar rota" ler a tela, e
-     qualquer repinte no meio o desfazia calado (o fix de GPS que chega da
-     garagem é o caso real). Nada vai ao servidor: a entrega ainda não existe.
-     Confere tudo antes de aplicar — uma lista de posições torta reescreveria a
-     prévia com buraco, e prévia com buraco vira rota com cliente faltando. */
-  function reordenarPrevia(idx) {
-    if (!Array.isArray(idx) || idx.length < 2) return;
-    if (!previaCrua || previaCrua.length !== idx.length) return;
-    if (idx.some((n) => !Number.isInteger(n) || n < 0 || n >= previaCrua.length)) return;
-    if (new Set(idx).size !== idx.length) return;
-    if (!idx.some((n, i) => n !== i)) return;      // soltou no mesmo lugar
-    previaCrua = idx.map((n) => previaCrua[n]);
-    previaDoDedo = true;
-    publicarModos();     // acende o ponto de "editado" no espaço que está aceso
-    publicarPrevia();
-  }
-
-  /* 🔴 ARRASTOU = "MINHA ORDEM". `ordemManual` é o contrato que já existe no
-     servidor (o mesmo que o desktop manda ao arrastar no Gerenciador): os ids
-     listados recebem `rotaOrdem` NA ORDEM DADA e o motor pula o NN+2-opt —
-     a ordem do motorista não é uma sugestão que o otimizador possa desfazer.
-     Sem `deliveryIds`: quem decide o CONJUNTO continua sendo o servidor (as
-     abertas do dia); eu só digo a SEQUÊNCIA. Id que ele não conhece (parada
-     já entregue, que viaja na lista) é ignorado — medido no teste do
-     `planRouteManual`.
-     💰 Dinheiro: reordenar não cria parada. O snapshot da rota é append-only
-     e o bloco cobrável tem claim ÚNICO por (empresa+motorista+data+bloco),
-     então re-planejar o mesmo conjunto não debita nem reconta — inclusive com
-     a rota ACTIVE, que é justamente quando o motorista arrasta. */
-  document.addEventListener('hbx:ordem', (ev) => {
-    if (!temPonte()) return;
-    // A MONTAGEM fala por POSIÇÃO: lá a entrega ainda não existe, então não há
-    // id pra mandar ao servidor — e não há servidor pra chamar. Sai antes.
-    if (ev.detail && Array.isArray(ev.detail.previa)) {
-      ev.preventDefault();
-      return reordenarPrevia(ev.detail.previa.map(Number));
-    }
-    const ids = ev.detail && Array.isArray(ev.detail.ids) ? ev.detail.ids.map(String).filter(Boolean) : [];
-    if (ids.length < 2) return;
-    ev.preventDefault();          // eu assumo: a casca não mexe mais na lista
-    gestoSujouATela += 1;         // o DOM saiu do que o dado diz: o repinte vale
-    naFila(async () => {
-      try {
-        // A origem entra aqui também: `planRouteManual` não reordena nada (a
-        // ordem é a do dedo), mas é ela que dá a PERNA real da 1ª parada — sem
-        // origem o trecho até o primeiro cliente sai zerado na tela.
-        await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ordemManual: ids, ...origemGps() });
-      } catch (e) {
-        // A tela está mostrando a ordem NOVA e o servidor ficou com a velha.
-        // Repintar primeiro DESFAZ a mentira; o aviso vem depois, senão o
-        // motorista fecha o alerta e continua olhando pra ordem que não é.
-        await carregarRota();
-        return avisoErro(e);
-      }
-      await carregarRota();
-    });
-  });
-
-  /* 🔴 RETIRAR É CANCELAR — o app tem UM verbo destrutivo só (lei do dono,
-     29/07). Não nasce aqui um segundo caminho de exclusão: a parada retirada
-     é uma entrega DECIDIDA (ele resolveu não passar lá hoje), e é o
-     `entregas/:id/cancelar` que fecha o desfecho, anda o cursor da agenda e
-     cancela a cobrança dela — o cliente volta na recorrência dele, intacta.
-     O motivo viaja escrito: no extrato fica "Cancelada: retirada da rota pelo
-     motorista", que é o que o escritório precisa ler depois pra saber que
-     ninguém bateu na porta. */
-  document.addEventListener('hbx:retirar', (ev) => {
-    if (!temPonte()) return;
-    const id = String((ev.detail && ev.detail.id) || '');
-    if (!id) return;
-    ev.preventDefault();
-    gestoSujouATela += 1;         // mesma régua do arrastar: repinte garantido
-    naFila(async () => {
-      try {
-        await window.API.post(`/logistica/entregas/${encodeURIComponent(id)}/cancelar`, {
-          motivo: 'retirada da rota pelo motorista',
-        });
-      } catch (e) {
-        // Rede caída NÃO apaga parada: a casca não removeu o cartão (nós
-        // assumimos o gesto), então basta repintar pra tela voltar a ser o
-        // que o servidor tem — a parada continua lá, viva.
-        await carregarRota();
-        return avisoErro(e);
-      }
-      await carregarRota();
-    });
-  });
-

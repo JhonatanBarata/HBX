@@ -62,6 +62,20 @@ body{margin:0;display:block;overflow:hidden;background:#06090f}
   const telas = await agora.p.evaluate(() => ORDEM);
   const telasBase = await base.p.evaluate(() => ORDEM);
 
+  /* 🔴 AQUECIMENTO — a PRIMEIRA medição do loop era um FALSO POSITIVO (11/08).
+     Provado do jeito que não deixa dúvida: rodando este portão com o MESMO
+     arquivo dos dois lados ele acusava `escuro/entrada`, sempre. O primeiro
+     screenshot depois do `addStyleTag` sai com a página ainda assentando
+     (fonte, compositor), e quem paga é a primeira tela da ORDEM — e ela é
+     sempre a mesma, então o alarme parecia um defeito de verdade naquela tela.
+     Portão que reprova o inocente é portão que se aprende a ignorar: aqui cada
+     lado tira um retrato de descarte antes de a régua começar a valer. */
+  for (const lado of [agora, base]) {
+    await lado.p.evaluate(([t]) => { anterior = atual; atual = t; pintar(false); }, [telas[0]]);
+    await lado.p.waitForTimeout(120);
+    await lado.p.locator('.app').screenshot();
+  }
+
   let iguais = 0; const diferentes = [];
   for (const modo of MODOS) {
     for (const k of telas) {

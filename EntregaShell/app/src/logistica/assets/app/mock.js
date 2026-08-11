@@ -476,6 +476,10 @@ const DADOS={
        Mora na seção `rota` porque quem monta é a rota, e as duas telas leem
        daqui — uma marca só, um repinte só. */
     montando:0,
+    /* a ETAPA do véu de montar: a ponte escreve no NÓ (`data-etapa-montar`,
+       regra do `data-vivo` — o que muda rápido não repinta) e espelha aqui,
+       pro repinte que chegar no meio renascer já com a etapa certa. */
+    etapaMontar:'', etapaMontarPct:0,
   },
   /* L3b — AS EMPRESAS DO CORREDOR (prospector), na tela de navegação.
      `chip` é COPY do desenho; `empresas` é DADO e vem do servidor.
@@ -1579,7 +1583,7 @@ function telaGps(chegou){
          template literal e a crase o fecharia — foi o que eu quase fiz agora,
          escrevendo o nome do campo entre crases.) -->
     <div class="gps-rodape">
-      ${rodape?`<div class="parada">${ic('route',14)} ${rodape}</div>`:''}
+      ${rodape?`<div class="parada">${ic('route',14)} <span class="txt">${rodape}</span></div>`:''}
       <div class="linha" style="justify-content:flex-end">
         ${g.chegouId?`<button class="act go full" style="justify-content:center"
           data-acao="abrir-parada" data-parada="${g.chegouId}">${ic('check',20)}<b>${g.chegouAcao||''}</b></button>`:''}
@@ -1618,7 +1622,8 @@ function telaGps(chegou){
          comentário mora num template literal e a crase o fecharia.) -->
     <div class="gps-veu"></div>
 
-    <!-- eu: fixo a 68% da altura, no centro. A tela é a rua À FRENTE. -->
+    <!-- eu: no centro da largura, com a cauda pousada no --gps-piso (o mesmo
+         chão do velocímetro e dos botões). A tela é a rua À FRENTE. -->
     <div class="gps-puck">
       <!-- o radar pulsa porque há o que varrer: sem empresa no corredor ele não
            existe, senão a tela finge procurar o que não está lá. -->
@@ -1638,12 +1643,23 @@ function telaGps(chegou){
       <svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3.5 L16 13 L12 10.6 L8 13 Z" fill="#ff8b85"/></svg><span data-vivo="rumo">${g.rumo}</span>
     </div>`:''}
     ${g.velocidade?`<div class="gps-vel"><b data-vivo="velocidade">${g.velocidade}</b>${g.velocidadeUnidade?`<small>${g.velocidadeUnidade}</small>`:''}</div>`:''}
-    <!-- Os dois botões da beirada: até 08/08 eles não tinham GANCHO nenhum e o
+    <!-- Os botões da beirada: até 08/08 eles não tinham GANCHO nenhum e o
          toque morria no vidro. A voz é a do APARELHO (a chave voz do
          soundPrefs), então o estado "mudo" chega pelo seam como qualquer outro
          dado da tela. (Sem CRASE aqui dentro: este comentário mora num
-         template literal e a crase o fecharia — foi o que eu fiz agora.) -->
+         template literal e a crase o fecharia — foi o que eu fiz agora.)
+
+         🔴 O CHAT ENTROU AQUI EM 11/08 (ordem do dono: "botoes envolta
+         friendly - desativar som, abrir chat"). Dirigindo, a barra de navegação
+         não está na tela: o balão do cabeçalho, que é por onde a Central se
+         responde no resto do app, some junto — e quem está na rua é justamente
+         quem mais precisa dele. Ele usa data-ir, o MESMO verbo do balão: ganha
+         o roteador de graça e, se o admin desligar o módulo Chat, o botão sai
+         sozinho na poda em vez de virar porta pra parede. SEM o selo de
+         não-lidas do balão: ele é estrutura que nasce e some, e nesta tela
+         cada nascimento desses derruba a camada inteira do mapa. -->
     <div class="gps-lado">
+      <button data-ir="chat" aria-label="Chat com a Central">${ic('chat',18)}</button>
       <button data-acao="gps-voz" class="${g.vozMuda?'mudo':''}"
         aria-label="${g.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',18)}</button>
       <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',18)}</button>
@@ -1657,7 +1673,7 @@ function telaGps(chegou){
          mora no seam, em DADOS.gps). (Sem CRASE aqui dentro: este comentário
          mora num template literal.) -->
     <div class="gps-rodape">
-      ${rodape?`<div class="parada">${ic('route',14)} ${rodape}</div>`:''}
+      ${rodape?`<div class="parada">${ic('route',14)} <span class="txt">${rodape}</span></div>`:''}
       <div class="linha">
         ${num(g.chegada,g.chegadaRotulo,1,'chegada')}
         ${num(g.restante,g.restanteRotulo,0,'restante')}
@@ -2051,6 +2067,17 @@ ${hdr({voltar:'rota'})}
   </div>
   ${hist}`)}
 </div>
+${/* o VÉU DE MONTAR (ver a folha): teatro da espera com a etapa REAL. O texto
+     e a barra nascem do seam e a ponte segue escrevendo DIRETO nos nós
+     `data-etapa-montar`/`data-barra-montar` enquanto o servidor trabalha. */''}
+${DADOS.rota.montando?`<div class="veu-montar">
+  <div class="vm">
+    <span class="vm-glifo">${ic('route',26)}</span>
+    <b data-etapa-montar>${DADOS.rota.etapaMontar||'Organizando as paradas…'}</b>
+    <small>Montando a rota do dia</small>
+    <span class="vm-barra"><i data-barra-montar style="width:${DADOS.rota.etapaMontarPct||8}%"></i></span>
+  </div>
+</div>`:''}
 <div class="tmx-dock">${pe}</div>${nav('rota')}`;}};
 
 /* 9 — ROTAS SALVAS -------------------------------------------------------- */
@@ -3421,12 +3448,26 @@ function pintar(animar,dir){
      repiscava" aos 950 ms. Isto é a mesma cura, para TODA tela.
      Dentro da janela nada muda — repinte no meio da entrada continua herdando,
      senão volta o pisca que a herança existe pra matar. E `cheio`/`abertura`
-     herdam SEMPRE: são cenas com camada de saída no ar, e o caminho comum
-     (`innerHTML=''`) cortaria o show no meio. */
+     herdam ENQUANTO HOUVER CAMADA DE SAÍDA NO AR: são cenas de duas camadas, e
+     o caminho comum (`innerHTML=''`) cortaria o show no meio.
+     🔴 ENQUANTO, não SEMPRE (11/08 — dono: "clico em cancelar e a tela pisca
+     1x no navegar"). O bypass sem janela deixava a camada que VOLTOU do GPS
+     (`entra cheio voltando` — marcas que só saem na PRÓXIMA troca) herdar pra
+     sempre: o 1º repinte do cancelar vestia as marcas na camada nova, o
+     carimbo de relógio já não valia (t > teto), e o `mvCheioVolta` — o gesto
+     de sair da navegação, 520 ms — tocava do quadro ZERO na cara de quem
+     cancelou. MEDIDO na `prova-pisca-cancelar`: mvCheioVolta com 150 ms de
+     vida numa camada parada havia segundos, e de novo a cada escrita.
+     Morta a saída (o `limpezaTimer` a remove aos 580 ms; a janela da entrada
+     vale 900), não existe show pra não cortar — a camada nova nasce PARADA,
+     sem as marcas, que é a cura nº1 aplicada também aqui. Vale igual pro
+     pós-abertura: `abertura` fica na camada pra sempre (a remoção da troca
+     não a tira) e todo repinte tardio da 1ª tela reencenava `mvScrim`+`trItem`. */
   const entradaViva = antiga
     && (performance.now()-entradaEm) < (antiga.classList.contains('cena')?CENA_CHEIA:ENTRADA_COMUM);
+  const comSaidaViva = camadas.some(c=>c.classList.contains('sai'));
   const herdando = !animar && antiga && antiga.classList.contains('entra')
-    && (entradaViva || antiga.classList.contains('cheio') || antiga.classList.contains('abertura'));
+    && (entradaViva || ((antiga.classList.contains('cheio') || antiga.classList.contains('abertura')) && comSaidaViva));
   // A varredura de zumbi e o cancelamento do relógio são da TROCA de tela. No
   // repinte não: a camada que SAI ainda está no ar (na abertura ela é o show
   // inteiro — é o logo voando pro cabeçalho) e o relógio dela segue valendo.
