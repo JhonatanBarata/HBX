@@ -122,3 +122,13 @@ tests/e2e/clip-report.txt
 
 # Acumulado da corrida do fiscal de corte (ver scripts/clip.mjs)
 tests/e2e/clip-medido.jsonl
+
+# Residuo de teste na RAIZ. O `git add -A` do deploy-vps.js varria isto pra dentro do repo
+# a cada `npm run publish` — foi assim que 7 despejos de tela do adb, um APK de 1,4 MB e um
+# diff solto viraram arquivo versionado (11/08/2026). Ancorado na raiz de proposito.
+/phone*.png
+/retry-*.png
+/window*.xml
+/*.apk
+/diff-*.txt
+/outputs/
