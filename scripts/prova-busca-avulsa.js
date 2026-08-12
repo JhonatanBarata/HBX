@@ -43,6 +43,8 @@ const B = require(DIST);
 const ok = [];
 const falhou = [];
 const eh = (nome, cond, detalhe) => ((cond ? ok : falhou).push(nome + (cond || !detalhe ? '' : `  [${detalhe}]`)));
+/** sem acento, minúsculo — o banco devolve "Márcia" e regex ASCII não vê acento. */
+const sem = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 // ── SQL da peça pura → texto executável (params viram literais) ────────────────
 function lit(v) {
@@ -95,39 +97,47 @@ function msQuente(db, sql, prefixo = '') {
   // Cena do dono: digitou errado e a Márcia aparece NA FRENTE (top 3), não
   // enterrada — foi exatamente o defeito medido no 1º red-run (word_similarity
   // empatava meia lista em 0.2857 e o desempate alfabético cortava a Márcia).
-  const achouMarcia = fuzzy.slice(0, 3).some((r) => /marcia/.test(String(r[1] || '').toLowerCase()));
+  const achouMarcia = fuzzy.slice(0, 3).some((r) => /marcia/.test(sem(r[1])));
   eh('1. "Mracia" acha Márcia no top 3 (fuzzy, limiar 0.25)', achouMarcia,
     `top3=${fuzzy.slice(0, 3).map((r) => r[1]).join(',')}`);
 
-  // ── 2. PROXIMIDADE: mesmo nome, o mais perto vem primeiro ───────────────────
-  // Dois clientes com o mesmo token no nome, a ≥800 m um do outro; GPS na porta
-  // de UM deles → ele tem que vir ANTES do outro.
-  const pares = linhas('hbx_prod', `
-    SELECT a.id, b.id,
-           sqrt(((a.lat-b.lat)*111320)^2 + ((a.lng-b.lng)*102920)^2) AS d,
-           a.lat, a.lng
-      FROM "CustomerProfile" a
-      JOIN "CustomerProfile" b
-        ON b."companyId" = a."companyId" AND b.id <> a.id
-       AND split_part(a."searchName", ' ', 1) = split_part(b."searchName", ' ', 1)
-     WHERE a."companyId" = ${COMPANY_ID} AND a."isCliente" AND b."isCliente"
-       AND a.lat IS NOT NULL AND b.lat IS NOT NULL
-       AND length(split_part(a."searchName", ' ', 1)) >= 4
-       AND sqrt(((a.lat-b.lat)*111320)^2 + ((a.lng-b.lng)*102920)^2) >= 800
-     ORDER BY d ASC LIMIT 1`);
-  if (!pares.length) {
-    falhou.push('2. proximidade: tenant sem par de clientes de mesmo nome a 800m+ (dado insuficiente)');
+  // ── 2. PROXIMIDADE E FÓRMULA VIVA ───────────────────────────────────────────
+  // 2a (clientes): GPS na porta de um cliente real; ele volta com distância ~0
+  // e o score de CADA linha devolvida é recomputado em JS — prova que o ranking
+  // é DE FATO similaridade × proximidade × recência, não um ORDER BY qualquer.
+  // (1º rascunho desta prova cobrava "mesmo primeiro nome ⇒ mais perto na
+  //  frente", e reprovava CERTO: 'levi' exato tem similaridade maior que
+  //  'levi + sobrenome' — nome MAIS parecido pode vencer a distância. A régua
+  //  do empate de nome idêntico é a 2b, nos comércios, onde o empate existe.)
+  const alvoProx = linhas('hbx_prod', `
+    SELECT id, split_part("searchName", ' ', 1) AS token, lat, lng
+      FROM "CustomerProfile"
+     WHERE "companyId" = ${COMPANY_ID} AND "isCliente" AND lat IS NOT NULL
+       AND length(split_part("searchName", ' ', 1)) >= 4
+     ORDER BY id LIMIT 1`);
+  if (!alvoProx.length) {
+    falhou.push('2a. proximidade: tenant sem cliente com pino (dado insuficiente)');
   } else {
-    const [idPerto, idLonge, dPar, aLat, aLng] = pares[0];
-    const token = linhas('hbx_prod', `SELECT split_part("searchName",' ',1) FROM "CustomerProfile" WHERE id = ${lit(idPerto)}`)[0][0];
+    const [idAlvo, token, aLat, aLng] = alvoProx[0];
     const prox = linhas('hbx_prod', sqlPronto(B.sqlBuscaClientes({
       companyId: COMPANY_ID, q: token, lat: Number(aLat), lng: Number(aLng),
     })));
-    const posPerto = prox.findIndex((r) => r[0] === idPerto);
-    const posLonge = prox.findIndex((r) => r[0] === idLonge);
-    eh(`2. proximidade: "${token}" na porta de um deles — o de ${Math.round(Number(dPar))}m atrás fica atrás`,
-      posPerto !== -1 && (posLonge === -1 || posPerto < posLonge),
-      `perto=#${posPerto} longe=#${posLonge}`);
+    // colunas: id0 name1 endereco2 numero3 bairro4 cidade5 uf6 cep7 lat8 lng9
+    //          quando10 sim11 dist_m12 score13
+    const doAlvo = prox.find((r) => r[0] === idAlvo);
+    eh(`2a. "${token}" com GPS na porta: o dono da porta volta com distância ~0`,
+      !!doAlvo && Number(doAlvo[12]) < 30, doAlvo ? `${doAlvo[12]}m` : 'ausente');
+    const agora = Date.now();
+    const formulaViva = prox.every((r) => {
+      const sim = Number(r[11]);
+      const dist = r[12] === '' ? null : Number(r[12]);
+      const quando = r[10] === '' ? null : Date.parse(r[10]);
+      const fProx = dist === null ? 1 : Math.max(0.25, 1 / (1 + dist / 2000));
+      const dias = quando === null ? null : (agora - quando) / 86400000;
+      const fRec = dias === null ? 1 : dias <= 30 ? 1.25 : dias <= 90 ? 1.1 : 1;
+      return Math.abs(sim * fProx * fRec - Number(r[13])) < 1e-4;
+    });
+    eh('2a. o score devolvido É similaridade × proximidade × recência', formulaViva && prox.length > 0, `linhas=${prox.length}`);
   }
 
   // ── 3. RUA: "rua 8" no município da posição, com pino e CEP ─────────────────
@@ -155,21 +165,33 @@ function msQuente(db, sql, prefixo = '') {
   const cidade = cidRows.length ? cidRows[0][1] : null;
   eh('4a. município → cidade/UF pro escopo da RFB', !!cidade && !!uf, `${cidade}/${uf}`);
   const prefixoTrgm = `SET pg_trgm.word_similarity_threshold = ${B.FUZZY_COMERCIO_MIN};\n`;
+  let comercios = [];
   if (cidade && uf) {
-    // colunas: cnpj(0) nome(1) endereco(2) cidade(3) uf(4) cnae(5)
-    //          cnaeDescricao(6) sim(7) lat(8) lng(9) nivelGeo(10) cep(11)
-    //          dist_m(12) score(13)
+    // colunas: cnpj(0) sim(1) nome(2) endereco(3) cidade(4) uf(5) cnae(6)
+    //          cnaeDescricao(7) lat(8) lng(9) nivelGeo(10) cep(11) dist_m(12) score(13)
     const com = linhas('hbx_prod', sqlPronto(B.sqlBuscaComerciosLike({ cityNorm: cidade, uf, q: 'mercado', lat: gps.lat, lng: gps.lng })));
+    comercios = com;
     eh('4b. "mercado" devolve comércios da cidade (caminho rápido)', com.length > 0, `linhas=${com.length}`);
-    eh('4c. todos do escopo (nenhum de outra cidade)', com.every((r) => (r[3] || '').toLowerCase().includes(cidade.split(' ')[0])),
-      com.map((r) => r[3]).join(','));
+    eh('4c. todos do escopo (nenhum de outra cidade)', com.every((r) => (r[4] || '').toLowerCase().includes(cidade.split(' ')[0])),
+      com.map((r) => r[4]).join(','));
     const comPino = com.filter((r) => r[12] !== '');
     eh('4d. distância presente em quem tem pino confiável', comPino.length > 0, `${comPino.length}/${com.length}`);
     eh('4e. lista ordenada por score (nome × distância)', com.every((r, i, a) => i === 0 || Number(a[i - 1][13]) >= Number(r[13]) - 1e-9), 'score decrescente');
+    // 2b. A CENA DO "BAR DO ZÉ": nome EMPATADO (mesmo sim), o mais perto vem
+    // primeiro — aqui o empate existe de verdade (todo "mercado X" tem sim=1).
+    const simTopo = Number(com[0] ? com[0][1] : 0);
+    const empatados = com.filter((r) => Math.abs(Number(r[1]) - simTopo) < 1e-6 && r[12] !== '');
+    if (empatados.length < 2) {
+      falhou.push('2b. empate de nome: menos de 2 comércios com sim igual e pino (dado insuficiente)');
+    } else {
+      eh(`2b. nome empatado (${empatados.length} com sim=${simTopo.toFixed(2)}): o mais perto vem primeiro`,
+        empatados.every((r, i, a) => i === 0 || Number(a[i - 1][12]) <= Number(r[12]) + 1e-6),
+        empatados.map((r) => `${Math.round(r[12])}m`).join(' → '));
+    }
     // O TYPO cai no fallback fuzzy e AINDA acha (é o caminho que o serviço só
     // paga quando o LIKE vem vazio — mesmo SET do SET LOCAL da transação).
     const typo = linhas('hbx_prod', prefixoTrgm + sqlPronto(B.sqlBuscaComerciosFuzzy({ cityNorm: cidade, uf, q: 'mercdo', lat: gps.lat, lng: gps.lng })));
-    eh('4f. typo "mercdo" acha mercado pelo fallback fuzzy', typo.some((r) => /merc/.test(String(r[1] || '').toLowerCase())), `linhas=${typo.length}`);
+    eh('4f. typo "mercdo" acha mercado pelo fallback fuzzy', typo.some((r) => /merc/.test(sem(r[2]))), `linhas=${typo.length}`);
   }
 
   // ── 5. O PASSO DO NÚMERO (busca/porta) ──────────────────────────────────────

@@ -447,7 +447,8 @@ DROP INDEX IF EXISTS "CnpjPublicCompany_normalizedCity_cnae_idx";
 DROP INDEX IF EXISTS "CnpjPublicCompany_state_cnae_idx";
 DROP INDEX IF EXISTS "CnpjPublicCompany_phoneDigits_idx";
 DROP INDEX IF EXISTS "CnpjPublicCompany_searchText_trgm_idx";
-DROP INDEX IF EXISTS "CnpjPublicCompany_cnaeSecundarias_gin_idx";`;
+DROP INDEX IF EXISTS "CnpjPublicCompany_cnaeSecundarias_gin_idx";
+DROP INDEX IF EXISTS "CnpjPublicCompany_buscaSpCover_idx";`;
 
 // Telefone: ddd1+telefone1 só dígitos; celular legado 10-dig (3º dígito 6-9) ganha o 9 da Anatel
 // (mesma regra de normalizeLegacyBrCellphone do backend). `pd.d`/`pd2.d` vêm do LATERAL no FROM.
@@ -748,6 +749,16 @@ CREATE INDEX IF NOT EXISTS "CnpjPublicCnae_descricao_trgm_idx"
 -- de searchText acima; migration espelho em prisma/migrations/20260805160000_cnae_secundaria_gin.
 CREATE INDEX IF NOT EXISTS "CnpjPublicCompany_cnaeSecundarias_gin_idx"
   ON "CnpjPublicCompany" USING gin (string_to_array(btrim("cnaeSecundarias"), ',') array_ops);
+-- BUSCA DA PARADA AVULSA (12/08, PR12082026): indice COBRIDOR parcial de SP para o
+-- grupo "comercios" de /logistica/busca. A cidade tinha ~1 linha por pagina no heap
+-- de 61 GB (Heap Blocks: 31.765 medidos em Rio Claro = ~140ms so de heap); com o
+-- index-only scan a fase de nome nao toca o heap. Parcial em SP de proposito
+-- (CnpjGeo so cobre SP; outra UF degrada pro caminho do heap e segue funcionando).
+-- Mesma convencao do trgm acima: fora do Prisma, recriado aqui a cada carga;
+-- migration espelho em prisma/migrations/20260812150000_busca_avulsa_trgm_searchname.
+CREATE INDEX IF NOT EXISTS "CnpjPublicCompany_buscaSpCover_idx"
+  ON "CnpjPublicCompany" ("normalizedCity") INCLUDE ("situacao", "searchText", "cnpj")
+  WHERE "state" = 'SP';
 -- ITEM 5 (05/08): GRUPO ECONOMICO — busca reversa socio -> empresas. TRUNCATE preserva indice,
 -- entao em producao estes dois sao no-op; existem aqui pra ambiente novo/reset nao ficar sem.
 -- (nome, documento) porque o CPF do dump vem MASCARADO: 6 digitos = 1M valores possiveis, a base

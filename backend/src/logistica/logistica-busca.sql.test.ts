@@ -74,15 +74,23 @@ test('sqlBuscaComercios: escopo por cidade+UF SEMPRE, nos DOIS caminhos', () => 
   const argumentos = { cityNorm: 'rio claro', uf: 'SP', q: 'Bar do Zé', lat: null, lng: null };
   for (const p of [sqlBuscaComerciosLike(argumentos), sqlBuscaComerciosFuzzy(argumentos)]) {
     assert.match(p.sql, /"normalizedCity" = \$1/);
-    assert.match(p.sql, /"state" = \$2/);
+    // UF entra LITERAL (o índice parcial não casa com parâmetro) e VALIDADA.
+    assert.match(p.sql, /"state" = 'SP'/);
     assert.match(p.sql, /situacao" = 'ativa'/);
-    assert.equal(p.params[2], 'bar do ze');
-    // As duas fases: candidatos por nome LIMITADOS antes do join com o geo.
+    assert.equal(p.params[1], 'bar do ze');
+    // As fases: candidatos por nome LIMITADOS antes de voltar ao heap/geo.
     assert.match(p.sql, /LIMIT 40/);
   }
   // Rápido = substring; fuzzy = `<%` (word_similarity que USA o GIN da RFB).
-  assert.match(sqlBuscaComerciosLike(argumentos).sql, /"searchText" LIKE \$4/);
-  assert.match(sqlBuscaComerciosFuzzy(argumentos).sql, /\$3 <% c\."searchText"/);
+  assert.match(sqlBuscaComerciosLike(argumentos).sql, /"searchText" LIKE \$3/);
+  assert.match(sqlBuscaComerciosFuzzy(argumentos).sql, /\$2 <% c\."searchText"/);
+});
+
+test('sqlBuscaComercios: UF torta NÃO vira SQL (o literal é validado)', () => {
+  assert.throws(() => sqlBuscaComerciosLike({ cityNorm: 'x', uf: "SP' OR 1=1 --", q: 'bar', lat: null, lng: null }));
+  assert.throws(() => sqlBuscaComerciosLike({ cityNorm: 'x', uf: '', q: 'bar', lat: null, lng: null }));
+  // minúscula é normalizada, não recusada (vem do nosso cnefe_mun_map).
+  assert.match(sqlBuscaComerciosLike({ cityNorm: 'x', uf: 'sp', q: 'bar', lat: null, lng: null }).sql, /"state" = 'SP'/);
 });
 
 test('sqlBuscaVias: escopo por município e as duas grafias de casamento', () => {
