@@ -440,6 +440,16 @@
     activateRoute(payload) { bridge && bridge.activateRoute && bridge.activateRoute(JSON.stringify(payload)); },
     stopRoute() { bridge && bridge.stopRoute && bridge.stopRoute(); },
     requestLocationPermission() { bridge && bridge.requestLocationPermission && bridge.requestLocationPermission(); },
+    speech: {
+      available() {
+        try { return !!(bridge && bridge.speechRecognitionAvailable && bridge.speechRecognitionAvailable()); }
+        catch (_) { return false; }
+      },
+      start() {
+        try { bridge && bridge.requestSpeechRecognition && bridge.requestSpeechRecognition(); }
+        catch (_) {}
+      },
+    },
     uploadProof(deliveryId, type, file, clientKey) {
       if (!bridge || typeof bridge.uploadProof !== "function") return Promise.reject(new Error("Upload nativo indisponível."));
       if (!file || file.size > 5 * 1024 * 1024) return Promise.reject(new Error("A imagem deve ter no máximo 5 MB."));

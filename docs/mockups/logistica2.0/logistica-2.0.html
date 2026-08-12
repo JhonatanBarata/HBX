@@ -2281,6 +2281,21 @@ button,input{font:inherit;color:inherit}
    DESENHADO; peça nova aqui só onde o desenho pedia coisa que não existia. */
 .search.grande{height:52px;border-radius:14px;padding:0 13px}
 .search.grande input{font-size:15px}
+.avb-busca-linha{display:flex;gap:8px;align-items:center}
+.avb-busca-linha .search.grande{flex:1;min-width:0;height:56px}
+.avb-mic{width:56px;height:56px;flex:0 0 56px;border-radius:14px;border:.7px solid var(--line);
+  background:var(--card);color:var(--blue);display:grid;place-items:center;cursor:pointer}
+.avb-mic.ouvindo{border-color:var(--lime);color:var(--lime);animation:avbPulsoVoz 1s infinite}
+/* A entrada segue exclusiva de `.tela.entra`; avbPulsoVoz é loop de estado.
+   Como 0% e 100% são iguais, um repinte reinicia o pulso sem dar salto. */
+@keyframes avbPulsoVoz{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.055);opacity:.62}}
+.avb-veu-voz{position:absolute;inset:0;background:var(--veu);display:none;place-items:center;
+  z-index:80;text-align:center;backdrop-filter:blur(4px)}
+.avb-veu-voz.vivo{display:grid}
+.avb-veu-voz .bola{width:96px;height:96px;border-radius:50%;margin:0 auto 18px;
+  background:var(--lime);color:var(--go-ink);display:grid;place-items:center;animation:avbPulsoVoz 1.1s infinite}
+.avb-veu-voz b{display:block;font-size:18px;margin-bottom:6px;color:var(--ink)}
+.avb-veu-voz small{color:var(--ink-2)}
 /* O foco não pinta cor nova: acende a MESMA lima que o resto da casa usa
    pra dizer "é aqui que o dedo está". `:focus-within` e não classe, pra
    sobreviver ao repinte sem a ponte ter que lembrar do foco. */
@@ -3198,6 +3213,7 @@ clock:'<circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-
 alert:'<path d="M12 4l8.5 15h-17L12 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 10v3.6M12 16.4h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 chev:'<path d="M9.5 5.5L16 12l-6.5 6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
 search:'<circle cx="11" cy="11" r="6.3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.6 15.6L20 20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+mic:'<rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 sliders:'<path d="M4 8h9M17 8h3M4 16h3M11 16h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="15" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="16" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/>',
 cash:'<rect x="2.8" y="6" width="18.4" height="12" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6 9.5v5M18 9.5v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 pix:'<path d="M12 3.6l3.4 3.4H8.6L12 3.6zM3.6 12L7 8.6v6.8L3.6 12zM20.4 12L17 15.4V8.6L20.4 12zM12 20.4L8.6 17h6.8L12 20.4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
@@ -3891,6 +3907,7 @@ const DADOS={
        Desenho que só existe atrás de um toque é desenho que ninguém mede. */
     porta:'endereco',    // 'cadastro' | 'endereco'
     busca:'bar do ze',   // o que o dedo escreveu — devolvido a cada repinte
+    vozDisponivel:0, vozOuvindo:0,
     buscando:0, salvando:0,
     opcoes:[],           // [{titulo, detalhe, dist}] — as portas parecidas
     achado:null,         // {titulo, detalhe, quem} — a porta escolhida
@@ -6228,11 +6245,17 @@ T.rapida={nome:'Adicionar parada',grupo:'Rota',render(){
      público viola o ToS dele, e o preço é ban.
      O link do Maps e a coordenada colada continuam vivos: eles não passam por
      aqui, passam pelo cartão que a ponte oferece quando reconhece o texto. */
-  const busca=`<label class="search grande">${ic('search',18)}
+  const mic=d.vozDisponivel?`<button type="button" class="avb-mic${d.vozOuvindo?' ouvindo':''}"
+    data-acao="busca-voz" aria-label="Buscar por voz">${ic('mic',21)}</button>`:'';
+  const busca=`<div class="avb-busca-linha"><label class="search grande">${ic('search',18)}
     <input data-campo="rapida-busca" enterkeyhint="search" autocomplete="off"
       placeholder="Cliente, rua ou comércio…" value="${d.busca}"><span
-      class="avb-x" data-acao="busca-limpar">×</span></label>
+      class="avb-x" data-acao="busca-limpar">×</span></label>${mic}</div>
   <div class="avb-dica">O mais <b>perto de você</b> vem primeiro · erro de digitação não atrapalha</div>`;
+
+  const veuVoz=(!noCadastro&&d.vozOuvindo)?`<div class="avb-veu-voz vivo"><div>
+    <div class="bola">${ic('mic',34)}</div><b>Ouvindo…</b>
+    <small>fale o nome, a rua ou o comércio</small></div></div>`:'';
 
   const aviso=d.aviso?`<div class="banner alerta">${ic('alert',16)}<span>${d.aviso}</span></div>`:'';
 
@@ -6272,7 +6295,8 @@ ${hdr({voltar:d.volta||'montagem'})}
   <div class="avb-rolo" data-rolo="busca">${roloDaBuscaAvulsa(d)}</div>`}
 </div>
 ${pe}
-${nav('rota')}`;}};
+${nav('rota')}
+${veuVoz}`;}};
 
 /* 20b — VÍNCULO CLIENTE × PRODUTO -----------------------------------------
    🔴 A DIFERENÇA QUE ESTA TELA EXISTE PRA GUARDAR (12/08, ordem do dono:

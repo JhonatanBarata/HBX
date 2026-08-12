@@ -16,7 +16,10 @@ import { LogisticaController } from '../logistica/logistica.controller';
 //
 // companyId sai SEMPRE do JWT (req.user.companyId) — o body/param nunca o injeta.
 
-const req = { user: { id: 1, companyId: 7 } } as any;
+// Dono real: os endpoints financeiros primeiro conferem o papel e só então
+// consultam o id company-scoped. Sem o papel, 403 é o contrato correto e a
+// prova nunca chega à pergunta de isolamento que pretende medir.
+const req = { user: { id: 1, companyId: 7, role: 'ADMIN', canViewBilling: true } } as any;
 
 // Serviço que finge "id de outro tenant" devolvendo null em TODO método de leitura/escrita.
 function nullService(): any {

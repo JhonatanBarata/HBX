@@ -363,22 +363,26 @@ const SO_MEDIR = process.argv.includes('--antes');
   }));
   await p.waitForTimeout(500);
   const barra = await p.evaluate(() => ({
-    atalhos: [...document.querySelectorAll('.gps-rodape .acoes button')].map((e) => (e.textContent || '').trim()),
+    atalhos: [...document.querySelectorAll('.gps-encerrar button')].map((e) => (e.textContent || '').trim()),
+    principal: document.querySelectorAll('.gps-encerrar-main[data-ir="fechamento"]').length,
+    extras: document.querySelectorAll('.gps-acoes-extra button').length,
     numerosForaDasAcoes: document.querySelectorAll('.gps-rodape .linha:not(.acoes) .n').length,
-    numerosDentroDasAcoes: document.querySelectorAll('.gps-rodape .acoes .n').length,
+    numerosDentroDasAcoes: document.querySelectorAll('.gps-encerrar .n').length,
     sairNaDireita: (() => {
-      const l = [...document.querySelectorAll('.gps-rodape .acoes button')];
-      return l.length ? l[l.length - 1].classList.contains('sair') : false;
+      const detalhes = document.querySelector('.gps-encerrar > details:last-child');
+      return !!(detalhes && detalhes.querySelector('.gps-acoes-extra .sair[data-ir="rota"]'));
     })(),
-    mortos: [...document.querySelectorAll('.gps-rodape .acoes button')]
+    mortos: [...document.querySelectorAll('.gps-encerrar button')]
       .filter((e) => !e.dataset.acao && !e.dataset.ir).length,
   }));
   nota(`[F4] barra: ${JSON.stringify(barra.atalhos)} - numeros fora das acoes=${barra.numerosForaDasAcoes}`);
-  eh('F4.1 . a linha de baixo tem as TRES opcoes', barra.atalhos.length === 3, JSON.stringify(barra.atalhos));
+  eh('F4.1 . o cartao tem as TRES opcoes (encerrar + Registrar/Sair no menu)',
+    barra.atalhos.length === 3 && barra.principal === 1 && barra.extras === 2,
+    JSON.stringify(barra.atalhos));
   eh('F4.2 . os numeros ficam na linha de CIMA (numero se le, botao se aperta)',
     barra.numerosForaDasAcoes === 3 && barra.numerosDentroDasAcoes === 0,
     `fora=${barra.numerosForaDasAcoes} dentro=${barra.numerosDentroDasAcoes}`);
-  eh('F4.3 . o Sair continua no canto do polegar (direita)', barra.sairNaDireita);
+  eh('F4.3 . o Sair continua no menu do canto direito', barra.sairNaDireita);
   // A LEI DO ARQUIVO: botao desenhado sem gancho e pior que botao ausente.
   eh('F4.4 . nenhum dos tres e botao MORTO', barra.mortos === 0, `mortos=${barra.mortos}`);
 
@@ -422,8 +426,11 @@ const SO_MEDIR = process.argv.includes('--antes');
     t8.tela === 'ficha' && /Gislaine/.test(nomeNaFicha), `tela=${t8.tela} nome=${nomeNaFicha}`);
 
   await cena({ entregas: [P1, P2], routeStatus: 'ACTIVE' });
-  await irPara('mapa', 1200);
-  await p.evaluate(() => document.querySelector('.gps-rodape .acoes [data-ir="fechamento"]').click());
+  /* O acesso ao Fechamento mora hoje na Rota, não dentro do GPS 3D. */
+  await irPara('rota', 1200);
+  /* "Finalizar" deixou o rodapé do GPS e hoje é o satélite direito da Rota.
+     Ele só ABRE o Fechamento; fechar o dia continua sendo outro gesto. */
+  await p.evaluate(() => document.querySelector('.tmx-sat [data-acao="ir-fechamento"]').click());
   await p.waitForTimeout(1000);
   const t9 = await espiar();
   nota(`[F4] fechamento -> tela=${t9.tela}`);

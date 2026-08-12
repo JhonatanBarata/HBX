@@ -50,7 +50,9 @@ function buildPrismaMock() {
       findMany: async () => [],
     },
     clienteProduto: { findMany: async () => [] },
-    entrega: { groupBy: async () => [] },
+    // A ficha conta entregas além dos agregados dos cards. Este arquivo mede
+    // observações e não tem entrega alguma no fixture.
+    entrega: { groupBy: async () => [], count: async () => 0 },
     logisticaConfig: { findFirst: async () => null },
     // PONTE CADASTRO→AGENDA (26/07) — o card consulta os planos da Agenda V2.
     logisticaPlanoEntrega: { findMany: async () => [] },

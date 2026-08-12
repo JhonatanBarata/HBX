@@ -48,6 +48,8 @@ class NativeAppBridge(
     private val onRouteRequested: (String) -> Unit,
     private val onRouteStopped: () -> Unit,
     private val onLocationPermissionRequested: () -> Unit,
+    private val isSpeechRecognitionAvailable: () -> Boolean,
+    private val onSpeechRecognitionRequested: () -> Unit,
     private val onAppLoadProgress: (Int) -> Unit,
     private val onAppReady: (String) -> Unit,
     private val onRechargeCheckoutRequested: (String) -> Unit,
@@ -210,6 +212,16 @@ class NativeAppBridge(
     fun requestLocationPermission() {
         if (BuildConfig.APP_MODE != "logistica") return
         activity.runOnUiThread(onLocationPermissionRequested)
+    }
+
+    @JavascriptInterface
+    fun speechRecognitionAvailable(): Boolean =
+        BuildConfig.APP_MODE == "logistica" && isSpeechRecognitionAvailable()
+
+    @JavascriptInterface
+    fun requestSpeechRecognition() {
+        if (BuildConfig.APP_MODE != "logistica") return
+        activity.runOnUiThread(onSpeechRecognitionRequested)
     }
 
     // MODO PASSEIO (29/07) — relógio nativo do tempo-no-lugar (ver PasseioAlarme.kt).

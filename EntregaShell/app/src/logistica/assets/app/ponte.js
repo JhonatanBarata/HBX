@@ -12632,6 +12632,27 @@
       || (typeof DADOS !== 'undefined' && DADOS.rapida && DADOS.rapida.busca) || '');
   };
 
+  const AVISO_VOZ_PERMISSAO = 'Permita o microfone para buscar por voz.';
+  const vozNativaDisponivel = () => {
+    try {
+      return !!(window.HBX && window.HBX.speech && window.HBX.speech.available());
+    } catch (_) { return false; }
+  };
+
+  /* Voz é estado da busca, não do nó: o reconhecedor pode responder durante um
+     repinte. Guardar no seam faz mic e véu voltarem com a mesma verdade. */
+  function publicarVozDaBusca(campos) {
+    const r = rapida;
+    if (!r) return;
+    Object.assign(r, campos || {});
+    if (!noPainelDaBusca() || typeof window.usarDados !== 'function') return;
+    const seam = {};
+    if (Object.prototype.hasOwnProperty.call(campos, 'vozDisponivel')) seam.vozDisponivel = campos.vozDisponivel ? 1 : 0;
+    if (Object.prototype.hasOwnProperty.call(campos, 'vozOuvindo')) seam.vozOuvindo = campos.vozOuvindo ? 1 : 0;
+    if (Object.prototype.hasOwnProperty.call(campos, 'aviso')) seam.aviso = esc(campos.aviso || '');
+    window.usarDados('rapida', seam);
+  }
+
   /* ------------------------------------------------------------------------
      O PEDIDO. Best-effort com VOZ: falhou a rede, o rolo diz que não achou —
      nunca fica girando pra sempre, e nunca inventa lista.
@@ -12690,6 +12711,21 @@
     });
   }
 
+  /* O teclado e a voz entram pelo MESMO cano. Espelhar só é necessário para a
+     voz: no teclado o próprio WebView já escreveu no campo vivo. */
+  function usarTextoDaBusca(texto, espelharNoCampo) {
+    if (!temPonte() || !rapida) return;
+    const valor = String(texto == null ? '' : texto);
+    rapida.buscaTexto = valor;
+    if (typeof DADOS !== 'undefined' && DADOS.rapida) DADOS.rapida.busca = esc(valor);
+    if (espelharNoCampo) {
+      const no = naCamada('[data-campo="rapida-busca"]');
+      if (no) no.value = valor;
+    }
+    clearTimeout(buscaTimerPainel);
+    buscaTimerPainel = setTimeout(() => { void procurarNaBusca(valor); }, BUSCA_ESPERA_MS);
+  }
+
   /* ------------------------------------------------------------------------
      O TECLADO. Ouvinte DELEGADO no documento (e não por nó): o campo nasce de
      novo a cada repinte da camada, e listener por nó precisaria de guarda e de
@@ -12699,13 +12735,34 @@
   document.addEventListener('input', (ev) => {
     const alvo = ev.target;
     if (!alvo || !alvo.dataset || alvo.dataset.campo !== 'rapida-busca') return;
-    if (!temPonte() || !rapida) return;
-    const valor = String(alvo.value || '');
-    // o que o dedo escreveu tem que sobreviver ao próximo repinte de verdade
-    rapida.buscaTexto = valor;
-    clearTimeout(buscaTimerPainel);
-    buscaTimerPainel = setTimeout(() => { void procurarNaBusca(valor); }, BUSCA_ESPERA_MS);
+    usarTextoDaBusca(alvo.value || '', false);
   });
+
+  window.HBXApp = window.HBXApp || {};
+  window.HBXApp.speechPermissionChanged = function (concedida) {
+    const r = rapida;
+    if (!r) return;
+    const limparAviso = concedida && String(r.aviso || '') === AVISO_VOZ_PERMISSAO;
+    publicarVozDaBusca({
+      vozDisponivel: vozNativaDisponivel() ? 1 : 0,
+      vozOuvindo: 0,
+      ...(concedida ? (limparAviso ? { aviso: '' } : {}) : { aviso: AVISO_VOZ_PERMISSAO }),
+    });
+  };
+  window.HBXApp.speechRecognitionListening = function () {
+    publicarVozDaBusca({ vozOuvindo: 1 });
+  };
+  window.HBXApp.speechRecognitionResult = function (texto) {
+    publicarVozDaBusca({ vozOuvindo: 0 });
+    const reconhecido = String(texto || '').trim();
+    if (reconhecido && noPainelDaBusca()) usarTextoDaBusca(reconhecido, true);
+  };
+  window.HBXApp.speechRecognitionError = function (mensagem) {
+    publicarVozDaBusca({
+      vozOuvindo: 0,
+      aviso: String(mensagem || 'Não consegui entender. Tente falar de novo.'),
+    });
+  };
 
   /* ------------------------------------------------------------------------
      A ESCOLHA. Ela ARMA a parada (não grava nada): preenche o rascunho que o
@@ -12944,6 +13001,7 @@
       busca: '', grupos: { clientes: [], enderecos: [], comercios: [] },
       semNada: 0, colar: '', numAberto: -1, numValor: '', numSn: 0, pe: null,
       aviso: '', recentes: recentesDaBusca().map(esc),
+      vozDisponivel: vozNativaDisponivel() ? 1 : 0, vozOuvindo: 0,
     });
   }
   const abrirPainelDaBusca = zerarPainelDaBusca;
@@ -12990,6 +13048,10 @@
     if (!alvo || !temPonte()) return;
     const chave = alvo.dataset.acao;
     if (chave === 'busca-limpar') return limparBusca();
+    if (chave === 'busca-voz') {
+      if (window.HBX && window.HBX.speech && window.HBX.speech.start) window.HBX.speech.start();
+      return;
+    }
     if (chave === 'busca-sn') return virarSnDaBusca();
     if (chave === 'busca-usar-rua') return void comTrava(usarRuaDaBusca);
     if (chave === 'busca-colar') return void comTrava(colarNaBusca);

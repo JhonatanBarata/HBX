@@ -39,6 +39,7 @@ clock:'<circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-
 alert:'<path d="M12 4l8.5 15h-17L12 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 10v3.6M12 16.4h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 chev:'<path d="M9.5 5.5L16 12l-6.5 6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
 search:'<circle cx="11" cy="11" r="6.3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.6 15.6L20 20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+mic:'<rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 sliders:'<path d="M4 8h9M17 8h3M4 16h3M11 16h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="15" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="16" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/>',
 cash:'<rect x="2.8" y="6" width="18.4" height="12" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6 9.5v5M18 9.5v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 pix:'<path d="M12 3.6l3.4 3.4H8.6L12 3.6zM3.6 12L7 8.6v6.8L3.6 12zM20.4 12L17 15.4V8.6L20.4 12zM12 20.4L8.6 17h6.8L12 20.4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
@@ -732,6 +733,7 @@ const DADOS={
        Desenho que só existe atrás de um toque é desenho que ninguém mede. */
     porta:'endereco',    // 'cadastro' | 'endereco'
     busca:'bar do ze',   // o que o dedo escreveu — devolvido a cada repinte
+    vozDisponivel:0, vozOuvindo:0,
     buscando:0, salvando:0,
     opcoes:[],           // [{titulo, detalhe, dist}] — as portas parecidas
     achado:null,         // {titulo, detalhe, quem} — a porta escolhida
@@ -3069,11 +3071,17 @@ T.rapida={nome:'Adicionar parada',grupo:'Rota',render(){
      público viola o ToS dele, e o preço é ban.
      O link do Maps e a coordenada colada continuam vivos: eles não passam por
      aqui, passam pelo cartão que a ponte oferece quando reconhece o texto. */
-  const busca=`<label class="search grande">${ic('search',18)}
+  const mic=d.vozDisponivel?`<button type="button" class="avb-mic${d.vozOuvindo?' ouvindo':''}"
+    data-acao="busca-voz" aria-label="Buscar por voz">${ic('mic',21)}</button>`:'';
+  const busca=`<div class="avb-busca-linha"><label class="search grande">${ic('search',18)}
     <input data-campo="rapida-busca" enterkeyhint="search" autocomplete="off"
       placeholder="Cliente, rua ou comércio…" value="${d.busca}"><span
-      class="avb-x" data-acao="busca-limpar">×</span></label>
+      class="avb-x" data-acao="busca-limpar">×</span></label>${mic}</div>
   <div class="avb-dica">O mais <b>perto de você</b> vem primeiro · erro de digitação não atrapalha</div>`;
+
+  const veuVoz=(!noCadastro&&d.vozOuvindo)?`<div class="avb-veu-voz vivo"><div>
+    <div class="bola">${ic('mic',34)}</div><b>Ouvindo…</b>
+    <small>fale o nome, a rua ou o comércio</small></div></div>`:'';
 
   const aviso=d.aviso?`<div class="banner alerta">${ic('alert',16)}<span>${d.aviso}</span></div>`:'';
 
@@ -3113,7 +3121,8 @@ ${hdr({voltar:d.volta||'montagem'})}
   <div class="avb-rolo" data-rolo="busca">${roloDaBuscaAvulsa(d)}</div>`}
 </div>
 ${pe}
-${nav('rota')}`;}};
+${nav('rota')}
+${veuVoz}`;}};
 
 /* 20b — VÍNCULO CLIENTE × PRODUTO -----------------------------------------
    🔴 A DIFERENÇA QUE ESTA TELA EXISTE PRA GUARDAR (12/08, ordem do dono:

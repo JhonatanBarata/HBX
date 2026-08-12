@@ -570,13 +570,16 @@ const nota = (t) => notas.push(t);
       }, modo);
       eh(`K1 · nenhuma animação viva no painel (modo ${modo})`, animadas.length === 0, animadas.join(','));
     }
-    /* E a régua da FONTE: regra que anima peça do painel só pode existir citando
-       `.entra`. Medir só o computed pega o que está na tela AGORA; ler a folha
-       pega a regra que alguém escrever amanhã pra um estado que hoje não abre. */
+    /* E a régua da FONTE: entrada de peça do painel só pode existir citando
+       `.entra`. A única exceção é o pulso de ESTADO da voz: ele não entra nem
+       sai, apenas respira enquanto o Android ouve, e 0%==100% torna qualquer
+       reinício por repinte invisível. A prova da voz cobra essa igualdade. */
     const folha = fs.readFileSync(path.join(DIR, 'mock.css'), 'utf8');
+    const loopVozSeguro = /@keyframes\s+avbPulsoVoz\s*\{\s*0%,100%\s*\{/.test(folha);
     const suspeitas = folha.split('\n')
-      .filter((l) => /\.avb-|\.search\.grande/.test(l) && /animation\s*:/.test(l) && !/\.entra/.test(l));
-    eh('K2 · a FOLHA não tem regra de animação em peça do painel fora do `.entra`',
+      .filter((l) => /\.avb-|\.search\.grande/.test(l) && /animation\s*:/.test(l) && !/\.entra/.test(l))
+      .filter((l) => !(loopVozSeguro && /animation\s*:\s*avbPulsoVoz\b/.test(l)));
+    eh('K2 · a FOLHA só anima entrada sob `.entra` (pulso de voz fecha o loop)',
       suspeitas.length === 0, suspeitas.join(' | '));
   } catch (e) { falhou.push(`CENA K explodiu: ${e.message}`); }
 

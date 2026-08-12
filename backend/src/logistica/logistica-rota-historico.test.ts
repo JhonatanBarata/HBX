@@ -71,6 +71,10 @@ function buildService(rows: any[], eventos: any[] = [], perfis: any[] = []) {
   const prisma: any = {
     entrega: {
       findMany: async (args: any) => { chamadas.push(args); return rows; },
+      // O histórico agora acrescenta a última entrega concluída à mesma linha.
+      // Estes fixtures não descrevem conclusão anterior: mapa vazio é a
+      // resposta fiel, sem desviar a cena que cada teste mede.
+      groupBy: async () => [],
       // ROTA v2 F1c (10/08) — "HOJE só entra morto": a checagem de HOJE
       // (nenhuma aberta + sinal de cancelamento) roda ANTES da consulta de
       // `rows`. Nos fixtures deste arquivo TODAS as datas são fixas no

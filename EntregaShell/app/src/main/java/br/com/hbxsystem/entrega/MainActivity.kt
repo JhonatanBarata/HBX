@@ -14,6 +14,9 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.Settings
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.view.WindowManager
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
@@ -88,6 +91,9 @@ class MainActivity : AppCompatActivity() {
     private var visualStateRequestId = 1L
     private var pendingPushWake = false
     private var pendingOpenRecados = false
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var speechListening = false
+    private var speechPendingAfterPermission = false
 
     private val localizacaoLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -101,6 +107,16 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
         notificarPermissaoCadastroLocalizacao(temLocalizacao())
+    }
+
+    // Voz só pede o microfone quando a pessoa toca nele. Nunca no boot.
+    private val audioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { concedida ->
+        val iniciarDepois = concedida && speechPendingAfterPermission
+        speechPendingAfterPermission = false
+        notificarPermissaoVoz(concedida)
+        if (iniciarDepois) iniciarReconhecimentoVoz()
     }
 
     private val notificacaoLauncher = registerForActivityResult(
@@ -266,6 +282,8 @@ class MainActivity : AppCompatActivity() {
             onRouteRequested = routeBridge::setRota,
             onRouteStopped = routeBridge::clearRota,
             onLocationPermissionRequested = ::solicitarLocalizacaoParaCadastro,
+            isSpeechRecognitionAvailable = ::reconhecimentoVozDisponivel,
+            onSpeechRecognitionRequested = ::solicitarReconhecimentoVoz,
             onAppLoadProgress = ::updateOpeningProgress,
             onAppReady = ::revealReadyApp,
             onRechargeCheckoutRequested = ::openRechargeCheckout,
@@ -633,6 +651,12 @@ class MainActivity : AppCompatActivity() {
         }
         openingWebView = null
         fileChooserCallback?.onReceiveValue(null)
+        speechListening = false
+        speechRecognizer?.let { recognizer ->
+            runCatching { recognizer.cancel() }
+            runCatching { recognizer.destroy() }
+        }
+        speechRecognizer = null
         nativeBridge.close()
         webView.removeJavascriptInterface("HBXAndroid")
         webView.destroy()
@@ -719,6 +743,137 @@ class MainActivity : AppCompatActivity() {
     private fun notificarPermissaoCadastroLocalizacao(concedida: Boolean) {
         webView.evaluateJavascript(
             "window.HBXApp&&window.HBXApp.locationPermissionChanged&&window.HBXApp.locationPermissionChanged($concedida);",
+            null,
+        )
+    }
+
+    /** Capacidade real do aparelho; permissão é outra pergunta e só nasce no toque. */
+    private fun reconhecimentoVozDisponivel(): Boolean =
+        BuildConfig.APP_MODE == "logistica" && SpeechRecognizer.isRecognitionAvailable(this)
+
+    private fun solicitarReconhecimentoVoz() {
+        if (!reconhecimentoVozDisponivel()) {
+            notificarErroVoz("Este aparelho não tem reconhecimento de voz disponível.")
+            return
+        }
+        if (temPermissao(Manifest.permission.RECORD_AUDIO)) {
+            notificarPermissaoVoz(true)
+            iniciarReconhecimentoVoz()
+            return
+        }
+        if (speechPendingAfterPermission) return
+        speechPendingAfterPermission = true
+        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
+    /**
+     * Um reconhecedor por Activity. Prefere o motor no aparelho quando o Android
+     * comprova que ele existe; nos demais aparelhos usa o reconhecedor padrão.
+     */
+    private fun iniciarReconhecimentoVoz() {
+        if (!reconhecimentoVozDisponivel() || speechListening || isFinishing || isDestroyed) return
+        val recognizer = speechRecognizer ?: runCatching {
+            val novo = if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+            ) {
+                SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+            } else {
+                SpeechRecognizer.createSpeechRecognizer(this)
+            }
+            novo.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) = notificarVozOuvindo()
+                override fun onBeginningOfSpeech() = Unit
+                override fun onRmsChanged(rmsdB: Float) = Unit
+                override fun onBufferReceived(buffer: ByteArray?) = Unit
+                override fun onEndOfSpeech() = Unit
+
+                override fun onError(error: Int) {
+                    speechListening = false
+                    if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                        notificarPermissaoVoz(false)
+                    }
+                    val mensagem = when (error) {
+                        SpeechRecognizer.ERROR_NO_MATCH,
+                        SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Não consegui entender. Tente falar de novo."
+                        SpeechRecognizer.ERROR_NETWORK,
+                        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "A voz está sem conexão. Tente de novo."
+                        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "O microfone ainda está ocupado. Tente de novo."
+                        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Permita o microfone para buscar por voz."
+                        else -> "Não foi possível ouvir agora. Tente de novo."
+                    }
+                    notificarErroVoz(mensagem)
+                }
+
+                override fun onResults(results: Bundle?) {
+                    speechListening = false
+                    val texto = results
+                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        ?.firstOrNull { it.isNotBlank() }
+                        ?.filterNot(Char::isISOControl)
+                        ?.trim()
+                        ?.take(160)
+                    if (texto.isNullOrBlank()) {
+                        notificarErroVoz("Não consegui entender. Tente falar de novo.")
+                    } else {
+                        executarCallbackVoz("speechRecognitionResult", texto)
+                    }
+                }
+
+                override fun onPartialResults(partialResults: Bundle?) = Unit
+                override fun onEvent(eventType: Int, params: Bundle?) = Unit
+            })
+            speechRecognizer = novo
+            novo
+        }.getOrElse {
+            notificarErroVoz("Não foi possível abrir o microfone agora.")
+            return
+        }
+
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "pt-BR")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "pt-BR")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(this@MainActivity)
+            ) {
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            }
+        }
+        speechListening = true
+        runCatching { recognizer.startListening(intent) }.onFailure {
+            speechListening = false
+            notificarErroVoz("Não foi possível abrir o microfone agora.")
+        }
+    }
+
+    private fun notificarPermissaoVoz(concedida: Boolean) {
+        if (!::webView.isInitialized || isFinishing || isDestroyed) return
+        webView.evaluateJavascript(
+            "window.HBXApp&&window.HBXApp.speechPermissionChanged&&window.HBXApp.speechPermissionChanged($concedida);",
+            null,
+        )
+    }
+
+    private fun notificarVozOuvindo() {
+        if (!speechListening || !::webView.isInitialized || isFinishing || isDestroyed) return
+        webView.evaluateJavascript(
+            "window.HBXApp&&window.HBXApp.speechRecognitionListening&&window.HBXApp.speechRecognitionListening();",
+            null,
+        )
+    }
+
+    private fun notificarErroVoz(mensagem: String) {
+        speechListening = false
+        executarCallbackVoz("speechRecognitionError", mensagem)
+    }
+
+    private fun executarCallbackVoz(nome: String, texto: String) {
+        if (!::webView.isInitialized || isFinishing || isDestroyed) return
+        webView.evaluateJavascript(
+            "window.HBXApp&&window.HBXApp.$nome&&window.HBXApp.$nome(${JSONObject.quote(texto)});",
             null,
         )
     }
