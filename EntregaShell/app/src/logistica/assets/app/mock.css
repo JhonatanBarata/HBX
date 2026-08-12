@@ -1775,8 +1775,20 @@ button,input{font:inherit;color:inherit}
    pousando no `--gps-piso`, então o crescimento sobe — não invade o rodapé. */
 .gps-vel{position:absolute;left:11px;bottom:var(--gps-piso);z-index:20;width:72px;height:72px;border-radius:50%;
   background:var(--glass);border:.7px solid var(--line);display:grid;place-items:center;text-align:center;line-height:1}
+/* 🔴 O NÚMERO NO CENTRO DO DISCO, E O "km/h" FORA DO FLUXO (12/08 — dono:
+   *"centralize o número do velocímetro, está muito pra cima"*). O par número+
+   unidade JÁ era centralizado como GRUPO (medido: folga 8,5 px em cima e
+   embaixo, idêntica) — o que subia era o NÚMERO, porque a unidade pendurada
+   embaixo empurra o miolo do grupo pra cima: o centro do "72" caía **14,5 px
+   acima** do centro do disco, 20% do diâmetro. Quem lê a 60 km/h lê o NÚMERO,
+   e é ele que tem que estar no meio. Tirando o `small` do fluxo, o grid volta a
+   ter UM item e o centraliza exato; a unidade vira legenda ancorada no pé, na
+   parte larga do círculo (folga medida: 64 px de corda na altura dela).
+   Sem unidade (o mock a torna opcional) o número continua centrado — antes
+   também ficava, e essa era a única hora em que ficava. */
 .gps-vel b{display:block;font-size:26px;font-weight:500}
-.gps-vel small{display:block;font-size:11px;color:var(--ink-2);margin-top:3px}
+.gps-vel small{position:absolute;left:0;right:0;bottom:9px;display:block;
+  font-size:11px;color:var(--ink-2);text-align:center}
 /* 🔴 O VELOCÍMETRO ACIMA DO LIMITE DO RADAR (12/08, F3). Estado, não peça nova:
    é o MESMO disco, com a classe `acima` posta direto no nó pela ponte enquanto
    houver radar COM limite a menos de 600 m À FRENTE e a velocidade estiver
