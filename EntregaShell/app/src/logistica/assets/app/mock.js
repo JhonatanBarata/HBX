@@ -1647,6 +1647,11 @@ function telaGps(chegou){
          comentário mora num template literal e a crase o fecharia.) -->
     <div class="gps-veu"></div>
 
+    <!-- O SELO DO RETRAÇO: nó permanente e inerte como o véu. Quem o acende é
+         a ponte (classe "on") quando pede caminho novo fora do traçado, e quem
+         o apaga é a resposta — ou o teto de 4 s dela, o que vier antes. -->
+    <div class="gps-redir">Redirecionando…</div>
+
     <!-- eu: no centro da largura, com a cauda pousada no --gps-piso (o mesmo
          chão do velocímetro e dos botões). A tela é a rua À FRENTE. -->
     <div class="gps-puck">

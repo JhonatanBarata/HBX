@@ -1742,6 +1742,18 @@ button,input{font:inherit;color:inherit}
    invadir o mapa. */
 .gps-bussola{position:absolute;right:11px;top:130px;z-index:20;width:46px;height:46px;border-radius:50%;
   background:var(--glass);border:.7px solid var(--line);display:grid;place-items:center;color:var(--ink-2);font-size:11px}
+/* O SELO DO RETRAÇO — "Redirecionando…". Só existe enquanto a ponte pede
+   caminho novo FORA do traçado: fora disso é invisível e não pega toque. A
+   mesma família de vidro do .emp-chip, no CENTRO da faixa dos avisos (o chip
+   fica no canto esquerdo, a bússola no direito). z-index 19: acima do véu (18),
+   ABAIXO do cartão da manobra (20) — aviso nunca cobre instrução. Quem liga é
+   a classe .on (posta pela ponte, nunca pelo seam); a entrada é um respiro de
+   opacity+transform que a Lei 7 já desliga pra quem pediu menos movimento. */
+.gps-redir{position:absolute;left:50%;top:112px;z-index:19;padding:6px 12px;border-radius:999px;
+  background:var(--glass);border:.7px solid var(--line);font-size:12px;color:var(--ink-2);
+  pointer-events:none;opacity:0;transform:translate(-50%,-6px);
+  transition:opacity .22s ease,transform .22s ease}
+.gps-redir.on{opacity:1;transform:translate(-50%,0)}
 /* 🔴 AS PEÇAS DA BEIRADA CRESCERAM (11/08 — dono: *"velocímetro, ícones chat som
    e centralizador estão pequenos"*). Elas são o cromo que se lê e se aperta EM
    MOVIMENTO: 56→72 no velocímetro e 40→52 nos botões põe o alvo acima dos 48px
@@ -4524,6 +4536,11 @@ function telaGps(chegou){
          da camada, e ela cai aos 900 ms. (Sem CRASE aqui dentro: este
          comentário mora num template literal e a crase o fecharia.) -->
     <div class="gps-veu"></div>
+
+    <!-- O SELO DO RETRAÇO: nó permanente e inerte como o véu. Quem o acende é
+         a ponte (classe "on") quando pede caminho novo fora do traçado, e quem
+         o apaga é a resposta — ou o teto de 4 s dela, o que vier antes. -->
+    <div class="gps-redir">Redirecionando…</div>
 
     <!-- eu: no centro da largura, com a cauda pousada no --gps-piso (o mesmo
          chão do velocímetro e dos botões). A tela é a rua À FRENTE. -->

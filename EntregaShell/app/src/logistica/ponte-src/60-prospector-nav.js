@@ -741,6 +741,11 @@
     if (navRota && navRota.assinatura === assinatura && agora - navRota.em < NAV_INTERVALO_MS) return;
     if (!navGastar()) return;
 
+    /* 🔴 O RETRAÇO SE ANUNCIA (12/08, § 6c): saiu do traçado e o pedido vai
+       MESMO sair (todos os freios já passaram) ⇒ o selo acende. Parada
+       entregue (`trocouAlvo`) é rota nova, não retraço — segue calada. */
+    const retraco = !!(navRota && navRota.geometria && !trocouAlvo && !presoNaRota(ultimoFix));
+    if (retraco) acenderSeloRedir();
     navPedindo = true;
     navUltimoPedidoEm = agora;
     navUltimaOrigem = { lat: ultimoFix.lat, lng: ultimoFix.lng };
@@ -794,10 +799,15 @@
       // uma curva que se repete na rota seguinte nasceria muda.
       if (trocouAlvo) vozDitas.clear();
       pintarTraco();
+      // o caminho novo chegou: a fita dá UM flash e o selo sai logo atrás —
+      // juntos, é o flash que diz do que o "Redirecionando…" estava falando.
+      if (retraco) { flashDaFita(); apagarSeloRedir(SELO_REDIR_SUCESSO_MS); }
     } catch (_) {
       // 🔴 FALHOU: NÃO APAGA O QUE ESTÁ NA TELA. A manobra de 20 s atrás ainda
       // é melhor que uma tela em branco pra quem está no volante — e a
       // distância até a curva continua sendo recalculada do GPS, de graça.
+      // O SELO, sim, apaga JÁ: o backoff pode ser 60 s (§ 6c, promessa falsa).
+      if (retraco) apagarSeloRedir(0);
       navFalhas += 1;
     } finally {
       navPedindo = false;

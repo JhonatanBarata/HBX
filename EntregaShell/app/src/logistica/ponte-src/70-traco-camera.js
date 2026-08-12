@@ -372,6 +372,34 @@
     palcosDoTraco().forEach(apagarTraco);
   }
 
+  /* 🔴 O FLASH DO RETRAÇO (12/08, § 6c do selo): quando o caminho novo chega
+     fora do traçado, a fita respira UMA vez — sobe pra `--map-cabeca` (a mesma
+     ponta acesa da cobra da abertura) e volta pra cor dela. SÓ TINTA, nas
+     camadas que JÁ existem: `setPaintProperty` com transição do próprio
+     maplibre. addLayer/addSource/line-gradient aqui remontaria a fonte, e
+     fonte remontada é o pisca de novo. Lei 7: sem movimento, sem flash. */
+  function flashDaFita() {
+    if (semMovimento()) return;
+    const mapa = mapaDaNavegacao();
+    if (!mapa || !mapa.getLayer || !mapa.getLayer(`${TRACO}-fita`)) return;
+    try {
+      const clarao = tinta('--map-cabeca', '#e8f4ff');
+      [`${TRACO}-fita`, `${TRACO}-casca`].forEach((id) => {
+        mapa.setPaintProperty(id, 'line-color-transition', { duration: 180 });
+        mapa.setPaintProperty(id, 'line-color', clarao);
+      });
+      setTimeout(() => {
+        try {
+          [[`${TRACO}-fita`, tinta('--map-rota', '#78c900')],
+            [`${TRACO}-casca`, tinta('--map-rota-borda', '#4f8f14')]].forEach(([id, cor]) => {
+            mapa.setPaintProperty(id, 'line-color-transition', { duration: 450 });
+            mapa.setPaintProperty(id, 'line-color', cor);
+          });
+        } catch (_) { /* a fita saiu de cena no meio do flash: nada a devolver */ }
+      }, 220);
+    } catch (_) { /* mapa trocando de estilo: fica sem flash, nunca sem fita */ }
+  }
+
   /* ---- O 2D TAMBÉM TEM DIREITO DE PEDIR O CAMINHO ------------------------
      🔴 A ROTA PRONTA MOSTRAVA PONTOS SOLTOS (09/08). `pintarTraco` já é dos
      DOIS mapas desde 08/08, mas quem enche o `navRota` (e com ele a
