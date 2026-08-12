@@ -145,7 +145,24 @@
          devolve 403 na cara do dono. */
       prospector: config.prospectorAtivo ? 1 : 0,
       prospectorDisponivel: prospectorPodeLigar(),
+      /* PROSPECTOR v2 (12/08) — o que a PESSOA escolheu pra esta semana. Vem da
+         memória do §7b-bis (o último GET/POST), não de uma segunda chamada: esta
+         tela não tem porta própria, e pendurar mais uma rede aqui faria a linha
+         piscar toda vez que os Ajustes recarregassem. Vazio = ainda não escolheu
+         (ou ainda não perguntei) — e a linha diz "Escolher o que procurar", que
+         é honesto nos dois casos. */
+      prospectorTipo: rotuloDoProspector(),
     });
+    /* Só pergunta a escolha se a empresa PODE ter prospector — chave desligada
+       não tem o que procurar, e seria uma ida à rede por tela de Ajustes de todo
+       mundo. Best-effort: falha aqui não atrapalha nada nesta tela. */
+    if (config.prospectorAtivo && prospectorPodeLigar()) {
+      carregarProspectorSemana().then(() => {
+        if (typeof window.usarDados === 'function') {
+          window.usarDados('avancado', { prospectorTipo: rotuloDoProspector() });
+        }
+      }).catch(() => undefined);
+    }
     if (cred) encherCarteira(cred);
   }
 

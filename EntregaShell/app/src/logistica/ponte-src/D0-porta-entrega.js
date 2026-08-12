@@ -535,6 +535,12 @@
     // otimismo na tela. É ela que deixa o capítulo "Ligue o prospector"
     // terminar num `fazer` de verdade — o dono liga na hora, aprendeu fazendo.
     'chave-prospector': () => virarChave('prospectorAtivo'),
+    /* PROSPECTOR v2 (12/08) — as três portas da ESCOLHA DA SEMANA. Elas NÃO são
+       chave de config: a chave de cima é da EMPRESA (um campo, um PATCH), estas
+       são da PESSOA que dirige (§7b-bis). Abrir CARREGA antes de navegar — folha
+       de escolha que nasce vazia é folha que mente sobre o que está escolhido. */
+    'abrir-prospector-tipo': abrirFolhaDoProspector,
+    'prospector-desligar': desligarProspectorSemana,
     // Som e voz sao do APARELHO (soundPrefs do Kotlin), nao do servidor.
     'chave-sons': () => {
       try {
@@ -619,6 +625,8 @@
     if (chave === 'metodo-cliente') return mexerFinanceiro({ metodo: String(alvo.dataset.metodo || '') });
     if (chave === 'abrir-salva') return abrirSalva(alvo.dataset.salva);
     if (chave === 'abrir-empresa') return acenderEmpresa(alvo.dataset.empresa);
+    // O chip da folha do prospector: o TIPO é o argumento do toque (§7b-bis).
+    if (chave === 'prospector-tipo') return escolherTipoProspector(alvo.dataset.tipo);
     if (chave === 'pacote') return escolherPacote(alvo.dataset.pacote);
     if (chave === 'modo-rota') return escolherModo(alvo.dataset.modo);
     // As três da parada avulsa que carregam ARGUMENTO no próprio botão.

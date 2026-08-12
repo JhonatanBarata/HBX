@@ -159,10 +159,24 @@ button,input{font:inherit;color:inherit}
      (possível), VARRENDO (o app está olhando) e ACESA (achou). Cada cor do
      desenho do dono virou token aqui: casca nova troca a família inteira sem
      tocar na tela, e o modo claro é DESENHO, não inversão. */
-  /* prédio do mock rota (gps-ruas-prospector-v4) — paleta 1:1 */
-  --emp-topo:#576475; --emp-esq:#414c5b; --emp-dir:#313a47;
-  --emp-janela:#232f3e;
-  --emp-sombra:rgba(0,0,0,.42); --emp-base:#6b788a;
+  /* 🔴 AS DUAS CORES DA RUA (PROSPECTOR v2, 12/08 — decisão do dono).
+     AZUL é o PADRÃO: o corredor inteiro, o ambiente, e ele é MUDO. VERDE é o
+     TIPO que a pessoa escolheu pra semana — só ele acende, fala e ganha rótulo.
+     Mesmo desenho, mesma cena de nascer e crescer; muda só a tinta.
+
+     O azul é DESSATURADO de propósito. A doutrina do mapa (§ --eu-1) reserva o
+     azul VIVO pro MOTORISTA, e ambiente que disputa leitura com o puck de quem
+     está dirigindo é ambiente atrapalhando. Este aqui é azul-ardósia: dá pra ver
+     que é azul, não dá pra confundir com "eu". */
+  /* prédio do mock rota (gps-ruas-prospector-v4) — paleta 1:1, azul em 12/08 */
+  --emp-topo:#4a6b9e; --emp-esq:#35507c; --emp-dir:#263b5e;
+  --emp-janela:#1b2b45;
+  --emp-sombra:rgba(0,0,0,.42); --emp-base:#5d82bd;
+  /* ESCOLHIDA em repouso: verde de mata, NÃO o limão da rota (--map-rota). O
+     limão é o TRAÇO do caminho; prédio com a cor do traço vira parte da linha.
+     Este verde é a promessa do que vem quando ela acender — aí sim o lima. */
+  --emp-es-topo:#6f8f4a; --emp-es-esq:#556f36; --emp-es-dir:#3f5527;
+  --emp-es-janela:#2b3d20; --emp-es-base:#87a75f;
   --emp-on-topo:#a8c96a; --emp-on-esq:#7c9a4a; --emp-on-dir:#5d7834;
   --emp-on-janela:#e7ff9e; --emp-on-janela-brilho:rgba(220,255,128,.85);
   --emp-on-base:#b2ff43;
@@ -1871,17 +1885,35 @@ button,input{font:inherit;color:inherit}
 .emp-jan{fill:var(--emp-janela)}
 .emp-pe{fill:var(--emp-base)}
 
+/* ---- ESCOLHIDA (PROSPECTOR v2, 12/08): a empresa É do tipo que a pessoa
+        escolheu pra semana. Verde em REPOUSO — antes de acender, e mesmo que
+        nunca acenda (o teto do dia é pequeno de propósito).
+        Só a TINTA muda: posição, escala, cena de nascer e crescer, régua de
+        viagem e rótulo continuam sendo os mesmos do prédio azul. Uma cor a
+        mais não pode virar um segundo desenho. ---- */
+.emp.escolhida .emp-topo{fill:var(--emp-es-topo)}
+.emp.escolhida .emp-esq{fill:var(--emp-es-esq)}
+.emp.escolhida .emp-dir{fill:var(--emp-es-dir)}
+.emp.escolhida .emp-jan{fill:var(--emp-es-janela)}
+.emp.escolhida .emp-pe{fill:var(--emp-es-base)}
+
 /* ---- ACESA: o estado FINAL, escrito por inteiro. Quem chegar com a animação
-        desligada vê a empresa ACESA e certa, nunca meio pintada. ---- */
-.emp.on .emp-topo{fill:var(--emp-on-topo)}
-.emp.on .emp-esq{fill:var(--emp-on-esq)}
-.emp.on .emp-dir{fill:var(--emp-on-dir)}
-.emp.on .emp-jan{fill:var(--emp-on-janela);filter:drop-shadow(0 0 3px var(--emp-on-janela-brilho))}
-.emp.on .emp-pe{fill:var(--emp-on-base)}
-.emp.on .emp-luz{opacity:1}
-.emp.on .emp-aro{opacity:1}
-.emp.on .emp-rotulo{opacity:1}
-.emp.on .emp-barra{transform:scaleX(1)}
+        desligada vê a empresa ACESA e certa, nunca meio pintada.
+        🔴 SÓ ESCOLHIDA ACENDE (12/08). O `.escolhida` no seletor é CINTO DE
+        SEGURANÇA de CSS: quem barra de verdade é a ponte (`vestirFase` não veste
+        `on` sem `escolhida`) e antes dela o servidor (`aceso` só cai em
+        escolhida). Mas prédio azul aceso seria o app convidando o motorista a
+        parar o carro por uma empresa que ele não pediu pra ver — três travas
+        pra isso não é exagero, é a ordem de grandeza do estrago. ---- */
+.emp.escolhida.on .emp-topo{fill:var(--emp-on-topo)}
+.emp.escolhida.on .emp-esq{fill:var(--emp-on-esq)}
+.emp.escolhida.on .emp-dir{fill:var(--emp-on-dir)}
+.emp.escolhida.on .emp-jan{fill:var(--emp-on-janela);filter:drop-shadow(0 0 3px var(--emp-on-janela-brilho))}
+.emp.escolhida.on .emp-pe{fill:var(--emp-on-base)}
+.emp.escolhida.on .emp-luz{opacity:1}
+.emp.escolhida.on .emp-aro{opacity:1}
+.emp.escolhida.on .emp-rotulo{opacity:1}
+.emp.escolhida.on .emp-barra{transform:scaleX(1)}
 
 @keyframes empVarre{0%{opacity:.95;transform:scale(.3)}100%{opacity:0;transform:scale(2.4);stroke:var(--emp-varre-fim)}}
 @keyframes empTopo{from{fill:var(--emp-topo)}}
@@ -1902,16 +1934,16 @@ button,input{font:inherit;color:inherit}
 
 .emp.nasce .emp-obj{animation:empNasce 560ms var(--cv-mola) both}
 .emp.varrendo .emp-varre{animation:empVarre 820ms ease-out forwards}
-.emp.on .emp-topo{animation:empTopo 400ms ease var(--atraso,0s) both}
-.emp.on .emp-esq{animation:empEsq 400ms ease var(--atraso,0s) both}
-.emp.on .emp-dir{animation:empDir 400ms ease var(--atraso,0s) both}
-.emp.on .emp-pe{animation:empPe 400ms ease var(--atraso,0s) both}
-.emp.on .emp-aro{animation:empAro 420ms var(--cv-mola) var(--atraso,0s) both}
-.emp.on .emp-luz{animation:empSurge 500ms ease var(--atraso,0s) both, empRespira 2.1s ease-in-out calc(var(--atraso,0s) + .5s) infinite}
+.emp.escolhida.on .emp-topo{animation:empTopo 400ms ease var(--atraso,0s) both}
+.emp.escolhida.on .emp-esq{animation:empEsq 400ms ease var(--atraso,0s) both}
+.emp.escolhida.on .emp-dir{animation:empDir 400ms ease var(--atraso,0s) both}
+.emp.escolhida.on .emp-pe{animation:empPe 400ms ease var(--atraso,0s) both}
+.emp.escolhida.on .emp-aro{animation:empAro 420ms var(--cv-mola) var(--atraso,0s) both}
+.emp.escolhida.on .emp-luz{animation:empSurge 500ms ease var(--atraso,0s) both, empRespira 2.1s ease-in-out calc(var(--atraso,0s) + .5s) infinite}
 /* 🔴 A LUZ E A ESCRITA SÃO A MESMA CENA (ordem do dono no mock rota): janela
    acendendo É a letra sendo digitada — os dois partem juntos aos 40 ms.
    Cada janela tem o SEU lugar na fila (--j), e a fila de cada empresa é outra. */
-.emp.on .emp-jan{animation:empJanela 300ms ease calc(var(--atraso,0s) + 40ms + var(--j,0)*105ms) both}
+.emp.escolhida.on .emp-jan{animation:empJanela 300ms ease calc(var(--atraso,0s) + 40ms + var(--j,0)*105ms) both}
 
 /* o rótulo: chip de vidro com fio guia até o prédio. NÃO escala com a câmera —
    nome que encolhe com o zoom fica ilegível justo quando há mais deles.
@@ -1943,9 +1975,9 @@ button,input{font:inherit;color:inherit}
   transform:scaleX(0);transform-origin:0 50%}
 /* 66 ms por letra (duas ordens do dono no mock rota). 🔴 O TETO É O SUBLINHADO:
    ele TEM que terminar depois do nome (23 letras = 1,52s; barra 1,9s). */
-.emp.on .emp-nome{animation:empDigita calc(var(--n,1)*66ms) steps(var(--n,1),end) calc(var(--atraso,0s) + 40ms) both}
-.emp.on .emp-rotulo{animation:empSurge 200ms ease var(--atraso,0s) both}
-.emp.on .emp-barra{animation:empSublinha 1.9s linear calc(var(--atraso,0s) + 180ms) both}
+.emp.escolhida.on .emp-nome{animation:empDigita calc(var(--n,1)*66ms) steps(var(--n,1),end) calc(var(--atraso,0s) + 40ms) both}
+.emp.escolhida.on .emp-rotulo{animation:empSurge 200ms ease var(--atraso,0s) both}
+.emp.escolhida.on .emp-barra{animation:empSublinha 1.9s linear calc(var(--atraso,0s) + 180ms) both}
 .emp.passou .emp-rotulo{opacity:0}
 .emp.passou .emp-luz{animation:none;opacity:.4}
 
@@ -2806,8 +2838,11 @@ button,input{font:inherit;color:inherit}
      que o dono desenhou com o claro DENTRO. O que resolve o contraste aqui é
      ESTRUTURA, não tinta: o nome não escreve mais no mapa, escreve num CHIP DE
      VIDRO branco (o v4 matou o problema do limão-no-branco por desenho). */
-  --emp-topo:#c8d1dc; --emp-esq:#a7b2c0; --emp-dir:#8a95a4;
-  --emp-janela:#dde4ec; --emp-sombra:rgba(40,58,84,.2); --emp-base:#8a95a4;
+  /* AS DUAS CORES no claro (12/08) — o mesmo desenho, não uma inversão. */
+  --emp-topo:#b3c6e2; --emp-esq:#93aad0; --emp-dir:#7590b9;
+  --emp-janela:#d8e3f2; --emp-sombra:rgba(40,58,84,.2); --emp-base:#7590b9;
+  --emp-es-topo:#b7cf92; --emp-es-esq:#98b56f; --emp-es-dir:#7b9a52;
+  --emp-es-janela:#e0eccd; --emp-es-base:#7b9a52;
   --emp-on-topo:#9fc555; --emp-on-esq:#79a02e; --emp-on-dir:#5c7d1c;
   --emp-on-janela:#31570a; --emp-on-janela-brilho:rgba(49,87,10,.5);
   --emp-on-base:#4f9310;
@@ -3435,11 +3470,16 @@ const DADOS={
   mapa:{
     chip:'Empresas por perto',
     empresas:[
+      /* AS DUAS CORES DO DESENHO (12/08): o salão e a auto peças são o AMBIENTE
+         (azuis, mudos — o corredor traz todo mundo). As três de baixo são do
+         TIPO da semana (`escolhida`), e por isso são as únicas que podem acender
+         e digitar o nome. É a cena que o dono decidiu: a rua tem mundo, mas só
+         fala com você quem você escolheu ouvir. */
       {nome:'Salão Bela Vista',   x:'30%', y:'38%', esc:.66},
       {nome:'Auto Peças Central', x:'61%', y:'31%', esc:.58},
-      {nome:'Mercado São Judas',  x:'78%', y:'49%', esc:1.12, ordem:[0,3,1,5,2,4], atraso:'.6s',   aceso:true},
-      {nome:'Padaria Avenida',    x:'22%', y:'57%', esc:.88,  ordem:[2,0,4,1,5,3], atraso:'2.1s',  aceso:true},
-      {nome:'Restaurante Sabor',  x:'74%', y:'68%', esc:1,    ordem:[1,2,5,0,4,3], atraso:'3.55s', aceso:true},
+      {nome:'Mercado São Judas',  x:'78%', y:'49%', esc:1.12, ordem:[0,3,1,5,2,4], atraso:'.6s',   escolhida:true, aceso:true},
+      {nome:'Padaria Avenida',    x:'22%', y:'57%', esc:.88,  ordem:[2,0,4,1,5,3], atraso:'2.1s',  escolhida:true, aceso:true},
+      {nome:'Restaurante Sabor',  x:'74%', y:'68%', esc:1,    ordem:[1,2,5,0,4,3], atraso:'3.55s', escolhida:true, aceso:true},
     ],
   },
   /* L3b — O CROMO DA NAVEGAÇÃO. Tudo o que estava CRAVADO no template do GPS
@@ -3757,6 +3797,28 @@ const DADOS={
        `prospector` é estar ligada. São dois, e não um, pelo mesmo motivo do
        `admin`: chave que a empresa não pode ter não vira linha na tela. */
     prospector:0, prospectorDisponivel:1,
+    /* PROSPECTOR v2 (12/08) — o que a PESSOA escolheu pra ESTA semana. A linha
+       dos Ajustes deixa de ser uma chave liga/desliga e passa a mostrar a
+       ESCOLHA ("Prospector · Mercados"), porque é ela que manda de verdade:
+       chave ligada sem escolha é prospector mudo, e uma chave que diz "ligado"
+       com a rua toda azul seria a tela mentindo. Vazio = ninguém escolheu. */
+    prospectorTipo:'',
+  },
+  /* A FOLHA DA ESCOLHA (PROSPECTOR v2, 12/08). `tipos` vem do SERVIDOR (a
+     curadoria mora lá, em logistica-prospector-tipos.ts) — a tela não tem uma
+     segunda cópia da lista, senão as duas divergem no primeiro ajuste. */
+  prospectortipo:{
+    tipo:'mercado',
+    tipos:[
+      {slug:'mercado',rotulo:'Mercados e mercearias'},
+      {slug:'restaurante',rotulo:'Restaurantes e lanchonetes'},
+      {slug:'bar',rotulo:'Bares'},
+      {slug:'padaria',rotulo:'Padarias e confeitarias'},
+      {slug:'farmacia',rotulo:'Farmácias e drogarias'},
+      {slug:'salao',rotulo:'Salões e barbearias'},
+      {slug:'oficina',rotulo:'Oficinas e autopeças'},
+      {slug:'construcao',rotulo:'Materiais de construção'},
+    ],
   },
   /* O TUTOR. Quem escreve é a ponte, no boot; o motor só LÊ.
      🔴 AUSENTE ≠ VAZIO, e aqui isso é o coração da coisa: enquanto
@@ -4487,7 +4549,13 @@ function empresasChao(){
     const nome=e.nome||'';
     const gancho=e.id?` data-acao="abrir-empresa" data-empresa="${e.id}"`:'';
     const geo=(e.lat!=null&&e.lng!=null)?` data-lat="${e.lat}" data-lng="${e.lng}" data-dist="${e.distM||0}"`:'';
-    return `<div class="emp no-ar${e.aceso?' on':''}"${gancho}${geo}
+    /* 🔴 A COR VEM DO SERVIDOR, NUNCA DA TELA (PROSPECTOR v2, 12/08). `escolhida`
+       é o CNAE da empresa batendo no TIPO que a pessoa escolheu pra semana — e
+       essa pergunta se responde no backend, com a curadoria na mão. A tela só
+       veste a classe. E o `on` só sai JUNTO com o `escolhida`: azul é ambiente,
+       e ambiente não fala (a ponte defende de novo em `vestirFase`). */
+    const verde=e.escolhida?' escolhida':'';
+    return `<div class="emp no-ar${verde}${e.aceso&&e.escolhida?' on':''}"${gancho}${geo}
       style="--x:${e.x||'50%'};--y:${e.y||'50%'};--esc:${e.esc||1};--n:${nome.length||1};--atraso:${e.atraso||'0s'}">
       <span class="emp-obj">${svgPredio(e.ordem)}</span>
       <span class="emp-rotulo">
@@ -5596,11 +5664,54 @@ T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){const a=DADOS.a
           expirou". Grupo próprio porque não é cobrança nem aviso: é uma FONTE
           DE CLIENTE. O nome carrega a consequência inteira, sem linha de
           explicação embaixo — mesma régua das 6 de cima. */''}
+    ${/* 🔴 A CHAVE VIROU DUAS LINHAS (PROSPECTOR v2, 12/08), e a de baixo é a
+          que manda. A chave de cima continua sendo a da EMPRESA (opt-in do
+          admin, um campo, um PATCH). A de baixo é a da PESSOA: o que ELA quer
+          caçar nesta semana. Sem escolha, o prospector fica mudo mesmo com a
+          chave ligada — então a linha diz "Escolher" em vez de fingir que
+          ligado basta. Ela só existe com a chave ligada, porque escolher tipo
+          numa empresa que não tem o recurso é decisão sem consequência. */''}
     ${a.prospectorDisponivel?`<div class="grupo">Vender no caminho</div>
     <div class="cartao-lista">
       ${ch('sales','Prospector — empresas no caminho',a.prospector,'chave-prospector')}
+      ${a.prospector?`<button class="linha-cfg" data-acao="abrir-prospector-tipo"><span class="ico">${ic('sales',16)}</span>
+        <span><strong>${a.prospectorTipo?`Procurando: ${a.prospectorTipo}`:'Escolher o que procurar'}</strong></span>
+        <span style="color:var(--ink-3)">${ic('chev',15)}</span></button>`:''}
     </div>`:''}`));
 }};
+
+/* 19b — PROSPECTOR: O QUE TE INTERESSA ESTA SEMANA (12/08) -----------------
+   FOLHA, não tela cheia: é uma decisão de UM toque em cima do Avançado, e a
+   folha é a peça que o app já usa pra isso (mesma família do "Histórico da
+   semana"). A entrada desliza pelo `.tela.entra .sheet` que já existe — regra
+   de ENTRADA que cita `.entra`, que é o que impede a folha de subir de novo a
+   cada toque de chip (o defeito do APK 267, `prova-folha-sobe-uma-vez`).
+
+   COPY MÍNIMA de propósito: a pergunta, os chips e o Desligar. Sem parágrafo
+   explicando o que é prospector — quem chegou aqui já ligou a chave de cima. */
+T.prospectortipo={nome:'Prospector · o que procurar',grupo:'Ajustes',render(){
+  const d=DADOS.prospectortipo||{};
+  const tipos=Array.isArray(d.tipos)?d.tipos:[];
+  return `${status}
+${hdr({voltar:'avancado',semChat:1})}
+<div class="body" style="opacity:.4;pointer-events:none"><h1 class="tela-tit">Avançado</h1></div>
+<div class="scrim"></div>
+<div class="sheet" style="max-height:76%">
+  <span class="handle"></span>
+  <div class="sheet-head">
+    <div><h2>O que te interessa esta semana?</h2><p>Só o que você escolher aparece aceso na rua.</p></div>
+    <button class="round sm" data-voltar="1" data-ir="avancado">${ic('close',16)}</button></div>
+  ${/* Lista VAZIA não vira tela vazia calada: sem os tipos (a porta não
+        respondeu) a folha diz o que houve e oferece a saída. */''}
+  ${tipos.length?`<div class="chips centro" style="flex-wrap:wrap;overflow:visible">
+    ${tipos.map(t=>`<button class="chip${d.tipo===t.slug?' on':''}" data-acao="prospector-tipo" data-tipo="${t.slug}">${t.rotulo}</button>`).join('')}
+  </div>
+  ${d.tipo?`<div style="margin-top:14px"><button class="linha-cfg" data-acao="prospector-desligar" style="border-radius:13px;background:var(--card);border:.7px solid var(--line)">
+    <span class="ico">${ic('close',16)}</span><span><strong>Desligar esta semana</strong></span><span></span></button></div>`:''}`
+  :`<div class="box"><div class="box-t">Não consegui carregar os tipos</div>
+    <div class="box-s">Toque em Fechar e abra de novo.</div></div>`}
+</div>
+${nav('ajustes')}`;}};
 
 T.sons={nome:'Ajustes · Sons',grupo:'Ajustes',render(){
   const linha=(t,s,on)=>`<button class="linha-cfg"><span class="ico">${ic('volume',16)}</span>

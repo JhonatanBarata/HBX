@@ -829,6 +829,33 @@
     return fila;
   }
 
+  /* ------------------------------------------------------------------------
+     O RAIO-X DO PROSPECTOR (12/08) — a pendência da "dirigida instrumentada".
+
+     🔴 POR QUE UM OBJETO E NÃO UM LOG. Em 12/08 mediu-se: 24 empresas embarcadas
+     no servidor e ZERO prédios na tela do g15 (memória:
+     prospector-servidor-verde-cliente-mudo). Servidor verde + tela muda é um
+     defeito que só se acha comparando QUATRO números que hoje ninguém consegue
+     ver juntos: quantas chegaram, quantas são do tipo, quantas estão no ar e em
+     que fase a régua parou. Log de cada quadro é impossível — `posicionarEmpresas`
+     roda a 60 fps na tela de quem está dirigindo, e logar ali é o próprio
+     defeito (a memória do "conferidor media a si mesmo"). Então: um objeto que
+     é ESCRITO a cada passada e LIDO quando alguém pergunta (`window.__hbxProspector`
+     no console do WebView, ou o Ver Tela do master). Escrever campo em objeto é
+     de graça; imprimir não é.
+
+     O ÚNICO log é o do `aplicarProspector`: ele acontece por CHEGADA DE DADO
+     (uma vez por poll), não por quadro. */
+  window.__hbxProspector = {
+    recebidas: 0,      // quantas o servidor mandou
+    escolhidas: 0,     // quantas são do TIPO da semana (as verdes)
+    noAr: 0,           // quantas estão desenhadas AGORA (fase 1..4 e na moldura)
+    fase0: 0,          // quantas a régua ainda não deixou nascer
+    reguaNula: false,  // true = sem rumo/fix: a régua não decide nada, ninguém nasce
+    tipo: null,        // o slug do que a pessoa escolheu (null = quieto)
+    atualizadoEm: null,
+  };
+
   function aplicarProspector(resp) {
     if (typeof window.usarDados !== 'function') return;
     const p = resp && resp.prospector;
@@ -851,13 +878,34 @@
           lat: Number(e.lat),
           lng: Number(e.lng),
           distM: Number(e.distM) || 0,
-          aceso: !!e.aceso,
+          /* 🔴 AS DUAS CORES (12/08). `escolhida` é do SERVIDOR: o CNAE dela
+             bateu no TIPO que a pessoa escolheu pra semana. Verde fala, azul é
+             ambiente. A ponte não recalcula nada — ela nem tem a curadoria. */
+          escolhida: !!e.escolhida,
+          // 🔴 E `aceso` NUNCA sobrevive sozinho: prédio azul aceso seria o app
+          // pedindo pro motorista parar por uma empresa que ele não escolheu.
+          // O servidor já garante isso; aqui é a segunda trava (a terceira é o
+          // `vestirFase`). Trava barata em cima de estrago caro.
+          aceso: !!e.aceso && !!e.escolhida,
           ordem: filaDeJanelas(id || String(i)),
           // escalona quem acende primeiro: as três da cena do desenho entram
           // com respiro entre elas, não todas no mesmo quadro.
           atraso: `${(i * 0.75).toFixed(2)}s`,
         };
       });
+    const raio = window.__hbxProspector;
+    raio.recebidas = p.empresas.length;
+    raio.escolhidas = empresas.filter((e) => e.escolhida).length;
+    raio.tipo = p.tipo || null;
+    raio.atualizadoEm = new Date().toISOString();
+    /* O ÚNICO log desta frente, e ele é por CHEGADA DE DADO (uma vez por poll),
+       nunca por quadro. É a linha que responde "o servidor mandou e a tela
+       recebeu?" — a pergunta que ficou sem resposta no g15 em 12/08. */
+    try {
+      console.log(
+        `[prospector] recebidas=${raio.recebidas} escolhidas=${raio.escolhidas} desenhaveis=${empresas.length} tipo=${raio.tipo || '-'}`,
+      );
+    } catch (_) { /* console fechado não é motivo pra derrubar a rota */ }
     window.usarDados('mapa', { empresas });
   }
 
