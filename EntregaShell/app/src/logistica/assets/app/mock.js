@@ -1563,14 +1563,14 @@ function telaGps(chegou){
     ${mapa()}
     <div class="gps-manobra chegou">
       <div class="cima">
-        <span class="seta">${ic('check',26)}</span>
+        <span class="seta">${ic('check',30)}</span>
         <span>${g.chegouTitulo?`<b class="dist">${g.chegouTitulo}</b>`:''}${g.paradaNome?`
           <span class="verbo">${g.paradaNome}</span>`:''}</span>
       </div>
       ${baixo?`<div class="baixo">${baixo}</div>`:''}
     </div>
     <div class="gps-lado" style="bottom:118px">
-      <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',18)}</button>
+      <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',24)}</button>
     </div>
     <!-- 🔴 ESTA TELA ERA UM BECO SEM SAÍDA (09/08). Quem chegava na parada não
          tinha PORTA nenhuma: nem um data-ir, nem um data-acao — e o verde
@@ -1600,7 +1600,7 @@ function telaGps(chegou){
   const manobra=(g.manobraIcone||g.manobraDist||g.manobraVerbo||manobraBaixo)
     ?`<div class="gps-manobra">
       <div class="cima">
-        ${g.manobraIcone?`<span class="seta">${ic(g.manobraIcone,26)}</span>`:''}
+        ${g.manobraIcone?`<span class="seta">${ic(g.manobraIcone,30)}</span>`:''}
         <span>${g.manobraDist?`<b class="dist" data-vivo="manobraDist">${g.manobraDist}</b>`:''}${g.manobraVerbo?`<span class="verbo" data-vivo="manobraVerbo">${g.manobraVerbo}</span>`:''}</span>
       </div>
       ${manobraBaixo?`<div class="baixo">${manobraBaixo}</div>`:''}
@@ -1640,7 +1640,7 @@ function telaGps(chegou){
     <!-- bússola: só existe porque o mapa gira pelo rumo — sem rumo, ela não
          tem o que apontar e sai de cena inteira -->
     ${g.rumo?`<div class="gps-bussola">
-      <svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3.5 L16 13 L12 10.6 L8 13 Z" fill="#ff8b85"/></svg><span data-vivo="rumo">${g.rumo}</span>
+      <svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 3.5 L16 13 L12 10.6 L8 13 Z" fill="#ff8b85"/></svg><span data-vivo="rumo">${g.rumo}</span>
     </div>`:''}
     ${g.velocidade?`<div class="gps-vel"><b data-vivo="velocidade">${g.velocidade}</b>${g.velocidadeUnidade?`<small>${g.velocidadeUnidade}</small>`:''}</div>`:''}
     <!-- Os botões da beirada: até 08/08 eles não tinham GANCHO nenhum e o
@@ -1659,10 +1659,10 @@ function telaGps(chegou){
          não-lidas do balão: ele é estrutura que nasce e some, e nesta tela
          cada nascimento desses derruba a camada inteira do mapa. -->
     <div class="gps-lado">
-      <button data-ir="chat" aria-label="Chat com a Central">${ic('chat',18)}</button>
+      <button data-ir="chat" aria-label="Chat com a Central">${ic('chat',24)}</button>
       <button data-acao="gps-voz" class="${g.vozMuda?'mudo':''}"
-        aria-label="${g.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',18)}</button>
-      <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',18)}</button>
+        aria-label="${g.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',24)}</button>
+      <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',24)}</button>
     </div>
 
     <!-- 🔴 O RODAPÉ PODE FICAR SÓ COM O "Sair", e é o certo: ele é a PORTA

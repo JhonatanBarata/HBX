@@ -1655,35 +1655,61 @@ button,input{font:inherit;color:inherit}
    foto. Ele é derivado da âncora, nunca digitado de novo. */
 .gps.solta .gps-puck{left:var(--px,50%);top:var(--py,calc(100% - var(--gps-piso) - 22.5px));bottom:auto}
 
-.gps-manobra{position:absolute;left:9px;right:9px;top:6px;z-index:20;border-radius:15px;
+/* 🔴 O CARTÃO CRESCEU 15% (11/08 — dono: *"400m a direita tá ok, pode aumentar
+   um pouco, av 25, depois continue na rua 2 (ilegível dirigindo) — aumente um
+   pouco tudo em 15% (aproveite mais o espaço)"*). Tudo aqui subiu junto, na
+   mesma proporção: seta 48→55, distância 22→25,5, verbo 15→17,5, a tira de
+   baixo 11,5→13,5 e os respiros de 11/13/7 pra 13/15/8. Aumentar SÓ a fonte
+   deixaria o texto batendo na borda — quem lê a 40 km/h lê a MANCHA, e mancha
+   apertada é o mesmo ilegível com letra maior.
+   O "aproveite mais o espaço" são as beiradas: 9→8px de cada lado, e é isso que
+   paga a letra grande sem empurrar a segunda linha.
+   🔴 A TIRA DE BAIXO NÃO PODE QUEBRAR. Ela carrega NOME DE RUA, que é dado e não
+   tem teto — e a altura deste cartão é o teto da bússola (o `top` dela é número
+   escolhido, logo abaixo). Rua comprida quebrando em duas linhas engorda o
+   cartão e a bússola sobe por cima dele: é o mesmo defeito de 10/08 do rodapé,
+   com outra roupa. Uma linha, sempre, e o que não couber vira "…". */
+.gps-manobra{position:absolute;left:8px;right:8px;top:6px;z-index:20;border-radius:17px;
   background:var(--card);border:.7px solid var(--line);box-shadow:0 12px 30px rgba(0,0,0,.5);overflow:hidden}
-.gps-manobra .cima{display:flex;align-items:center;gap:12px;padding:11px 13px}
-.gps-manobra .seta{width:48px;height:48px;border-radius:13px;background:var(--blue-bg);color:var(--blue-l);
-  display:grid;place-items:center;flex:0 0 48px}
-.gps-manobra .dist{display:block;font-size:22px;font-weight:500;line-height:1.05;letter-spacing:-.02em}
-.gps-manobra .verbo{display:block;font-size:15px;color:var(--ink);margin-top:2px}
-.gps-manobra .baixo{display:flex;align-items:center;gap:7px;padding:7px 13px;border-top:.7px solid var(--line);
-  background:var(--glass);font-size:11.5px;color:var(--ink-2)}
+.gps-manobra .cima{display:flex;align-items:center;gap:14px;padding:13px 15px}
+.gps-manobra .seta{width:55px;height:55px;border-radius:15px;background:var(--blue-bg);color:var(--blue-l);
+  display:grid;place-items:center;flex:0 0 55px}
+.gps-manobra .dist{display:block;font-size:25.5px;font-weight:500;line-height:1.05;letter-spacing:-.02em}
+.gps-manobra .verbo{display:block;font-size:17.5px;color:var(--ink);margin-top:2px}
+/* `display:block` e não flex: o "…" precisa de uma CAIXA DE TEXTO pra acontecer
+   — num flex a tira é um item anônimo e o corte sairia seco, sem as reticências
+   que avisam que tem mais rua ali. O ícone da tela "Você chegou" (o único
+   elemento que entra nesta tira) volta a alinhar pelo `vertical-align`. */
+.gps-manobra .baixo{display:block;padding:8px 15px;border-top:.7px solid var(--line);
+  background:var(--glass);font-size:13.5px;color:var(--ink-2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gps-manobra .baixo svg{vertical-align:-2px;margin-right:2px}
 .gps-manobra.chegou .seta{background:var(--lime-bg-2);color:var(--lime)}
 .gps-manobra.chegou .dist{color:var(--lime)}
 
-/* 🔴 114px E NÃO 96 (11/08). A bússola tem o MESMO `z-index` do cartão da
-   manobra e é pintada DEPOIS dele, então ela subia por cima do canto do cartão
-   — 9,6px de sobreposição sempre que existe a tira de baixo ("Avenida Nove ·
-   depois, vire à direita"), que é o caso normal dirigindo. O cartão mede 6px de
-   topo + 99,6px com a tira; 114 deixa a bússola livre nos dois estados, e ela
-   não desce mais que isso pra não invadir o mapa. */
-.gps-bussola{position:absolute;right:11px;top:114px;z-index:20;width:38px;height:38px;border-radius:50%;
-  background:var(--glass);border:.7px solid var(--line);display:grid;place-items:center;color:var(--ink-2);font-size:9.5px}
-.gps-vel{position:absolute;left:11px;bottom:var(--gps-piso);z-index:20;width:56px;height:56px;border-radius:50%;
+/* 🔴 O TOPO DA BÚSSOLA É REFÉM DA ALTURA DO CARTÃO DA MANOBRA. Ela tem o MESMO
+   `z-index` dele e é pintada DEPOIS, então qualquer sobreposição é ela por cima
+   do canto do cartão. Era 114 quando o cartão media 6 + 99,6px; com o cartão 15%
+   maior (11/08) ele passou a terminar em 124 (medido) e este número subiu junto — quem
+   mexer no cartão MEDE de novo com `node scripts/prova-encaixe-gps.js`, que é o
+   portão que reprova essa colisão. Ela não desce mais que o necessário pra não
+   invadir o mapa. */
+.gps-bussola{position:absolute;right:11px;top:130px;z-index:20;width:46px;height:46px;border-radius:50%;
+  background:var(--glass);border:.7px solid var(--line);display:grid;place-items:center;color:var(--ink-2);font-size:11px}
+/* 🔴 AS PEÇAS DA BEIRADA CRESCERAM (11/08 — dono: *"velocímetro, ícones chat som
+   e centralizador estão pequenos"*). Elas são o cromo que se lê e se aperta EM
+   MOVIMENTO: 56→72 no velocímetro e 40→52 nos botões põe o alvo acima dos 48px
+   de toque confortável e deixa o número legível de relance. Elas continuam
+   pousando no `--gps-piso`, então o crescimento sobe — não invade o rodapé. */
+.gps-vel{position:absolute;left:11px;bottom:var(--gps-piso);z-index:20;width:72px;height:72px;border-radius:50%;
   background:var(--glass);border:.7px solid var(--line);display:grid;place-items:center;text-align:center;line-height:1}
-.gps-vel b{display:block;font-size:19px;font-weight:500}
-.gps-vel small{display:block;font-size:8.5px;color:var(--ink-2);margin-top:2px}
+.gps-vel b{display:block;font-size:26px;font-weight:500}
+.gps-vel small{display:block;font-size:11px;color:var(--ink-2);margin-top:3px}
 /* A coluna cresce PRA CIMA (é ancorada pelo pé), então quem paga qualquer
    sobra é sempre o botão de baixo — o mais perto do polegar. Por isso ela pousa
    no mesmo `--gps-piso` do velocímetro: os dois lados da tela na mesma linha. */
-.gps-lado{position:absolute;right:11px;bottom:var(--gps-piso);z-index:20;display:flex;flex-direction:column;gap:8px}
-.gps-lado button{width:40px;height:40px;border-radius:50%;border:.7px solid var(--line);background:var(--glass);
+.gps-lado{position:absolute;right:11px;bottom:var(--gps-piso);z-index:20;display:flex;flex-direction:column;gap:10px}
+.gps-lado button{width:52px;height:52px;border-radius:50%;border:.7px solid var(--line);background:var(--glass);
   color:var(--blue-l);display:grid;place-items:center;cursor:pointer}
 /* voz desligada: o botão continua ali, apagado — quem silenciou precisa ver
    COMO religar, e trocar o ícone por um "sem som" seria vocabulário novo. */
