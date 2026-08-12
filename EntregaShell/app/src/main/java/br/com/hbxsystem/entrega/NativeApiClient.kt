@@ -345,6 +345,11 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         // dispararia (o app trata "não sei" como "já viu", de propósito) e o
         // "visto" nunca gravaria — backend verde, celular calado.
         method == "GET" && segments == listOf("logistica", "tutorial") -> true
+        // 🔴 PROSPECTOR — A SEMANA (12/08) — QUARTA mordida da mesma armadilha:
+        // a folha "O que te interessa esta semana?" abria e morria em "Não
+        // consegui carregar os tipos" com o servidor 100% ok, porque o GET
+        // morria AQUI, dentro do aparelho. Endpoint novo = allowlist + rebuild.
+        method == "GET" && segments == listOf("logistica", "prospector", "semana") -> true
         method == "POST" && segments in listOf(
             listOf("financeiro", "credits", "recharge"),
             // Carimba o tutorial obrigatório como visto (par do GET acima).
@@ -380,6 +385,9 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "passeio", "iniciar"),
             // RECADOS (03/08) — o sino do entregador e os dois retornos diretos
             // previstos pelo contrato do canal. Ver nota no GET acima.
+            // PROSPECTOR — A SEMANA (12/08): gravar/trocar/desligar a escolha
+            // do tipo (par do GET acima; {tipo:null} desliga).
+            listOf("logistica", "prospector", "semana"),
             listOf("logistica", "recados", "puxar"),
             listOf("logistica", "recados", "pendentes"),
             listOf("logistica", "recados", "recebidos"),
