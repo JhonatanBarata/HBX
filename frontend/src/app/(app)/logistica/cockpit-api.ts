@@ -66,6 +66,45 @@ export function proximaParada(paradas: Parada[]): Parada | null {
 export type RecadoNivel = "normal" | "urgente" | "alarme";
 export type RecadoEstado = "enviado" | "no_aparelho" | "visto" | "entendido";
 
+/**
+ * RECADO COM ROTA/PARADA EMBUTIDA (12/08) — o trabalho grudado no texto.
+ *
+ * Só o ID viaja no envio; `nome`/`detalhe` são resolvidos pelo servidor na
+ * LEITURA (congelá-los faria o celular mostrar o endereço de antes da correção
+ * do cadastro, e é pelo endereço que o motorista decide se encaixa).
+ */
+export type RecadoAnexoTipo = "parada" | "rota";
+export type RecadoAnexoEstado = "pendente" | "encaixada" | "negada";
+
+export type RecadoAnexo = {
+  tipo: RecadoAnexoTipo;
+  contaId: string | null;
+  rotaModeloId: string | null;
+  /** vazio = a referência saiu do cadastro depois do envio */
+  nome: string;
+  /** "R. das Orquídeas, 55" · "6 paradas" */
+  detalhe: string;
+  paradas: number | null;
+  estado: RecadoAnexoEstado;
+};
+
+/** o que a tela MANDA: um id e o tipo dele, nada mais */
+export type RecadoAnexoEnvio =
+  | { tipo: "parada"; contaId: string }
+  | { tipo: "rota"; rotaModeloId: string };
+
+/** Uma rota salva (LogisticaRotaModelo) — o outro alvo possível do anexo. */
+export type RotaSalva = {
+  id: string;
+  nome: string;
+  diaSemana: number | null;
+  paradas: Array<{ customerProfileId: string; localId?: string | null }>;
+};
+
+export function listarRotasSalvas(signal?: AbortSignal): Promise<RotaSalva[]> {
+  return apiFetch<RotaSalva[]>("/logistica/rota-modelos", { signal });
+}
+
 export type Recado = {
   id: string;
   motoristaUserId: number;
@@ -79,6 +118,8 @@ export type Recado = {
   vistoEm: string | null;
   ackEm: string | null;
   estado: RecadoEstado;
+  /** null = recado só de texto (todo o fio de antes de 12/08). */
+  anexo?: RecadoAnexo | null;
 };
 
 /** Tipos do vigia + os 3 da sentinela (03/08). */
@@ -147,6 +188,12 @@ export function enviarRecado(input: {
   nivel: RecadoNivel;
   /** Ausente = o servidor manda pro aparelho do turno. */
   deviceId?: string | null;
+  /**
+   * O trabalho grudado no texto. Só em recado individual — o servidor recusa
+   * anexo em broadcast (cinco motoristas encaixando a mesma parada seriam cinco
+   * visitas ao mesmo cliente).
+   */
+  anexo?: RecadoAnexoEnvio;
 }): Promise<Recado[]> {
   return apiFetch<Recado[]>("/logistica/recados", {
     method: "POST",

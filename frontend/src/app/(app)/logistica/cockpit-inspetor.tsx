@@ -17,11 +17,13 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 
+import { listClientes, type ClienteListItem } from "./clientes-api";
 import {
   enviarRecado,
   ehParadaAberta,
   getAparelhosDoRecado,
   getFioRecados,
+  listarRotasSalvas,
   ordenarParadas,
   proximaParada,
   rotuloDoEstado,
@@ -29,8 +31,37 @@ import {
   type Entregador,
   type Parada,
   type Recado,
+  type RecadoAnexoEnvio,
   type RecadoNivel,
+  type RotaSalva,
 } from "./cockpit-api";
+
+/**
+ * RECADO COM ROTA/PARADA EMBUTIDA (12/08) — o que a tela guarda enquanto o
+ * despachante escolhe. `envio` é o que vai pro servidor (só o id); `rotulo` e
+ * `detalhe` existem só pra ele conferir o que anexou antes de mandar.
+ */
+type AnexoEscolhido = { envio: RecadoAnexoEnvio; rotulo: string; detalhe: string };
+
+/** "R. das Orquídeas, 55" — a mesma régua do servidor (`linhaEnderecoDaFonte`). */
+function linhaDoCliente(c: ClienteListItem): string {
+  const rua = String(c.endereco ?? "").trim();
+  const numero = String(c.numero ?? "").trim();
+  const base = !rua ? (numero ? `nº ${numero}` : "") : numero && !rua.includes(numero) ? `${rua}, ${numero}` : rua;
+  return [base, String(c.cidade ?? "").trim()].filter(Boolean).join(" • ");
+}
+
+/** o chip do desfecho no fio do cockpit — pendente / encaixada / negada */
+const CLASSE_DO_ANEXO: Record<string, string> = {
+  pendente: "ctb-chip warn",
+  encaixada: "ctb-chip ok",
+  negada: "ctb-chip bad",
+};
+const ROTULO_DO_ANEXO: Record<string, string> = {
+  pendente: "aguardando ele decidir",
+  encaixada: "encaixada na rota",
+  negada: "negada",
+};
 
 const NIVEIS: Array<{ chave: RecadoNivel; rotulo: string; ajuda: string }> = [
   { chave: "normal", rotulo: "Normal", ajuda: "Entra na lista e no sino do app." },
@@ -105,6 +136,15 @@ export function CockpitInspetor({
   const [deviceEscolhido, setDeviceEscolhido] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  // ANEXO (12/08) — a parada/rota que vai grudada no texto. `null` = recado de
+  // sempre, e é assim que ele nasce toda vez: anexo que sobrevive ao envio
+  // mandaria o mesmo cliente de novo no próximo recado.
+  const [anexo, setAnexo] = useState<AnexoEscolhido | null>(null);
+  const [escolhendo, setEscolhendo] = useState<null | "parada" | "rota">(null);
+  const [buscaAnexo, setBuscaAnexo] = useState("");
+  const [achados, setAchados] = useState<ClienteListItem[]>([]);
+  const [rotasSalvas, setRotasSalvas] = useState<RotaSalva[]>([]);
+  const buscaRequestRef = useRef(0);
   const logRef = useRef<HTMLDivElement | null>(null);
   const fioRequestRef = useRef(0);
   const fioEmVooRef = useRef(false);
@@ -180,20 +220,66 @@ export function CockpitInspetor({
     return () => ctrl.abort();
   }, [ativo, motorista.id]);
 
+  /* A BUSCA DE CLIENTE do anexo — mesma receita do route-builder: 300 ms de
+     espera e um contador que descarta resposta velha. Sem o contador, digitar
+     rápido faz a resposta de "mer" chegar depois da de "mercado" e a lista
+     pisca pro resultado errado. */
+  useEffect(() => {
+    if (escolhendo !== "parada") return undefined;
+    const termo = buscaAnexo.trim();
+    const requestId = ++buscaRequestRef.current;
+    /* Tudo — inclusive o esvaziar — acontece DENTRO do timer. Limpar a lista no
+       corpo do efeito é setState síncrono (o `react-hooks/set-state-in-effect`
+       reprova, e com razão: são renders em cascata a cada tecla); e do lado do
+       olho é melhor assim, porque a lista para de piscar enquanto se digita. */
+    const timer = setTimeout(() => {
+      if (termo.length < 2) { if (requestId === buscaRequestRef.current) setAchados([]); return; }
+      listClientes(termo)
+        .then((r) => {
+          if (requestId !== buscaRequestRef.current) return;
+          setAchados((r.items || []).filter((c) => c.isCliente).slice(0, 8));
+        })
+        .catch(() => { if (requestId === buscaRequestRef.current) setAchados([]); });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [buscaAnexo, escolhendo]);
+
+  // As rotas salvas são da EMPRESA e mudam pouco: uma leitura por abertura do
+  // seletor basta — pendurar isso no tique de 1 s do fio seria pagar por uma
+  // pergunta que quase sempre responde a mesma coisa.
+  useEffect(() => {
+    if (escolhendo !== "rota") return undefined;
+    const ctrl = new AbortController();
+    listarRotasSalvas(ctrl.signal).then((l) => setRotasSalvas(l || [])).catch(() => setRotasSalvas([]));
+    return () => ctrl.abort();
+  }, [escolhendo]);
+
+  const fecharSeletor = useCallback(() => {
+    setEscolhendo(null);
+    setBuscaAnexo("");
+    setAchados([]);
+  }, []);
+
   const mandar = useCallback(() => {
     const limpo = texto.trim();
     if (!limpo || enviando) return;
     setEnviando(true);
     setErro(null);
-    enviarRecado({ paraUserId: motorista.id, texto: limpo, nivel, deviceId: deviceEscolhido })
+    enviarRecado({
+      paraUserId: motorista.id, texto: limpo, nivel, deviceId: deviceEscolhido,
+      ...(anexo ? { anexo: anexo.envio } : {}),
+    })
       .then((criados) => {
         setTexto("");
         setNivel("normal");
+        // O anexo morre no envio: ele é DAQUELE recado. Deixá-lo no composer
+        // mandaria a mesma parada de novo no recado seguinte, sem ninguém pedir.
+        setAnexo(null);
         setFio((atual) => [...atual, ...criados]);
       })
       .catch((e: unknown) => setErro(e instanceof Error ? e.message : "Não foi possível mandar o recado."))
       .finally(() => setEnviando(false));
-  }, [deviceEscolhido, enviando, motorista.id, nivel, texto]);
+  }, [anexo, deviceEscolhido, enviando, motorista.id, nivel, texto]);
 
   // Só quem está NA operação pode ser destino: aparelho de teste/base aparece
   // no painel do master, nunca aqui como opção de disparo.
@@ -280,6 +366,19 @@ export function CockpitInspetor({
                 </span>
               )}
               {recado.texto}
+              {/* O ANEXO (12/08) — o que foi grudado no texto e o que ele fez
+                  com isso. É a resposta da pergunta que hoje só o celular
+                  sabia: "ele encaixou aquela parada ou não?". */}
+              {recado.anexo && (
+                <span className="cok-balao__anexo">
+                  <I d={recado.anexo.tipo === "rota" ? ICONS.logistica : ICONS.mapin} size={12} />{" "}
+                  {recado.anexo.nome || "fora do cadastro"}
+                  {recado.anexo.detalhe ? ` · ${recado.anexo.detalhe}` : ""}{" "}
+                  <span className={CLASSE_DO_ANEXO[recado.anexo.estado] ?? "ctb-chip warn"}>
+                    {ROTULO_DO_ANEXO[recado.anexo.estado] ?? recado.anexo.estado}
+                  </span>
+                </span>
+              )}
               <span className={`cok-balao__estado${recado.estado === "entendido" ? " is-entendido" : ""}`}>
                 {rotuloDoEstado(recado)}
               </span>
@@ -335,6 +434,93 @@ export function CockpitInspetor({
               </button>
             ))}
           </div>
+          {/* ── ANEXAR (12/08) ────────────────────────────────────────────
+              Uma linha, dois alvos. Só aparece o SELETOR quando ele pede: o
+              composer é de recado, e uma busca sempre aberta empurraria o campo
+              de escrever pra fora da tela em quem só quer mandar texto. */}
+          <div className="cok__niveis" role="group" aria-label="Anexar trabalho ao recado">
+            {anexo ? (
+              <>
+                <span className="ctb-chip warn">
+                  <I d={anexo.envio.tipo === "rota" ? ICONS.logistica : ICONS.mapin} size={12} /> {anexo.rotulo}
+                </span>
+                <small className="hbx-1linha">{anexo.detalhe}</small>
+                <button type="button" className="btn-ghost btn-xs is-perigo" disabled={enviando} onClick={() => setAnexo(null)}>
+                  Tirar
+                </button>
+              </>
+            ) : (
+              <>
+                <small className="hbx-1linha">Anexar:</small>
+                <button
+                  type="button" className="btn-ghost btn-xs" disabled={enviando}
+                  onClick={() => { setEscolhendo(escolhendo === "parada" ? null : "parada"); setBuscaAnexo(""); }}
+                >
+                  Parada
+                </button>
+                <button
+                  type="button" className="btn-ghost btn-xs" disabled={enviando}
+                  onClick={() => setEscolhendo(escolhendo === "rota" ? null : "rota")}
+                >
+                  Rota salva
+                </button>
+              </>
+            )}
+          </div>
+          {escolhendo === "parada" && !anexo && (
+            <div className="cok__anexo-busca">
+              <input
+                className="field-dark"
+                value={buscaAnexo}
+                placeholder="Nome do cliente…"
+                aria-label="Buscar cliente para anexar ao recado"
+                onChange={(e) => setBuscaAnexo(e.target.value)}
+              />
+              {/* "Ainda não perguntei" ≠ "não achei": abaixo de 2 letras a lista
+                  não afirma que nada existe — ela ainda nem perguntou. */}
+              {buscaAnexo.trim().length >= 2 && achados.length === 0 && (
+                <small className="cok__chat-vazio">Nenhum cliente com esse nome.</small>
+              )}
+              {achados.map((c) => (
+                <button
+                  type="button" key={c.id} className="btn-ghost btn-xs"
+                  onClick={() => {
+                    setAnexo({
+                      envio: { tipo: "parada", contaId: c.id },
+                      rotulo: c.name || "Cliente",
+                      detalhe: linhaDoCliente(c),
+                    });
+                    fecharSeletor();
+                  }}
+                >
+                  {c.name || "Cliente"} — {linhaDoCliente(c) || "sem endereço"}
+                </button>
+              ))}
+            </div>
+          )}
+          {escolhendo === "rota" && !anexo && (
+            <div className="cok__anexo-busca">
+              {rotasSalvas.length === 0 && <small className="cok__chat-vazio">Nenhuma rota salva ainda.</small>}
+              {rotasSalvas.map((r) => {
+                const n = Array.isArray(r.paradas) ? r.paradas.length : 0;
+                return (
+                  <button
+                    type="button" key={r.id} className="btn-ghost btn-xs"
+                    onClick={() => {
+                      setAnexo({
+                        envio: { tipo: "rota", rotaModeloId: r.id },
+                        rotulo: r.nome,
+                        detalhe: `${n} ${n === 1 ? "parada" : "paradas"}`,
+                      });
+                      fecharSeletor();
+                    }}
+                  >
+                    {r.nome} — {n} {n === 1 ? "parada" : "paradas"}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div className="cok__enviar">
             <input
               className="field-dark"

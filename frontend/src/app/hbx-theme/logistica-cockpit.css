@@ -752,6 +752,29 @@
 /* "Entendido" é o único estado que muda de cor: é a prova que o dono
    pediu — o clique garantido, não só "chegou". */
 .cok-balao__estado.is-entendido { color: var(--hbx-success); font-weight: 700; }
+/* RECADO COM ROTA/PARADA EMBUTIDA (12/08) — a linha do que foi grudado no texto
+   e o que ele fez com isso. Sem cor própria: quem pinta o desfecho é o
+   `.ctb-chip` (ok/warn/bad), que já é o trio canônico desta casa. */
+.cok-balao__anexo {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  padding-top: var(--space-1);
+  border-top: 1px solid var(--border-hairline);
+  color: var(--text-muted);
+  font-size: var(--fz-m2);
+}
+/* A lista do seletor: rola dentro de si, nunca empurra o campo de escrever pra
+   fora da tela — o composer é de recado, e anexar é o desvio. */
+.cok__anexo-busca {
+  display: grid;
+  gap: var(--space-1);
+  max-height: 12rem;
+  overflow-y: auto;
+}
+.cok__anexo-busca .btn-ghost { justify-content: flex-start; text-align: left; }
 
 .cok__chat-escrita {
   display: grid;
