@@ -147,7 +147,11 @@ function msQuente(db, sql, prefixo = '') {
       const sim = Number(r[11]);
       const dist = r[12] === '' ? null : Number(r[12]);
       const quando = r[10] === '' ? null : Date.parse(r[10]);
-      const fProx = dist === null ? 1 : Math.max(0.25, 1 / (1 + dist / 2000));
+      // Esta consulta VEIO COM GPS, então distância nula aqui só pode ser
+      // "cliente sem pino" — e sem pino vale 0.55 (PROX_SEM_PINO), nunca o 1.0
+      // de quem está na porta. Foi este espelho que gritou quando a régua do
+      // SQL mudou, que é exatamente pra isso que a fórmula vive duplicada aqui.
+      const fProx = dist === null ? 0.55 : Math.max(0.25, 1 / (1 + dist / 2000));
       const dias = quando === null ? null : (agora - quando) / 86400000;
       const fRec = dias === null ? 1 : dias <= 30 ? 1.25 : dias <= 90 ? 1.1 : 1;
       return Math.abs(sim * fProx * fRec - Number(r[13])) < 1e-4;

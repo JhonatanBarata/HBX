@@ -177,3 +177,29 @@ test('score do serviço é o do SQL — nem sim cru, nem coluna ausente', () => 
     assert.ok(!/r\.sim\b/.test(linha), `score mapeado de sim cru (o defeito de 12/08): ${linha.trim()}`);
   }
 });
+
+/* 🔴 SEM GPS ≠ SEM PINO (fiscal, 12/08). O defeito que a RUA mostrou e a
+   bancada não: cliente sem pino subia ao topo porque "distância nula" caía no
+   mesmo galho de "request sem GPS" e ganhava fator 1.0 — o de quem está NA
+   PORTA. Os dois grupos que ranqueiam por distância têm que ler as duas
+   situações separadas, sempre; um grupo curado e o outro não é como a lista
+   volta a se contradizer. */
+test('distância nula: sem GPS é neutro, sem pino é penalizado — nos DOIS grupos', () => {
+  const comGps = { lat: -22.4, lng: -47.5 };
+  const cli = sqlBuscaClientes({ companyId: 41, q: 'marcia', ...comGps });
+  const com = sqlBuscaComerciosLike({ cityNorm: 'rio claro', uf: 'SP', q: 'bar', ...comGps });
+  for (const [nome, p] of [['clientes', cli], ['comercios', com]] as const) {
+    // O galho do "sem GPS" (param de latitude nulo) é neutro: 1.0.
+    assert.match(p.sql, /WHEN \$\d::float8 IS NULL THEN 1\.0/, `${nome}: sem GPS tem que ser neutro`);
+    // E o galho do "tem GPS, não tem pino" existe e NÃO vale 1.0.
+    assert.match(
+      p.sql,
+      /WHEN (geo\.)?dist_m IS NULL THEN 0\.55/,
+      `${nome}: sem pino tem que valer PROX_SEM_PINO, nunca o fator de quem está na porta`,
+    );
+    assert.ok(
+      !/WHEN (geo\.)?dist_m IS NULL THEN 1\.0/.test(p.sql),
+      `${nome}: "não sei onde é" voltou a valer o mesmo que "está na porta"`,
+    );
+  }
+});

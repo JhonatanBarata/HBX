@@ -251,7 +251,20 @@ export function sqlBuscaClientes(args: {
     )
     SELECT *,
            sim
-           * (CASE WHEN dist_m IS NULL THEN 1.0
+           /* 🔴 SEM GPS ≠ SEM PINO (fiscal, 12/08 — defeito visto na RUA, não na
+              bancada). Isto era um CASE só: dist_m IS NULL vira 1.0. Só que
+              dist_m nasce nulo por DOIS motivos diferentes, e tratar os dois
+              como "distância máxima de perto" é o que empurrava o cliente SEM
+              PINO pro TOPO de uma lista que promete "o mais perto vem primeiro":
+                · o request veio sem GPS  → ninguém tem distância: 1.0 é neutro,
+                  a proximidade simplesmente não entra na conta (certo);
+                · o request TEM GPS e este cliente não tem pino → "não sei onde
+                  é" estava valendo mais que a casa medida a 800 m (errado).
+              Quem não tem pino agora vale PROX_SEM_PINO — o MESMO 0.55 que o
+              grupo de comércios já usava: fica atrás de quem está perto de
+              verdade e na frente de quem está longe, sem sumir da lista. */
+           * (CASE WHEN $4::float8 IS NULL THEN 1.0
+                   WHEN dist_m IS NULL THEN ${num(PROX_SEM_PINO)}
                    ELSE GREATEST(${num(PROX_PISO)}, 1.0 / (1.0 + dist_m / ${num(PROX_MEIA_M)}.0)) END)
            * (CASE WHEN quando IS NULL THEN 1.0
                    WHEN quando >= now() - interval '30 days' THEN ${num(RECENCIA_BONUS_30D)}
