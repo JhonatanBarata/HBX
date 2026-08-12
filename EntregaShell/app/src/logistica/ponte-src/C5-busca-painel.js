@@ -109,6 +109,26 @@
   const avisoDoGeo = (nivel) => (Number(nivel) >= 4 ? 'ponto aproximado (cidade)'
     : Number(nivel) === 3 ? 'ponto aproximado (bairro)' : '');
 
+  /* 🔴 ZERO NÃO É PINO — e aqui isso vira dinheiro (medido no g15, 12/08, contra
+     PRODUÇÃO). Quem não tem porta marcada volta do servidor com `distM: 0`, e o
+     `emMetros` obediente escrevia "0 m": quatro clientes e dois bares apareceram
+     como se estivessem NA FRENTE do motorista. É a pior mentira possível numa
+     tela cuja promessa escrita, uma linha acima, é "o mais perto de você vem
+     primeiro" — e é a mesma lição do mapa na África, onde 0,0 virava um ponto.
+     Distância que não existe não vira número: o cartão simplesmente não a mostra
+     (a fonte e o endereço continuam lá, que é o que se sabe de verdade).
+     ⚠️ O RANKING em si é do SERVIDOR e continua pondo esses zeros na frente —
+     isso é conserto de F1, anotado no relatório com a foto. */
+  const distDaBusca = (m) => (Number(m) >= 1 ? emMetros(Number(m)) : '');
+
+  /* CEP se lê com máscara. O banco guarda 8 dígitos (e é assim que ele viaja no
+     cadastro, § digitos()); só o que a PESSOA lê ganha o traço — "13502150" na
+     tela é banco de dados vazando pra cara de quem trabalha. */
+  const cepBonito = (c) => {
+    const d = String(c == null ? '' : c).replace(/[^0-9]/g, '');
+    return d.length === 8 ? d.slice(0, 5) + '-' + d.slice(5) : String(c || '');
+  };
+
   function paraTelaDaBusca(resp) {
     const g = (resp && resp.grupos) || {};
     const cli = Array.isArray(g.clientes) ? g.clientes : [];
@@ -118,20 +138,20 @@
       clientes: cli.map((c) => ({
         titulo: esc(c.nome),
         detalhe: esc(juntar([linhaDeEndereco(c.endereco, c.numero), c.bairro || c.cidade])),
-        dist: esc(emMetros(c.distM)),
+        dist: esc(distDaBusca(c.distM)),
         fonte: 'cliente',
       })),
       enderecos: rua.map((v) => ({
         titulo: esc(viaBonita(v.via)),
         detalhe: esc(juntar([v.portas ? `${v.portas} portas no Censo` : '', buscaEscopo.cidade || ''])),
-        dist: esc(emMetros(v.distM)),
+        dist: esc(distDaBusca(v.distM)),
         fonte: 'censo',
-        cep: esc(v.cep || ''),
+        cep: esc(cepBonito(v.cep)),
       })),
       comercios: loja.map((e) => ({
         titulo: esc(e.nome),
         detalhe: esc(juntar([e.endereco, e.cidade, avisoDoGeo(e.nivelGeo)])),
-        dist: esc(emMetros(e.distM)),
+        dist: esc(distDaBusca(e.distM)),
         fonte: 'rfb',
       })),
     };
@@ -253,7 +273,7 @@
   function armarPeDaBusca(tipo, i, titulo, dist, cep) {
     if (typeof window.usarDados !== 'function') return;
     window.usarDados('rapida', {
-      pe: { tipo, i, titulo: esc(titulo), dist: esc(dist || ''), cep: esc(cep || '') },
+      pe: { tipo, i, titulo: esc(titulo), dist: esc(dist || ''), cep: esc(cepBonito(cep)) },
       numAberto: -1, aviso: '', busca: esc(textoDaBusca()),
     });
   }
@@ -286,7 +306,7 @@
       };
       r.escolhaBusca = { tipo: 'cliente', fonte: 'cliente', contaId: String(cru.id), cep: cru.cep || '', lat: cru.lat, lng: cru.lng };
       guardarRecenteDaBusca(cru.nome);
-      armarPeDaBusca(tipo, i, cru.nome, emMetros(cru.distM), cru.cep || '');
+      armarPeDaBusca(tipo, i, cru.nome, distDaBusca(cru.distM), cru.cep || '');
       return;
     }
 
@@ -317,7 +337,7 @@
       lat: cru.lat, lng: cru.lng, nivelGeo: cru.nivelGeo,
     };
     guardarRecenteDaBusca(cru.nome);
-    armarPeDaBusca(tipo, i, cru.nome, emMetros(cru.distM), cru.cep || '');
+    armarPeDaBusca(tipo, i, cru.nome, distDaBusca(cru.distM), cru.cep || '');
   }
 
   /* ------------------------------------------------------------------------
@@ -382,7 +402,7 @@
       : porta.precisao === 'rua' ? 'O Censo não tem este número exato: o ponto é o do vizinho mais perto.'
         : 'Sem número: o ponto é o da rua. Confira antes de adicionar.';
     guardarRecenteDaBusca(titulo);
-    armarPeDaBusca('rua', i, titulo, emMetros(cru.distM), r.cep);
+    armarPeDaBusca('rua', i, titulo, distDaBusca(cru.distM), r.cep);
     // quem já mora nesta porta? (best-effort — só avisa, nunca trava)
     await rapidaCheckarPorta();
   }

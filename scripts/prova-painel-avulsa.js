@@ -74,7 +74,10 @@ const PONTE = ({ hoje, atrasoPorTermo }) => {
     {
       id: 'c1', nome: 'Márcia', endereco: 'Rua 5', numero: '1181', bairro: 'Centro',
       cidade: 'Rio Claro', uf: 'SP', cep: '13500100', lat: -22.4110, lng: -47.5610,
-      distM: 1200, ultimaEntregaEm: null, score: 0.92,
+      /* 🔴 SEM PORTA MARCADA. O servidor devolve `distM: 0` pra quem nao tem
+         pino (medido contra PRODUCAO no g15, 12/08) — e a tela nao pode ler isso
+         como "esta na sua frente". Zero nao e pino. */
+      distM: 0, ultimaEntregaEm: null, score: 0.92,
     },
     {
       id: 'c2', nome: 'Santa Cruz Bebidas', endereco: 'Rua Santa Cruz', numero: '77', bairro: 'Centro',
@@ -311,6 +314,9 @@ const nota = (t) => notas.push(t);
     peCep: (document.querySelector('.avb-pe-resumo .pill') || {}).textContent || '',
     peBotao: (document.querySelector('.tmx-dock .act.go b') || {}).textContent || '',
     campo: (document.querySelector('[data-campo="rapida-busca"]') || {}).value || '',
+    /* o × existe SEMPRE no HTML; quem o esconde e a folha (:placeholder-shown).
+       `offsetParent` null = escondido de verdade, nao so "sem classe". */
+    xVisivel: !!(document.querySelector('[data-acao="busca-limpar"]') || {}).offsetParent,
     portao: (document.querySelector('.portao h3') || {}).textContent || '',
     portaoSub: (document.querySelector('.portao .sub') || {}).textContent || '',
   }));
@@ -441,6 +447,11 @@ const nota = (t) => notas.push(t);
     const t = await espiar();
     eh('D2 · erro de digitação acha o cliente ("mracia" → Márcia)',
       t.titulos.join(',') === 'Márcia', t.titulos.join(','));
+    /* 🔴 ZERO NAO E PINO. Sem porta marcada o servidor manda `distM: 0`; escrever
+       "0 m" num painel que promete "o mais perto de voce vem primeiro" e a pior
+       mentira que esta tela pode contar. */
+    eh('D3 · distância que não existe NÃO vira "0 m"', t.dists.length === 0, t.dists.join(','));
+    eh('D4 · e o × aparece com texto no campo, SEM repinte nenhum', t.xVisivel === true);
     await tocar('[data-acao="busca-escolher"][data-tipo="cli"]');
     const t2 = await espiar();
     eh('F4 · escolher cliente arma o pé com o CEP dele', /13500-?100/.test(t2.peCep), t2.peCep);
@@ -462,6 +473,8 @@ const nota = (t) => notas.push(t);
     await p.waitForTimeout(600);
     await tocar('[data-acao="busca-escolher"][data-tipo="loja"]');
     const t1 = await espiar();
+    eh('F6 · o CEP do pé sai COM máscara (13500-200), não cru do banco',
+      /nasce com CEP 13500-200/.test(t1.peResumo), t1.peResumo);
     eh('F5 · escolher comércio arma o pé com nome e distância',
       /Bar do Zé/.test(t1.peResumo) && /350 m/.test(t1.peResumo), t1.peResumo);
     await tocar('[data-acao="rapida-confirmar"]', 1800);
@@ -490,6 +503,7 @@ const nota = (t) => notas.push(t);
     await cena();
     const t0 = await espiar();
     eh('I3 · sem nada escrito ⇒ "Pra onde vai a parada?"', /Pra onde vai a parada/i.test(t0.vazio), t0.vazio);
+    eh('I4 · e sem texto no campo o × fica escondido', t0.xVisivel === false);
     eh('J1 · e os recentes são os DESTE aparelho (dois já gravados nas cenas acima)',
       t0.recentes.length >= 2 && t0.recentes.some((r) => /Bar do Zé/.test(r)) && t0.recentes.some((r) => /Rua 8, 1181/.test(r)),
       JSON.stringify(t0.recentes));
