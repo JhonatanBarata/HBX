@@ -1812,7 +1812,7 @@ button,input{font:inherit;color:inherit}
    de toque confortável e deixa o número legível de relance. Elas continuam
    pousando no `--gps-piso`, então o crescimento sobe — não invade o rodapé. */
 .gps-vel{position:absolute;left:11px;bottom:var(--gps-piso);z-index:20;width:120px;height:126px;border-radius:22px;
-  background:var(--vel-bg);border:.7px solid var(--vel-fio);text-align:center;line-height:1;
+  background:var(--vel-bg);border:.7px solid var(--vel-fio);text-align:center;line-height:1;scale:.9;transform-origin:left bottom;
   box-shadow:0 10px 24px rgba(0,0,0,.46)}
 .gps-vel::before{content:"";position:absolute;inset:11px;border:2px dotted var(--vel-trilho);border-radius:16px}
 .gps-vel::after{content:"";position:absolute;inset:11px;border:3px solid transparent;border-right-color:var(--vel-acima-ink);
@@ -1871,7 +1871,8 @@ button,input{font:inherit;color:inherit}
 /* A coluna cresce PRA CIMA (é ancorada pelo pé), então quem paga qualquer
    sobra é sempre o botão de baixo — o mais perto do polegar. Por isso ela pousa
    no mesmo `--gps-piso` do velocímetro: os dois lados da tela na mesma linha. */
-.gps-lado{position:absolute;right:11px;bottom:var(--gps-piso);z-index:20;display:flex;flex-direction:column;gap:10px}
+.gps-lado{position:absolute;right:11px;bottom:var(--gps-piso);z-index:20;display:flex;flex-direction:column;gap:10px;
+  scale:.9;transform-origin:right bottom}
 .gps-lado button{width:52px;height:52px;border-radius:17px;border:.7px solid var(--line);background:var(--glass);
   color:var(--ink);display:grid;place-items:center;cursor:pointer;box-shadow:0 8px 18px rgba(0,0,0,.36)}
 /* voz desligada: o botão continua ali, apagado — quem silenciou precisa ver
