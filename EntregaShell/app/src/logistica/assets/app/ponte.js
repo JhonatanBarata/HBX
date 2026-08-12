@@ -11847,6 +11847,14 @@
            que é a fonte certa e grava a `geoFonte` certa junto. */
         if (r.origem !== 'cep' && pinoValido(res.lat, res.lng)) {
           corpo.lat = Number(res.lat); corpo.lng = Number(res.lng);
+          /* 🔴 PINO DE BASE NÃO É FIX DE GPS (F4, 12/08). Quem escolheu no painel
+             sabe DE ONDE o ponto veio (Censo, Receita) e diz. Calando, o servidor
+             decide pela `gpsAccuracy` que não veio e grava `gps_impreciso` — que
+             conta a história de um GPS ruim onde não houve GPS nenhum, e é por
+             esse rótulo que as telas decidem se ainda precisam pedir a porta ao
+             motorista. Quem MEDE a qualidade continua sendo o servidor: 'geocode'
+             é justamente a fonte que ele aceita sem provar nada (força 1). */
+          if (r.geoFonteEscolhida) corpo.geoFonte = r.geoFonteEscolhida;
         }
         Object.keys(corpo).forEach((k) => {
           if (corpo[k] === undefined || corpo[k] === null || corpo[k] === '') delete corpo[k];
@@ -12511,6 +12519,24 @@
     .map((p) => (p ? p.charAt(0).toUpperCase() + p.slice(1) : p)).join(' ');
   const juntar = (partes) => partes.filter((x) => x != null && String(x).trim() !== '').join(' · ');
 
+  /* 🔴 O BANCO NÃO ESCREVE NA FICHA DO CLIENTE (F4). O escopo da busca vem com a
+     cidade NORMALIZADA do Censo ("rio claro" — minúscula, sem acento: é a chave
+     de junção das tabelas), e ela ia inteira pro cadastro. O dono abria a ficha
+     do cliente novo e lia "rio claro", que é banco de dados vazando pra cara de
+     quem trabalha — a mesma doença do CEP cru que o `cepBonito` já curou. */
+  const cidadeBonita = (c) => viaBonita(c);
+
+  /* O NÚMERO DE DENTRO DO TEXTO — a MESMA âncora do servidor
+     (`extrairNumeroPorta`, cnefe-resolver.util): só vale número depois de
+     vírgula ou de "nº". Nunca o primeiro número solto, porque "Rua 12" tem o 12
+     no NOME da via, não na porta. O endereço da Receita vem num campo só
+     ("Av. 8, 415"), e sem o número dali a conta nascia S/N — e S/N desliga o
+     aviso de porta repetida, que EXIGE número dos dois lados. */
+  const numeroDoEnderecoDaBusca = (texto) => {
+    const m = /(?:,|n[ºo°]\s*|\bn[uú]mero\s*)\s*(\d{1,6})(?!\d)/i.exec(String(texto || ''));
+    return m ? m[1] : '';
+  };
+
   /* 🔴 O NÍVEL DO GEO TEM QUE APARECER (o próprio serviço avisa: "1=porta
      2=rua 3=bairro 4=cidade — a tela TEM que diferenciar"). Comércio marcado
      no CENTRO DO BAIRRO desenhado como se fosse a porta é parada plantada no
@@ -12683,7 +12709,13 @@
     if (typeof window.usarDados !== 'function') return;
     window.usarDados('rapida', {
       pe: { tipo, i, titulo: esc(titulo), dist: esc(dist || ''), cep: esc(cepBonito(cep)) },
-      numAberto: -1, aviso: '', busca: esc(textoDaBusca()),
+      numAberto: -1,
+      /* 🔴 O AVISO SOBREVIVE AO PÉ. Aqui era `aviso: ''` fixo, e quem acabara de
+         escrever um aviso (o ponto é do vizinho, o Censo não deu CEP) via a
+         própria frase ser apagada do seam no repinte seguinte. O que a tela SABE
+         não pode ser apagado pelo que a tela MOSTRA. */
+      aviso: esc((rapida && rapida.aviso) || ''),
+      busca: esc(textoDaBusca()),
     });
   }
 
@@ -12730,23 +12762,52 @@
       return;
     }
 
-    // COMÉRCIO (RFB × CnpjGeo): o pino é a intenção, então ele VIAJA no cadastro.
+    /* ------------------------------------------------------------------------
+       COMÉRCIO (RFB × CnpjGeo).
+
+       🔴 O PINO FRACO NÃO SE VESTE DE PORTA (F4). O `CnpjGeo` diz em que NÍVEL
+       ele marcou aquele CNPJ: 1=porta, 2=rua, 3=bairro, 4=cidade. O cartão já
+       avisava disso na lista — mas na hora de virar parada o ponto viajava
+       IGUAL, e um comércio marcado no centro do bairro virava a coordenada pra
+       onde o entregador dirige. Numa cidade de interior isso é quilômetro de
+       erro, e a lei da casa é uma só: pino errado é PIOR que pino vazio.
+       Do nível 3 pra baixo o pino fica em casa e quem resolve o lugar é o CEP,
+       no servidor (CNEFE) — que acerta a RUA, e é mais do que o bairro sabe.
+
+       🔴 E O NÚMERO DA RECEITA VEM JUNTO. O endereço da RFB é um campo só
+       ("Av. 8, 415"); mandar `numero: ''` fazia a conta nascer S/N — e S/N
+       DESLIGA o aviso de porta repetida, que exige número dos dois lados.
+       ------------------------------------------------------------------------ */
+    const pinoDePorta = Number(cru.nivelGeo) > 0 && Number(cru.nivelGeo) <= 2;
+    const numeroDaLoja = numeroDoEnderecoDaBusca(cru.endereco);
     r.duplicado = null;
     r.origem = 'busca';
     r.nome = String(cru.nome || '');
     r.cep = String(cru.cep || '');
-    r.numero = '';
+    r.numero = numeroDaLoja;
     r.resolvido = {
-      fonte: 'rfb', endereco: cru.endereco || '', numero: '',
+      fonte: 'rfb', endereco: cru.endereco || '', numero: numeroDaLoja,
       bairro: '', cidade: cru.cidade || '', uf: cru.uf || '',
-      cep: cru.cep || '', lat: cru.lat, lng: cru.lng,
+      cep: cru.cep || '',
+      lat: pinoDePorta ? cru.lat : null, lng: pinoDePorta ? cru.lng : null,
     };
+    /* Pino de BASE não é fix de GPS. Sem dizer nada, o servidor decide pela
+       `gpsAccuracy` que não veio e grava `gps_impreciso` — "houve um GPS, e ele
+       era ruim". Não houve GPS nenhum: houve uma base. O nome honesto disso na
+       escada da procedência é `geocode` ("nunca foi provado no chão"), e é o
+       que as telas leem pra saber se ainda precisam pedir a porta ao motorista. */
+    r.geoFonteEscolhida = pinoDePorta ? 'geocode' : null;
     r.escolhaBusca = {
       tipo: 'comercio', fonte: 'rfb', cnpj: String(cru.cnpj || ''), cep: cru.cep || '',
-      lat: cru.lat, lng: cru.lng, nivelGeo: cru.nivelGeo,
+      numero: numeroDaLoja, lat: cru.lat, lng: cru.lng, nivelGeo: cru.nivelGeo,
     };
+    r.aviso = pinoDePorta ? ''
+      : `A Receita só tem ${avisoDoGeo(cru.nivelGeo) || 'ponto aproximado'} deste comércio: quem manda no lugar é o CEP.`;
+    if (!digitos(cru.cep)) r.aviso = 'Sem o CEP deste comércio na Receita — confira o endereço antes de adicionar.';
     guardarRecenteDaBusca(cru.nome);
     armarPeDaBusca(tipo, i, cru.nome, distDaBusca(cru.distM), cru.cep || '');
+    // quem já mora nesta porta? (best-effort — só avisa, nunca trava)
+    void rapidaCheckarPorta();
   }
 
   /* ------------------------------------------------------------------------
@@ -12784,15 +12845,26 @@
         : 'Não achei o ponto desta rua no Censo.';
       return publicarRapida();
     }
-    const titulo = [viaBonita(porta.via || cru.via), porta.numero || (sn ? 'S/N' : '')]
+    /* 🔴 O NÚMERO É O QUE O DEDO ESCREVEU — NUNCA O DO VIZINHO (F4).
+       Com `precisao: 'rua'` o Censo responde com o número da porta VIZINHA (até
+       200 números de distância): era ele que ia parar no cadastro. A pessoa
+       digitava 1177, a conta nascia no 1175 e o entregador batia na casa
+       errada — com a tela dizendo, uma linha abaixo, que o ponto era "o do
+       vizinho mais perto". O vizinho é PINO de referência, não é endereço.
+       Só a porta EXATA pode ditar o número (e aí ele é o mesmo que foi digitado
+       — o Censo confirmando, não corrigindo). */
+    const numeroDaPorta = porta.precisao === 'porta' && porta.numero
+      ? String(porta.numero)
+      : String(numero || '');
+    const titulo = [viaBonita(porta.via || cru.via), numeroDaPorta || (sn ? 'S/N' : '')]
       .filter(Boolean).join(', ');
     r.duplicado = null;
     r.nome = titulo;
-    r.numero = porta.numero ? String(porta.numero) : '';
+    r.numero = numeroDaPorta;
     r.cep = String(porta.cep || '');
     r.resolvido = {
       fonte: 'cnefe', endereco: viaBonita(porta.via || cru.via), numero: r.numero,
-      bairro: '', cidade: buscaEscopo.cidade || '', uf: buscaEscopo.uf || '',
+      bairro: '', cidade: cidadeBonita(buscaEscopo.cidade || ''), uf: buscaEscopo.uf || '',
       cep: r.cep, lat: porta.lat, lng: porta.lng,
     };
     /* 🔴 COM CEP NA MÃO, QUEM RESOLVE O PINO É O SERVIDOR (a lei do CEP).
@@ -12802,14 +12874,25 @@
        mentira sobre a procedência de um pino que é do Censo.
        Sem CEP na resposta o pino é a única coisa que temos: ele viaja. */
     r.origem = r.cep ? 'cep' : 'busca';
+    /* Sem CEP o pino do Censo é tudo o que temos, então ele viaja — mas viaja
+       com o nome certo. `geocode` é a procedência de quem saiu de uma BASE e
+       nunca foi provado no chão; calar aqui faria o servidor gravar
+       `gps_impreciso`, que conta a história de um GPS que não existiu. */
+    r.geoFonteEscolhida = r.cep ? null : 'geocode';
     r.escolhaBusca = {
       tipo: 'endereco', fonte: 'cnefe', precisao: porta.precisao || null,
       codMunicipio: buscaEscopo.codMunicipio, via: porta.via || cru.via,
       numero: r.numero, cep: r.cep, lat: porta.lat, lng: porta.lng,
     };
     r.aviso = porta.precisao === 'porta' ? ''
-      : porta.precisao === 'rua' ? 'O Censo não tem este número exato: o ponto é o do vizinho mais perto.'
+      : porta.precisao === 'rua' ? 'O Censo não tem este número exato: o ponto (e o CEP) são os do vizinho mais perto.'
         : 'Sem número: o ponto é o da rua. Confira antes de adicionar.';
+    /* 🔴 A TELA PEDE, NÃO CHUTA. Sem CEP o cadastro de CLIENTE não fecha (é a
+       lei do dono, cobrada no servidor) — e até aqui a pessoa só descobria isso
+       depois de tocar em "Adicionar à rota" e levar um erro cru na cara. */
+    if (!r.cep) {
+      r.aviso = 'O Censo não deu o CEP desta porta. Sem CEP não dá pra cadastrar cliente — confira o endereço.';
+    }
     guardarRecenteDaBusca(titulo);
     armarPeDaBusca('rua', i, titulo, distDaBusca(cru.distM), r.cep);
     // quem já mora nesta porta? (best-effort — só avisa, nunca trava)
@@ -12840,7 +12923,10 @@
      "João da Silva" que o boot apaga desde 07/08. */
   function zerarPainelDaBusca() {
     const r = rapida;
-    if (r) { r.resolvido = null; r.duplicado = null; r.aviso = ''; r.buscaTexto = ''; r.escolhaBusca = null; }
+    if (r) {
+      r.resolvido = null; r.duplicado = null; r.aviso = ''; r.buscaTexto = '';
+      r.escolhaBusca = null; r.geoFonteEscolhida = null;
+    }
     buscaCrus = { cli: [], rua: [], loja: [] };
     buscaEscopo = { codMunicipio: null, cidade: null, uf: null };
     buscaSerie += 1;                    // pedido em voo perde a vez

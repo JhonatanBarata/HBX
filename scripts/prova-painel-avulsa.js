@@ -167,6 +167,18 @@ const PONTE = ({ hoje, atrasoPorTermo }) => {
           return R({ fonte: 'cnefe', precisao: 'via', via: q('via'), numero: null, lat: -22.4101, lng: -47.5601, cep: '13500100' });
         }
         if (numero === 9999) return R({ fonte: 'nenhum', precisao: null, via: q('via'), numero: null, lat: null, lng: null, cep: null });
+        /* 🔴 O VIZINHO (F4). O Censo não tem o 1177: responde `precisao:'rua'`
+           com o número do VIZINHO (1175) e o CEP dele. É o caso em que o app
+           ganha um PONTO, e não uma PORTA — e o número que vale continua sendo
+           o que o dedo escreveu. */
+        if (numero === 1177) {
+          return R({ fonte: 'cnefe', precisao: 'rua', via: q('via'), numero: 1175, lat: -22.4103, lng: -47.5603, cep: '13500123' });
+        }
+        /* Porta certa, mas o Censo NÃO tem o CEP dessa linha (acontece na base
+           real). O app não pode inventar CEP — nem carimbar o pino como GPS. */
+        if (numero === 7777) {
+          return R({ fonte: 'cnefe', precisao: 'porta', via: q('via'), numero: 7777, lat: -22.4104, lng: -47.5604, cep: null });
+        }
         return R({ fonte: 'cnefe', precisao: 'porta', via: q('via'), numero, lat: -22.4102, lng: -47.5602, cep: '13500123' });
       }
       if (caminho.indexOf('/logistica/busca') === 0) {
@@ -222,7 +234,24 @@ const PONTE = ({ hoje, atrasoPorTermo }) => {
         });
         return R({ id });
       }
-      if (caminho.indexOf('/nucleo/contas/por-endereco') === 0) return R({ contas: [] });
+      /* QUEM JÁ MORA NESTA PORTA — a régua do servidor, dublada no mínimo:
+         sem NÚMERO não se decide nada, e o CEP (quando os dois têm) precisa
+         bater. É o que faz o aviso de porta repetida existir de verdade nesta
+         prova: a 2ª vez que a mesma porta é escolhida, a conta já está aqui. */
+      if (caminho.indexOf('/nucleo/contas/por-endereco') === 0) {
+        const numero = String(q('numero')).replace(/\D+/g, '');
+        const cep = String(q('cep')).replace(/\D+/g, '');
+        if (!numero) return R({ contas: [] });
+        const achadas = S.contasCriadas.filter((c) => {
+          const cn = String(c.numero || '').replace(/\D+/g, '');
+          const cc = String(c.cep || '').replace(/\D+/g, '');
+          if (cn !== numero) return false;
+          return !cep || !cc || cc === cep;
+        }).map((c) => ({
+          id: c.id, nome: c.nome, isCliente: !!c.isCliente, isLead: false, isFornecedor: false,
+        }));
+        return R({ contas: achadas });
+      }
       if (caminho.indexOf('/nucleo/contas') === 0 && metodo === 'POST') {
         const id = `nova${++S.seq}`;
         S.contasCriadas.push(Object.assign({ id }, corpo));
@@ -312,6 +341,9 @@ const nota = (t) => notas.push(t);
     snLigado: !!(document.querySelector('[data-acao="busca-sn"]') || { classList: { contains: () => false } }).classList.contains('on'),
     peResumo: (document.querySelector('.avb-pe-resumo') || {}).textContent || '',
     peCep: (document.querySelector('.avb-pe-resumo .pill') || {}).textContent || '',
+    /* o aviso da tela (§ `banner alerta` do `roloDaBuscaAvulsa`) — é por ele que
+       a tela CONTA o que ela sabe e o que não sabe, em vez de chutar. */
+    aviso: (document.querySelector('.banner.alerta span') || {}).textContent || '',
     peBotao: (document.querySelector('.tmx-dock .act.go b') || {}).textContent || '',
     campo: (document.querySelector('[data-campo="rapida-busca"]') || {}).value || '',
     /* o × existe SEMPRE no HTML; quem o esconde e a folha (:placeholder-shown).
@@ -547,6 +579,137 @@ const nota = (t) => notas.push(t);
     eh('K2 · a FOLHA não tem regra de animação em peça do painel fora do `.entra`',
       suspeitas.length === 0, suspeitas.join(' | '));
   } catch (e) { falhou.push(`CENA K explodiu: ${e.message}`); }
+
+  // =========================================================================
+  // M · F4 — O CADASTRO HERDANDO A LEI DO CEP
+  //
+  // A cena do dono: o que ele escolhe no painel tem que CHEGAR no cadastro — o
+  // CEP do Censo, o pino do Censo e, acima de tudo, a VERDADE sobre a
+  // procedência desse pino. Pino fraco vestido de porta manda o entregador pra
+  // casa errada, e é isso que estas cenas cobram, uma por uma.
+  // =========================================================================
+
+  /** o caminho inteiro da RUA: procurar → escolher a via → número → "Usar" */
+  const caminhoDaRua = async (numero) => {
+    await digitar('rua 8', 40);
+    await p.waitForTimeout(600);
+    await tocar('[data-acao="busca-escolher"][data-tipo="rua"]');
+    await p.evaluate((v) => {
+      const el = document.querySelector('[data-campo="busca-numero"]');
+      el.value = v; el.dispatchEvent(new Event('input', { bubbles: true }));
+    }, numero);
+    await tocar('[data-acao="busca-usar-rua"]', 600);
+  };
+
+  // M1/M2 · o número que vale é o que o DEDO escreveu
+  try {
+    await cena();
+    await caminhoDaRua('1181');
+    await tocar('[data-acao="rapida-confirmar"]', 1800);
+    const conta = (await postsDe('/nucleo/contas'))[0] || {};
+    nota(`[M1] conta (porta exata) = ${JSON.stringify(conta)}`);
+    eh('M1a · porta exata: a conta nasce com o CEP QUE O CENSO DEU',
+      String(conta.cep).replace(/\D+/g, '') === '13500123', JSON.stringify(conta.cep));
+    eh('M1b · e com o número que o dedo escreveu', String(conta.numero) === '1181', String(conta.numero));
+    eh('M1c · com CEP na mão o pino NÃO viaja — quem resolve (e carimba `cnefe`) é o servidor',
+      conta.lat === undefined && conta.lng === undefined, JSON.stringify([conta.lat, conta.lng]));
+    eh('M1d · a cidade chega em gente ("Rio Claro"), não em banco ("rio claro")',
+      conta.cidade === 'Rio Claro', String(conta.cidade));
+  } catch (e) { falhou.push(`CENA M1 explodiu: ${e.message}`); }
+
+  try {
+    await cena();
+    await caminhoDaRua('1177');            // o Censo só tem o vizinho 1175
+    const t = await espiar();
+    nota(`[M2] aviso="${t.aviso}" · pé="${t.peResumo}"`);
+    eh('M2a · precisão fraca: a tela AVISA que o ponto é do vizinho',
+      /vizinho/i.test(t.aviso), t.aviso);
+    eh('M2b · e o pé mostra o número do DEDO (1177), não o do vizinho (1175)',
+      /1177/.test(t.peResumo) && !/1175/.test(t.peResumo), t.peResumo);
+    await tocar('[data-acao="rapida-confirmar"]', 1800);
+    const conta = (await postsDe('/nucleo/contas'))[0] || {};
+    nota(`[M2] conta (vizinho) = ${JSON.stringify(conta)}`);
+    eh('M2c · a conta NÃO nasce no número do vizinho',
+      String(conta.numero) === '1177', String(conta.numero));
+  } catch (e) { falhou.push(`CENA M2 explodiu: ${e.message}`); }
+
+  // M3 · o Censo sem CEP: não se inventa CEP, e o pino não vira GPS
+  try {
+    await cena();
+    await caminhoDaRua('7777');            // porta certa, Censo sem o CEP dela
+    const t = await espiar();
+    nota(`[M3] aviso="${t.aviso}" · pillCep="${t.peCep}"`);
+    eh('M3a · sem CEP do Censo a tela NÃO promete CEP nenhum', t.peCep === '', t.peCep);
+    eh('M3b · e diz, com todas as letras, que o CEP falta', /cep/i.test(t.aviso), t.aviso);
+    await tocar('[data-acao="rapida-confirmar"]', 1800);
+    const conta = (await postsDe('/nucleo/contas'))[0] || {};
+    nota(`[M3] conta (sem CEP) = ${JSON.stringify(conta)}`);
+    eh('M3c · nada de CEP inventado no corpo', !conta.cep, String(conta.cep));
+    eh('M3d · aí sim o pino do Censo viaja (é tudo que se tem)',
+      Number(conta.lat) === -22.4104, JSON.stringify([conta.lat, conta.lng]));
+    eh('M3e · e viaja rotulado `geocode` — pino de BASE não é fix de GPS',
+      conta.geoFonte === 'geocode', String(conta.geoFonte));
+  } catch (e) { falhou.push(`CENA M3 explodiu: ${e.message}`); }
+
+  // M4 · o comércio da RFB: o que ele tem, e o que ele NÃO tem
+  try {
+    await cena();
+    await digitar('bar do ze', 40);
+    await p.waitForTimeout(600);
+    await tocar('[data-acao="busca-escolher"][data-tipo="loja"]');
+    await tocar('[data-acao="rapida-confirmar"]', 1800);
+    const conta = (await postsDe('/nucleo/contas'))[0] || {};
+    nota(`[M4] conta (comércio nivelGeo 1) = ${JSON.stringify(conta)}`);
+    eh('M4a · comércio com pino de PORTA (nivelGeo 1): o pino viaja',
+      Number(conta.lat) === -22.4105, JSON.stringify([conta.lat, conta.lng]));
+    eh('M4b · rotulado `geocode` (veio da base da Receita, não do chão)',
+      conta.geoFonte === 'geocode', String(conta.geoFonte));
+    eh('M4c · e carrega o NÚMERO que a RFB tem no endereço ("Av. 8, 415")',
+      String(conta.numero) === '415', String(conta.numero));
+  } catch (e) { falhou.push(`CENA M4 explodiu: ${e.message}`); }
+
+  // M5 · comércio com pino de BAIRRO não se disfarça de porta
+  try {
+    await cena();
+    await digitar('bar do ze', 40);
+    await p.waitForTimeout(600);
+    // o 3º "Bar do Zé" é o de Piracicaba — CnpjGeo nível 3 (centro do bairro)
+    await tocar('[data-acao="busca-escolher"][data-tipo="loja"][data-i="2"]');
+    const t = await espiar();
+    nota(`[M5] aviso="${t.aviso}"`);
+    eh('M5a · a tela avisa que o ponto é aproximado', /aproximado/i.test(t.aviso), t.aviso);
+    await tocar('[data-acao="rapida-confirmar"]', 1800);
+    const conta = (await postsDe('/nucleo/contas'))[0] || {};
+    nota(`[M5] conta (comércio nivelGeo 3) = ${JSON.stringify(conta)}`);
+    eh('M5b · pino de BAIRRO não vira pino da parada (o CEP resolve melhor)',
+      conta.lat === undefined && conta.lng === undefined, JSON.stringify([conta.lat, conta.lng]));
+    eh('M5c · e o CEP dele continua indo inteiro', String(conta.cep) === '13400000', String(conta.cep));
+  } catch (e) { falhou.push(`CENA M5 explodiu: ${e.message}`); }
+
+  // M6 · A GUARDA DA PORTA REPETIDA DISPARA (cadastrar 2× o mesmo endereço)
+  try {
+    await cena();
+    await digitar('bar do ze', 40);
+    await p.waitForTimeout(600);
+    await tocar('[data-acao="busca-escolher"][data-tipo="loja"]');
+    await tocar('[data-acao="rapida-confirmar"]', 1800);
+    // 2ª vez: mesma porta, mesmo painel
+    await p.evaluate(() => { try { window.ir('rapida'); } catch (_) {} });
+    await p.waitForTimeout(400);
+    await tocar('[data-acao="rapida-porta"][data-porta="endereco"]', 400);
+    await p.evaluate(() => { window.__chamadas = []; });
+    await digitar('bar do ze', 40);
+    await p.waitForTimeout(600);
+    await tocar('[data-acao="busca-escolher"][data-tipo="loja"]', 600);
+    await tocar('[data-acao="rapida-confirmar"]', 1500);
+    const contas = await postsDe('/nucleo/contas');
+    const t = await espiar();
+    nota(`[M6] 2ª volta: POSTs /nucleo/contas=${contas.length} · aviso="${t.aviso}"`);
+    eh('M6a · a mesma porta NÃO abre uma segunda conta',
+      contas.length === 0, `${contas.length} conta(s) nova(s)`);
+    eh('M6b · e a tela diz que ela já está na rota de hoje',
+      /já está na rota/i.test(t.aviso), t.aviso);
+  } catch (e) { falhou.push(`CENA M6 explodiu: ${e.message}`); }
 
   const erros = await p.evaluate(() => window.__erros || []);
   await b.close();

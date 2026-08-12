@@ -164,6 +164,14 @@
            que é a fonte certa e grava a `geoFonte` certa junto. */
         if (r.origem !== 'cep' && pinoValido(res.lat, res.lng)) {
           corpo.lat = Number(res.lat); corpo.lng = Number(res.lng);
+          /* 🔴 PINO DE BASE NÃO É FIX DE GPS (F4, 12/08). Quem escolheu no painel
+             sabe DE ONDE o ponto veio (Censo, Receita) e diz. Calando, o servidor
+             decide pela `gpsAccuracy` que não veio e grava `gps_impreciso` — que
+             conta a história de um GPS ruim onde não houve GPS nenhum, e é por
+             esse rótulo que as telas decidem se ainda precisam pedir a porta ao
+             motorista. Quem MEDE a qualidade continua sendo o servidor: 'geocode'
+             é justamente a fonte que ele aceita sem provar nada (força 1). */
+          if (r.geoFonteEscolhida) corpo.geoFonte = r.geoFonteEscolhida;
         }
         Object.keys(corpo).forEach((k) => {
           if (corpo[k] === undefined || corpo[k] === null || corpo[k] === '') delete corpo[k];
