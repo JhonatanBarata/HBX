@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HBX · Pesquisa da parada avulsa — proposta v2</title>
+<style>
+  /* ============ proposta de painel — paleta da casca logística ============ */
+  :root{
+    --fundo:#060d1a; --tela:#0a1626; --carta:#0e2038; --carta2:#122844;
+    --linha:#1d3557; --txt:#eaf2ff; --txt2:#8fa6c4; --txt3:#5f7799;
+    --verde:#a3e635; --verde2:#78c900; --verde-escuro:#1a2e10;
+    --azul:#7fb3ff; --azul-chip:#132f52; --alerta:#ffb454;
+    --raio:14px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{background:var(--fundo);color:var(--txt);
+    font:15px/1.45 -apple-system,'Segoe UI',Roboto,sans-serif;
+    display:flex;justify-content:center;padding:18px 0 40px}
+  .fone{width:404px;max-width:100vw;background:linear-gradient(180deg,#0b1830 0%,var(--tela) 34%);
+    border-radius:26px;min-height:820px;position:relative;overflow:hidden;
+    box-shadow:0 30px 80px rgba(0,0,0,.55);display:flex;flex-direction:column}
+
+  /* cabeçalho */
+  .topo{padding:16px 16px 6px;display:flex;align-items:center;gap:12px}
+  .volta{width:38px;height:38px;border-radius:50%;border:1px solid var(--linha);
+    display:grid;place-items:center;color:var(--txt2);flex:none;background:rgba(255,255,255,.02)}
+  .titulo b{font-size:19px;display:block}
+  .titulo small{color:var(--txt2);font-size:12.5px}
+  .gps{margin-left:auto;display:flex;align-items:center;gap:7px;font-size:12px;
+    color:var(--verde);border:1px solid #2c4a17;background:#101f0a;
+    padding:6px 11px;border-radius:999px;white-space:nowrap}
+  .gps i{width:8px;height:8px;border-radius:50%;background:var(--verde);animation:pulso 1.6s infinite}
+  @keyframes pulso{0%,100%{opacity:1}50%{opacity:.35}}
+
+  /* busca */
+  .busca{margin:12px 16px 0;display:flex;gap:10px}
+  .campo{flex:1;display:flex;align-items:center;gap:10px;background:var(--carta);
+    border:1.5px solid var(--linha);border-radius:16px;padding:0 14px;height:56px;
+    transition:border-color .2s}
+  .campo.viva{border-color:var(--verde2)}
+  .campo svg{flex:none;color:var(--txt3)}
+  .campo input{flex:1;background:none;border:0;outline:0;color:var(--txt);
+    font-size:16.5px;min-width:0}
+  .campo input::placeholder{color:var(--txt3)}
+  .limpa{display:none;color:var(--txt3);font-size:20px;padding:6px;cursor:pointer}
+  .mic{width:56px;height:56px;flex:none;border-radius:16px;border:1.5px solid var(--linha);
+    background:var(--carta);display:grid;place-items:center;color:var(--azul);cursor:pointer}
+  .mic.ouvindo{border-color:var(--verde2);color:var(--verde);animation:pulso 1s infinite}
+  .dica{margin:10px 18px 0;color:var(--txt3);font-size:12.5px;text-align:center}
+  .dica b{color:var(--txt2)}
+
+  /* recentes */
+  .recentes{margin:14px 16px 2px;display:flex;gap:8px;flex-wrap:wrap}
+  .rec{border:1px solid var(--linha);background:var(--azul-chip);color:var(--azul);
+    font-size:13px;padding:8px 13px;border-radius:999px;cursor:pointer;display:flex;gap:7px;align-items:center}
+  .rec svg{opacity:.7}
+
+  /* resultados */
+  .rolo{flex:1;overflow-y:auto;padding:6px 16px 120px;scrollbar-width:none}
+  .grupo{margin-top:16px}
+  .grupo h4{font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--txt3);margin:0 4px 8px;display:flex;align-items:center;gap:8px}
+  .grupo h4 em{font-style:normal;color:var(--txt2);background:var(--carta);
+    border:1px solid var(--linha);border-radius:999px;padding:1px 8px;font-size:11px}
+  .item{background:var(--carta);border:1px solid var(--linha);border-radius:var(--raio);
+    padding:12px 13px;display:flex;align-items:center;gap:12px;margin-bottom:8px;
+    cursor:pointer;transition:transform .08s, border-color .15s}
+  .item:active{transform:scale(.985)}
+  .item.marcado{border-color:var(--verde2);background:linear-gradient(0deg,rgba(120,201,0,.07),rgba(120,201,0,.03))}
+  .selo{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;flex:none;font-size:19px}
+  .selo.cli{background:#12294a;color:var(--azul)}
+  .selo.rua{background:#20304a;color:#c9d8f2}
+  .selo.loja{background:var(--verde-escuro);color:var(--verde)}
+  .item .meio{flex:1;min-width:0}
+  .item .meio b{display:block;font-size:15.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item .meio b mark{background:none;color:var(--verde);font-weight:700}
+  .item .meio small{color:var(--txt2);font-size:12.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .item .fim{text-align:right;flex:none}
+  .item .fim .dist{color:var(--verde);font-weight:700;font-size:14px;white-space:nowrap}
+  .item .fim .fonte{display:block;color:var(--txt3);font-size:10.5px;margin-top:3px;
+    text-transform:uppercase;letter-spacing:.06em}
+  .vazio{margin:40px 20px;text-align:center;color:var(--txt3)}
+  .vazio b{color:var(--txt2);display:block;margin-bottom:6px;font-size:15px}
+
+  /* fluxo do número */
+  .numero{display:none;margin:4px 0 10px;background:var(--carta2);border:1px solid var(--linha);
+    border-radius:var(--raio);padding:14px}
+  .numero.aberto{display:block;animation:sobe .18s ease-out}
+  @keyframes sobe{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
+  .numero p{font-size:13px;color:var(--txt2);margin-bottom:10px}
+  .numero .fila{display:flex;gap:10px;align-items:center}
+  .numero input{flex:1;background:var(--tela);border:1.5px solid var(--linha);border-radius:12px;
+    height:48px;padding:0 14px;color:var(--txt);font-size:17px;outline:0;min-width:0}
+  .sn{height:48px;padding:0 16px;border-radius:12px;border:1px solid var(--linha);
+    background:none;color:var(--txt2);font-size:14px;cursor:pointer}
+  .sn.on{border-color:var(--verde2);color:var(--verde)}
+  .numero .ok{height:48px;padding:0 18px;border-radius:12px;border:0;cursor:pointer;
+    background:linear-gradient(135deg,var(--verde),var(--verde2));color:#0c1500;font-weight:700}
+
+  /* rodapé de confirmação */
+  .pe{position:absolute;left:0;right:0;bottom:0;padding:14px 16px 20px;
+    background:linear-gradient(0deg,var(--fundo) 55%,transparent);display:none}
+  .pe.vivo{display:block;animation:sobe .2s ease-out}
+  .pe .resumo{font-size:13px;color:var(--txt2);margin:0 6px 9px;display:flex;gap:8px;align-items:center}
+  .pe .resumo b{color:var(--txt)}
+  .pe .cep{margin-left:auto;color:var(--verde);font-size:12px;border:1px solid #2c4a17;
+    background:#101f0a;border-radius:999px;padding:3px 10px;white-space:nowrap}
+  .pe button{width:100%;height:58px;border:0;border-radius:16px;cursor:pointer;
+    background:linear-gradient(135deg,var(--verde),var(--verde2));color:#0c1500;
+    font-size:16.5px;font-weight:800;display:flex;align-items:center;justify-content:center;gap:10px}
+  .pe small{display:block;font-weight:600;font-size:12px;opacity:.75}
+
+  /* voz */
+  .veu-voz{position:absolute;inset:0;background:rgba(4,9,18,.86);backdrop-filter:blur(4px);
+    display:none;place-items:center;z-index:50;text-align:center}
+  .veu-voz.vivo{display:grid}
+  .veu-voz .bola{width:96px;height:96px;border-radius:50%;margin:0 auto 18px;
+    background:radial-gradient(circle at 35% 30%,#b9f24d,var(--verde2));
+    display:grid;place-items:center;color:#0c1500;animation:respira 1.1s infinite}
+  @keyframes respira{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(163,230,53,.45)}
+    50%{transform:scale(1.06);box-shadow:0 0 0 26px rgba(163,230,53,0)}}
+  .veu-voz b{font-size:18px;display:block;margin-bottom:6px}
+  .veu-voz small{color:var(--txt2)}
+
+  .selo-local{position:absolute;top:14px;left:50%;transform:translateX(-50%);
+    font-size:10.5px;color:var(--txt3);letter-spacing:.08em;text-transform:uppercase;pointer-events:none}
+</style>
+</head>
+<body>
+<div class="fone">
+  <div class="selo-local">proposta · 0 conexões externas — cnefe + rfb + clientes, tudo local</div>
+
+  <div class="topo">
+    <div class="volta">←</div>
+    <div class="titulo"><b>Adicionar parada</b><small>quarta-feira, 12 de agosto</small></div>
+    <div class="gps"><i></i>GPS · Rio Claro</div>
+  </div>
+
+  <div class="busca">
+    <label class="campo" id="campo">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <input id="q" placeholder="Cliente, rua ou comércio…" autocomplete="off">
+      <span class="limpa" id="limpa">×</span>
+    </label>
+    <div class="mic" id="mic" title="Falar">
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    </div>
+  </div>
+  <div class="dica" id="dica">O mais <b>perto de você</b> vem primeiro · erro de digitação não atrapalha</div>
+
+  <div class="recentes" id="recentes"></div>
+  <div class="rolo" id="rolo"></div>
+
+  <div class="pe" id="pe">
+    <div class="resumo" id="peResumo"></div>
+    <button id="peBtn">Adicionar à rota <small>· encaixa na melhor posição sozinho</small></button>
+  </div>
+
+  <div class="veu-voz" id="veu">
+    <div>
+      <div class="bola"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div>
+      <b>Ouvindo…</b><small>fale o nome, a rua ou o comércio</small>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= dados de demonstração (Rio Claro) ================= */
+const CLIENTES=[
+  {n:'Márcia',            e:'Rua 5, 1181 · Centro',        d:1200, extra:'3 entregas/mês'},
+  {n:'Ademir',            e:'Rua 16, 199 · Mãe Preta',     d:800,  extra:'1x Galão 20L'},
+  {n:'Neuza',             e:'Vila Martins, Av. 1, nº 34',  d:2300, extra:'toda quarta'},
+  {n:'Gislaine',          e:'Av. 67-A, 228 · Jd. América', d:3100, extra:''},
+  {n:'Marcos Bar do Zé',  e:'Av. 8, 402 · Centro',         d:350,  extra:'cliente desde 03/26'},
+];
+const RUAS=[
+  {n:'Rua 8',                       e:'Centro · 214 portas no Censo',        d:400,  cep:'13500-100'},
+  {n:'Rua 8 JD',                    e:'Jardim América · 88 portas',          d:2900, cep:'13506-720'},
+  {n:'Avenida 84 (Oitenta e Quatro)',e:'Vila Alemã · 156 portas',            d:1800, cep:'13506-555'},
+  {n:'Rua 16',                      e:'Mãe Preta · 190 portas',              d:850,  cep:'13501-330'},
+];
+const LOJAS=[
+  {n:'Bar do Zé',           e:'Av. 8, 415 · Centro',          d:350,   ativa:true},
+  {n:'Bar do Zé Bebidas',   e:'Rua 21, 780 · Cervezão',       d:2100,  ativa:true},
+  {n:'Mercado Estrela',     e:'Rua 3, 550 · Centro',          d:900,   ativa:true},
+  {n:'Mercado São Judas',   e:'Av. 29, 118 · Vila Aparecida', d:1400,  ativa:true},
+  {n:'Padaria Pão da Vila', e:'Rua 10, 233 · Vila Alemã',     d:600,   ativa:true},
+  {n:'Bar do Zé',           e:'Piracicaba · Rua do Porto',    d:34000, ativa:true},
+  {n:'Distribuidora Água Viva', e:'Av. 46, 900 · Jd. Floridiana', d:2800, ativa:true},
+];
+const RECENTES=['Bar do Zé','Rua 8','Márcia'];
+
+/* ============ busca: normaliza + tolera erro (bigramas) ============ */
+const norm=s=>s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')
+  .replace(/\bav\.?\b/g,'avenida').replace(/\br\.?\b/g,'rua').replace(/\s+/g,' ').trim();
+const bigramas=s=>{const b=new Set();for(let i=0;i<s.length-1;i++)b.add(s.slice(i,i+2));return b};
+function lev(a,b){ // distância de edição — o "erro de dedo" de verdade
+  if(Math.abs(a.length-b.length)>2)return 9;
+  const m=Array.from({length:a.length+1},(_,i)=>[i,...Array(b.length).fill(0)]);
+  for(let j=1;j<=b.length;j++)m[0][j]=j;
+  for(let i=1;i<=a.length;i++)for(let j=1;j<=b.length;j++){
+    m[i][j]=Math.min(m[i-1][j]+1,m[i][j-1]+1,m[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
+    if(i>1&&j>1&&a[i-1]===b[j-2]&&a[i-2]===b[j-1])m[i][j]=Math.min(m[i][j],m[i-2][j-2]+1);
+  }
+  return m[a.length][b.length];
+}
+function nota(q,alvo){
+  q=norm(q);alvo=norm(alvo);
+  if(!q)return 0;
+  if(alvo.includes(q))return 1;                       // contém = nota cheia
+  // número é TOKEN literal: quem busca "rua 8" não quer a Rua 16 nem a Av. 84
+  const dq=q.match(/\d+/g);
+  if(dq){const da=alvo.match(/\d+/g)||[];if(!dq.every(n=>da.includes(n)))return 0;}
+  // erro de digitação: "mracia" acha "marcia" (1 troca vale p/ palavra >=4 letras)
+  const teto=w=>w.length>=8?2:w.length>=4?1:0;
+  const palavras=alvo.split(' ');
+  if(q.split(' ').every(pq=>palavras.some(pa=>lev(pq,pa)<=teto(pq))))return .8;
+  const bq=bigramas(q),ba=bigramas(alvo);             // resto: parecido o bastante?
+  let hit=0;bq.forEach(b=>{if(ba.has(b))hit++});
+  const sim=hit/Math.max(1,bq.size);
+  return sim>=.62?sim*.85:0;
+}
+const km=d=>d>=1000?(d/1000).toFixed(1).replace('.',',')+' km':d+' m';
+const escHtml=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function grifa(txt,q){
+  const i=norm(txt).indexOf(norm(q));
+  if(i<0||!q)return escHtml(txt);
+  return escHtml(txt.slice(0,i))+'<mark>'+escHtml(txt.slice(i,i+q.length))+'</mark>'+escHtml(txt.slice(i+q.length));
+}
+
+/* ========================= pintura ========================= */
+const rolo=document.getElementById('rolo'), pe=document.getElementById('pe');
+let escolhido=null;
+
+function grupoHtml(titulo,itens,tipo,q,fonte,glifo){
+  if(!itens.length)return '';
+  const linhas=itens.map((x,i)=>`
+    <div class="item" data-tipo="${tipo}" data-i="${i}">
+      <div class="selo ${tipo}">${glifo}</div>
+      <div class="meio"><b>${grifa(x.n,q)}</b><small>${escHtml(x.e)}${x.extra?' · '+escHtml(x.extra):''}</small></div>
+      <div class="fim"><span class="dist">${km(x.d)}</span><span class="fonte">${fonte}</span></div>
+    </div>${tipo==='rua'?`<div class="numero" id="num-${i}">
+      <p>Qual número na <b>${escHtml(x.n)}</b>? <span style="color:var(--txt3)">(o Censo dá o pino da porta e o CEP ${x.cep})</span></p>
+      <div class="fila"><input inputmode="numeric" placeholder="nº" id="numIn-${i}">
+      <button class="sn" data-sn="${i}">S/N</button>
+      <button class="ok" data-okrua="${i}">Usar</button></div></div>`:''}`).join('');
+  return `<div class="grupo"><h4>${titulo} <em>${itens.length}</em></h4>${linhas}</div>`;
+}
+
+function pintar(){
+  const q=document.getElementById('q').value;
+  document.getElementById('limpa').style.display=q?'block':'none';
+  document.getElementById('recentes').style.display=q?'none':'flex';
+  escolhido=null;pe.classList.remove('vivo');
+  if(!q){rolo.innerHTML=`<div class="vazio"><b>Pra onde vai a parada?</b>
+    Digite (ou fale) qualquer coisa: nome do cliente,<br>rua com número, comércio, CEP ou link do Maps.</div>`;return}
+  // 1º a nota do NOME decide quem entra; só depois a proximidade desempata
+  const f=(lista)=>lista.map(x=>({...x,_s:nota(q,x.n)})).filter(x=>x._s>0)
+    .map(x=>({...x,_n:x._s+(x.d<2000?.08:0)}))
+    .sort((a,b)=>b._n-a._n||a.d-b.d).slice(0,4);
+  const cli=f(CLIENTES),ruas=f(RUAS),lojas=f(LOJAS);
+  window._vis={cli,ruas,lojas};
+  const html=grupoHtml('Meus clientes',cli,'cli',q,'cliente','👤')
+            +grupoHtml('Endereços',ruas,'rua',q,'censo','📍')
+            +grupoHtml('Comércios perto de você',lojas,'loja',q,'rfb','🏪');
+  rolo.innerHTML=html||`<div class="vazio"><b>Nada por aqui com esse nome.</b>
+    Confira a grafia — ou toque no mapa para fixar o ponto na mão.</div>`;
+}
+
+function escolher(tipo,i,extra){
+  const base=window._vis[tipo==='cli'?'cli':tipo==='rua'?'ruas':'lojas'][i];
+  escolhido={...base,tipo,extra};
+  document.querySelectorAll('.item').forEach(el=>el.classList.toggle('marcado',
+    el.dataset.tipo===tipo&&+el.dataset.i===i));
+  const cep=tipo==='rua'?base.cep:'13500-000';
+  document.getElementById('peResumo').innerHTML=
+    `<b>${escHtml(base.n)}${extra?', '+escHtml(extra):''}</b> · ${km(base.d)} de você
+     <span class="cep">nasce com CEP ${cep}</span>`;
+  pe.classList.add('vivo');
+}
+
+/* ========================= gestos ========================= */
+rolo.addEventListener('click',ev=>{
+  const it=ev.target.closest('.item');
+  const okRua=ev.target.closest('[data-okrua]');
+  const sn=ev.target.closest('[data-sn]');
+  if(sn){sn.classList.toggle('on');const inp=document.getElementById('numIn-'+sn.dataset.sn);
+    inp.value=sn.classList.contains('on')?'S/N':'';inp.disabled=sn.classList.contains('on');return}
+  if(okRua){const i=+okRua.dataset.okrua;const v=document.getElementById('numIn-'+i).value||'S/N';
+    escolher('rua',i,v);return}
+  if(!it)return;
+  if(it.dataset.tipo==='rua'){document.querySelectorAll('.numero').forEach(n=>n.classList.remove('aberto'));
+    document.getElementById('num-'+it.dataset.i).classList.add('aberto');
+    document.getElementById('numIn-'+it.dataset.i).focus();return}
+  escolher(it.dataset.tipo,+it.dataset.i);
+});
+const q=document.getElementById('q');
+q.addEventListener('input',pintar);
+document.getElementById('campo').addEventListener('focusin',()=>campo.classList.add('viva'));
+document.getElementById('campo').addEventListener('focusout',()=>campo.classList.remove('viva'));
+document.getElementById('limpa').onclick=()=>{q.value='';pintar();q.focus()};
+document.getElementById('recentes').innerHTML=RECENTES.map(r=>
+  `<span class="rec"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>${r}</span>`).join('');
+document.getElementById('recentes').onclick=ev=>{const r=ev.target.closest('.rec');
+  if(r){q.value=r.textContent.trim();pintar()}};
+document.getElementById('peBtn').onclick=()=>{
+  document.getElementById('peBtn').innerHTML='✓ Encaixada na posição 3 <small>· menor desvio: +1,1 km</small>';
+  setTimeout(()=>pe.classList.remove('vivo'),1600);
+};
+/* voz (demonstração do SpeechRecognizer nativo) */
+const veu=document.getElementById('veu'),mic=document.getElementById('mic');
+mic.onclick=()=>{mic.classList.add('ouvindo');veu.classList.add('vivo');
+  setTimeout(()=>{veu.classList.remove('vivo');mic.classList.remove('ouvindo');
+    q.value='bar do zé';pintar()},1500)};
+pintar();
+</script>
+</body>
+</html>
