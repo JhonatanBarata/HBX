@@ -98,9 +98,16 @@ const paradaFalsa = (i) => ({
      "chega perto da empresa" do dono, medido;
    · a de TRÁS a 400 m — já passou antes de a rota começar, e não pode aparecer
      em quadro nenhum do dia. */
+/* 🔴 `escolhida: true` — DUBLÊ FIEL AO SERVIDOR (12/08). As duas cores entraram
+   no payload real (`logistica-rota-prospector.test.ts` cobra o campo empresa por
+   empresa) e o app passou a exigir `alvo.escolhida` pra acender: azul é ambiente,
+   e ambiente não acende no dedo. O dublê ficou mandando empresa SEM o campo, e a
+   cena 1.4 ficou vermelha contra código CERTO — dublê desatualizado reprova o
+   app e ensina todo mundo a ignorar o portão. Quem prova acender manda empresa
+   ESCOLHIDA, que é o que o servidor manda pra quem escolheu o tipo da semana. */
 const EMPRESAS = [
-  { id: '11111111111111', nome: 'EMPRESA DA FRENTE LTDA', lat: aoNorte(380), lng: BASE.lng + 0.0002, distM: 60, aceso: true },
-  { id: '22222222222222', nome: 'EMPRESA DE TRAS LTDA', lat: aoNorte(-400), lng: BASE.lng - 0.0002, distM: 90, aceso: true },
+  { id: '11111111111111', nome: 'EMPRESA DA FRENTE LTDA', lat: aoNorte(380), lng: BASE.lng + 0.0002, distM: 60, aceso: true, escolhida: true },
+  { id: '22222222222222', nome: 'EMPRESA DE TRAS LTDA', lat: aoNorte(-400), lng: BASE.lng - 0.0002, distM: 90, aceso: true, escolhida: true },
 ];
 
 /* ---- o dublê do basemap (mesma armadilha do `prova-cena-ruas`) -------------
