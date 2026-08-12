@@ -229,8 +229,15 @@ class MainActivity : AppCompatActivity() {
                     // assetLoader — `/tiles/` não é asset do APK, mora em filesDir e
                     // é escrito pelo download (ver MapaOffline.kt). Qualquer outro
                     // caminho devolve null aqui e segue o fluxo de sempre.
+                    // 🔴 12/08 (F2, PR12082026-RADAR-E-VELOCIDADE) — O PACOTE DE
+                    // RADARES entra pela MESMA porta e pelo MESMO motivo: o
+                    // bucket do R2 não tem CORS, então o dado é servido em
+                    // `/radares/dados.json` na origem da própria página, de
+                    // filesDir (ver RadaresOffline.kt). Um caminho, um dono:
+                    // cada função devolve null pro que não é dela.
                     if (BuildConfig.APP_MODE == "logistica") {
                         MapaOffline.resposta(this@MainActivity, url.toString())?.let { return it }
+                        RadaresOffline.resposta(this@MainActivity, url.toString())?.let { return it }
                     }
                     return assetLoader.shouldInterceptRequest(url)
                 }
