@@ -7218,7 +7218,7 @@
      aparelho é ruído puro e o mapa rodopiaria na cara de quem está na porta
      do cliente. */
   const TRACO = 'hbx-rota-traco';
-  const NAV_ZOOM = 16.6;
+  const NAV_ZOOM = 15.8;
   /* 51°, o número do V4 (`para={tilt:51,…}`) — era 55 aqui por chute. */
   const NAV_PITCH = 51;
   /* 🔴 A ÂNCORA DEIXOU DE SER NÚMERO GÊMEO (11/08): ela é MEDIDA na tela, ver
@@ -8000,7 +8000,6 @@
     camQuadro = true;
     requestAnimationFrame(() => { camQuadro = false; cameraDaNavegacao(); });
   }
-
   /* ---- A VOZ DA MANOBRA --------------------------------------------------
      🔴 UM GPS QUE NÃO FALA É UM GPS QUE SE LÊ DIRIGINDO. O botão "Silenciar
      voz" já estava DESENHADO na tela de dirigir desde o V4 — e não silenciava
