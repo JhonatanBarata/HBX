@@ -1786,6 +1786,132 @@ const SO_MEDIR = process.argv.includes('--antes');
     tX5.routeStatus === 'ACTIVE' && !marcaDepois,
     `status=${tX5.routeStatus} depois="${marcaDepois}"`);
 
+  /* ===================================================================
+     CENA Y — O TOQUE RESPONDE NO MESMO QUADRO (12/08).
+
+     A dor do dono: toca em "Montar rota" e NADA acontece por segundos — o
+     primeiro recibo visual (`montando(1)`) só sai depois do materializar,
+     que é rede — e gente fica tocando de novo até aparecer algo.
+
+     O conserto tem duas peças e as duas se medem AQUI: a classe `aguarde`
+     entra no botão vivo AINDA NO TOQUE (mesmo quadro, antes de qualquer
+     await, com pointer-events desligado); e a trava é variável DA PONTE —
+     dois toques rápidos despacham UM montar, medido nos POSTs contra o
+     controle de um toque só. Y0 é o controle: a MESMA cena com um toque,
+     porque "quantos POSTs um montar legítimo faz" é contrato do fluxo, não
+     desta prova.
+     =================================================================== */
+  const Y_CENA = () => cena({
+    entregas: [{ id: 'ag1', status: 'agendada', rotaOrdem: null, origem: 'recorrente', cliente: CLI_C5 }],
+    agendaHoje: AGENDA_HOJE, mesmaBase: true, custoComoServidor: true,
+  });
+  const Y_ABRIR = async () => {
+    await irPara('montagem', 2200);
+    await tocarChip(DIA_B);
+    await zerar();
+    await p.waitForSelector('.pe-montagem [data-acao="montar-agora"]', { timeout: 8000 });
+  };
+  const contar = (lista, rota) => lista.filter((x) => x === rota).length;
+
+  // Y0 — o CONTROLE: um toque só, e a régua do que um montar dispara.
+  await Y_CENA();
+  await Y_ABRIR();
+  await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="montar-agora"]').click());
+  await p.waitForTimeout(2800);
+  const postsY0 = await posts();
+  const y0Planejar = contar(postsY0, '/logistica/rota/planejar');
+  const y0Entregas = contar(postsY0, '/logistica/entregas');
+  nota(`[Y0] UM toque no Montar: planejar=${y0Planejar} · entregas=${y0Entregas} · POSTs=${postsY0.join(' , ')}`);
+
+  // Y — DOIS toques rápidos: o recibo é síncrono e o pedido é UM.
+  await Y_CENA();
+  await Y_ABRIR();
+  const yToque = await p.evaluate(() => {
+    const botao = document.querySelector('.pe-montagem [data-acao="montar-agora"]');
+    botao.click();
+    /* medido NO MESMO TICK do toque: se o recibo dependesse de repinte ou de
+       resposta de rede, isto aqui ainda seria falso. */
+    const noMesmoQuadro = botao.classList.contains('aguarde');
+    const semDedo = getComputedStyle(botao).pointerEvents === 'none';
+    botao.click();               // o dedo ansioso — de novo, no mesmo quadro
+    return { noMesmoQuadro, semDedo };
+  });
+  await p.waitForTimeout(2800);
+  const postsY = await posts();
+  const yPlanejar = contar(postsY, '/logistica/rota/planejar');
+  const yEntregas = contar(postsY, '/logistica/entregas');
+  const tY = await espiar();
+  nota(`[Y] DOIS toques no Montar: sincrono=${yToque.noMesmoQuadro} semDedo=${yToque.semDedo} · planejar=${yPlanejar} · entregas=${yEntregas} · tela=${tY.tela}`);
+  eh('Y1 · o botao ganha o estado "aguarde" NO MESMO quadro do toque', yToque.noMesmoQuadro);
+  eh('Y2 · e o proprio no ja nao aceita segundo dedo (pointer-events)', yToque.semDedo);
+  eh('Y3 · dois toques rapidos = UM montar (POSTs iguais ao controle de 1 toque)',
+    yPlanejar === y0Planejar && yEntregas === y0Entregas,
+    `2 toques: planejar=${yPlanejar}/${y0Planejar} entregas=${yEntregas}/${y0Entregas}`);
+  eh('Y4 · e o montar pousou na Rota normalmente', tY.tela === 'rota', `tela=${tY.tela}`);
+
+  /* ===================================================================
+     CENA Z — ERRO SOLTA A TRAVA: o botao volta inteiro pra tentar de novo.
+     O 409 de outro motorista e o erro mais real do montar (cena R); aqui ele
+     so precisa falhar UMA vez — a 2a tentativa tem que sair, com POST novo.
+     =================================================================== */
+  await cena({
+    entregas: [{ id: 'ag1', status: 'agendada', rotaOrdem: null, origem: 'recorrente', cliente: CLI_C5 }],
+    agendaHoje: AGENDA_HOJE, mesmaBase: true, custoComoServidor: true,
+    outroMotorista: { motorista: 'Ana Motorista', podeForcar: false },
+  });
+  await Y_ABRIR();
+  await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="montar-agora"]').click());
+  await p.waitForTimeout(2800);
+  /* o pé pode ter TROCADO de verbo no meio: o materializar (que veio antes do
+     planejar falhar) já fez da lista a rota de hoje, e aí `pronta` vira 1 e o
+     botão vivo é "Iniciar rota" (comportamento do app, não desta cena). O que
+     se mede é o BOTÃO VIVO DO PÉ, com o verbo que ele tiver. */
+  const Z_PE = '.pe-montagem [data-acao="montar-agora"], .pe-montagem [data-acao="iniciar-rota"]';
+  const zDepoisDoErro = await p.evaluate((sel) => {
+    const botao = document.querySelector(sel);
+    return {
+      existe: !!botao,
+      verbo: botao ? (botao.dataset.acao || '') : '',
+      aguardePreso: !!(botao && botao.classList.contains('aguarde')),
+      portao: (document.querySelector('.portao h3') || {}).textContent || '',
+    };
+  }, Z_PE);
+  const zPlanejar1 = contar(await posts(), '/logistica/rota/planejar');
+  /* o gesto real do dedo: FECHAR o portão do erro antes de tentar de novo —
+     medido em 12/08 que o clique com o portão aberto é dele (fecha e some). */
+  await p.evaluate(() => {
+    const x = document.querySelector('.portao-wrap button');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(400);
+  await p.evaluate((sel) => {
+    const botao = document.querySelector(sel);
+    if (botao) botao.click();
+  }, Z_PE);
+  await p.waitForTimeout(2800);
+  const zPlanejar2 = contar(await posts(), '/logistica/rota/planejar');
+  const tZ = await espiar();
+  nota(`[Z] montar falhou (409): portao="${zDepoisDoErro.portao}" · pe=${zDepoisDoErro.verbo} · aguardePreso=${zDepoisDoErro.aguardePreso} · planejar 1a=${zPlanejar1} 2a(total)=${zPlanejar2} · tela final=${tZ.tela}`);
+  eh('Z1 · no ERRO a trava solta e o botao do pe volta ao normal (sem aguarde pendurado)',
+    zDepoisDoErro.existe && !zDepoisDoErro.aguardePreso,
+    `existe=${zDepoisDoErro.existe} (${zDepoisDoErro.verbo}) aguarde=${zDepoisDoErro.aguardePreso}`);
+  eh('Z2 · e o toque seguinte DISPARA de novo (POST novo de planejar)',
+    zPlanejar2 > zPlanejar1, `1a=${zPlanejar1} depois da 2a=${zPlanejar2}`);
+
+  /* o IRMÃO DO MESMO DOCK: "Iniciar rota" (outro estado do mesmo pé) tem o
+     mesmo formato de handler e ganhou a MESMA mecânica — só o síncrono se
+     mede aqui; o resto é a mesma função. */
+  await cena({ entregas: [], agendaHoje: AGENDA_HOJE, custoComoServidor: true, mesmaBase: true });
+  await abrirDiaDeHoje(2600);
+  await p.waitForSelector('.pe-montagem [data-acao="iniciar-rota"]', { timeout: 8000 });
+  const yIniciar = await p.evaluate(() => {
+    const botao = document.querySelector('.pe-montagem [data-acao="iniciar-rota"]');
+    botao.click();
+    return botao.classList.contains('aguarde');
+  });
+  await p.waitForTimeout(2600);
+  eh('Y5 · o "Iniciar rota" do mesmo dock responde no toque igual (padronizar = igualar)', yIniciar);
+
   await b.close();
   console.log('\n=== MEDIDAS ===');
   notas.forEach((n) => console.log('  · ' + n));

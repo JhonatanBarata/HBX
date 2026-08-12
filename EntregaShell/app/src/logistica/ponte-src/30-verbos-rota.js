@@ -108,6 +108,38 @@
     if (ocupado) return avisoErro(new Error('O app ainda está terminando a ação anterior. Toque de novo.'));
     return comTrava(fn);
   };
+  /* 🔴 O PÉ DA MONTAGEM RESPONDE NO MESMO QUADRO DO TOQUE (12/08 — dor do
+     dono: toca em "Montar rota" e NADA acontece por segundos; o primeiro
+     recibo visual, o `montando(1)` do montarRota, só sai DEPOIS do
+     materializarRascunho — que é rede — e gente fica tocando de novo até
+     aparecer algo). Duas peças, cada uma com um papel:
+
+       · a CLASSE `aguarde` entra no botão vivo AINDA NO TOQUE, antes de
+         qualquer await — a mesma cara do `.ocupado` + pointer-events (cromo
+         direto no nó, nunca pelo seam: repinte de seam pisca e chega tarde);
+       · a TRAVA é variável DA PONTE, não do DOM: o repinte do meio do fluxo
+         (o `carregarRota` de dentro do materializar) troca o nó, e nó novo
+         nasce sem a classe — quem segura o toque nesse vão é isto aqui. O
+         `comTrava` já descartava o toque duplo (medido na cena Y da prova:
+         2 toques = 1 planejar, antes mesmo disto); esta camada soma o recibo
+         visual e devolve o botão em ERRO — coisa que o comTrava não faz
+         porque não sabe qual nó tocou.
+
+     No fim (sucesso OU erro) a trava solta e a classe sai do nó que ainda
+     estiver na mão: em sucesso o repinte já levou a tela embora (nó novo
+     nasce limpo, e o "Montando…" do seam assume); em erro o botão volta
+     INTEIRO pra tentativa seguinte — aguarde pendurado é promessa falsa. */
+  let verboDoPeEmVoo = false;
+  function aguardeNoToque(alvo, seguir) {
+    if (verboDoPeEmVoo) return;
+    verboDoPeEmVoo = true;
+    if (alvo && alvo.classList) alvo.classList.add('aguarde');
+    const soltar = () => {
+      verboDoPeEmVoo = false;
+      if (alvo && alvo.classList) alvo.classList.remove('aguarde');
+    };
+    Promise.resolve().then(seguir).then(soltar, soltar);
+  }
   /* 🔴 O CORPO DO ERRO TEM DADO, E ELE ESTAVA SENDO JOGADO FORA (10/08 — o
      beco que travou o dono: toque em Montar/Iniciar morrendo em "Não deu
      certo" quando o servidor já sabia dizer QUEM montou a rota, ou QUEM

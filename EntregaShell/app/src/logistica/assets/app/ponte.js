@@ -2663,6 +2663,38 @@
     if (ocupado) return avisoErro(new Error('O app ainda está terminando a ação anterior. Toque de novo.'));
     return comTrava(fn);
   };
+  /* 🔴 O PÉ DA MONTAGEM RESPONDE NO MESMO QUADRO DO TOQUE (12/08 — dor do
+     dono: toca em "Montar rota" e NADA acontece por segundos; o primeiro
+     recibo visual, o `montando(1)` do montarRota, só sai DEPOIS do
+     materializarRascunho — que é rede — e gente fica tocando de novo até
+     aparecer algo). Duas peças, cada uma com um papel:
+
+       · a CLASSE `aguarde` entra no botão vivo AINDA NO TOQUE, antes de
+         qualquer await — a mesma cara do `.ocupado` + pointer-events (cromo
+         direto no nó, nunca pelo seam: repinte de seam pisca e chega tarde);
+       · a TRAVA é variável DA PONTE, não do DOM: o repinte do meio do fluxo
+         (o `carregarRota` de dentro do materializar) troca o nó, e nó novo
+         nasce sem a classe — quem segura o toque nesse vão é isto aqui. O
+         `comTrava` já descartava o toque duplo (medido na cena Y da prova:
+         2 toques = 1 planejar, antes mesmo disto); esta camada soma o recibo
+         visual e devolve o botão em ERRO — coisa que o comTrava não faz
+         porque não sabe qual nó tocou.
+
+     No fim (sucesso OU erro) a trava solta e a classe sai do nó que ainda
+     estiver na mão: em sucesso o repinte já levou a tela embora (nó novo
+     nasce limpo, e o "Montando…" do seam assume); em erro o botão volta
+     INTEIRO pra tentativa seguinte — aguarde pendurado é promessa falsa. */
+  let verboDoPeEmVoo = false;
+  function aguardeNoToque(alvo, seguir) {
+    if (verboDoPeEmVoo) return;
+    verboDoPeEmVoo = true;
+    if (alvo && alvo.classList) alvo.classList.add('aguarde');
+    const soltar = () => {
+      verboDoPeEmVoo = false;
+      if (alvo && alvo.classList) alvo.classList.remove('aguarde');
+    };
+    Promise.resolve().then(seguir).then(soltar, soltar);
+  }
   /* 🔴 O CORPO DO ERRO TEM DADO, E ELE ESTAVA SENDO JOGADO FORA (10/08 — o
      beco que travou o dono: toque em Montar/Iniciar morrendo em "Não deu
      certo" quando o servidor já sabia dizer QUEM montou a rota, ou QUEM
@@ -11406,7 +11438,9 @@
        `montarRota`/`iniciarRota` porque o que se barra é o TOQUE: as duas
        funções também são chamadas por dentro (retomada, erro), e ali a
        pergunta não teria a quem falar. */
-    'montar-agora': () => comOrdemSalva(montarRota),
+    /* 🔴 …e responde NO TOQUE (12/08): `aguardeNoToque` põe o estado de espera
+       no próprio botão no mesmo quadro do dedo — ver a nota no 30-verbos. */
+    'montar-agora': (alvo) => aguardeNoToque(alvo, () => comOrdemSalva(montarRota)),
     // rota rodando: o botão do meio leva pra navegação (é o que se faz andando)
     navegar: () => window.ir('mapa'),
     'salvar-rota': salvarRota,
@@ -11424,9 +11458,10 @@
        dock do mapa herdava o -1 de uma tela que o motorista nem abriu e o
        Iniciar morria com "A rota avulsa está vazia" — com 51 paradas agendadas
        no servidor. Porta que adivinha por variável de ambiente é essa doença. */
-    'iniciar-rota': () => comOrdemSalva(() => iniciarRota({
+    // o irmão do mesmo pé, mesma doença, mesma cura: responde no toque.
+    'iniciar-rota': (alvo) => aguardeNoToque(alvo, () => comOrdemSalva(() => iniciarRota({
       escopo: montarDia === -1 ? 'avulsa' : (diaDeOutroDia() ? 'outroDia' : 'dia'),
-    })),
+    }))),
     iniciar: () => comOrdemSalva(() => iniciarRota({ escopo: 'dia' })),
     'cancelar-rota': cancelarRota,
     'entregue-pagou': () => confirmarEntrega(''),
@@ -11709,6 +11744,8 @@
       return;
     }
     const fn = ACOES[chave];
-    if (fn) fn();
+    // o NÓ TOCADO viaja junto: é nele que o "aguarde" do montar/iniciar entra
+    // no mesmo quadro do dedo (quem não usa o argumento simplesmente o ignora).
+    if (fn) fn(alvo);
   });
 })();

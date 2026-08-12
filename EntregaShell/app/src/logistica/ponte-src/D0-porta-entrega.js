@@ -365,7 +365,9 @@
        `montarRota`/`iniciarRota` porque o que se barra é o TOQUE: as duas
        funções também são chamadas por dentro (retomada, erro), e ali a
        pergunta não teria a quem falar. */
-    'montar-agora': () => comOrdemSalva(montarRota),
+    /* 🔴 …e responde NO TOQUE (12/08): `aguardeNoToque` põe o estado de espera
+       no próprio botão no mesmo quadro do dedo — ver a nota no 30-verbos. */
+    'montar-agora': (alvo) => aguardeNoToque(alvo, () => comOrdemSalva(montarRota)),
     // rota rodando: o botão do meio leva pra navegação (é o que se faz andando)
     navegar: () => window.ir('mapa'),
     'salvar-rota': salvarRota,
@@ -383,9 +385,10 @@
        dock do mapa herdava o -1 de uma tela que o motorista nem abriu e o
        Iniciar morria com "A rota avulsa está vazia" — com 51 paradas agendadas
        no servidor. Porta que adivinha por variável de ambiente é essa doença. */
-    'iniciar-rota': () => comOrdemSalva(() => iniciarRota({
+    // o irmão do mesmo pé, mesma doença, mesma cura: responde no toque.
+    'iniciar-rota': (alvo) => aguardeNoToque(alvo, () => comOrdemSalva(() => iniciarRota({
       escopo: montarDia === -1 ? 'avulsa' : (diaDeOutroDia() ? 'outroDia' : 'dia'),
-    })),
+    }))),
     iniciar: () => comOrdemSalva(() => iniciarRota({ escopo: 'dia' })),
     'cancelar-rota': cancelarRota,
     'entregue-pagou': () => confirmarEntrega(''),
@@ -668,6 +671,8 @@
       return;
     }
     const fn = ACOES[chave];
-    if (fn) fn();
+    // o NÓ TOCADO viaja junto: é nele que o "aguarde" do montar/iniciar entra
+    // no mesmo quadro do dedo (quem não usa o argumento simplesmente o ignora).
+    if (fn) fn(alvo);
   });
 })();

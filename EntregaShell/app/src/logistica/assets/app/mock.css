@@ -1192,6 +1192,14 @@ button,input{font:inherit;color:inherit}
    Some com a sombra viva porque nada vai acontecer se o dedo insistir. */
 .ocupado{opacity:.62;box-shadow:none!important;animation:respira 1.15s ease-in-out infinite}
 @keyframes respira{50%{opacity:.34}}
+/* O AGUARDE DO TOQUE (12/08 — dono: toca em "Montar rota" e NADA acontece por
+   segundos; gente fica tocando de novo). É o quadro entre o dedo e o primeiro
+   repinte ("Montando…"): a PONTE põe esta classe no botão vivo NO MESMO quadro
+   do toque, antes de qualquer ida à rede. A cara é a MESMA do `.ocupado` de
+   cima (padronizar = igualar) + pointer-events, porque o nó que já respondeu
+   não aceita segundo dedo. Lei 7 tira a respiração; a opacidade fica, e é ela
+   o recibo de quem pediu menos movimento. */
+.aguarde{opacity:.62;box-shadow:none!important;pointer-events:none;animation:respira 1.15s ease-in-out infinite}
 
 /* 🔴 O VÉU DE MONTAR (11/08 — dono: "demora muito, coloque um carregando aí,
    altíssima qualidade"). Montar são 3 idas ao servidor e passa de 2 s; o
