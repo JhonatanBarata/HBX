@@ -740,8 +740,27 @@ button,input{font:inherit;color:inherit}
 /* ==========================================================================
    FOLHA (bottom sheet) — sobe de baixo, o fundo escurece junto (lei 6).
    ========================================================================== */
-.tela .sheet{animation:mvFolha var(--mv-folha) var(--cv-entra) both}
-.tela .scrim{animation:mvScrim var(--mv-normal) ease-out both}
+/* 🔴 A FOLHA SOBE UMA VEZ SÓ — QUANDO A TELA ENTRA (dono, 12/08, na Folha da
+   venda: *"alternar botões, a tela fica subindo novamente: dinheiro, pix, cartão
+   e marcar"*).
+   O seletor era `.tela .sheet`, sem a marca `entra` — e regra de ENTRADA presa
+   só ao `.tela` alcança TODA camada, inclusive a que nasce de um repinte. Cada
+   toque na forma de pagamento é uma escrita no seam (`repintarFolha`), o
+   `pintar()` monta uma camada NOVA, e o `.sheet` recém-nascido tocava `mvFolha`
+   (translateY(100%) → 0) do quadro ZERO: a folha inteira descia e subia de novo
+   na cara de quem estava escolhendo como o cliente pagou. MEDIDO antes da cura,
+   60 ms depois do toque: folha a 205px do fundo e scrim em 0,36 — em vez de
+   pousada e o fundo cheio. O scrim carregava o mesmo defeito, então o fundo
+   piscava junto.
+   É a MESMA cura de 08/08 ("camada nova nasce PARADA, e nascer parada é nascer
+   sem `entra`") e de 11/08 (o pisca do cancelar): ela só não tinha alcançado a
+   folha, porque estas duas linhas não passavam pela marca. Sem animação o estado
+   é o do CSS — `transform:none` e opacidade cheia, exatamente o `to` dos dois
+   keyframes —, então a folha simplesmente FICA onde está.
+   Dentro da entrada nada muda: a camada herdeira veste `entra` (§`herdando`) e o
+   carimbo de `currentTime` continua a subida de onde ela estava. */
+.tela.entra .sheet{animation:mvFolha var(--mv-folha) var(--cv-entra) both}
+.tela.entra .scrim{animation:mvScrim var(--mv-normal) ease-out both}
 @keyframes mvFolha{from{transform:translateY(100%)}to{transform:none}}
 @keyframes mvScrim{from{opacity:0}to{opacity:1}}
 @keyframes mvPop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
