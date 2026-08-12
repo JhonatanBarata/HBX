@@ -1,0 +1,484 @@
+  /* ==========================================================================
+     O PAINEL DA BUSCA DA PARADA AVULSA — F2 do PR12082026.
+
+     Desenho aprovado: `docs/mockups/pesquisa-avulsa-v2.html`.
+     Contrato (F1, já em prod e provado): `GET /logistica/busca?q=&lat=&lng=`
+     devolve os TRÊS grupos — clientes (fuzzy pg_trgm), ruas do Censo (CNEFE) e
+     comércios da RFB — já ranqueados por nome × distância do GPS; e
+     `GET /logistica/busca/porta?municipio=&via=&numero=` devolve o pino da
+     PORTA com o CEP junto.
+
+     A doença que isto cura: a busca de endereço era um campo CEGO. Digitava
+     tudo, apertava um botão e uma regex decidia em silêncio se ia pro CNEFE (só
+     com CEP) ou pro Nominatim público — 1 req/s, fraco no interior, até ~7 s
+     parado na calçada. Zero sugestão, zero recentes, zero ranking.
+
+     ── AS TRÊS LEIS DESTE ARQUIVO ────────────────────────────────────────────
+
+     1. 🔴 TECLA NÃO PASSA PELO SEAM. `usarDados` remonta a CAMADA inteira
+        (`innerHTML = render()`); uma camada nova por letra digitada é a tela
+        piscando na mão de quem está em pé na porta de um cliente. Então o rolo
+        de resultados é escrito DIRETO NO NÓ (`[data-rolo="busca"]`) e o seam é
+        atualizado por baixo, sem repintar — a MESMA divisão que o velocímetro
+        já tinha (§ `data-vivo`, 60-prospector-nav): *o DADO passa pelo seam; o
+        que muda a cada quadro, NÃO*. Toque (escolher, S/N, Usar) é outra
+        história: ali repintar é o certo, e passa pelo seam de sempre.
+
+     2. 🔴 UM PEDIDO POR PAUSA, E O ATRASADO NÃO VENCE. Debounce de 250 ms e
+        um NÚMERO DE SÉRIE por pedido: quem volta com número velho é jogado
+        fora. Sem isso, digitar "bar do ze" enfileira 9 requisições e a última a
+        CHEGAR nem sempre é a última a SAIR — a tela mostraria o resultado de
+        "bar do z" por cima do de "bar do ze".
+
+     3. 🔴 NADA DE NOMINATIM/GOOGLE NO DIGITAR. Autocomplete no Nominatim
+        público viola o ToS dele e o preço é ban. O caminho do link do Maps /
+        coordenada colada continua VIVO — só que fora do fluxo por tecla: vira
+        um cartão que a pessoa toca (§ `busca-colar`), e ele chama o
+        `rapidaBuscar` de sempre.
+
+     E o verbo do fim é o que JÁ EXISTIA: a escolha vira `rapida.resolvido` e
+     quem grava é o `rapidaConfirmar` (C0) — mesmas três travas (porta não entra
+     2×, cadastro sem nome não passa, endereço com conta REUSA a conta) e o
+     mesmo `encaixarAvulsa`. Endpoint novo aqui: nenhum além dos dois da F1.
+     ========================================================================== */
+
+  /** espera o dedo parar. 250 ms é o piscar de olho — abaixo disso vira pedido
+   *  por letra; acima, a lista parece travada. */
+  const BUSCA_ESPERA_MS = 250;
+  /** menos que isto não é busca, é uma letra: o servidor devolve vazio (§
+   *  BUSCA_MIN_CHARS) e a ida seria só gasto de bateria. */
+  const BUSCA_MIN = 2;
+  /** as 6 últimas ESCOLHAS deste aparelho (não as últimas digitações) */
+  const BUSCA_RECENTES_CHAVE = 'hbx.busca.recentes';
+  const BUSCA_RECENTES_TETO = 6;
+
+  /* O número de série do pedido. Cresce sempre; resposta com número velho é
+     resposta de uma pergunta que a pessoa já mudou. */
+  let buscaSerie = 0;
+  let buscaTimerPainel = null;
+  /* Os itens CRUS do servidor, na ordem em que foram pintados. O seam leva a
+     versão de TELA (texto pronto); a escolha precisa do payload inteiro —
+     cep, lat/lng, codMunicipio, via, numero, fonte — porque é dele que a F4
+     (cadastro herdando a lei do CEP) vai beber. */
+  let buscaCrus = { cli: [], rua: [], loja: [] };
+  /* O escopo geográfico que o servidor resolveu (município/cidade/UF). O passo
+     do NÚMERO precisa do código do município, e ele não viaja no item. */
+  let buscaEscopo = { codMunicipio: null, cidade: null, uf: null };
+
+  /* ------------------------------------------------------------------------
+     OS RECENTES — memória do APARELHO, não da empresa.
+     Repetir a parada de ontem é o gesto mais comum de quem entrega, e ele
+     merece um toque em vez de onze letras. Fica em `localStorage` porque é
+     preferência de quem segura o telefone; mandar isso pro servidor seria
+     inventar uma tabela pra guardar o que não é da empresa.
+     Tudo em try/catch: WebView com DOM storage desligado não pode derrubar a
+     busca — sem recentes a tela continua inteira.
+     ------------------------------------------------------------------------ */
+  function recentesDaBusca() {
+    try {
+      const cru = window.localStorage.getItem(BUSCA_RECENTES_CHAVE);
+      const lista = cru ? JSON.parse(cru) : [];
+      return Array.isArray(lista) ? lista.filter((x) => typeof x === 'string' && x).slice(0, BUSCA_RECENTES_TETO) : [];
+    } catch (_) { return []; }
+  }
+  function guardarRecenteDaBusca(rotulo) {
+    const novo = String(rotulo || '').trim().slice(0, 60);
+    if (!novo) return;
+    try {
+      const lista = recentesDaBusca().filter((x) => x.toLowerCase() !== novo.toLowerCase());
+      lista.unshift(novo);
+      window.localStorage.setItem(BUSCA_RECENTES_CHAVE, JSON.stringify(lista.slice(0, BUSCA_RECENTES_TETO)));
+    } catch (_) { /* sem storage: os recentes somem, a busca não */ }
+  }
+
+  /* ------------------------------------------------------------------------
+     DO CONTRATO PRA TELA. Cada grupo vira {titulo, detalhe, dist, fonte} — e
+     nada mais: o que a pessoa lê é isto. O resto do payload fica em
+     `buscaCrus`, onde a escolha vai buscar.
+     ------------------------------------------------------------------------ */
+  /** "av 84" → "Av 84". A via vem CANÔNICA do banco (minúscula, abreviada);
+   *  escrever assim na tela pareceria defeito de banco de dados. */
+  const viaBonita = (v) => String(v || '').split(' ')
+    .map((p) => (p ? p.charAt(0).toUpperCase() + p.slice(1) : p)).join(' ');
+  const juntar = (partes) => partes.filter((x) => x != null && String(x).trim() !== '').join(' · ');
+
+  /* 🔴 O NÍVEL DO GEO TEM QUE APARECER (o próprio serviço avisa: "1=porta
+     2=rua 3=bairro 4=cidade — a tela TEM que diferenciar"). Comércio marcado
+     no CENTRO DO BAIRRO desenhado como se fosse a porta é parada plantada no
+     lugar errado — e pino errado custa mais caro que pino nenhum. */
+  const avisoDoGeo = (nivel) => (Number(nivel) >= 4 ? 'ponto aproximado (cidade)'
+    : Number(nivel) === 3 ? 'ponto aproximado (bairro)' : '');
+
+  function paraTelaDaBusca(resp) {
+    const g = (resp && resp.grupos) || {};
+    const cli = Array.isArray(g.clientes) ? g.clientes : [];
+    const rua = Array.isArray(g.enderecos) ? g.enderecos : [];
+    const loja = Array.isArray(g.comercios) ? g.comercios : [];
+    return {
+      clientes: cli.map((c) => ({
+        titulo: esc(c.nome),
+        detalhe: esc(juntar([linhaDeEndereco(c.endereco, c.numero), c.bairro || c.cidade])),
+        dist: esc(emMetros(c.distM)),
+        fonte: 'cliente',
+      })),
+      enderecos: rua.map((v) => ({
+        titulo: esc(viaBonita(v.via)),
+        detalhe: esc(juntar([v.portas ? `${v.portas} portas no Censo` : '', buscaEscopo.cidade || ''])),
+        dist: esc(emMetros(v.distM)),
+        fonte: 'censo',
+        cep: esc(v.cep || ''),
+      })),
+      comercios: loja.map((e) => ({
+        titulo: esc(e.nome),
+        detalhe: esc(juntar([e.endereco, e.cidade, avisoDoGeo(e.nivelGeo)])),
+        dist: esc(emMetros(e.distM)),
+        fonte: 'rfb',
+      })),
+    };
+  }
+
+  /* ------------------------------------------------------------------------
+     A ESCRITA CIRÚRGICA. É aqui que a lei nº 1 deste arquivo acontece: o seam
+     é atualizado POR BAIXO (pra que o próximo repinte de verdade — um toque —
+     pinte a mesma coisa) e o HTML vai direto pro nó do rolo.
+
+     O desenho é o do MOCK (`roloDaBuscaAvulsa`), nunca uma segunda cópia aqui:
+     duas cópias do mesmo desenho divergem na primeira mexida, e aí o app deixa
+     de ser o mock.
+     ------------------------------------------------------------------------ */
+  function escreverRoloDaBusca(campos) {
+    if (typeof DADOS === 'undefined' || !DADOS.rapida) return;
+    Object.assign(DADOS.rapida, campos);
+    const no = naCamada('[data-rolo="busca"]');
+    if (!no || typeof roloDaBuscaAvulsa !== 'function') return;
+    no.innerHTML = roloDaBuscaAvulsa(DADOS.rapida);
+  }
+
+  /** o × do campo e o `data-campo` só existem/valem com a tela montada */
+  const noPainelDaBusca = () => !!rapida && rapida.porta === 'endereco' && telaAtual() === 'rapida';
+
+  /* 🔴 O QUE O DEDO ESCREVEU VOLTA EM TODO REPINTE DE TOQUE. `usarDados`
+     remonta a camada a partir do seam: se o `busca` não for devolvido, o campo
+     se apaga sozinho no instante em que a pessoa toca num resultado (a mesma
+     lição do `novoRascunho`). O nó VIVO manda — ele tem as letras que o
+     debounce ainda nem levou pro servidor. */
+  const textoDaBusca = () => {
+    const no = naCamada('[data-campo="rapida-busca"]');
+    if (no) return String(no.value || '');
+    return String((rapida && rapida.buscaTexto)
+      || (typeof DADOS !== 'undefined' && DADOS.rapida && DADOS.rapida.busca) || '');
+  };
+
+  /* ------------------------------------------------------------------------
+     O PEDIDO. Best-effort com VOZ: falhou a rede, o rolo diz que não achou —
+     nunca fica girando pra sempre, e nunca inventa lista.
+     ------------------------------------------------------------------------ */
+  async function procurarNaBusca(texto) {
+    const q = String(texto || '').trim();
+    const r = rapida;
+    if (!r || !temPonte() || !window.API) return;
+    /* LINK/COORDENADA COLADA NÃO SE PROCURA EM BANCO — vira cartão (lei nº 3).
+       O mesmo texto pode ser as duas coisas ("13500-000 1067" é CEP e é busca),
+       então o cartão SOMA, não substitui. */
+    const colado = (/https?:\/\//i.test(q) || PAR_COORD.test(q)) ? q.slice(0, 60) : '';
+    if (q.length < BUSCA_MIN) {
+      buscaCrus = { cli: [], rua: [], loja: [] };
+      escreverRoloDaBusca({
+        busca: esc(q), grupos: { clientes: [], enderecos: [], comercios: [] },
+        semNada: 0, colar: esc(colado), numAberto: -1, recentes: recentesDaBusca().map(esc),
+      });
+      return;
+    }
+    const serie = ++buscaSerie;
+    // o rolo já diz "Procurando…" (é o vazio honesto de quem ainda não sabe)
+    escreverRoloDaBusca({ busca: esc(q), semNada: 0, colar: esc(colado) });
+    const perto = ultimaPos && pinoValido(ultimaPos.lat, ultimaPos.lng)
+      ? `&lat=${encodeURIComponent(ultimaPos.lat)}&lng=${encodeURIComponent(ultimaPos.lng)}` : '';
+    let resp = null;
+    try {
+      resp = await window.API.get(`/logistica/busca?q=${encodeURIComponent(q)}${perto}`);
+    } catch (e) {
+      // 🔴 "NÃO CONSEGUI PERGUNTAR" ≠ "NÃO EXISTE". Falha de rede não pode
+      // apagar o que já está na tela: só marca que esta pergunta não voltou.
+      if (serie !== buscaSerie || !noPainelDaBusca() || rapida !== r) return;
+      escreverRoloDaBusca({ semNada: 1 });
+      return;
+    }
+    /* 🔴 A RESPOSTA ATRASADA NÃO SOBRESCREVE A NOVA. Este é o teste do
+       painel inteiro: sem esta linha, o resultado de "bar do z" (que saiu
+       antes e voltou depois) sentaria por cima do de "bar do ze". */
+    if (serie !== buscaSerie || rapida !== r || !noPainelDaBusca()) return;
+    const esc0 = (resp && resp.escopo) || {};
+    buscaEscopo = {
+      codMunicipio: esc0.codMunicipio || null,
+      cidade: esc0.cidade || null,
+      uf: esc0.uf || null,
+    };
+    const g = (resp && resp.grupos) || {};
+    buscaCrus = {
+      cli: Array.isArray(g.clientes) ? g.clientes : [],
+      rua: Array.isArray(g.enderecos) ? g.enderecos : [],
+      loja: Array.isArray(g.comercios) ? g.comercios : [],
+    };
+    const grupos = paraTelaDaBusca(resp);
+    const nada = !grupos.clientes.length && !grupos.enderecos.length && !grupos.comercios.length;
+    escreverRoloDaBusca({
+      busca: esc(q), grupos, semNada: nada ? 1 : 0, colar: esc(colado), numAberto: -1,
+    });
+  }
+
+  /* ------------------------------------------------------------------------
+     O TECLADO. Ouvinte DELEGADO no documento (e não por nó): o campo nasce de
+     novo a cada repinte da camada, e listener por nó precisaria de guarda e de
+     um gancho no repinte. `input` sobe, então um ouvinte só cobre todos os
+     nascimentos do campo, hoje e depois.
+     ------------------------------------------------------------------------ */
+  document.addEventListener('input', (ev) => {
+    const alvo = ev.target;
+    if (!alvo || !alvo.dataset || alvo.dataset.campo !== 'rapida-busca') return;
+    if (!temPonte() || !rapida) return;
+    const valor = String(alvo.value || '');
+    // o que o dedo escreveu tem que sobreviver ao próximo repinte de verdade
+    rapida.buscaTexto = valor;
+    clearTimeout(buscaTimerPainel);
+    buscaTimerPainel = setTimeout(() => { void procurarNaBusca(valor); }, BUSCA_ESPERA_MS);
+  });
+
+  /* ------------------------------------------------------------------------
+     A ESCOLHA. Ela ARMA a parada (não grava nada): preenche o rascunho que o
+     `rapidaConfirmar` já sabe gravar, e acende o pé com o resumo REAL —
+     incluindo o CEP com que a parada vai nascer.
+     ------------------------------------------------------------------------ */
+  /** o pé, com o que a pessoa acabou de escolher */
+  function armarPeDaBusca(tipo, i, titulo, dist, cep) {
+    if (typeof window.usarDados !== 'function') return;
+    window.usarDados('rapida', {
+      pe: { tipo, i, titulo: esc(titulo), dist: esc(dist || ''), cep: esc(cep || '') },
+      numAberto: -1, aviso: '', busca: esc(textoDaBusca()),
+    });
+  }
+
+  function escolherDaBusca(tipo, indice) {
+    const r = rapida;
+    const i = Number(indice);
+    if (!r || r.salvando) return;
+    const cru = (buscaCrus[tipo] || [])[i];
+    if (!cru) return;
+    r.aviso = '';
+    r.posicao = 'perto';          // "encaixa na melhor posição sozinho" é o pé
+    r.opcoes = [];
+
+    if (tipo === 'cli') {
+      /* CLIENTE JÁ TEM CONTA — e por isso ele NÃO passa por `POST /nucleo/contas`.
+         Enchendo `duplicado` com a conta dele, o `rapidaConfirmar` reusa a linha
+         que existe (e cobra o freio "a mesma porta não entra 2× na rota de hoje"
+         de graça). Abrir cadastro novo pra quem já está na base é o defeito que
+         enche a base de gente repetida. */
+      r.duplicado = { id: String(cru.id), nome: cru.nome, isCliente: true, isLead: false, isFornecedor: false };
+      r.origem = 'busca';
+      r.nome = String(cru.nome || '');
+      r.cep = String(cru.cep || '');
+      r.numero = String(cru.numero || '');
+      r.resolvido = {
+        fonte: 'cliente', endereco: cru.endereco || '', numero: cru.numero || '',
+        bairro: cru.bairro || '', cidade: cru.cidade || '', uf: cru.uf || '',
+        cep: cru.cep || '', lat: cru.lat, lng: cru.lng,
+      };
+      r.escolhaBusca = { tipo: 'cliente', fonte: 'cliente', contaId: String(cru.id), cep: cru.cep || '', lat: cru.lat, lng: cru.lng };
+      guardarRecenteDaBusca(cru.nome);
+      armarPeDaBusca(tipo, i, cru.nome, emMetros(cru.distM), cru.cep || '');
+      return;
+    }
+
+    if (tipo === 'rua') {
+      /* RUA NÃO É PARADA. "Rua 8" sozinha são 214 portas do Censo: aqui abre o
+         DEGRAU DO NÚMERO, e só depois dele existe pino, CEP e parada. Um degrau
+         por vez — é o contrário do formulário de seis campos que ninguém
+         termina em pé, com o carro ligado. */
+      if (typeof window.usarDados === 'function') {
+        window.usarDados('rapida', { numAberto: i, numValor: '', numSn: 0, pe: null, aviso: '', busca: esc(textoDaBusca()) });
+      }
+      return;
+    }
+
+    // COMÉRCIO (RFB × CnpjGeo): o pino é a intenção, então ele VIAJA no cadastro.
+    r.duplicado = null;
+    r.origem = 'busca';
+    r.nome = String(cru.nome || '');
+    r.cep = String(cru.cep || '');
+    r.numero = '';
+    r.resolvido = {
+      fonte: 'rfb', endereco: cru.endereco || '', numero: '',
+      bairro: '', cidade: cru.cidade || '', uf: cru.uf || '',
+      cep: cru.cep || '', lat: cru.lat, lng: cru.lng,
+    };
+    r.escolhaBusca = {
+      tipo: 'comercio', fonte: 'rfb', cnpj: String(cru.cnpj || ''), cep: cru.cep || '',
+      lat: cru.lat, lng: cru.lng, nivelGeo: cru.nivelGeo,
+    };
+    guardarRecenteDaBusca(cru.nome);
+    armarPeDaBusca(tipo, i, cru.nome, emMetros(cru.distM), cru.cep || '');
+  }
+
+  /* ------------------------------------------------------------------------
+     O DEGRAU DO NÚMERO — `GET /logistica/busca/porta`.
+
+     🔴 SEM NÚMERO NÃO É ERRO. Metade do interior é S/N (posto, chácara, praça,
+     estrada): o botão "S/N" trava o campo e a resposta vira o pino do TRECHO,
+     com a `precisao` dizendo o que ela é. Exigir número travava o motorista
+     parado num lugar que número não tem.
+     ------------------------------------------------------------------------ */
+  async function usarRuaDaBusca() {
+    const r = rapida;
+    const d = (typeof DADOS !== 'undefined' && DADOS.rapida) || {};
+    const i = Number(d.numAberto);
+    const cru = (buscaCrus.rua || [])[i];
+    if (!r || !cru || r.salvando) return;
+    if (!buscaEscopo.codMunicipio) {
+      r.aviso = 'Não sei em que município procurar esta rua. Ligue o GPS e tente de novo.';
+      return publicarRapida();
+    }
+    const sn = !!d.numSn;
+    const numero = sn ? '' : digitos(campo('busca-numero'));
+    const p = [
+      `municipio=${encodeURIComponent(buscaEscopo.codMunicipio)}`,
+      `via=${encodeURIComponent(cru.via)}`,
+    ];
+    if (numero) p.push(`numero=${encodeURIComponent(numero)}`);
+    let porta = null;
+    try { porta = await window.API.get(`/logistica/busca/porta?${p.join('&')}`); }
+    catch (e) { r.aviso = humano(e); return publicarRapida(); }
+    if (rapida !== r) return;
+    if (!porta || porta.fonte !== 'cnefe' || !pinoValido(porta.lat, porta.lng)) {
+      r.aviso = numero
+        ? `Não achei o nº ${numero} nesta rua no Censo. Confira, ou marque S/N.`
+        : 'Não achei o ponto desta rua no Censo.';
+      return publicarRapida();
+    }
+    const titulo = [viaBonita(porta.via || cru.via), porta.numero || (sn ? 'S/N' : '')]
+      .filter(Boolean).join(', ');
+    r.duplicado = null;
+    r.nome = titulo;
+    r.numero = porta.numero ? String(porta.numero) : '';
+    r.cep = String(porta.cep || '');
+    r.resolvido = {
+      fonte: 'cnefe', endereco: viaBonita(porta.via || cru.via), numero: r.numero,
+      bairro: '', cidade: buscaEscopo.cidade || '', uf: buscaEscopo.uf || '',
+      cep: r.cep, lat: porta.lat, lng: porta.lng,
+    };
+    /* 🔴 COM CEP NA MÃO, QUEM RESOLVE O PINO É O SERVIDOR (a lei do CEP).
+       `origem:'cep'` faz o `rapidaConfirmar` mandar cep+número e NÃO mandar
+       lat/lng: aí a conta nasce pelo CNEFE, com a `geoFonte` certa gravada na
+       fonte. Mandar o pino junto carimbaria a conta como ponto marcado à mão —
+       mentira sobre a procedência de um pino que é do Censo.
+       Sem CEP na resposta o pino é a única coisa que temos: ele viaja. */
+    r.origem = r.cep ? 'cep' : 'busca';
+    r.escolhaBusca = {
+      tipo: 'endereco', fonte: 'cnefe', precisao: porta.precisao || null,
+      codMunicipio: buscaEscopo.codMunicipio, via: porta.via || cru.via,
+      numero: r.numero, cep: r.cep, lat: porta.lat, lng: porta.lng,
+    };
+    r.aviso = porta.precisao === 'porta' ? ''
+      : porta.precisao === 'rua' ? 'O Censo não tem este número exato: o ponto é o do vizinho mais perto.'
+        : 'Sem número: o ponto é o da rua. Confira antes de adicionar.';
+    guardarRecenteDaBusca(titulo);
+    armarPeDaBusca('rua', i, titulo, emMetros(cru.distM), r.cep);
+    // quem já mora nesta porta? (best-effort — só avisa, nunca trava)
+    await rapidaCheckarPorta();
+  }
+
+  /* ------------------------------------------------------------------------
+     O TEXTO COLADO — o caminho ANTIGO, vivo, fora do fluxo por tecla.
+     ------------------------------------------------------------------------ */
+  async function colarNaBusca() {
+    const r = rapida;
+    if (!r || r.salvando) return;
+    await rapidaBuscar();               // o mesmo /geo/link + /geo/cep de sempre
+    const alvo = rapida;
+    if (alvo !== r || !r.resolvido) return;
+    const titulo = r.nome || [r.resolvido.endereco, r.resolvido.numero].filter(Boolean).join(', ') || 'Localização colada';
+    guardarRecenteDaBusca(titulo);
+    armarPeDaBusca('colado', -1, titulo, '', digitos(r.cep || r.resolvido.cep || ''));
+  }
+
+  /* ------------------------------------------------------------------------
+     OS TOQUES PEQUENOS: limpar, S/N, recente.
+     ------------------------------------------------------------------------ */
+  /* 🔴 O PAINEL NASCE VAZIO E COM OS RECENTES DESTE APARELHO. Sem esta porta o
+     painel abriria com o que o MOCK deixou no seam — três recentes de mentira
+     ("Bar do Zé", "Rua 8", "Márcia") na tela de um motorista que nunca buscou
+     nada. Dado de demonstração na mão de quem trabalha é a mesma doença do
+     "João da Silva" que o boot apaga desde 07/08. */
+  function zerarPainelDaBusca() {
+    const r = rapida;
+    if (r) { r.resolvido = null; r.duplicado = null; r.aviso = ''; r.buscaTexto = ''; r.escolhaBusca = null; }
+    buscaCrus = { cli: [], rua: [], loja: [] };
+    buscaEscopo = { codMunicipio: null, cidade: null, uf: null };
+    buscaSerie += 1;                    // pedido em voo perde a vez
+    clearTimeout(buscaTimerPainel);
+    if (typeof window.usarDados !== 'function') return;
+    window.usarDados('rapida', {
+      busca: '', grupos: { clientes: [], enderecos: [], comercios: [] },
+      semNada: 0, colar: '', numAberto: -1, numValor: '', numSn: 0, pe: null,
+      aviso: '', recentes: recentesDaBusca().map(esc),
+    });
+  }
+  const abrirPainelDaBusca = zerarPainelDaBusca;
+  const limparBusca = zerarPainelDaBusca;
+
+  function virarSnDaBusca() {
+    const d = (typeof DADOS !== 'undefined' && DADOS.rapida) || {};
+    if (typeof window.usarDados !== 'function') return;
+    // o que já estava digitado sobrevive ao S/N: desmarcar devolve o número
+    const escrito = d.numSn ? String(d.numValor || '') : digitos(campo('busca-numero'));
+    window.usarDados('rapida', { numSn: d.numSn ? 0 : 1, numValor: esc(escrito), busca: esc(textoDaBusca()) });
+  }
+
+  function usarRecenteDaBusca(rotulo) {
+    const r = rapida;
+    const texto = String(rotulo || '').trim();
+    if (!r || !texto) return;
+    r.buscaTexto = texto;
+    // repinta com o texto no campo (toque, não tecla: aqui o seam é o caminho)
+    if (typeof window.usarDados === 'function') window.usarDados('rapida', { busca: esc(texto), numAberto: -1, pe: null });
+    clearTimeout(buscaTimerPainel);
+    void procurarNaBusca(texto);
+  }
+
+  /* ------------------------------------------------------------------------
+     OS TOQUES DO PAINEL — ouvinte PRÓPRIO, e isso é uma decisão, não descuido.
+
+     O lugar canônico de `data-acao` é o mapa do `D0-porta-entrega.js`. Este
+     painel fica FORA dele por um motivo de operação: em 12/08 há outra sessão
+     escrevendo no D0 (o anexo do recado), e código meu misturado ao lote dela
+     no mesmo arquivo é código que ninguém consegue entregar separado — ou eu
+     comito o trabalho inacabado dela, ou o meu fica pendurado.
+
+     Tecnicamente não há diferença de comportamento: o D0 já registra DOIS
+     ouvintes de clique no documento, este é o terceiro, roda ANTES dele (ordem
+     léxica da costura) e as chaves não se cruzam — quem não é minha segue o
+     caminho de sempre.
+
+     🔴 Quando o lote do anexo pousar, estas seis linhas voltam pro mapa do D0.
+     Está anotado no relatório como pendência, e não como "assim está bom".
+     ------------------------------------------------------------------------ */
+  document.addEventListener('click', (ev) => {
+    const alvo = ev.target && ev.target.closest ? ev.target.closest('[data-acao]') : null;
+    if (!alvo || !temPonte()) return;
+    const chave = alvo.dataset.acao;
+    if (chave === 'busca-limpar') return limparBusca();
+    if (chave === 'busca-sn') return virarSnDaBusca();
+    if (chave === 'busca-usar-rua') return void comTrava(usarRuaDaBusca);
+    if (chave === 'busca-colar') return void comTrava(colarNaBusca);
+    if (chave === 'busca-escolher') return escolherDaBusca(alvo.dataset.tipo, alvo.dataset.i);
+    if (chave === 'busca-recente') return usarRecenteDaBusca(alvo.dataset.rec);
+    /* 🔴 TROCAR PRA PORTA "PROCURAR" É A ÚNICA ENTRADA DO PAINEL — e é por isso
+       que ele se zera aqui. O seam do `rapida` nasce com o dado de
+       DEMONSTRAÇÃO do mock (três recentes de mentira): sem isto o motorista
+       abriria a busca vendo "Bar do Zé, Rua 8, Márcia" de gente que ele nunca
+       procurou. Vai pro fim da fila (`setTimeout 0`) de propósito: quem troca
+       o `rapida.porta` é o D0, que roda DEPOIS deste ouvinte. */
+    if (chave === 'rapida-porta' && alvo.dataset.porta === 'endereco') {
+      setTimeout(() => { if (rapida && rapida.porta === 'endereco') abrirPainelDaBusca(); }, 0);
+    }
+  });

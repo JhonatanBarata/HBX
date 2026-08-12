@@ -450,6 +450,40 @@ const PONTE = ({
         });
         return R({ id });
       }
+      /* ---- O PAINEL DA BUSCA (F2, 12/08 — PR12082026) --------------------
+         O dialeto REAL da F1: três grupos + `escopo`. A tela do painel tem
+         prova própria (`prova-painel-avulsa.js`) e não é medida aqui; o dublê
+         responde para que abrir a porta "Procurar" no meio de qualquer cena
+         daqui não vire silêncio de rede — dublê que devolve `{}` numa porta
+         que existe é o defeito que faz a prova medir uma tela quebrada e
+         chamar de comportamento.
+         A ORDEM IMPORTA: `/busca/porta` antes de `/busca`, senão o prefixo
+         engole o específico (a mesma pegadinha do `/rota/historico`). */
+      if (caminho.indexOf('/logistica/busca/porta') === 0) {
+        const n = Number(String(q('numero')).replace(/\D+/g, ''));
+        return R({
+          fonte: 'cnefe', precisao: n ? 'porta' : 'via', via: q('via'),
+          numero: n || null, lat: -22.4102, lng: -47.5602, cep: '13500123',
+        });
+      }
+      if (caminho.indexOf('/logistica/busca') === 0) {
+        const alvo = q('q').toLowerCase();
+        const achados = alvo ? CLIENTES.filter((c) => c.name.toLowerCase().indexOf(alvo) >= 0) : [];
+        return R({
+          q: q('q'),
+          grupos: {
+            clientes: achados.map((c) => ({
+              id: String(c.id), nome: c.name, endereco: c.endereco, numero: c.numero || null,
+              bairro: null, cidade: c.cidade || 'Rio Claro', uf: 'SP', cep: null,
+              lat: c.lat, lng: c.lng, distM: 500, ultimaEntregaEm: null, score: 0.9,
+            })),
+            enderecos: [],
+            comercios: [],
+          },
+          fontes: { clientes: achados.length ? 'ok' : 'vazio', enderecos: 'vazio', comercios: 'vazio' },
+          escopo: { comGps: true, codMunicipio: '3543907', cidade: 'rio claro', uf: 'SP' },
+        });
+      }
       if (caminho.indexOf('/nucleo/clientes') === 0) {
         const alvo = q('query').toLowerCase();
         const items = alvo ? CLIENTES.filter((c) => c.name.toLowerCase().indexOf(alvo) >= 0) : CLIENTES;

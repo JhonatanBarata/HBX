@@ -135,7 +135,16 @@ const eh = (nome, cond) => (cond ? ok : falhou).push(nome);
     lista: document.querySelectorAll('.cli').length,
     pe: (document.querySelector('.tmx-dock b') || {}).textContent,
   }));
-  eh('porta Endereco mostra a tela antiga', t5.busca === true && t5.lista === 0 && t5.pe === 'Buscar endereço');
+  /* 🔴 A 2ª PORTA VIROU O PAINEL DA BUSCA (F2, 12/08 — PR12082026), e esta
+     asserção mudou COM a decisão, não pra passar. Ela cobrava o botão "Buscar
+     endereço" no pé: era o campo CEGO (digita tudo, aperta, uma regex decide em
+     silêncio) que a F2 existe pra matar — agora o campo procura por TECLA e o
+     pé só nasce quando há uma escolha armada. O que continua sendo cobrado é o
+     que importava aqui: trocar de porta troca a tela inteira, e a lista de
+     clientes não fica sobrando embaixo. A tela do painel tem prova própria
+     (`prova-painel-avulsa.js`). */
+  eh('porta Procurar troca a tela inteira (campo do painel, sem lista e sem pé mudo)',
+    t5.busca === true && t5.lista === 0 && !t5.pe);
 
   await p.evaluate(() => document.querySelector('[data-acao="rapida-porta"][data-porta="cadastro"]').click());
   await p.waitForTimeout(400);

@@ -303,6 +303,16 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         // WhatsApp o app resolve sozinho; aqui só passa o link curto do Maps, que
         // exige seguir redirecionamento (rede, com trava de host, mora no servidor).
         method == "GET" && segments == listOf("logistica", "geo", "link") -> true
+        // 🔴 O PAINEL DA BUSCA DA PARADA AVULSA (12/08, F2 do PR12082026) — as
+        // duas portas da F1: os 3 grupos (cliente/rua/comércio, GPS-ranqueados)
+        // e o passo do NÚMERO, que devolve o pino da porta com o CEP junto.
+        // É a QUARTA vez que esta linha faz falta se esquecida: endpoint novo
+        // sem allowlist morre DENTRO do aparelho ("Esta operação não pertence
+        // ao logistica"), sem sair pra rede — e o defeito parece "a busca não
+        // acha nada" com o backend 100% verde. Regra da casa (hbxapk.md §6):
+        // app.js + allowlist no Kotlin + REBUILD do APK, os TRÊS ou nada.
+        method == "GET" && segments == listOf("logistica", "busca") -> true
+        method == "GET" && segments == listOf("logistica", "busca", "porta") -> true
         // S4 (PR21072026-NAVEGACAO-HBX) — proxy OSRM: coords vai em query string,
         // não afeta os segments de path; allowlist trava só route/table.
         method == "GET" && segments == listOf("logistica", "osrm", "route") -> true

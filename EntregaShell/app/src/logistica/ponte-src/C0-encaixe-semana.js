@@ -36,6 +36,16 @@
     };
     const pNovo = pontoDe(novo);
     let indice = ids.length;
+    /* 🔴 O RECIBO TEM QUE DIZER O QUE FOI MEDIDO (12/08). O portão do fim
+       prometia "encaixa na melhor posição sozinho" e devolvia só o nome de
+       quem ficou antes — a POSIÇÃO e o CUSTO ficavam aqui dentro, calculados e
+       jogados fora. Recibo que não mostra a conta é recibo decorativo: quem
+       está na calçada não tem como saber se o encaixe fez sentido.
+       A unidade é honesta: com o OSRM de pé a matriz é de DURAÇÃO (segundos);
+       sem rede a conta cai pra linha reta (metros). Misturar as duas num "+1,1"
+       sem unidade seria mentir com número. */
+    let desvioValor = null;
+    let desvioEmSegundos = false;
     if (posicao === 'primeira') indice = 0;
     else if (pNovo && base.length) {
       const pOrigem = ultimaPos && pinoValido(ultimaPos.lat, ultimaPos.lng)
@@ -65,6 +75,7 @@
         const custo = entrada + saida - antiga;
         if (Number.isFinite(custo) && custo < melhor) { melhor = custo; indice = k; }
       }
+      if (Number.isFinite(melhor)) { desvioValor = Math.max(0, melhor); desvioEmSegundos = !!matriz; }
     }
     const ordem = [...ids.slice(0, indice), String(novoId), ...ids.slice(indice)];
     await window.API.post('/logistica/rota/planejar', {
@@ -72,7 +83,14 @@
     });
     const anterior = indice > 0 ? base[indice - 1] : null;
     const nomeAnterior = anterior && anterior.item && anterior.item.cliente && anterior.item.cliente.nome;
-    return { aplicado: true, anterior: nomeAnterior || null };
+    return {
+      aplicado: true,
+      anterior: nomeAnterior || null,
+      // 1-based: a pessoa conta paradas a partir de 1, não de 0.
+      posicao: indice + 1,
+      deTotal: ordem.length,
+      desvio: desvioValor == null ? '' : (desvioEmSegundos ? emMinutos(desvioValor) : emMetros(desvioValor)),
+    };
   }
 
   /* 🔴 O PORTÃO SÓ NASCE DEPOIS QUE A TELA PAROU DE SE PINTAR (09/08, medido).
@@ -177,9 +195,15 @@
       await voltarDaAvulsa(volta);
       window.portao({
         tom: 'ok', ico: 'check', titulo: 'Parada adicionada',
+        /* O RECIBO MOSTRA A CONTA QUE FOI FEITA — posição, de quantas, depois
+           de quem, e quanto custou o encaixe. Tudo saído da resposta do
+           `encaixarAvulsa`; nada aqui é enfeite escrito à mão. */
         sub: !encaixe.aplicado ? 'Ela entrou na rota de hoje.'
-          : encaixe.anterior ? `Entra depois de ${encaixe.anterior}.`
-            : 'Entra como primeira parada.',
+          : [
+            `Parada ${encaixe.posicao} de ${encaixe.deTotal}`,
+            encaixe.anterior ? `, depois de ${encaixe.anterior}` : ', como primeira',
+            encaixe.desvio ? ` · menor desvio: +${encaixe.desvio}` : '',
+          ].join('') + '.',
         acoes: [['Fechar', 'principal', true]],
       });
     } catch (e) {
