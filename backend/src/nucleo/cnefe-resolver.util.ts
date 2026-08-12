@@ -471,8 +471,19 @@ let conexaoCnefe: Promise<void> | null = null;
 /* Exportada em 12/08 (busca da parada avulsa, PR12082026): a consulta de vias/
    portas do painel de busca fala com o MESMO banco `cnefe` e precisa das MESMAS
    leis (client único, connect pago uma vez, teto de consulta, cooldown só pra
-   falha de banco). Duplicar isso no serviço da busca seria a 13ª régua do pino. */
-export async function cnefeQuery(sql: string, params: unknown[], timeoutMs = CNEFE_QUERY_TIMEOUT_MS): Promise<any[]> {
+   falha de banco). Duplicar isso no serviço da busca seria a 13ª régua do pino.
+
+   `statementTimeoutMs` (fiscal 12/08, aditivo — chamadores antigos intactos):
+   o teto local (comTimeout) abandona a ESPERA, mas a query seguia rodando no
+   Postgres segurando conexão do pool. Com ele, a consulta roda em transação
+   com `SET LOCAL statement_timeout` — o SERVIDOR mata a query lenta, e o
+   SET LOCAL morre no COMMIT sem vazar pra sessão do pool. */
+export async function cnefeQuery(
+  sql: string,
+  params: unknown[],
+  timeoutMs = CNEFE_QUERY_TIMEOUT_MS,
+  statementTimeoutMs?: number,
+): Promise<any[]> {
   if (queryOverride) return queryOverride(sql, params);
   if (Date.now() < indisponivelAte) throw new Error('cnefe em cooldown');
   const url = cnefeDatabaseUrl();
@@ -480,10 +491,17 @@ export async function cnefeQuery(sql: string, params: unknown[], timeoutMs = CNE
   if (!clienteCnefe) {
     clienteCnefe = new PrismaClient({ datasources: { db: { url } } });
   }
+  const freioMs = Math.floor(Number(statementTimeoutMs ?? 0));
   try {
     if (!conexaoCnefe) conexaoCnefe = clienteCnefe.$connect();
     await comTimeout(conexaoCnefe, CNEFE_CONNECT_TIMEOUT_MS, 'cnefe connect timeout');
-    return (await comTimeout(clienteCnefe.$queryRawUnsafe(sql, ...params), timeoutMs, 'cnefe timeout')) as any[];
+    const consulta = freioMs > 0
+      ? clienteCnefe.$transaction(async (tx: any) => {
+          await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = ${freioMs}`);
+          return tx.$queryRawUnsafe(sql, ...params);
+        })
+      : clienteCnefe.$queryRawUnsafe(sql, ...params);
+    return (await comTimeout(consulta as Promise<any[]>, timeoutMs, 'cnefe timeout')) as any[];
   } catch (e) {
     const msg = String((e as any)?.message || e);
     // 27/07 (2º incidente company 48, 14:30) — timeout de UMA consulta (cache frio de

@@ -52,6 +52,35 @@ import { METROS_POR_GRAU_LAT, METROS_POR_GRAU_LNG } from './prospector-corredor.
 export const BUSCA_LIMITE_GRUPO = 6;
 /** Menos de 2 caracteres não é busca, é ruído de tecla — grupos vazios, 200. */
 export const BUSCA_MIN_CHARS = 2;
+/** Teto de tamanho do `q` (fiscal, 12/08): trigram custa por caractere e o
+ *  campo é de BUSCA, não de redação — 80 chars cobre o maior endereço/nome
+ *  real e mata o payload malicioso de 1 MB antes de virar CPU no banco. */
+export const BUSCA_MAX_CHARS = 80;
+
+/**
+ * FREIO DE SERVIDOR (fiscal, 12/08): o teto local (Promise.race) abandona a
+ * ESPERA, mas a query seguia rodando no Postgres segurando 1 das 10 conexões
+ * do pool — o backend inteiro roda sem statement_timeout. Todo caminho de
+ * banco da busca roda com `SET LOCAL statement_timeout` (transação): passou
+ * do teto, o SERVIDOR mata a query, não só o cliente desiste dela.
+ */
+export const BUSCA_STATEMENT_TIMEOUT_MS = 1600;
+
+/** `SET LOCAL statement_timeout` com a MESMA guarda de constante do resto da
+ *  peça (só número finito e positivo entra no texto do SQL). */
+export function sqlSetStatementTimeout(ms: number): string {
+  const inteiro = Math.floor(ms);
+  if (!Number.isFinite(inteiro) || inteiro <= 0) {
+    throw new Error(`statement_timeout inválido na busca: ${ms}`);
+  }
+  return `SET LOCAL statement_timeout = ${num(inteiro)}`;
+}
+
+/** SET do limiar do `<%` do fallback fuzzy — a constante passa pela MESMA
+ *  guarda `num()` de toda interpolação desta peça (fiscal, 12/08: nenhuma
+ *  constante entra em texto de SQL fora da guarda, nem no serviço). */
+export const SQL_SET_LIMIAR_FUZZY_COMERCIO =
+  `SET LOCAL pg_trgm.word_similarity_threshold = ${num(FUZZY_COMERCIO_MIN)}`;
 
 /** Fuzzy de CLIENTE — 0.25 pega 'mracia'→'marcia' (0.2857 medido). */
 export const FUZZY_CLIENTE_MIN = 0.25;

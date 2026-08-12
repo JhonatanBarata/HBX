@@ -2,9 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { cnefeQuery } from '../nucleo/cnefe-resolver.util';
 import {
+  BUSCA_MAX_CHARS,
   BUSCA_MIN_CHARS,
-  FUZZY_COMERCIO_MIN,
+  BUSCA_STATEMENT_TIMEOUT_MS,
   PortaRow,
+  SQL_SET_LIMIAR_FUZZY_COMERCIO,
   coordDaQuery,
   escolherPortaDaBusca,
   normalizarBuscaTexto,
@@ -21,6 +23,7 @@ import {
   sqlPinoDaVia,
   sqlPortaExata,
   sqlPortaVizinhos,
+  sqlSetStatementTimeout,
   viaCanonDaBusca,
 } from './logistica-busca.sql';
 
@@ -39,11 +42,26 @@ import {
  * vêm vazios com a fonte marcada 'indisponivel', clientes e comércios seguem.
  * A tela nunca fica refém da pior fonte (mesma lição do "vitrine 504").
  *
- * Teto de espera por fonte: 1500 ms — busca interativa que passa disso já
- * perdeu a tecla seguinte do usuário; melhor grupo vazio honesto que espera.
+ * ⏱ ORÇAMENTO TOTAL POR REQUEST (fiscal, 12/08): ~2 s num BOLSO único —
+ * o escopo geográfico (até 3 idas sequenciais ao cnefe) e os 3 grupos gastam
+ * do MESMO orçamento; fonte que não coube no que sobrou devolve vazio honesto
+ * sem nem consultar. É o pior caso REAL do request (a versão anterior
+ * prometia "1500 ms por fonte" e mentia: sequência + fallback somavam ~7,5 s).
+ *
+ * 🔒 FREIO DE SERVIDOR: abandonar a espera local não basta — a query seguiria
+ * rodando no Postgres segurando 1 das 10 conexões do pool (não existe
+ * statement_timeout global no backend). TODA ida a banco daqui roda com
+ * `SET LOCAL statement_timeout` na mesma transação: quem mata a query lenta
+ * é o SERVIDOR. No caminho medido isso nunca dispara (grupos ≤30 ms; fuzzy
+ * ~540 ms); é rede de segurança, não comportamento esperado.
  */
 
+/** Bolso do request inteiro (escopo + 3 grupos). */
+const BUSCA_ORCAMENTO_TOTAL_MS = 2000;
+/** Teto de UMA ida a banco (limitado pelo que restar no bolso). */
 const BUSCA_TIMEOUT_FONTE_MS = 1500;
+/** Sobrou menos que isto no bolso → nem consulta (vazio honesto > espera). */
+const BUSCA_MINIMO_UTIL_MS = 60;
 
 export type BuscaClienteItem = {
   id: string;
@@ -128,19 +146,44 @@ export class LogisticaBuscaService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Promessa com teto — a busca nunca espera a fonte lenta (grupo vazio > tela travada). */
-  private comTeto<T>(p: Promise<T>, rotulo: string): Promise<T> {
+  /** Quanto do bolso ainda dá pra gastar numa ida a banco. */
+  private tetoRestante(prazoMs: number): number {
+    return Math.max(0, Math.min(BUSCA_TIMEOUT_FONTE_MS, prazoMs - Date.now()));
+  }
+
+  /** Espera com teto — corta a ESPERA; quem corta a QUERY é o statement_timeout. */
+  private comTeto<T>(p: Promise<T>, tetoMs: number, rotulo: string): Promise<T> {
     return Promise.race([
       p,
       new Promise<never>((_, reject) => {
-        const t = setTimeout(() => reject(new Error(`${rotulo}: estourou ${BUSCA_TIMEOUT_FONTE_MS}ms`)), BUSCA_TIMEOUT_FONTE_MS);
+        const t = setTimeout(() => reject(new Error(`${rotulo}: estourou ${tetoMs}ms`)), Math.max(1, tetoMs));
         (t as any).unref?.();
       }),
     ]);
   }
 
+  /**
+   * Ida ao banco PRINCIPAL com freio de servidor: SET LOCAL statement_timeout
+   * na MESMA transação da consulta (morre no COMMIT, não vaza pro pool).
+   * `extraSets` = SETs adicionais do caminho (ex.: limiar do fuzzy).
+   */
+  private async queryPrincipal(sql: string, params: unknown[], tetoMs: number, rotulo: string, extraSets: string[] = []): Promise<any[]> {
+    const sets = [sqlSetStatementTimeout(BUSCA_STATEMENT_TIMEOUT_MS), ...extraSets];
+    const lote = await this.comTeto(
+      this.prisma.$transaction([
+        ...sets.map((s) => this.prisma.$executeRawUnsafe(s)),
+        this.prisma.$queryRawUnsafe(sql, ...params),
+      ]) as Promise<unknown[]>,
+      tetoMs,
+      rotulo,
+    );
+    return lote[lote.length - 1] as any[];
+  }
+
   async buscar(companyId: number, qBruto: string, latBruto?: unknown, lngBruto?: unknown): Promise<BuscaResposta> {
-    const q = String(qBruto ?? '').trim();
+    // Cap de tamanho ANTES de qualquer uso: trigram custa por caractere e
+    // busca de verdade não tem 80+ chars (fiscal, 12/08).
+    const q = String(qBruto ?? '').slice(0, BUSCA_MAX_CHARS).trim();
     const lat = coordDaQuery(latBruto);
     const lng = coordDaQuery(lngBruto);
     const comGps = parGpsValido(lat, lng);
@@ -155,14 +198,17 @@ export class LogisticaBuscaService {
     };
     if (q.length < BUSCA_MIN_CHARS) return vazia;
 
+    // O bolso do request: escopo e grupos gastam do MESMO orçamento.
+    const prazo = Date.now() + BUSCA_ORCAMENTO_TOTAL_MS;
+
     // Escopo geográfico primeiro (endereços e comércios dependem dele; clientes não).
-    const escopo = await this.resolverEscopo(companyId, gLat, gLng);
+    const escopo = await this.resolverEscopo(companyId, gLat, gLng, prazo);
     vazia.escopo = { comGps, ...escopo };
 
     const [clientes, enderecos, comercios] = await Promise.all([
-      this.grupoClientes(companyId, q, gLat, gLng),
-      this.grupoEnderecos(escopo.codMunicipio, q, gLat, gLng),
-      this.grupoComercios(escopo.cidade, escopo.uf, q, gLat, gLng),
+      this.grupoClientes(companyId, q, gLat, gLng, prazo),
+      this.grupoEnderecos(escopo.codMunicipio, q, gLat, gLng, prazo),
+      this.grupoComercios(escopo.cidade, escopo.uf, q, gLat, gLng, prazo),
     ]);
 
     return {
@@ -177,8 +223,10 @@ export class LogisticaBuscaService {
    * Posição → município (porta do Censo mais próxima; centroide de município
    * como rede). Sem GPS → cidade MODAL dos clientes do tenant (degrade honesto).
    * Tudo best-effort: cnefe fora → escopo nulo e os grupos dependentes avisam.
+   * Sequencial de propósito (cada passo decide o próximo) — por isso gasta do
+   * bolso do request como todo mundo.
    */
-  private async resolverEscopo(companyId: number, lat: number | null, lng: number | null): Promise<{
+  private async resolverEscopo(companyId: number, lat: number | null, lng: number | null, prazo: number): Promise<{
     codMunicipio: string | null;
     cidade: string | null;
     uf: string | null;
@@ -186,15 +234,15 @@ export class LogisticaBuscaService {
     try {
       if (lat !== null && lng !== null) {
         const porPorta = sqlMunicipioPorPosicao(lat, lng);
-        let rows = await cnefeQuery(porPorta.sql, porPorta.params, BUSCA_TIMEOUT_FONTE_MS);
+        let rows = await cnefeQuery(porPorta.sql, porPorta.params, this.tetoRestante(prazo), BUSCA_STATEMENT_TIMEOUT_MS);
         if (!rows.length) {
           const porMun = sqlMunicipioPorCentroide(lat, lng);
-          rows = await cnefeQuery(porMun.sql, porMun.params, BUSCA_TIMEOUT_FONTE_MS);
+          rows = await cnefeQuery(porMun.sql, porMun.params, this.tetoRestante(prazo), BUSCA_STATEMENT_TIMEOUT_MS);
         }
         const codMunicipio = rows.length ? String(rows[0].cod_municipio) : null;
         if (!codMunicipio) return { codMunicipio: null, cidade: null, uf: null };
         const cid = sqlCidadeDoMunicipio(codMunicipio);
-        const cidRows = await cnefeQuery(cid.sql, cid.params, BUSCA_TIMEOUT_FONTE_MS);
+        const cidRows = await cnefeQuery(cid.sql, cid.params, this.tetoRestante(prazo), BUSCA_STATEMENT_TIMEOUT_MS);
         return {
           codMunicipio,
           cidade: cidRows.length ? String(cidRows[0].city_norm) : null,
@@ -204,10 +252,9 @@ export class LogisticaBuscaService {
 
       // Sem GPS: a cidade em que o tenant trabalha (modal dos cadastros dele).
       const modal = sqlCidadeModalDoTenant(companyId);
-      const rows: Array<{ cidade: string; uf: string }> = await this.comTeto(
-        this.prisma.$queryRawUnsafe(modal.sql, ...modal.params) as Promise<any[]>,
-        'escopo/cidade-modal',
-      );
+      const rows: Array<{ cidade: string; uf: string }> = await this.queryPrincipal(
+        modal.sql, modal.params, this.tetoRestante(prazo), 'escopo/cidade-modal',
+      ) as any[];
       if (!rows.length) return { codMunicipio: null, cidade: null, uf: null };
       const cidade = normalizarBuscaTexto(rows[0].cidade);
       const uf = String(rows[0].uf ?? '').trim().toUpperCase();
@@ -215,7 +262,7 @@ export class LogisticaBuscaService {
       let codMunicipio: string | null = null;
       try {
         const porCidade = sqlMunicipioPorCidade(uf, cidade);
-        const munRows = await cnefeQuery(porCidade.sql, porCidade.params, BUSCA_TIMEOUT_FONTE_MS);
+        const munRows = await cnefeQuery(porCidade.sql, porCidade.params, this.tetoRestante(prazo), BUSCA_STATEMENT_TIMEOUT_MS);
         codMunicipio = munRows.length ? String(munRows[0].cod_municipio) : null;
       } catch {
         // cnefe fora não derruba o escopo da RFB (cidade/uf seguem valendo).
@@ -227,16 +274,15 @@ export class LogisticaBuscaService {
     }
   }
 
-  private async grupoClientes(companyId: number, q: string, lat: number | null, lng: number | null): Promise<{
+  private async grupoClientes(companyId: number, q: string, lat: number | null, lng: number | null, prazo: number): Promise<{
     itens: BuscaClienteItem[];
     fonte: FonteStatus;
   }> {
+    const teto = this.tetoRestante(prazo);
+    if (teto < BUSCA_MINIMO_UTIL_MS) return { itens: [], fonte: 'indisponivel' };
     try {
       const pronto = sqlBuscaClientes({ companyId, q, lat, lng });
-      const rows: any[] = await this.comTeto(
-        this.prisma.$queryRawUnsafe(pronto.sql, ...pronto.params) as Promise<any[]>,
-        'busca/clientes',
-      );
+      const rows: any[] = await this.queryPrincipal(pronto.sql, pronto.params, teto, 'busca/clientes');
       const itens = rows.map((r): BuscaClienteItem => ({
         id: String(r.id),
         nome: String(r.name ?? ''),
@@ -259,14 +305,16 @@ export class LogisticaBuscaService {
     }
   }
 
-  private async grupoEnderecos(codMunicipio: string | null, q: string, lat: number | null, lng: number | null): Promise<{
+  private async grupoEnderecos(codMunicipio: string | null, q: string, lat: number | null, lng: number | null, prazo: number): Promise<{
     itens: BuscaEnderecoItem[];
     fonte: FonteStatus;
   }> {
     if (!codMunicipio) return { itens: [], fonte: 'sem_escopo' };
+    const teto = this.tetoRestante(prazo);
+    if (teto < BUSCA_MINIMO_UTIL_MS) return { itens: [], fonte: 'indisponivel' };
     try {
       const pronto = sqlBuscaVias({ codMunicipio, q, lat, lng });
-      const rows: any[] = await cnefeQuery(pronto.sql, pronto.params, BUSCA_TIMEOUT_FONTE_MS);
+      const rows: any[] = await cnefeQuery(pronto.sql, pronto.params, teto, BUSCA_STATEMENT_TIMEOUT_MS);
       const itens = rows.map((r): BuscaEnderecoItem => ({
         via: String(r.via),
         codMunicipio,
@@ -285,36 +333,28 @@ export class LogisticaBuscaService {
     }
   }
 
-  private async grupoComercios(cidade: string | null, uf: string | null, q: string, lat: number | null, lng: number | null): Promise<{
+  private async grupoComercios(cidade: string | null, uf: string | null, q: string, lat: number | null, lng: number | null, prazo: number): Promise<{
     itens: BuscaComercioItem[];
     fonte: FonteStatus;
   }> {
     // NUNCA varrer a RFB sem escopo — sem cidade resolvida o grupo nem consulta.
     if (!cidade || !uf) return { itens: [], fonte: 'sem_escopo' };
+    const teto = this.tetoRestante(prazo);
+    if (teto < BUSCA_MINIMO_UTIL_MS) return { itens: [], fonte: 'indisponivel' };
     try {
-      // Caminho RÁPIDO primeiro (substring — o caso comum, poucos ms).
+      // Caminho RÁPIDO primeiro (substring — o caso comum, ~30 ms medidos).
       const rapido = sqlBuscaComerciosLike({ cityNorm: cidade, uf, q, lat, lng });
-      let rows: any[] = await this.comTeto(
-        this.prisma.$queryRawUnsafe(rapido.sql, ...rapido.params) as Promise<any[]>,
-        'busca/comercios',
-      );
-      if (!rows.length) {
-        // Fallback do TYPO: word_similarity na cidade inteira — mais caro
-        // (centenas de ms numa cidade de 33k), pago SÓ quando o rápido não
-        // achou nada. SET LOCAL na MESMA transação: o limiar do `<%` é o
-        // NOSSO (0.40 medido), não o default 0.6 do banco — e morre no
-        // COMMIT, sem vazar pra conexão do pool.
+      let rows: any[] = await this.queryPrincipal(rapido.sql, rapido.params, teto, 'busca/comercios');
+      const tetoFuzzy = this.tetoRestante(prazo);
+      if (!rows.length && tetoFuzzy >= BUSCA_MINIMO_UTIL_MS) {
+        // Fallback do TYPO: word_similarity na cidade inteira (~540 ms medidos
+        // em cidade de 33k), pago SÓ quando o rápido não achou nada e ainda há
+        // bolso. O limiar entra por SET LOCAL na MESMA transação (morre no
+        // COMMIT, sem vazar pro pool) e já vem GUARDADO da peça pura.
         const fuzzy = sqlBuscaComerciosFuzzy({ cityNorm: cidade, uf, q, lat, lng });
-        const [, fuzzyRows] = await this.comTeto(
-          this.prisma.$transaction([
-            this.prisma.$executeRawUnsafe(
-              `SET LOCAL pg_trgm.word_similarity_threshold = ${FUZZY_COMERCIO_MIN}`,
-            ),
-            this.prisma.$queryRawUnsafe(fuzzy.sql, ...fuzzy.params),
-          ]) as Promise<[unknown, any[]]>,
-          'busca/comercios-fuzzy',
+        rows = await this.queryPrincipal(
+          fuzzy.sql, fuzzy.params, tetoFuzzy, 'busca/comercios-fuzzy', [SQL_SET_LIMIAR_FUZZY_COMERCIO],
         );
-        rows = fuzzyRows as any[];
       }
       const itens = (rows as any[]).map((r): BuscaComercioItem => ({
         cnpj: String(r.cnpj),
@@ -329,7 +369,10 @@ export class LogisticaBuscaService {
         nivelGeo: r.nivelGeo == null ? null : Number(r.nivelGeo),
         cep: r.cep ?? null,
         distM: r.dist_m == null ? null : Math.round(Number(r.dist_m)),
-        score: Number(r.sim ?? 0),
+        // 🔴 score = o RANKING COMPLETO do SQL (nome × distância). Mapear `sim`
+        // aqui foi o "score mentiroso" que o fiscal pegou em 12/08: a lista
+        // vinha ordenada por um número e ETIQUETADA com outro.
+        score: Number(r.score ?? 0),
       }));
       return { itens, fonte: itens.length ? 'ok' : 'vazio' };
     } catch (e) {
@@ -345,7 +388,7 @@ export class LogisticaBuscaService {
    * cadastro (dispersão/vizinho) — ver escolherPortaDaBusca.
    */
   async resolverPorta(args: { codMunicipio: string; via: string; numero?: unknown }): Promise<PortaResposta> {
-    const viaCanon = viaCanonDaBusca(args.via);
+    const viaCanon = viaCanonDaBusca(String(args.via ?? '').slice(0, BUSCA_MAX_CHARS));
     const numero = Number(String(args.numero ?? '').replace(/\D+/g, ''));
     const semNumero = !Number.isInteger(numero) || numero <= 0;
     const base: PortaResposta = {
@@ -358,8 +401,8 @@ export class LogisticaBuscaService {
         const pExata = sqlPortaExata(args.codMunicipio, viaCanon, numero);
         const pViz = sqlPortaVizinhos(args.codMunicipio, viaCanon, numero);
         const [exata, vizinhos] = await Promise.all([
-          cnefeQuery(pExata.sql, pExata.params, BUSCA_TIMEOUT_FONTE_MS) as Promise<PortaRow[]>,
-          cnefeQuery(pViz.sql, pViz.params, BUSCA_TIMEOUT_FONTE_MS) as Promise<PortaRow[]>,
+          cnefeQuery(pExata.sql, pExata.params, BUSCA_TIMEOUT_FONTE_MS, BUSCA_STATEMENT_TIMEOUT_MS) as Promise<PortaRow[]>,
+          cnefeQuery(pViz.sql, pViz.params, BUSCA_TIMEOUT_FONTE_MS, BUSCA_STATEMENT_TIMEOUT_MS) as Promise<PortaRow[]>,
         ]);
         const escolhida = escolherPortaDaBusca(exata, vizinhos, numero);
         if (escolhida) {
@@ -370,7 +413,7 @@ export class LogisticaBuscaService {
         }
       }
       const pVia = sqlPinoDaVia(args.codMunicipio, viaCanon);
-      const rows = await cnefeQuery(pVia.sql, pVia.params, BUSCA_TIMEOUT_FONTE_MS);
+      const rows = await cnefeQuery(pVia.sql, pVia.params, BUSCA_TIMEOUT_FONTE_MS, BUSCA_STATEMENT_TIMEOUT_MS);
       if (rows.length && rows[0].lat != null && rows[0].lng != null) {
         return {
           fonte: 'cnefe', precisao: 'via', via: viaCanon, numero: null,
