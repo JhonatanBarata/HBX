@@ -237,6 +237,8 @@
         // Sem produto: a avulsa é uma PARADA, não uma venda montada. Item
         // inventado aqui viraria contagem falsa no rodapé da tela.
         itens: [],
+        // "Ult. Registro" (12/08): o `/logistica/rota` manda o campo no cliente.
+        ...(c.ultimaEntregaAt ? { ultimaEntregaAt: String(c.ultimaEntregaAt) } : {}),
         ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
         // a PARTE AVULSA da lista (dono, 09/08: "isso aqui é AVULSO, crie uma
         // parte avulsa") — a tela agrupa por esta etiqueta, nunca por chip.
@@ -295,6 +297,8 @@
         // Sem produto: rascunho é uma PARADA escolhida, não uma venda montada.
         itens: [],
         ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
+        // "Ult. Registro" (12/08) — vem do rascunho, que já o carrega das 3 portas.
+        ...(c.ultimaEntregaAt ? { ultimaEntregaAt: String(c.ultimaEntregaAt) } : {}),
         // a MESMA bagagem da linha da agenda — a régua é uma só (ver o push
         // do rascunho): sem isto a avulsa era a única linha "sem trajeto".
         resolveSozinho: !!c.resolveSozinho,
@@ -396,6 +400,10 @@
         bairro: String(c.bairro || c.cidade || ''),
         ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
         resolveSozinho: !!c.recorrente,
+        // o "Ult. Registro" do cartão viaja com o cliente pelas TRÊS origens da
+        // lista; sem isto quem reutiliza um dia do histórico via "Pendente" numa
+        // gente que a tela acabou de dizer que ele atendeu.
+        ...(c.ultimaEntregaAt ? { ultimaEntregaAt: String(c.ultimaEntregaAt) } : {}),
       });
       novos += 1;
     });
@@ -746,8 +754,19 @@
         nota: c.observacoes ? esc(c.observacoes) : undefined,
         tags: itens.map((it) => [`${Math.max(1, Number(it.qtd) || 1)}x ${esc(it.nome)}`, 'blue']),
         marcado: somaCliente ? somaCliente.toFixed(2).replace('.', ',') : '',
+        /* 🔴 ISTO NÃO É "MARCADO" (12/08, ordem do dono: *"o valor está correto,
+           mas o significado/rótulo está errado"*). `somaCliente` é
+           quantidade × valorUnit — QUANTO VALE A ENTREGA que está sendo montada
+           pra este cliente. "Marcado" é a palavra do FIADO nesta casa (o
+           `debitoAtual`, a dívida em aberto que a tela Clientes mostra); as duas
+           coisas na mesma palavra é o motorista lendo dívida onde há venda.
+           O cálculo não mudou uma vírgula — mudou o RÓTULO, que viaja agora em
+           vez de ficar cravado no desenho do `stop()`. */
+        marcRot: 'Valor',
+        // o histórico do cliente, no lugar onde vivia um "Pendente" repetido
+        reg: ultimoRegistro(c.ultimaEntregaAt),
         cor: corDaParada(naRota && naRota.status),
-        pill: pilulaDaParada(naRota && naRota.status),
+        pill: pilulaDeDesfecho(naRota && naRota.status),
         perna: pernaDaPrevia(c, clientesOrdenados[i - 1], naRota, naRotaMontada(daRota, clientesOrdenados[i - 1])),
       };
     });

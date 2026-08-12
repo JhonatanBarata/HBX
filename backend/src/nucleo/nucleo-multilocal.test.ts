@@ -308,9 +308,22 @@ test('getCliente: inclui telefones[] (principal 1º) e locais[] (principal 1º)'
         ],
       }),
     },
+    // 12/08 — a ficha passou a trazer saldo/entregas/último registro. Financeiro
+    // LIGADO aqui: é o caso em que o `debitoAtual` tem que aparecer.
+    logisticaConfig: { findFirst: async () => ({ moduloFinanceiroAtivo: true }) },
+    financeiroCharge: { groupBy: async () => [] },
+    entrega: {
+      groupBy: async () => [{ customerProfileId: 'c1', _max: { deliveredAt: new Date('2026-08-10T15:00:00Z') } }],
+      count: async () => 42,
+    },
   };
   const res = await new NucleoCadastroService(prisma).getCliente(7, 'c1');
   assert.ok(res);
+  // Os 3 aditivos de 12/08 — a ficha do APK abre pra cliente que NÃO está na
+  // página da lista, e sem eles o Financeiro dela nasceria vazio.
+  assert.equal(res?.entregasCount, 42, 'entregasCount vem do detalhe');
+  assert.equal(res?.ultimaEntregaAt, new Date('2026-08-10T15:00:00Z').toISOString(), 'último registro = MAX(deliveredAt)');
+  assert.equal((res as any)?.debitoAtual, 0, 'saldo presente com o módulo financeiro LIGADO');
   assert.equal(res?.telefones.length, 2);
   assert.equal(res?.telefones[0].id, 'k1');
   assert.equal(res?.telefones[0].isPrincipal, true);
@@ -334,12 +347,25 @@ test('getCliente: SEM contato principal → whatsapp cai pro phone da conta (leg
         contatos: [], locais: [],
       }),
     },
+    // 12/08 — aqui o módulo financeiro está DESLIGADO: o `debitoAtual` tem que
+    // ficar AUSENTE (mesmo contrato da lista, W6), e nenhuma consulta de saldo
+    // roda. `ultimaEntregaAt` continua vindo: é operação, não dinheiro.
+    logisticaConfig: { findFirst: async () => ({ moduloFinanceiroAtivo: false }) },
+    financeiroCharge: {
+      groupBy: async () => {
+        throw new Error('saldo NÃO deve ser consultado com o financeiro desligado');
+      },
+    },
+    entrega: { groupBy: async () => [], count: async () => 0 },
   };
   const res = await new NucleoCadastroService(prisma).getCliente(7, 'c1');
   assert.equal(res?.whatsapp, '5588999', 'sem principal → phone da conta');
   assert.equal(res?.contatoPrincipalId, null);
   assert.deepEqual(res?.telefones, []);
   assert.deepEqual(res?.locais, []);
+  assert.equal('debitoAtual' in (res as any), false, 'sem módulo financeiro o saldo é OMITIDO');
+  assert.equal(res?.ultimaEntregaAt, null, 'cliente sem entrega concluída → null, nunca uma data chutada');
+  assert.equal(res?.entregasCount, 0);
 });
 
 // ── SEED/SYNC do LOCAL PRINCIPAL a partir do PERFIL (11/07) ───────────────────

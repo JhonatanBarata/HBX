@@ -15,6 +15,8 @@ import {
   FORCA_GEO_FONTE,
   type GeoFonteGravada,
 } from '../logistica/logistica-geo-fonte.util';
+// 12/08 — "Ult. Registro": MAX(deliveredAt) das entregas concluídas, régua única.
+import { isoDaUltimaEntrega, ultimaEntregaPorCliente } from '../logistica/logistica-ultima-entrega.util';
 
 /**
  * NÚCLEO-CRM N1 (04/07) — serviço INERTE da espinha de cadastro.
@@ -788,6 +790,14 @@ export class NucleoCadastroService {
       }),
     ]);
 
+    /* 🔴 O ÚLTIMO REGISTRO (12/08, ordem do dono) — MAX(deliveredAt) das entregas
+       CONCLUÍDAS. O `entregasAgg` logo acima NÃO serve: ele conta tudo que não foi
+       cancelado (agendada e em_rota entram), e "última vez que entreguei" é outra
+       pergunta. Régua única em `logistica-ultima-entrega.util` — a mesma que o
+       `dia-preview` e o `listRota` respondem, pra Montagem e ficha não divergirem.
+       Não é gateado por financeiro: é operação, não dinheiro. */
+    const ultimaEntregaMap = await ultimaEntregaPorCliente(this.prisma, companyId, pageIds);
+
     // Local principal (ou mais antigo ativo) por cliente — 1ª ocorrência vence.
     const principalLocalByCliente = new Map<
       string,
@@ -892,6 +902,9 @@ export class NucleoCadastroService {
         diasEntrega: vinc ? [...vinc.dias].sort((a, b) => a - b) : [],
         duplicataDe,
         entregasCount: entregasCountMap.get(row.id) ?? 0,
+        // 12/08 — "Ult. Registro" do cartão da Montagem e da ficha. null = nunca
+        // houve entrega concluída (a tela escreve "Pendente").
+        ultimaEntregaAt: isoDaUltimaEntrega(ultimaEntregaMap.get(row.id)),
         // debitoAtual OMITIDO quando o módulo financeiro está off (contrato W6).
         ...(financeiroAtivo ? { debitoAtual: round2(debitoMap.get(row.id) ?? 0) } : {}),
       });
@@ -1023,6 +1036,25 @@ export class NucleoCadastroService {
     // sem principal → null e o whatsapp cai pro phone da conta).
     const principal = row.contatos?.find((c) => c.isPrincipal) ?? null;
 
+    /* 12/08 — os 3 aditivos da ficha (saldo, nº de entregas e último registro).
+       Em paralelo, e o SALDO só quando o módulo financeiro está ligado: com ele
+       desligado dinheiro não aparece em lugar nenhum do app, e uma consulta a
+       menos por ficha aberta. Nada disso derruba a ficha se falhar — mas também
+       não se engole erro em silêncio (a lei do CNEFE): o erro sobe, o controller
+       responde, e a ficha não mente um saldo zero que ninguém apurou. */
+    const financeiroCfg = await this.prisma.logisticaConfig.findFirst({
+      where: { companyId },
+      select: { moduloFinanceiroAtivo: true },
+    });
+    const financeiroAtivo = Boolean(financeiroCfg?.moduloFinanceiroAtivo);
+    const [debitoMap, ultimaMap, entregasCount] = await Promise.all([
+      financeiroAtivo ? this.debitoAbertoPorClientes(companyId, [row.id]) : Promise.resolve(new Map<string, number>()),
+      ultimaEntregaPorCliente(this.prisma, companyId, [row.id]),
+      this.prisma.entrega.count({ where: { companyId, customerProfileId: row.id, status: { not: 'cancelada' } } }),
+    ]);
+    const debito = debitoMap.get(row.id) ?? 0;
+    const ultima = ultimaMap.get(row.id);
+
     return {
       id: row.id,
       name: row.name ?? null,
@@ -1081,6 +1113,19 @@ export class NucleoCadastroService {
       })),
       // PR18072026 W1 — observação livre sobre o cliente.
       observacoes: row.observacoes ?? null,
+      /* 🔴 12/08 — O SALDO ENTROU NA FICHA (ordem do dono: "quando o Financeiro
+         estiver ativo, TODO o financeiro do cliente volta pra ficha").
+         Ele já existia na LISTA (`/nucleo/clientes` → debitoAtual), nunca aqui —
+         e a ficha do APK abre para gente que NÃO está na página carregada (a
+         Montagem chama com quem está na rota, base com mais de 100). Ler o saldo
+         do item da lista deixaria a ficha em branco justamente pra quem entrou
+         por lá. MESMA fonte canônica da lista (`debitoAbertoPorClientes`), e o
+         MESMO gate: módulo financeiro desligado ⇒ campo OMITIDO, não zero.
+         `entregasCount`/`ultimaEntregaAt` vêm juntos pelo mesmo motivo: quem abre
+         a ficha pela Montagem hoje já perde o "42 entregas" do cabeçalho. */
+      ...(financeiroAtivo ? { debitoAtual: round2(debito) } : {}),
+      entregasCount,
+      ultimaEntregaAt: isoDaUltimaEntrega(ultima),
     };
   }
 
@@ -2805,6 +2850,11 @@ export interface ClienteCardExtras {
   debitoAtual?: number;
   /** entregas NÃO-canceladas do cliente */
   entregasCount: number;
+  /**
+   * 12/08 — ISO da última entrega CONCLUÍDA (status entregue + deliveredAt), ou
+   * null quando nunca houve. NÃO é gateado por financeiro: é operação.
+   */
+  ultimaEntregaAt?: string | null;
 }
 
 // Fallback defensivo (todo row da página tem extras; isto só blinda o spread).
@@ -2813,6 +2863,7 @@ const EMPTY_CLIENTE_CARD_EXTRAS: ClienteCardExtras = {
   diasEntrega: [],
   duplicataDe: null,
   entregasCount: 0,
+  ultimaEntregaAt: null,
 };
 
 export interface ClienteListItem extends EmpresaListItem, ClienteCardExtras {
@@ -2910,6 +2961,12 @@ export interface ClienteDetail {
   telefones: ClienteTelefone[];
   // PR18072026 W1 — observação livre sobre o cliente.
   observacoes: string | null;
+  /** 12/08 — saldo em aberto. Presente SÓ com moduloFinanceiroAtivo (mesmo gate da lista). */
+  debitoAtual?: number;
+  /** 12/08 — entregas NÃO-canceladas do cliente (o "42 entregas" do cabeçalho da ficha). */
+  entregasCount: number;
+  /** 12/08 — ISO da última entrega CONCLUÍDA, ou null quando nunca houve. */
+  ultimaEntregaAt: string | null;
 }
 
 // ── MULTILOCAL (10/07) — DTOs de leitura (ficha do cliente) ──────────────────

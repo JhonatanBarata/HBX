@@ -32,6 +32,8 @@ import {
 import { isAdminTierActor, isBillingOwnerActor, type ActorKindUserLike } from '../access/actor-kind';
 import { isLogisticaAdmin } from './logistica-operacao.service';
 import { quemMontouODia, rotaDeOutroMotoristaError } from './logistica-quem-montou.util';
+// 12/08 — "Ult. Registro": MAX(deliveredAt) das entregas concluídas, régua única.
+import { isoDaUltimaEntrega, ultimaEntregaPorCliente } from './logistica-ultima-entrega.util';
 
 /**
  * LOGÍSTICA-MOBILE M3 (05/07) — MOTOR DE ROTA + ETA (100% local, sem API paga).
@@ -1614,6 +1616,9 @@ export class LogisticaRotaService {
           ),
         ];
         if (!idsUnicos.length) return { data: dayISO, clientes: [] };
+        // 12/08 — mesmo campo da outra saída deste endpoint: a reconstrução pela
+        // trilha não pode devolver um cliente com menos bagagem que o corpo vivo.
+        const ultimasTrilha = await ultimaEntregaPorCliente(this.prisma, companyId, idsUnicos);
         const perfis = await this.prisma.customerProfile.findMany({
           where: { id: { in: idsUnicos }, companyId },
           select: {
@@ -1643,6 +1648,7 @@ export class LogisticaRotaService {
             lng: coord.lng,
             geoFonte: coord.geoFonte,
             recorrente: (c.logisticaPlanosEntrega?.length ?? 0) > 0,
+            ultimaEntregaAt: isoDaUltimaEntrega(ultimasTrilha.get(String(c.id))),
           };
         });
         return { data: dayISO, clientes: clientesDaTrilha };
@@ -1654,6 +1660,15 @@ export class LogisticaRotaService {
       // da conferência (as duas pontas precisam concordar sobre o que é "a mesma
       // parada"), sem virar import: o dono da chave é quem a usa.
       const vistos = new Set<string>();
+      /* 12/08 — "Ult. Registro": o app reenche o RASCUNHO com esta resposta, e o
+         cartão da Montagem é o MESMO das outras duas origens. Sem o campo aqui,
+         reutilizar um dia do histórico escrevia "Pendente" justamente na gente
+         que a tela acabou de dizer que foi atendida. Régua única do util. */
+      const ultimasHistorico = await ultimaEntregaPorCliente(
+        this.prisma,
+        companyId,
+        rows.map((r) => String(r.customerProfileId)),
+      );
       const clientes = rows.flatMap((r) => {
         const chave = `${r.customerProfileId}|${r.localId ?? ''}`;
         if (vistos.has(chave)) return [];
@@ -1683,6 +1698,7 @@ export class LogisticaRotaService {
           lng: coord.lng,
           geoFonte: coord.geoFonte,
           recorrente: (c?.logisticaPlanosEntrega?.length ?? 0) > 0,
+          ultimaEntregaAt: isoDaUltimaEntrega(ultimasHistorico.get(String(r.customerProfileId))),
         }];
       });
       return { data: dayISO, clientes };

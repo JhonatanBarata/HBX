@@ -638,6 +638,35 @@
     if (status === 'em_rota') return ['A caminho', 'blue', 'nav'];
     return ['Pendente', 'mute', 'clock'];
   }
+  /* 🔴 A PÍLULA SÓ FALA QUANDO HÁ DESFECHO (12/08, ordem do dono sobre a
+     Montagem: *"esse campo não deveria representar o status atual da parada.
+     Ele deve representar histórico do cliente"*).
+
+     Na ROTA a pílula continua inteira — lá a linha É uma entrega de hoje, e
+     "Pendente" é a notícia. Na MONTAGEM a linha é um CLIENTE do dia: antes de
+     montar, TODO mundo é "Pendente", e uma coluna inteira repetindo a mesma
+     palavra não informa nada — foi exatamente o que o dono viu na foto.
+     O que fica ali é o ÚLTIMO REGISTRO dele (abaixo); a pílula reaparece assim
+     que existe desfecho de verdade, que é quando ela volta a ser notícia — e
+     com isso a ordem de 09/08 ("os botões do status não estão aparecendo" na
+     rota já montada) continua valendo, sem exceção escrita à mão. */
+  function pilulaDeDesfecho(statusCru) {
+    const status = String(statusCru || '');
+    if (status === 'entregue' || status === 'cancelada' || status === 'em_rota') return pilulaDaParada(status);
+    return null;
+  }
+
+  /* 🔴 ÚLTIMO REGISTRO = A ÚLTIMA ENTREGA CONCLUÍDA DAQUELE CLIENTE (12/08).
+     A data vem PRONTA do servidor (`ultimaEntregaAt`, régua única em
+     `logistica-ultima-entrega.util`: status `entregue` + `deliveredAt`), nunca
+     de uma conta desta tela — derivar "quando foi a última vez" do status da
+     parada de hoje era justamente o defeito.
+     Sem registro nenhum a palavra é "Pendente": é o que a tela já dizia, e é
+     honesto — cliente novo não tem histórico. Data inventada aqui poria na mão
+     do motorista uma visita que nunca aconteceu. */
+  const ROTULO_ULTIMO_REGISTRO = 'Ult. Registro';
+  const ultimoRegistro = (iso) => [ROTULO_ULTIMO_REGISTRO, diaCurto(iso) || 'Pendente'];
+
   /** o tom do NÚMERO da parada — o par visual da pílula acima */
   function corDaParada(statusCru) {
     const status = String(statusCru || '');
@@ -1635,7 +1664,9 @@
   /** a rota está viva na rua? então nada aqui é rascunho */
   const rotaNaRua = () => estadoRota === 'rodando' || estadoRota === 'pausada';
   /** as telas em que o rascunho SOBREVIVE: elas são a própria escolha de gente */
-  const MANTEM_RASCUNHO = new Set(['rapida', 'ficha', 'novocliente']);
+  // 'fichavinculo' entra pela mesma razão da 'ficha' (12/08): ela é uma tela DE
+  // DENTRO do cadastro, e atravessá-la não é desistir da gente já escolhida.
+  const MANTEM_RASCUNHO = new Set(['rapida', 'ficha', 'novocliente', 'fichavinculo']);
   function descartarRascunho() {
     if (!RASCUNHO.length) return;
     RASCUNHO.length = 0;
@@ -2009,6 +2040,8 @@
         // Sem produto: a avulsa é uma PARADA, não uma venda montada. Item
         // inventado aqui viraria contagem falsa no rodapé da tela.
         itens: [],
+        // "Ult. Registro" (12/08): o `/logistica/rota` manda o campo no cliente.
+        ...(c.ultimaEntregaAt ? { ultimaEntregaAt: String(c.ultimaEntregaAt) } : {}),
         ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
         // a PARTE AVULSA da lista (dono, 09/08: "isso aqui é AVULSO, crie uma
         // parte avulsa") — a tela agrupa por esta etiqueta, nunca por chip.
@@ -2067,6 +2100,8 @@
         // Sem produto: rascunho é uma PARADA escolhida, não uma venda montada.
         itens: [],
         ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
+        // "Ult. Registro" (12/08) — vem do rascunho, que já o carrega das 3 portas.
+        ...(c.ultimaEntregaAt ? { ultimaEntregaAt: String(c.ultimaEntregaAt) } : {}),
         // a MESMA bagagem da linha da agenda — a régua é uma só (ver o push
         // do rascunho): sem isto a avulsa era a única linha "sem trajeto".
         resolveSozinho: !!c.resolveSozinho,
@@ -2168,6 +2203,10 @@
         bairro: String(c.bairro || c.cidade || ''),
         ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
         resolveSozinho: !!c.recorrente,
+        // o "Ult. Registro" do cartão viaja com o cliente pelas TRÊS origens da
+        // lista; sem isto quem reutiliza um dia do histórico via "Pendente" numa
+        // gente que a tela acabou de dizer que ele atendeu.
+        ...(c.ultimaEntregaAt ? { ultimaEntregaAt: String(c.ultimaEntregaAt) } : {}),
       });
       novos += 1;
     });
@@ -2518,8 +2557,19 @@
         nota: c.observacoes ? esc(c.observacoes) : undefined,
         tags: itens.map((it) => [`${Math.max(1, Number(it.qtd) || 1)}x ${esc(it.nome)}`, 'blue']),
         marcado: somaCliente ? somaCliente.toFixed(2).replace('.', ',') : '',
+        /* 🔴 ISTO NÃO É "MARCADO" (12/08, ordem do dono: *"o valor está correto,
+           mas o significado/rótulo está errado"*). `somaCliente` é
+           quantidade × valorUnit — QUANTO VALE A ENTREGA que está sendo montada
+           pra este cliente. "Marcado" é a palavra do FIADO nesta casa (o
+           `debitoAtual`, a dívida em aberto que a tela Clientes mostra); as duas
+           coisas na mesma palavra é o motorista lendo dívida onde há venda.
+           O cálculo não mudou uma vírgula — mudou o RÓTULO, que viaja agora em
+           vez de ficar cravado no desenho do `stop()`. */
+        marcRot: 'Valor',
+        // o histórico do cliente, no lugar onde vivia um "Pendente" repetido
+        reg: ultimoRegistro(c.ultimaEntregaAt),
         cor: corDaParada(naRota && naRota.status),
-        pill: pilulaDaParada(naRota && naRota.status),
+        pill: pilulaDeDesfecho(naRota && naRota.status),
         perna: pernaDaPrevia(c, clientesOrdenados[i - 1], naRota, naRotaMontada(daRota, clientesOrdenados[i - 1])),
       };
     });
@@ -3076,6 +3126,9 @@
         bairro: String(c.bairro || c.cidade || ''),
         ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
         resolveSozinho: !!c.resolveSozinho,
+        // "Ult. Registro" (12/08): a prévia já traz o campo — perdê-lo aqui faria
+        // o MESMO cartão trocar a data por "Pendente" só por virar rascunho.
+        ...(c.ultimaEntregaAt ? { ultimaEntregaAt: String(c.ultimaEntregaAt) } : {}),
       });
       novos += 1;
     });
@@ -9696,6 +9749,15 @@
       ficha.local = locais.find((l) => l.isPrincipal) || locais[0] || null;
       const tels = Array.isArray(detR.value.telefones) ? detR.value.telefones : [];
       ficha.telefone = tels.find((t) => t.isPrincipal) || tels[0] || null;
+      /* 🔴 O FINANCEIRO DO CLIENTE VOLTOU (12/08, ordem do dono). O servidor
+         nunca deixou de mandar — `GET /nucleo/clientes/:id` traz os 6 campos do
+         contrato desde a primeira versão da ficha; o que morreu na fusão foi a
+         SEÇÃO da tela e o estado que a alimentava. Aqui ele volta a existir.
+         DOIS retratos: `fin` é o que o dedo mexe, `finOrig` é o que o servidor
+         disse. Salvar manda só o que mudou — a mesma lei do resto desta ficha,
+         e a que faz "Nada mudou" ser verdade. */
+      ficha.fin = financeiroDoDetalhe(detR.value);
+      ficha.finOrig = financeiroDoDetalhe(detR.value);
     }
     ficha.produtos = prodR.status === 'fulfilled' && Array.isArray(prodR.value) ? prodR.value : [];
     encherFicha();
@@ -9711,7 +9773,10 @@
      preenche quando o detalhe chega, a foto gravava "" como se fosse escolha do
      usuário, e daí em diante o vazio VENCIA o dado do servidor. CEP, rua e
      bairro sumiram na tela por causa disso. Rascunho nasce de tecla, e ponto. */
-  const CAMPOS_FICHA = ['nome', 'telefone', 'cpf', 'cep', 'rua', 'numero', 'bairro', 'observacoes'];
+  const CAMPOS_FICHA = ['nome', 'telefone', 'cpf', 'cep', 'rua', 'numero', 'bairro', 'observacoes',
+    // os dois campos digitáveis do Financeiro (12/08) — sem eles, tocar numa
+    // chave do bloco apagaria o que o dedo acabou de escrever no limite.
+    'dia-fechamento', 'limite-fiado'];
   const CAMPOS_PRODUTO = ['produto-nome', 'produto-unidade', 'produto-preco'];
   /** liga o rascunho de QUALQUER ficha da camada viva (cliente ou produto) */
   function ligarCamposDaFicha() {
@@ -9801,14 +9866,59 @@
     return r && r[nome] !== undefined ? esc(r[nome]) : esc(doServidor);
   };
 
+  /* ------------------------------------------------------------------------
+     O CONTRATO FINANCEIRO DO CLIENTE — o que o servidor disse, no vocabulário
+     do dedo. `formaPagamento` legado 'aberto' é MOSTRADO como 'na_hora' (é o
+     que o app que roda em produção sempre fez, `paymentFields`) e NUNCA
+     reescrito sozinho: o cliente só troca de forma quando alguém toca no chip.
+     ------------------------------------------------------------------------ */
+  const financeiroDoDetalhe = (d) => ({
+    forma: String((d && d.formaPagamento) || 'aberto'),
+    metodo: String((d && d.metodoPadrao) || ''),
+    contabilizar: !(d && d.contabilizar === false),
+    avisarCobranca: !(d && d.avisarCobranca === false),
+  });
+  /** o chip que aparece ACESO: 'aberto' se veste de 'na_hora' (ver acima) */
+  const formaNaTela = (v) => (String(v || '') === 'aberto' ? 'na_hora' : String(v || 'na_hora'));
+  /* As formas que a EMPRESA aceita (chaves do Avançado). Oferecer uma que o
+     dono desligou é prometer contrato que o produto não tem — e a forma vigente
+     do cliente entra na fileira mesmo desligada, senão a tela esconderia o que
+     está valendo e o primeiro toque trocaria o contrato dele sem querer. */
+  function formasDisponiveis(atual) {
+    const c = config || {};
+    const todas = [['na_hora', 'Na hora', c.aceitaNaHora], ['mensal', 'Mensal', c.aceitaMensal], ['pendura', 'Marcar', c.aceitaFiado]];
+    return todas.filter((f) => f[2] || f[0] === atual).map((f) => [f[0], f[1]]);
+  }
+  /** "R$ 1.234,50" → 1234.5 · vazio → null (limpar o limite é escolha legítima) */
+  const dinheiroParaNumero = (v) => {
+    const t = String(v || '').trim();
+    if (!t) return null;
+    const n = Number(t.replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, ''));
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+
   function encherFicha() {
     if (!ficha) return;
     const it = ficha.item || {};
     const d = ficha.detalhe || {};
     const loc = ficha.local || {};
     const pend = Array.isArray(it.pendencias) ? it.pendencias : [];
-    const entregas = Number(it.entregasCount) || 0;
+    // 12/08 — o detalhe passou a trazer `entregasCount`: a ficha aberta PELA
+    // MONTAGEM não tem item de lista, e o cabeçalho nascia sem o "42 entregas".
+    const entregas = Number(it.entregasCount) || Number(d.entregasCount) || 0;
     const dias = ficha.dias || [];
+    const fin = ficha.fin || financeiroDoDetalhe(null);
+    const forma = formaNaTela(fin.forma);
+    /* 🔴 O SALDO É DE TODO MUNDO; A EDIÇÃO É DO DONO. O motorista precisa saber
+       quanto o cliente deve ANTES de bater na porta — é o mesmo `debitoAtual`
+       que a lista de Clientes já mostra pra ele. Mas `PATCH
+       /logistica/clientes/:id/financeiro` é ADMIN-only no servidor: desenhar os
+       campos pra quem vai levar 403 é o botão morto que esta ficha já matou uma
+       vez (o Excluir de 08/08). Duas chaves, portanto — e a de fora é a mesma
+       do resto do bloco: financeiro desligado, seção nenhuma. */
+    const financeiroLigado = !!(config && config.moduloFinanceiroAtivo);
+    const saldo = typeof d.debitoAtual === 'number' ? d.debitoAtual
+      : (typeof it.debitoAtual === 'number' ? it.debitoAtual : null);
     window.usarDados('ficha', {
       // O EXCLUIR é do dono, não do motorista: `DELETE /nucleo/contas/:id` é
       // ADMIN-only no servidor, e este é o MESMO sinal das 6 chaves do Avançado.
@@ -9847,9 +9957,72 @@
             ? ` · <b style="color:var(--lime)">${dinheiro(preco)} só pra ele</b>`
             : ` · ${dinheiro(preco)} (catálogo)`)
           : '';
-        return ['box', esc(p.nome), `${Number(v.qtdPadrao) || 0} por entrega${valor}`];
+        /* PAUSADO SE ANUNCIA (12/08): vínculo com `ativo:false` continua na
+           ficha e PAROU de gerar entrega. Sem esta palavra o dono olha a lista,
+           vê o produto, e não entende por que ele não aparece na rota. */
+        const pausado = v.ativo === false ? ' · pausado' : '';
+        /* 🔴 O ID É O QUE FAZ A LINHA VIRAR PORTA (mesma lei do `stop()`): sem
+           ele o cartão fica inerte, com ele abre o VÍNCULO — nunca o catálogo. */
+        return ['box', esc(p.nome), `${Number(v.qtdPadrao) || 0} por entrega${valor}${pausado}`, String(v.id || '')];
       }),
+      /* ---------- FINANCEIRO (12/08) ---------- */
+      financeiro: financeiroLigado ? 1 : 0,
+      financeiroEdita: financeiroLigado && ehAdmin() ? 1 : 0,
+      // Lei do IF: saldo zero não é notícia na porta — some, como o resto.
+      saldo: financeiroLigado && saldo ? dinheiro(saldo) : '',
+      limiteLido: financeiroLigado && typeof d.limiteFiado === 'number' ? dinheiro(d.limiteFiado) : '',
+      formas: formasDisponiveis(forma),
+      forma,
+      metodo: esc(fin.metodo),
+      diaFechamento: valorFicha('dia-fechamento', d.diaFechamento != null ? String(d.diaFechamento) : ''),
+      limite: valorFicha('limite-fiado', typeof d.limiteFiado === 'number'
+        ? d.limiteFiado.toFixed(2).replace('.', ',') : ''),
+      contabilizar: fin.contabilizar ? 1 : 0,
+      avisarCobranca: fin.avisarCobranca ? 1 : 0,
     });
+  }
+
+  /* ------------------------------------------------------------------------
+     O QUE O DEDO MEXEU NO FINANCEIRO — estado na memória, gravação no Salvar.
+
+     🔴 UM TOQUE ≠ UM PATCH aqui, de propósito. O desktop grava chip a chip
+     porque lá cada campo tem o seu "Salvo"; nesta ficha o dono mexe em nome,
+     endereço, dias, produtos e dinheiro na mesma tela e aperta UM botão. Gravar
+     a forma de pagamento no toque e o resto no Salvar faria metade da ficha
+     obedecer o Voltar e a outra metade não — e o Voltar tem que descartar.
+     ------------------------------------------------------------------------ */
+  function mexerFinanceiro(mudanca) {
+    if (!ficha) return;
+    ficha.fin = Object.assign({}, ficha.fin || financeiroDoDetalhe(ficha.detalhe), mudanca);
+    // Forma que não é "na hora" não tem método fixo — deixar o pix pendurado
+    // mandaria ao servidor um método que ele ignora e a tela mostraria depois.
+    if (ficha.fin.forma !== 'na_hora') ficha.fin.metodo = '';
+    encherFicha();
+  }
+
+  /* O que vai no PATCH — SÓ o que mudou, e nada quando nada mudou (é o que faz
+     o "Nada mudou" do Salvar continuar sendo verdade). O dia de fechamento e o
+     limite saem do CAMPO da tela, não do estado: eles são texto digitado. */
+  function corpoFinanceiro() {
+    if (!ficha || !ficha.fin || !ficha.finOrig) return null;
+    const a = ficha.fin;
+    const b = ficha.finOrig;
+    const d = ficha.detalhe || {};
+    const corpo = {};
+    // 'aberto' vestido de 'na_hora' NÃO é mudança: só entra se o dedo escolheu
+    // outra coisa (senão abrir e salvar a ficha reescreveria o contrato de todo
+    // cliente legado da base, calado).
+    if (a.forma !== b.forma && !(b.forma === 'aberto' && a.forma === 'na_hora')) corpo.formaPagamento = a.forma;
+    if (a.forma === 'na_hora' && a.metodo !== String(b.metodo || '')) corpo.metodoPadrao = a.metodo;
+    if (a.contabilizar !== b.contabilizar) corpo.contabilizar = a.contabilizar;
+    if (a.avisarCobranca !== b.avisarCobranca) corpo.avisarCobranca = a.avisarCobranca;
+    const dia = Math.trunc(Number(campo('dia-fechamento')));
+    const diaAntes = d.diaFechamento != null ? Number(d.diaFechamento) : null;
+    if (a.forma === 'mensal' && Number.isFinite(dia) && dia >= 1 && dia <= 31 && dia !== diaAntes) corpo.diaFechamento = dia;
+    const limite = dinheiroParaNumero(campo('limite-fiado'));
+    const limiteAntes = typeof d.limiteFiado === 'number' ? d.limiteFiado : null;
+    if (limite !== limiteAntes) corpo.limiteFiado = limite;
+    return Object.keys(corpo).length ? corpo : null;
   }
 
   /** lê um campo da ficha na camada viva (o que o dedo digitou, não o do seam) */
@@ -10382,6 +10555,277 @@
     publicarRapida();
   }
 
+  /* ========================================================================
+     L6c — O VÍNCULO CLIENTE × PRODUTO (12/08, ordem do dono: *"não quero
+     somente visualizar produtos… a ficha precisa voltar a permitir administrar
+     o vínculo entre aquele cliente e aquele produto"*).
+
+     🔴 O DEFEITO, MEDIDO NA FONTE: a ficha do app novo LIA
+     `GET /logistica/cliente-produtos` e desenhava a linha com o chevron — o
+     símbolo universal de "abre" — e NENHUM `data-acao`. O "Novo produto /
+     entrega" era um botão sem verbo. O CRUD inteiro já existia no servidor
+     (POST/PATCH/DELETE `/logistica/cliente-produtos`) e as três portas já
+     estavam na allowlist do Kotlin (`NativeApiClient.kt`): é o PADRÃO DA FUSÃO
+     de novo — capacidade viva, chamador cortado.
+
+     🔴 E ISTO NÃO É A FICHA DO PRODUTO. `T.fichaproduto` mexe no CATÁLOGO
+     (`/logistica/produtos/:id`) — o preço de TODO mundo. Aqui se mexe no que
+     ESTE cliente leva: quantidade padrão, preço combinado só com ele, em qual
+     porta, e se o vínculo continua gerando entrega. Confundir as duas é mudar o
+     preço da empresa inteira achando que se acertou o de uma pessoa.
+
+     PAUSAR ≠ REMOVER, e o servidor faz a mesma distinção:
+       · a chave "Entra nas próximas rotas" → PATCH `ativo:false` (o vínculo
+         fica, para de gerar);
+       · o botão vermelho → DELETE (o vínculo morre; entregas JÁ geradas ficam
+         intactas — está escrito no próprio endpoint).
+     ======================================================================== */
+  let vinculo = null;        // { id, item, novo, rascunho, ativo, produtoId, localId, salvando }
+  const CATALOGO = new Map();
+
+  /** o catálogo da empresa, uma vez por sessão de tela (some se a porta cair) */
+  async function carregarCatalogoDoVinculo() {
+    if (CATALOGO.size) return;
+    let r;
+    try { r = await window.API.get('/logistica/produtos'); } catch (_) { return; }
+    (Array.isArray(r) ? r : []).forEach((p) => {
+      if (p && p.ativo !== false) CATALOGO.set(String(p.id), p);
+    });
+  }
+
+  /** o vínculo da ficha aberta, pelo id da linha tocada */
+  const vinculoDaFicha = (id) => (ficha && Array.isArray(ficha.produtos)
+    ? ficha.produtos.find((v) => String(v.id) === String(id)) || null : null);
+
+  function publicarVinculo() {
+    const v = vinculo;
+    if (!v || typeof window.usarDados !== 'function') return;
+    const it = v.item || {};
+    const p = it.produto || CATALOGO.get(String(v.produtoId)) || null;
+    const nomeProduto = p ? String(p.nome || p.name || '') : '';
+    const c = ficha ? (ficha.detalhe || ficha.item || {}) : {};
+    /* Os locais do CLIENTE — a porta do vínculo. Só vira pergunta pra quem tem
+       mais de uma: com um endereço só a resposta é óbvia, e fileira de uma
+       opção é enfeite. */
+    const locais = (ficha && ficha.detalhe && Array.isArray(ficha.detalhe.locais) ? ficha.detalhe.locais : [])
+      .map((l) => [String(l.id), esc(l.apelido || l.endereco || 'Endereço'), esc([l.bairro, l.cidade].filter(Boolean).join(' • '))]);
+    /* O preço por cliente é chave da EMPRESA (`precoPorClienteAtivo`) — mas um
+       vínculo que JÁ tem preço combinado mostra o campo de qualquer jeito:
+       esconder um número que está valendo é o dono nunca descobrir por que a
+       entrega sai por 22 quando o catálogo diz 11. */
+    const temPreco = String(v.rascunho.preco || '').trim() !== ''
+      || typeof it.precoAcordado === 'number';
+    window.usarDados('fichavinculo', {
+      volta: 'ficha',
+      novo: v.novo ? 1 : 0,
+      cliente: esc(c.name || c.nome || ''),
+      produto: esc(nomeProduto),
+      ico: 'box',
+      produtoId: String(v.produtoId || ''),
+      // a lista só existe enquanto não há produto escolhido (ver o mock)
+      catalogo: nomeProduto ? [] : [...CATALOGO.values()].map((x) => [
+        String(x.id), esc(x.nome || x.name || 'Produto'), 'box',
+        typeof x.precoCatalogo === 'number' ? dinheiro(x.precoCatalogo) : '',
+      ]),
+      qtd: v.rascunho.qtd,
+      preco: v.rascunho.preco,
+      precoPorCliente: (config && config.precoPorClienteAtivo) || temPreco ? 1 : 0,
+      precoDica: 'Vazio = usa o preço do catálogo',
+      locais,
+      localId: String(v.localId || ''),
+      ativo: v.ativo ? 1 : 0,
+      // Remover só existe pra vínculo que EXISTE: num rascunho não há o que apagar.
+      podeRemover: v.novo ? 0 : 1,
+      salvando: v.salvando ? 1 : 0,
+    });
+  }
+
+  /** toque na linha do produto da ficha */
+  function abrirVinculo(id) {
+    const it = vinculoDaFicha(id);
+    if (!it) return;
+    vinculo = {
+      id: String(it.id), item: it, novo: false, salvando: false,
+      produtoId: String((it.produto && it.produto.id) || it.productId || ''),
+      localId: it.localId ? String(it.localId) : '',
+      ativo: it.ativo !== false,
+      rascunho: {
+        qtd: String(Number(it.qtdPadrao) || 1),
+        preco: typeof it.precoAcordado === 'number' ? it.precoAcordado.toFixed(2).replace('.', ',') : '',
+      },
+    };
+    publicarVinculo();
+    window.ir('fichavinculo');
+    // o catálogo entra depois: editando, o produto não troca — ele só serve pro
+    // caso NOVO, e a tela não pode esperar rede pra abrir.
+    void carregarCatalogoDoVinculo();
+  }
+
+  /** o "+ Novo produto / entrega" da ficha */
+  async function novoVinculo() {
+    if (!ficha) return;
+    vinculo = {
+      id: '', item: null, novo: true, salvando: false,
+      produtoId: '', localId: '', ativo: true,
+      rascunho: { qtd: '1', preco: '' },
+    };
+    publicarVinculo();
+    window.ir('fichavinculo');
+    await carregarCatalogoDoVinculo();
+    if (!CATALOGO.size) {
+      return window.portao({
+        tom: 'alerta', ico: 'box', titulo: 'Sem produto no catálogo',
+        sub: 'Cadastre o produto em Ajustes › Produtos antes de vincular a um cliente.',
+        acoes: [['Fechar', '']],
+      });
+    }
+    publicarVinculo();
+  }
+
+  /* O que o dedo digitou vive no DOM e MORRE no repinte — a mesma lei da ficha
+     do cliente. Toda troca de chave/porta guarda os dois campos antes de
+     republicar, senão escolher o local apagaria a quantidade recém-escrita. */
+  function guardarRascunhoDoVinculo() {
+    if (!vinculo) return;
+    const qtd = naCamada('[data-campo="vinculo-qtd"]');
+    const preco = naCamada('[data-campo="vinculo-preco"]');
+    if (qtd) vinculo.rascunho.qtd = String(qtd.value || '');
+    if (preco) vinculo.rascunho.preco = String(preco.value || '');
+  }
+
+  function escolherProdutoDoVinculo(id) {
+    if (!vinculo || !id) return;
+    guardarRascunhoDoVinculo();
+    vinculo.produtoId = String(id);
+    publicarVinculo();
+  }
+
+  function escolherLocalDoVinculo(id) {
+    if (!vinculo) return;
+    guardarRascunhoDoVinculo();
+    // 2º toque no local aceso DESLIGA: sem porta o vínculo usa o endereço do
+    // perfil, que é o que o legado sempre foi (o servidor aceita localId nulo).
+    vinculo.localId = String(vinculo.localId || '') === String(id) ? '' : String(id);
+    publicarVinculo();
+  }
+
+  function virarChaveDoVinculo() {
+    if (!vinculo) return;
+    guardarRascunhoDoVinculo();
+    vinculo.ativo = !vinculo.ativo;
+    publicarVinculo();
+  }
+
+  /** grava: POST quando é novo, PATCH quando existe. Só o que mudou no PATCH. */
+  async function salvarVinculo() {
+    const v = vinculo;
+    if (!v || v.salvando || !ficha) return;
+    guardarRascunhoDoVinculo();
+    const qtd = Math.trunc(Number(String(v.rascunho.qtd || '').replace(/\D/g, '')));
+    if (!Number.isFinite(qtd) || qtd < 1) {
+      return window.portao({
+        tom: 'alerta', ico: 'box', titulo: 'Quantidade inválida',
+        sub: 'Informe quantas unidades saem por entrega (1 ou mais).', acoes: [['Fechar', '']],
+      });
+    }
+    if (v.novo && !v.produtoId) {
+      return window.portao({
+        tom: 'alerta', ico: 'box', titulo: 'Falta o produto',
+        sub: 'Escolha na lista qual produto este cliente leva.', acoes: [['Fechar', '']],
+      });
+    }
+    /* Preço VAZIO é uma escolha: "use o preço do catálogo". Por isso ele vira
+       `null` explícito no PATCH em vez de sumir do corpo — sem isso não haveria
+       como DESFAZER um preço combinado, só como trocá-lo por outro. */
+    const preco = dinheiroParaNumero(v.rascunho.preco);
+    v.salvando = true;
+    publicarVinculo();
+    try {
+      if (v.novo) {
+        await window.API.post('/logistica/cliente-produtos', {
+          customerProfileId: String(ficha.id),
+          productId: Number(v.produtoId),
+          qtdPadrao: qtd,
+          ativo: !!v.ativo,
+          ...(preco != null ? { precoAcordado: preco } : {}),
+          ...(v.localId ? { localId: v.localId } : {}),
+        });
+      } else {
+        const it = v.item || {};
+        const corpo = {};
+        if (qtd !== (Number(it.qtdPadrao) || 0)) corpo.qtdPadrao = qtd;
+        const precoAntes = typeof it.precoAcordado === 'number' ? it.precoAcordado : null;
+        if (preco !== precoAntes) corpo.precoAcordado = preco;
+        if (!!v.ativo !== (it.ativo !== false)) corpo.ativo = !!v.ativo;
+        const localAntes = it.localId ? String(it.localId) : '';
+        if (String(v.localId || '') !== localAntes) corpo.localId = v.localId || null;
+        if (!Object.keys(corpo).length) {
+          v.salvando = false;
+          publicarVinculo();
+          return window.portao({
+            tom: 'info', ico: 'check', titulo: 'Nada mudou',
+            sub: 'Este produto já está assim pra este cliente.', acoes: [['Fechar', '']],
+          });
+        }
+        await window.API.patch(`/logistica/cliente-produtos/${encodeURIComponent(v.id)}`, corpo);
+      }
+    } catch (e) {
+      v.salvando = false;
+      publicarVinculo();
+      return avisoErro(e);
+    }
+    vinculo = null;
+    // A ficha se relê inteira: quem decidiu o que valeu foi o servidor, e a
+    // lista de produtos dela é justamente o que acabou de mudar.
+    await recarregarProdutosDaFicha();
+    window.ir('ficha');
+    window.portao({
+      tom: 'ok', ico: 'check', titulo: 'Produto do cliente salvo',
+      sub: 'Vale das próximas entregas em diante.', acoes: [['Fechar', 'principal', true]],
+    });
+  }
+
+  /** o botão vermelho — REMOVE o vínculo (não a entrega já gerada) */
+  function removerVinculo() {
+    const v = vinculo;
+    if (!v || v.novo || typeof window.portao !== 'function') return;
+    const it = v.item || {};
+    const nome = String((it.produto && it.produto.nome) || 'este produto');
+    window.portao({
+      tom: 'alerta', ico: 'trash', titulo: 'Tirar do cliente?',
+      // A frase diz o que NÃO acontece: é a dúvida óbvia de quem aperta.
+      sub: `${nome} para de entrar nas próximas rotas deste cliente. As entregas já feitas continuam no histórico.`,
+      acoes: [['Deixar pra lá', '', true], ['Tirar', 'principal']],
+      acaoPrincipal: 'remover-vinculo-agora',
+      classe: 'duas',
+    });
+  }
+
+  async function removerVinculoAgora() {
+    const v = vinculo;
+    if (!v || v.novo) return;
+    try { await window.API.del(`/logistica/cliente-produtos/${encodeURIComponent(v.id)}`); }
+    catch (e) { return avisoErro(e); }
+    vinculo = null;
+    await recarregarProdutosDaFicha();
+    window.ir('ficha');
+    window.portao({
+      tom: 'ok', ico: 'check', titulo: 'Produto retirado',
+      sub: 'Ele não entra mais nas próximas rotas deste cliente.',
+      acoes: [['Fechar', 'principal', true]],
+    });
+  }
+
+  /** relê SÓ os produtos da ficha aberta — o resto dela não mudou */
+  async function recarregarProdutosDaFicha() {
+    if (!ficha) return;
+    let r;
+    try { r = await window.API.get(`/logistica/cliente-produtos?customerProfileId=${encodeURIComponent(ficha.id)}`); }
+    catch (_) { return; }
+    if (!ficha) return;
+    ficha.produtos = Array.isArray(r) ? r : [];
+    encherFicha();
+  }
   /* ------------------------------------------------------------------------
      🔴 O ENCAIXE (dono, 28/07): "se tiver perto, ele entra na logística — entre
      1 e 10, se está mais perto do 5, vira o 6 e ficam 11".
@@ -10662,6 +11106,9 @@
           bairro: String(c.cidade || ''),
           ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
           resolveSozinho: Array.isArray(c.diasEntrega) && c.diasEntrega.length > 0,
+          // "Ult. Registro" (12/08) — o `/nucleo/clientes` manda o campo; a porta
+          // "Meus clientes" é a 3ª origem da mesma lista e escreve a mesma data.
+          ...(c.ultimaEntregaAt ? { ultimaEntregaAt: String(c.ultimaEntregaAt) } : {}),
         });
         novos += 1;
       });
@@ -10769,8 +11216,15 @@
       const diasAgora = [1, 2, 3, 4, 5, 6, 7].filter((n) => (ficha.dias || []).indexOf(n) >= 0);
       const diasAntes = (it.diasEntrega || []).slice().sort().join(',');
       const mudouDias = diasAgora.slice().sort().join(',') !== diasAntes;
+      /* 🔴 O FINANCEIRO SALVA COM A FICHA (12/08) — mesmo botão, porta própria.
+         `corpoFinanceiro` devolve SÓ o que mudou, e null quando nada mudou; sem
+         essa disciplina, abrir e salvar qualquer ficha reescreveria o contrato
+         de cobrança de todo cliente legado da base sem ninguém pedir.
+         Só quem PODE editar manda: com o módulo desligado ou sem admin a seção
+         nem existe na tela, e um PATCH daqui voltaria 403. */
+      const fin = (config && config.moduloFinanceiroAtivo && ehAdmin()) ? corpoFinanceiro() : null;
 
-      if (!Object.keys(conta).length && !mudouEndereco && !mudouDias) {
+      if (!Object.keys(conta).length && !mudouEndereco && !mudouDias && !fin) {
         return window.portao({
           tom: 'info', ico: 'check', titulo: 'Nada mudou', sub: 'A ficha já está assim.',
           acoes: [['Fechar', '']],
@@ -10808,6 +11262,9 @@
         }
         if (mudouDias) {
           await window.API.patch(`/logistica/clientes/${encodeURIComponent(ficha.id)}/dias`, { dias: diasAgora });
+        }
+        if (fin) {
+          await window.API.patch(`/logistica/clientes/${encodeURIComponent(ficha.id)}/financeiro`, fin);
         }
       } catch (e) { return avisoErro(e); }
       await carregarClientes();
@@ -11472,6 +11929,21 @@
     'salvar-cliente': salvarCliente,
     'excluir-cliente': excluirCliente,
     'salvar-produto': salvarProduto,
+    /* O VÍNCULO CLIENTE × PRODUTO (12/08) — a ficha voltou a ADMINISTRAR o que
+       o cliente leva, e não só a listar. Nada de endpoint novo: POST/PATCH/
+       DELETE de `/logistica/cliente-produtos` já existiam e já estavam na
+       allowlist do Kotlin; o que faltava era alguém bater na porta. */
+    'novo-vinculo': novoVinculo,
+    'salvar-vinculo': salvarVinculo,
+    'remover-vinculo': removerVinculo,
+    'remover-vinculo-agora': removerVinculoAgora,
+    'chave-vinculo-ativo': virarChaveDoVinculo,
+    /* As DUAS chaves do Financeiro da ficha. Elas mexem na MEMÓRIA e o Salvar
+       grava — ver `mexerFinanceiro`: nesta tela o dono mexe em nome, endereço,
+       dia, produto e dinheiro e aperta UM botão; chave que gravasse no toque
+       faria metade da ficha obedecer o Voltar e a outra metade não. */
+    'chave-contabilizar': () => mexerFinanceiro({ contabilizar: !(ficha && ficha.fin && ficha.fin.contabilizar) }),
+    'chave-avisar-cobranca': () => mexerFinanceiro({ avisarCobranca: !(ficha && ficha.fin && ficha.fin.avisarCobranca) }),
     // o "+" do cabeçalho: cadastrar cliente na porta
     'usar-meu-local': usarMeuLocal,
     // o GPS da FICHA (10/08): mesmo motor, cliente que já existe
@@ -11665,6 +12137,16 @@
     // cadastro e perder o dia que estava arrumando.
     if (chave === 'abrir-cliente') return abrirCliente(alvo.dataset.cliente, telaAtual());
     if (chave === 'abrir-produto') return abrirProduto(alvo.dataset.produto);
+    /* 🔴 DUAS PORTAS PARECIDAS QUE NÃO PODEM SE MISTURAR (12/08). `abrir-produto`
+       leva ao CATÁLOGO (preço de todo mundo); `abrir-vinculo` leva ao que ESTE
+       cliente leva. Confundi-las é mudar o preço da empresa achando que se
+       acertou o de uma pessoa — por isso são dois nomes, nunca um com "modo". */
+    if (chave === 'abrir-vinculo') return abrirVinculo(alvo.dataset.vinculo);
+    if (chave === 'escolher-produto-vinculo') return escolherProdutoDoVinculo(alvo.dataset.produto);
+    if (chave === 'local-vinculo') return escolherLocalDoVinculo(alvo.dataset.local);
+    // Os dois chips do Financeiro da ficha: mexem na memória, o Salvar grava.
+    if (chave === 'forma-cliente') return mexerFinanceiro({ forma: String(alvo.dataset.forma || 'na_hora') });
+    if (chave === 'metodo-cliente') return mexerFinanceiro({ metodo: String(alvo.dataset.metodo || '') });
     if (chave === 'abrir-salva') return abrirSalva(alvo.dataset.salva);
     if (chave === 'abrir-empresa') return acenderEmpresa(alvo.dataset.empresa);
     if (chave === 'pacote') return escolherPacote(alvo.dataset.pacote);

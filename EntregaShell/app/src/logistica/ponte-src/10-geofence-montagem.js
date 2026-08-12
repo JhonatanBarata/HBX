@@ -796,7 +796,9 @@
   /** a rota está viva na rua? então nada aqui é rascunho */
   const rotaNaRua = () => estadoRota === 'rodando' || estadoRota === 'pausada';
   /** as telas em que o rascunho SOBREVIVE: elas são a própria escolha de gente */
-  const MANTEM_RASCUNHO = new Set(['rapida', 'ficha', 'novocliente']);
+  // 'fichavinculo' entra pela mesma razão da 'ficha' (12/08): ela é uma tela DE
+  // DENTRO do cadastro, e atravessá-la não é desistir da gente já escolhida.
+  const MANTEM_RASCUNHO = new Set(['rapida', 'ficha', 'novocliente', 'fichavinculo']);
   function descartarRascunho() {
     if (!RASCUNHO.length) return;
     RASCUNHO.length = 0;

@@ -521,6 +521,9 @@
         bairro: String(c.bairro || c.cidade || ''),
         ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
         resolveSozinho: !!c.resolveSozinho,
+        // "Ult. Registro" (12/08): a prévia já traz o campo — perdê-lo aqui faria
+        // o MESMO cartão trocar a data por "Pendente" só por virar rascunho.
+        ...(c.ultimaEntregaAt ? { ultimaEntregaAt: String(c.ultimaEntregaAt) } : {}),
       });
       novos += 1;
     });

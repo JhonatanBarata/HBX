@@ -20,6 +20,7 @@ import {
   resolveValorUnit,
   VinculoItemSnapshot,
 } from './logistica-recorrencia.util';
+import { isoDaUltimaEntrega, ultimaEntregaPorCliente } from './logistica-ultima-entrega.util';
 
 // As peças puras do vínculo moram em `logistica-recorrencia.util.ts` (a Agenda
 // V2 também precisa delas, e este serviço agora INJETA a Agenda — importar de lá
@@ -560,6 +561,18 @@ export class LogisticaRecorrenciaService {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const date = parseDateOrNull(dateInput) ?? new Date();
     const preview = await this.agendaOuErro().getDayPreview(companyId, isoDow(date), dateInput);
+    /* 🔴 O ÚLTIMO REGISTRO DO CLIENTE (12/08, ordem do dono) — a data da última
+       entrega CONCLUÍDA, que é o que a Montagem escreve no lugar onde hoje mora
+       um "Pendente". Uma ida ao banco pra lista inteira (groupBy), não uma por
+       cartão: a prévia de segunda da empresa 41 tem 52 clientes.
+       A régua mora em `logistica-ultima-entrega.util` porque as OUTRAS duas
+       fontes da mesma lista (avulsa e rascunho) leem a mesma coisa por outras
+       portas — três contas do mesmo fato é como a tela começa a se contradizer. */
+    const ultimas = await ultimaEntregaPorCliente(
+      this.prisma,
+      companyId,
+      preview.paradas.map((stop: any) => String(stop?.customerProfileId ?? '')),
+    );
     return {
       date: preview.date,
       clientes: preview.paradas.map((stop: any) => {
@@ -601,6 +614,10 @@ export class LogisticaRecorrenciaService {
              tem recorrência ativa por construção. Quem NÃO vem da agenda (a parada
              avulsa) não recebe este campo, e continua avisando. */
           resolveSozinho: true,
+          /* Quando este cliente recebeu pela última vez — ISO ou AUSENTE. Sem
+             registro o campo não viaja, e a tela escreve "Pendente": data
+             inventada aqui viraria um trabalho que ninguém fez. */
+          ultimaEntregaAt: isoDaUltimaEntrega(ultimas.get(String(stop.customerProfileId ?? ''))),
           lat: coord.lat,
           lng: coord.lng,
           geoFonte: coord.geoFonte,

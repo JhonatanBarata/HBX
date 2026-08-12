@@ -2267,8 +2267,13 @@ function buildRotaPrivacyMock(moduloFinanceiroAtivo: boolean) {
     entrega?: any;
     config?: any;
     saldo: number;
+    /* 12/08 — "Ult. Registro" (MAX(deliveredAt) das concluídas) também é um
+       `entrega.groupBy`, e somá-lo ao contador de SALDO faria o teto de
+       consultas comerciais mentir. Contador próprio: a pergunta "quando eu
+       estive aqui" é OPERACIONAL e roda pra qualquer ator, de propósito. */
+    ultimaEntrega: number;
     trackingIncludeCommercialMode: boolean[];
-  } = { saldo: 0, trackingIncludeCommercialMode: [] };
+  } = { saldo: 0, ultimaEntrega: 0, trackingIncludeCommercialMode: [] };
   const row = {
     id: 'entrega-rota-1',
     status: 'em_rota',
@@ -2326,8 +2331,11 @@ function buildRotaPrivacyMock(moduloFinanceiroAtivo: boolean) {
         queries.entrega = args;
         return [row];
       },
-      groupBy: async () => {
-        queries.saldo += 1;
+      groupBy: async (args: any) => {
+        // O groupBy do "Ult. Registro" se distingue pelo que PEDE (`_max
+        // .deliveredAt`); o do saldo agrega mensal a fechar.
+        if (args?._max?.deliveredAt) queries.ultimaEntrega += 1;
+        else queries.saldo += 1;
         return [];
       },
     },
@@ -2427,6 +2435,11 @@ test('listRota: vendedor, motorista e gerente não recebem nem consultam dados c
     assert.equal(result.items[0].valorHoje, 42, `${nome}: valorHoje deve ser exposto (2×21 dos itens da entrega atual)`);
     // A consulta de saldo AGORA roda (debitoAtual precisa dela) mesmo sem billingAudience.
     assert.equal(queries.saldo, 2, `${nome}: consulta de saldo roda p/ alimentar debitoAtual`);
+    // 12/08 — "Ult. Registro": UMA consulta pra rota inteira (groupBy), pra
+    // QUALQUER ator. Operacional, não comercial: quantas vezes eu já vim aqui
+    // não é dado de cobrança, é o que o motorista precisa saber na porta.
+    assert.equal(queries.ultimaEntrega, 1, `${nome}: ultimaEntregaAt = 1 groupBy pra lista toda`);
+    assert.equal('ultimaEntregaAt' in result.items[0].cliente, true, `${nome}: ultimaEntregaAt é operacional e viaja`);
 
     const entregaSelect = queries.entrega.select;
     // `valor`/`itens.valorUnit`/`customerProfile.metodoPadrao` agora são

@@ -55,6 +55,20 @@ export const BUSCA_MIN_CHARS = 2;
 
 /** Fuzzy de CLIENTE — 0.25 pega 'mracia'→'marcia' (0.2857 medido). */
 export const FUZZY_CLIENTE_MIN = 0.25;
+/**
+ * Peso do word_similarity no RANKING de cliente. Medido no tenant real (12/08):
+ * word_similarity('mracia', X) EMPATA em 0.2857 pra meia lista ('dona araci',
+ * 'a veia maria', 'quiteria - mae do maicon'...) porque o extent curto dilui o
+ * denominador — ordenar só por ele deixava a Márcia fora do top-6 no desempate
+ * alfabético. O `similarity` clássico desempata ('marcia' 0.2727 ≫ 'a veia
+ * maria' 0.1176), então o ranking soma os dois: similarity + 0.5×word_sim
+ * (Márcia 0.416 > Farmácia Vânia 0.381 > o resto). O CORTE (WHERE) continua
+ * pelo word_similarity ≥ 0.25, que é o que deixa o typo entrar.
+ */
+export const PESO_WS_CLIENTE = 0.5;
+/** Fase 1 do comércio: quantos candidatos por NOME seguem pro reranking por
+ *  distância. 40 = sobra pra reordenar sem pagar join/sort na cidade inteira. */
+export const COMERCIO_PRE_LIMITE = 40;
 /** Fuzzy de COMÉRCIO (`<%` no GIN da RFB) — 0.40 pega 'mercad' (0.57 medido)
  *  sem abrir a porteira que o default 0.6 fecha demais e 0.2 abriria demais. */
 export const FUZZY_COMERCIO_MIN = 0.4;
@@ -191,7 +205,7 @@ export function sqlBuscaClientes(args: {
     ), cand AS (
       SELECT cp."id", cp."name", cp."endereco", cp."numero", cp."bairro",
              cp."cidade", cp."uf", cp."cep", cp."lat", cp."lng", u.quando,
-             GREATEST(similarity(cp."searchName", $2), word_similarity($2, cp."searchName")) AS sim,
+             (similarity(cp."searchName", $2) + ${num(PESO_WS_CLIENTE)} * word_similarity($2, cp."searchName")) AS sim,
              CASE WHEN $4::float8 IS NULL OR cp."lat" IS NULL OR cp."lng" IS NULL THEN NULL
                   ELSE ${distSql('cp."lat"', 'cp."lng"', '$4::float8', '$5::float8')}
              END AS dist_m
@@ -328,14 +342,25 @@ export function sqlBuscaVias(args: {
 /**
  * Escopo obrigatório (normalizedCity, state) ANTES de qualquer ranking — sem
  * cidade resolvida este SQL nem é montado (o serviço devolve grupo vazio).
- * `$3 <% "searchText"` é o word_similarity INDEXADO pelo GIN trgm de 4 GB que
- * a carga da RFB já mantém; o limiar (FUZZY_COMERCIO_MIN) entra por
- * `SET LOCAL pg_trgm.word_similarity_threshold` NA MESMA transação (serviço) —
- * o default 0.6 do banco reprovaria 'mercad' (0.57 medido).
- * Distância só com pino confiável (nivelGeo ≤ 2 — a régua do CnpjGeo: 1=porta,
- * 2=rua; 3-4 é bairro/cidade e mentiria metros pro motorista).
+ *
+ * DUAS FASES no mesmo SQL (medido em 12/08, Rio Claro = 33k empresas ativas):
+ *   fase 1 — candidatos por NOME, cidade-escopados, ORDER BY sim LIMIT 40;
+ *   fase 2 — só os 40 pagam o join com CnpjGeo e o reranking por distância.
+ * Sem as fases, o ORDER BY final obrigava word_similarity + join na cidade
+ * INTEIRA: 580 ms medidos. Com elas, o caminho LIKE fica em poucos ms.
+ *
+ * DOIS CAMINHOS (o serviço tenta o rápido e só cai no fuzzy se vier vazio):
+ *   · LIKE (rápido): substring no searchText — é o caso comum (nome certo ou
+ *     parcial) e avalia similaridade só em quem casou;
+ *   · `<%` (fuzzy, fallback do typo): word_similarity INDEXÁVEL, limiar
+ *     FUZZY_COMERCIO_MIN por SET LOCAL na MESMA transação (o default 0.6 do
+ *     banco reprovaria 'mercad' = 0.57 medido). Avalia a cidade inteira — é o
+ *     preço do typo, pago SÓ quando o caminho rápido não achou nada.
+ *
+ * Distância só com pino confiável (nivelGeo ≤ 2 — CnpjGeo: 1=porta, 2=rua;
+ * 3-4 é bairro/cidade e mentiria metros pro motorista).
  */
-export function sqlBuscaComercios(args: {
+function sqlComerciosBase(matchSql: string, args: {
   cityNorm: string;
   uf: string;
   q: string;
@@ -343,34 +368,54 @@ export function sqlBuscaComercios(args: {
   lng: number | null;
 }): SqlPronto {
   const qNorm = normalizarBuscaTexto(args.q);
+  const qLike = `%${escaparLike(qNorm)}%`;
   const sql = `
-    SELECT * FROM (
+    WITH cand AS (
       SELECT c."cnpj",
              COALESCE(NULLIF(BTRIM(c."nomeFantasia"), ''), c."razaoSocial") AS nome,
              c."address" AS endereco, c."city" AS cidade, c."state" AS uf,
              c."cnae", c."cnaeDescription" AS "cnaeDescricao",
-             g."lat" AS lat, g."lng" AS lng, g."nivelGeo" AS "nivelGeo", g."cep" AS cep,
-             word_similarity($3, c."searchText") AS sim,
-             CASE WHEN $4::float8 IS NULL OR g."lat" IS NULL OR g."lng" IS NULL OR g."nivelGeo" > 2 THEN NULL
-                  ELSE ${distSql('g."lat"', 'g."lng"', '$4::float8', '$5::float8')}
-             END AS dist_m
+             word_similarity($3, c."searchText") AS sim
         FROM "CnpjPublicCompany" c
-        LEFT JOIN "CnpjGeo" g ON g."cnpj" = c."cnpj"
        WHERE c."normalizedCity" = $1
          AND c."state" = $2
          AND c."situacao" = 'ativa'
-         AND $3 <% c."searchText"
-    ) cand
-    CROSS JOIN LATERAL (
-      SELECT cand.sim
-             * (CASE WHEN $4::float8 IS NULL THEN 1.0
-                     WHEN cand.dist_m IS NULL THEN ${num(PROX_SEM_PINO)}
-                     ELSE GREATEST(${num(PROX_PISO)}, 1.0 / (1.0 + cand.dist_m / ${num(PROX_MEIA_M)}.0)) END) AS score
-    ) s
-    ORDER BY s.score DESC, cand."cnpj" ASC
-    LIMIT ${num(BUSCA_LIMITE_GRUPO)}
+         AND ${matchSql}
+       ORDER BY word_similarity($3, c."searchText") DESC, c."cnpj" ASC
+       LIMIT ${num(COMERCIO_PRE_LIMITE)}
+    ), geo AS (
+      SELECT cand.*, g."lat" AS lat, g."lng" AS lng, g."nivelGeo" AS "nivelGeo", g."cep" AS cep,
+             CASE WHEN $5::float8 IS NULL OR g."lat" IS NULL OR g."lng" IS NULL OR g."nivelGeo" > 2 THEN NULL
+                  ELSE ${distSql('g."lat"', 'g."lng"', '$5::float8', '$6::float8')}
+             END AS dist_m
+        FROM cand
+        LEFT JOIN "CnpjGeo" g ON g."cnpj" = cand."cnpj"
+    )
+    SELECT geo.*,
+           geo.sim
+           * (CASE WHEN $5::float8 IS NULL THEN 1.0
+                   WHEN geo.dist_m IS NULL THEN ${num(PROX_SEM_PINO)}
+                   ELSE GREATEST(${num(PROX_PISO)}, 1.0 / (1.0 + geo.dist_m / ${num(PROX_MEIA_M)}.0)) END) AS score
+      FROM geo
+     ORDER BY score DESC, geo."cnpj" ASC
+     LIMIT ${num(BUSCA_LIMITE_GRUPO)}
   `;
-  return { sql, params: [args.cityNorm, args.uf, qNorm, args.lat, args.lng] };
+  return { sql, params: [args.cityNorm, args.uf, qNorm, qLike, args.lat, args.lng] };
+}
+
+/** Caminho RÁPIDO (caso comum): substring no searchText, cidade-escopado. */
+export function sqlBuscaComerciosLike(args: {
+  cityNorm: string; uf: string; q: string; lat: number | null; lng: number | null;
+}): SqlPronto {
+  return sqlComerciosBase(`c."searchText" LIKE $4 ESCAPE '\\'`, args);
+}
+
+/** Fallback do TYPO: word_similarity indexável (`<%`) — só roda quando o LIKE
+ *  veio vazio; exige SET LOCAL do limiar na mesma transação (ver serviço). */
+export function sqlBuscaComerciosFuzzy(args: {
+  cityNorm: string; uf: string; q: string; lat: number | null; lng: number | null;
+}): SqlPronto {
+  return sqlComerciosBase(`$3 <% c."searchText"`, args);
 }
 
 // ---------------------------------------------------------------------------

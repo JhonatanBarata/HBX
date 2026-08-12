@@ -126,6 +126,15 @@
       ficha.local = locais.find((l) => l.isPrincipal) || locais[0] || null;
       const tels = Array.isArray(detR.value.telefones) ? detR.value.telefones : [];
       ficha.telefone = tels.find((t) => t.isPrincipal) || tels[0] || null;
+      /* 🔴 O FINANCEIRO DO CLIENTE VOLTOU (12/08, ordem do dono). O servidor
+         nunca deixou de mandar — `GET /nucleo/clientes/:id` traz os 6 campos do
+         contrato desde a primeira versão da ficha; o que morreu na fusão foi a
+         SEÇÃO da tela e o estado que a alimentava. Aqui ele volta a existir.
+         DOIS retratos: `fin` é o que o dedo mexe, `finOrig` é o que o servidor
+         disse. Salvar manda só o que mudou — a mesma lei do resto desta ficha,
+         e a que faz "Nada mudou" ser verdade. */
+      ficha.fin = financeiroDoDetalhe(detR.value);
+      ficha.finOrig = financeiroDoDetalhe(detR.value);
     }
     ficha.produtos = prodR.status === 'fulfilled' && Array.isArray(prodR.value) ? prodR.value : [];
     encherFicha();
@@ -141,7 +150,10 @@
      preenche quando o detalhe chega, a foto gravava "" como se fosse escolha do
      usuário, e daí em diante o vazio VENCIA o dado do servidor. CEP, rua e
      bairro sumiram na tela por causa disso. Rascunho nasce de tecla, e ponto. */
-  const CAMPOS_FICHA = ['nome', 'telefone', 'cpf', 'cep', 'rua', 'numero', 'bairro', 'observacoes'];
+  const CAMPOS_FICHA = ['nome', 'telefone', 'cpf', 'cep', 'rua', 'numero', 'bairro', 'observacoes',
+    // os dois campos digitáveis do Financeiro (12/08) — sem eles, tocar numa
+    // chave do bloco apagaria o que o dedo acabou de escrever no limite.
+    'dia-fechamento', 'limite-fiado'];
   const CAMPOS_PRODUTO = ['produto-nome', 'produto-unidade', 'produto-preco'];
   /** liga o rascunho de QUALQUER ficha da camada viva (cliente ou produto) */
   function ligarCamposDaFicha() {
@@ -231,14 +243,59 @@
     return r && r[nome] !== undefined ? esc(r[nome]) : esc(doServidor);
   };
 
+  /* ------------------------------------------------------------------------
+     O CONTRATO FINANCEIRO DO CLIENTE — o que o servidor disse, no vocabulário
+     do dedo. `formaPagamento` legado 'aberto' é MOSTRADO como 'na_hora' (é o
+     que o app que roda em produção sempre fez, `paymentFields`) e NUNCA
+     reescrito sozinho: o cliente só troca de forma quando alguém toca no chip.
+     ------------------------------------------------------------------------ */
+  const financeiroDoDetalhe = (d) => ({
+    forma: String((d && d.formaPagamento) || 'aberto'),
+    metodo: String((d && d.metodoPadrao) || ''),
+    contabilizar: !(d && d.contabilizar === false),
+    avisarCobranca: !(d && d.avisarCobranca === false),
+  });
+  /** o chip que aparece ACESO: 'aberto' se veste de 'na_hora' (ver acima) */
+  const formaNaTela = (v) => (String(v || '') === 'aberto' ? 'na_hora' : String(v || 'na_hora'));
+  /* As formas que a EMPRESA aceita (chaves do Avançado). Oferecer uma que o
+     dono desligou é prometer contrato que o produto não tem — e a forma vigente
+     do cliente entra na fileira mesmo desligada, senão a tela esconderia o que
+     está valendo e o primeiro toque trocaria o contrato dele sem querer. */
+  function formasDisponiveis(atual) {
+    const c = config || {};
+    const todas = [['na_hora', 'Na hora', c.aceitaNaHora], ['mensal', 'Mensal', c.aceitaMensal], ['pendura', 'Marcar', c.aceitaFiado]];
+    return todas.filter((f) => f[2] || f[0] === atual).map((f) => [f[0], f[1]]);
+  }
+  /** "R$ 1.234,50" → 1234.5 · vazio → null (limpar o limite é escolha legítima) */
+  const dinheiroParaNumero = (v) => {
+    const t = String(v || '').trim();
+    if (!t) return null;
+    const n = Number(t.replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, ''));
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  };
+
   function encherFicha() {
     if (!ficha) return;
     const it = ficha.item || {};
     const d = ficha.detalhe || {};
     const loc = ficha.local || {};
     const pend = Array.isArray(it.pendencias) ? it.pendencias : [];
-    const entregas = Number(it.entregasCount) || 0;
+    // 12/08 — o detalhe passou a trazer `entregasCount`: a ficha aberta PELA
+    // MONTAGEM não tem item de lista, e o cabeçalho nascia sem o "42 entregas".
+    const entregas = Number(it.entregasCount) || Number(d.entregasCount) || 0;
     const dias = ficha.dias || [];
+    const fin = ficha.fin || financeiroDoDetalhe(null);
+    const forma = formaNaTela(fin.forma);
+    /* 🔴 O SALDO É DE TODO MUNDO; A EDIÇÃO É DO DONO. O motorista precisa saber
+       quanto o cliente deve ANTES de bater na porta — é o mesmo `debitoAtual`
+       que a lista de Clientes já mostra pra ele. Mas `PATCH
+       /logistica/clientes/:id/financeiro` é ADMIN-only no servidor: desenhar os
+       campos pra quem vai levar 403 é o botão morto que esta ficha já matou uma
+       vez (o Excluir de 08/08). Duas chaves, portanto — e a de fora é a mesma
+       do resto do bloco: financeiro desligado, seção nenhuma. */
+    const financeiroLigado = !!(config && config.moduloFinanceiroAtivo);
+    const saldo = typeof d.debitoAtual === 'number' ? d.debitoAtual
+      : (typeof it.debitoAtual === 'number' ? it.debitoAtual : null);
     window.usarDados('ficha', {
       // O EXCLUIR é do dono, não do motorista: `DELETE /nucleo/contas/:id` é
       // ADMIN-only no servidor, e este é o MESMO sinal das 6 chaves do Avançado.
@@ -277,9 +334,72 @@
             ? ` · <b style="color:var(--lime)">${dinheiro(preco)} só pra ele</b>`
             : ` · ${dinheiro(preco)} (catálogo)`)
           : '';
-        return ['box', esc(p.nome), `${Number(v.qtdPadrao) || 0} por entrega${valor}`];
+        /* PAUSADO SE ANUNCIA (12/08): vínculo com `ativo:false` continua na
+           ficha e PAROU de gerar entrega. Sem esta palavra o dono olha a lista,
+           vê o produto, e não entende por que ele não aparece na rota. */
+        const pausado = v.ativo === false ? ' · pausado' : '';
+        /* 🔴 O ID É O QUE FAZ A LINHA VIRAR PORTA (mesma lei do `stop()`): sem
+           ele o cartão fica inerte, com ele abre o VÍNCULO — nunca o catálogo. */
+        return ['box', esc(p.nome), `${Number(v.qtdPadrao) || 0} por entrega${valor}${pausado}`, String(v.id || '')];
       }),
+      /* ---------- FINANCEIRO (12/08) ---------- */
+      financeiro: financeiroLigado ? 1 : 0,
+      financeiroEdita: financeiroLigado && ehAdmin() ? 1 : 0,
+      // Lei do IF: saldo zero não é notícia na porta — some, como o resto.
+      saldo: financeiroLigado && saldo ? dinheiro(saldo) : '',
+      limiteLido: financeiroLigado && typeof d.limiteFiado === 'number' ? dinheiro(d.limiteFiado) : '',
+      formas: formasDisponiveis(forma),
+      forma,
+      metodo: esc(fin.metodo),
+      diaFechamento: valorFicha('dia-fechamento', d.diaFechamento != null ? String(d.diaFechamento) : ''),
+      limite: valorFicha('limite-fiado', typeof d.limiteFiado === 'number'
+        ? d.limiteFiado.toFixed(2).replace('.', ',') : ''),
+      contabilizar: fin.contabilizar ? 1 : 0,
+      avisarCobranca: fin.avisarCobranca ? 1 : 0,
     });
+  }
+
+  /* ------------------------------------------------------------------------
+     O QUE O DEDO MEXEU NO FINANCEIRO — estado na memória, gravação no Salvar.
+
+     🔴 UM TOQUE ≠ UM PATCH aqui, de propósito. O desktop grava chip a chip
+     porque lá cada campo tem o seu "Salvo"; nesta ficha o dono mexe em nome,
+     endereço, dias, produtos e dinheiro na mesma tela e aperta UM botão. Gravar
+     a forma de pagamento no toque e o resto no Salvar faria metade da ficha
+     obedecer o Voltar e a outra metade não — e o Voltar tem que descartar.
+     ------------------------------------------------------------------------ */
+  function mexerFinanceiro(mudanca) {
+    if (!ficha) return;
+    ficha.fin = Object.assign({}, ficha.fin || financeiroDoDetalhe(ficha.detalhe), mudanca);
+    // Forma que não é "na hora" não tem método fixo — deixar o pix pendurado
+    // mandaria ao servidor um método que ele ignora e a tela mostraria depois.
+    if (ficha.fin.forma !== 'na_hora') ficha.fin.metodo = '';
+    encherFicha();
+  }
+
+  /* O que vai no PATCH — SÓ o que mudou, e nada quando nada mudou (é o que faz
+     o "Nada mudou" do Salvar continuar sendo verdade). O dia de fechamento e o
+     limite saem do CAMPO da tela, não do estado: eles são texto digitado. */
+  function corpoFinanceiro() {
+    if (!ficha || !ficha.fin || !ficha.finOrig) return null;
+    const a = ficha.fin;
+    const b = ficha.finOrig;
+    const d = ficha.detalhe || {};
+    const corpo = {};
+    // 'aberto' vestido de 'na_hora' NÃO é mudança: só entra se o dedo escolheu
+    // outra coisa (senão abrir e salvar a ficha reescreveria o contrato de todo
+    // cliente legado da base, calado).
+    if (a.forma !== b.forma && !(b.forma === 'aberto' && a.forma === 'na_hora')) corpo.formaPagamento = a.forma;
+    if (a.forma === 'na_hora' && a.metodo !== String(b.metodo || '')) corpo.metodoPadrao = a.metodo;
+    if (a.contabilizar !== b.contabilizar) corpo.contabilizar = a.contabilizar;
+    if (a.avisarCobranca !== b.avisarCobranca) corpo.avisarCobranca = a.avisarCobranca;
+    const dia = Math.trunc(Number(campo('dia-fechamento')));
+    const diaAntes = d.diaFechamento != null ? Number(d.diaFechamento) : null;
+    if (a.forma === 'mensal' && Number.isFinite(dia) && dia >= 1 && dia <= 31 && dia !== diaAntes) corpo.diaFechamento = dia;
+    const limite = dinheiroParaNumero(campo('limite-fiado'));
+    const limiteAntes = typeof d.limiteFiado === 'number' ? d.limiteFiado : null;
+    if (limite !== limiteAntes) corpo.limiteFiado = limite;
+    return Object.keys(corpo).length ? corpo : null;
   }
 
   /** lê um campo da ficha na camada viva (o que o dedo digitou, não o do seam) */

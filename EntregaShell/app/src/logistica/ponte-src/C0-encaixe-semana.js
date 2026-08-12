@@ -278,6 +278,9 @@
           bairro: String(c.cidade || ''),
           ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
           resolveSozinho: Array.isArray(c.diasEntrega) && c.diasEntrega.length > 0,
+          // "Ult. Registro" (12/08) — o `/nucleo/clientes` manda o campo; a porta
+          // "Meus clientes" é a 3ª origem da mesma lista e escreve a mesma data.
+          ...(c.ultimaEntregaAt ? { ultimaEntregaAt: String(c.ultimaEntregaAt) } : {}),
         });
         novos += 1;
       });
@@ -385,8 +388,15 @@
       const diasAgora = [1, 2, 3, 4, 5, 6, 7].filter((n) => (ficha.dias || []).indexOf(n) >= 0);
       const diasAntes = (it.diasEntrega || []).slice().sort().join(',');
       const mudouDias = diasAgora.slice().sort().join(',') !== diasAntes;
+      /* 🔴 O FINANCEIRO SALVA COM A FICHA (12/08) — mesmo botão, porta própria.
+         `corpoFinanceiro` devolve SÓ o que mudou, e null quando nada mudou; sem
+         essa disciplina, abrir e salvar qualquer ficha reescreveria o contrato
+         de cobrança de todo cliente legado da base sem ninguém pedir.
+         Só quem PODE editar manda: com o módulo desligado ou sem admin a seção
+         nem existe na tela, e um PATCH daqui voltaria 403. */
+      const fin = (config && config.moduloFinanceiroAtivo && ehAdmin()) ? corpoFinanceiro() : null;
 
-      if (!Object.keys(conta).length && !mudouEndereco && !mudouDias) {
+      if (!Object.keys(conta).length && !mudouEndereco && !mudouDias && !fin) {
         return window.portao({
           tom: 'info', ico: 'check', titulo: 'Nada mudou', sub: 'A ficha já está assim.',
           acoes: [['Fechar', '']],
@@ -424,6 +434,9 @@
         }
         if (mudouDias) {
           await window.API.patch(`/logistica/clientes/${encodeURIComponent(ficha.id)}/dias`, { dias: diasAgora });
+        }
+        if (fin) {
+          await window.API.patch(`/logistica/clientes/${encodeURIComponent(ficha.id)}/financeiro`, fin);
         }
       } catch (e) { return avisoErro(e); }
       await carregarClientes();

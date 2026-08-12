@@ -1079,6 +1079,9 @@ button,input{font:inherit;color:inherit}
 .marc{border:.7px solid var(--line-2);border-radius:8px;padding:4px 8px;background:var(--card)}
 .marc small{display:block;font-size:10px;color:var(--ink-2)}
 .marc b{display:block;font-size:13.5px;color:var(--lime);font-weight:500;margin-top:1px}
+/* "Ult. Registro" — a MESMA caixa do dinheiro, só que o valor é uma DATA. O
+   verde-limão desta casa quer dizer dinheiro; data em lima se leria como valor. */
+.marc.reg b{color:var(--ink);font-size:13px}
 .pill{display:flex;align-items:center;justify-content:center;gap:5px;padding:6px 9px;border-radius:8px;
   font-size:11.5px;font-weight:500;border:1px solid transparent;white-space:nowrap}
 .pill.blue{background:var(--blue-bg);border-color:var(--blue-line);color:var(--blue-l)}
@@ -3268,7 +3271,24 @@ function stop(o){
       ${o.nota?`<span class="nota">${o.nota}</span>`:''}
       <span class="tags">${(o.tags||[]).map(t=>`<b class="tag ${t[1]||''}">${t[0]}</b>`).join('')}</span></span>
     <span class="side">
-      ${o.marcado?`<span class="marc"><small>Marcado</small><b>R$ ${o.marcado}</b></span>`:''}
+      ${/* 🔴 O RÓTULO DO DINHEIRO É DADO, NÃO DESENHO (12/08, dono: "o valor está
+           correto, mas o significado/rótulo está errado"). "Marcado" nesta casa é
+           a palavra do FIADO — o que ficou em aberto. Na ROTA a linha é uma
+           entrega e o número é o `valorHoje`, que continua sendo o que ficou
+           marcado; na MONTAGEM é quantidade x preco da entrega que se está
+           montando, e chamar isso de "Marcado" fazia o motorista ler dívida onde
+           havia venda. Uma peça só, dois rótulos: quem sabe o que o número
+           significa é quem monta a linha, e ele manda a palavra junto. */''}
+      ${o.marcado?`<span class="marc"><small>${o.marcRot||'Marcado'}</small><b>R$ ${o.marcado}</b></span>`:''}
+      ${/* 🔴 O ÚLTIMO REGISTRO DO CLIENTE (12/08). Mesma caixa do dinheiro, e de
+           propósito: é a MESMA pergunta do lado direito do cartão ("o que eu
+           preciso saber sobre esta porta antes de ir"). `.reg` só troca a tinta
+           do valor — data em verde-limão se leria como dinheiro.
+           Ele NÃO briga com a pílula: quem monta a linha manda uma, outra, ou as
+           duas. Na Montagem, antes de montar, TODO mundo era "Pendente" e a
+           coluna inteira repetia a mesma palavra — este slot passa a dizer a
+           última vez que este cliente recebeu de verdade. */''}
+      ${o.reg?`<span class="marc reg"><small>${o.reg[0]}</small><b>${o.reg[1]}</b></span>`:''}
       ${o.pill?`<span class="pill ${o.pill[1]}">${o.pill[2]?ic(o.pill[2],14):''}${o.pill[0]}</span>`:''}</span>
   </div>`;
 }
@@ -3644,10 +3664,32 @@ const DADOS={
     local:'', localOk:0,
     observacoes:'Portão azul · deixar na área · cachorro solto',
     dias:[0,1,0,1,0,0,0],
+    /* [ícone, nome, linha de baixo, ID DO VÍNCULO]. O id é o que dá o toque à
+       linha (mesma lei do `stop()`); vazio = linha de maquete, inerte. */
     produtos:[
-      ['gallon','Galão 20 Litros','2 por entrega · R$ 11,00 (catálogo)'],
-      ['box','Água c/ gás 1,5L','1 por entrega · <b style="color:var(--lime)">R$ 22,00 só pra ela</b>'],
+      ['gallon','Galão 20 Litros','2 por entrega · R$ 11,00 (catálogo)',''],
+      ['box','Água c/ gás 1,5L','1 por entrega · <b style="color:var(--lime)">R$ 22,00 só pra ela</b>',''],
     ],
+    /* FINANCEIRO DO CLIENTE (12/08) — a seção inteira só existe com o módulo
+       ligado (`financeiro`), e só EDITA pra quem o servidor deixa (`financeiroEdita`,
+       o mesmo sinal de admin do Excluir logo abaixo: o PATCH é ADMIN-only).
+       `formas` vem da CONFIG da empresa (aceitaNaHora/aceitaMensal/aceitaFiado) —
+       oferecer forma que a empresa desligou é prometer o que não vale. */
+    financeiro:1, financeiroEdita:1,
+    saldo:'R$ 36,00', limiteLido:'R$ 150,00',
+    formas:[['na_hora','Na hora'],['mensal','Mensal'],['pendura','Marcar']],
+    forma:'na_hora', metodo:'pix', diaFechamento:'', limite:'150,00',
+    contabilizar:1, avisarCobranca:1,
+  },
+  /* L6b — VÍNCULO CLIENTE x PRODUTO (12/08). NÃO é a ficha do produto: aqui se
+     mexe no que ESTE cliente leva (quantidade, preço acordado, porta, ativo),
+     e o catálogo da empresa não muda um centavo. */
+  fichavinculo:{
+    volta:'ficha', novo:0, cliente:'Larissa Ypê',
+    produto:'Galão 20 Litros', ico:'gallon', produtoId:'',
+    catalogo:[], qtd:'2', preco:'22,00', precoPorCliente:1,
+    precoDica:'Vazio = usa o preço do catálogo',
+    locais:[], localId:'', ativo:1, podeRemover:1, salvando:0,
   },
   /* L7 — PRODUTOS. `lista` é [nome, linha de baixo, preço, cor, id]. A linha de
      baixo é TEXTO PRONTO porque a fonte muda: no mock é o estoque, no app é a
@@ -3874,13 +3916,21 @@ const DADOS={
        objeto, não mais uma tupla posicional de 8 casas. Foi a tupla que fez o
        cartão daqui virar cópia — cada campo novo da rota (`pill`, `perna`,
        `nota`, o gancho de toque) exigia uma 9ª casa e ninguém a abria. */
+    /* 🔴 A DIREITA DA MONTAGEM MUDOU DE PERGUNTA (12/08, ordem do dono). Era
+       "Marcado + Pendente" em TODAS as linhas — o rótulo do fiado sobre o valor
+       da venda, e uma coluna inteira repetindo a mesma palavra. Virou:
+         Valor         = quantidade x preco desta entrega (o mesmo número de antes)
+         Ult. Registro = a última entrega CONCLUÍDA deste cliente (DD/MM), ou
+                         "Pendente" quando nunca houve nenhuma.
+       A pílula NÃO sumiu: ela volta assim que a parada tem desfecho de verdade
+       (linhas 3 e 6 aqui), que é quando ela é notícia. */
     linhas:[
-      {n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['Pendente','mute','clock'],perna:''},
-      {n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['Pendente','mute','clock'],perna:'850 m · 4 min'},
-      {n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Entregue','lime','check'],perna:'1,2 km · 6 min'},
-      {n:4,hora:'10:45',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Pendente','mute','clock'],perna:'620 m · 3 min'},
-      {n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',pill:['Pendente','mute','clock'],perna:'2,1 km · 9 min'},
-      {n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Não entregue','mute','close'],perna:'sem trajeto — não sei onde fica'},
+      {n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',marcRot:'Valor',reg:['Ult. Registro','05/08'],perna:''},
+      {n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',marcRot:'Valor',reg:['Ult. Registro','01/08'],perna:'850 m · 4 min'},
+      {n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',marcRot:'Valor',reg:['Ult. Registro','29/07'],pill:['Entregue','lime','check'],perna:'1,2 km · 6 min'},
+      {n:4,hora:'10:45',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',marcRot:'Valor',reg:['Ult. Registro','06/08'],perna:'620 m · 3 min'},
+      {n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',marcRot:'Valor',reg:['Ult. Registro','Pendente'],perna:'2,1 km · 9 min'},
+      {n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',marcRot:'Valor',reg:['Ult. Registro','04/08'],pill:['Não entregue','mute','close'],perna:'sem trajeto — não sei onde fica'},
     ],
   },
 };
@@ -5762,6 +5812,81 @@ ${hdr({voltar:d.volta||'montagem'})}
 ${pe}
 ${nav('rota')}`;}};
 
+/* 20b — VÍNCULO CLIENTE × PRODUTO -----------------------------------------
+   🔴 A DIFERENÇA QUE ESTA TELA EXISTE PRA GUARDAR (12/08, ordem do dono:
+   *"editar Galão 20 Litros → preço global é diferente de editar Cidinha →
+   Galão 20 Litros → quantidade/preço/configuração dela"*).
+
+   `T.fichaproduto` mexe no CATÁLOGO (`/logistica/produtos/:id`) — o preço de
+   todo mundo. Esta mexe no VÍNCULO (`/logistica/cliente-produtos/:id`): quanto
+   ESTE cliente leva por entrega, o preço combinado só com ele, em qual porta e
+   se o vínculo está ativo. Confundir as duas é mudar o preço da empresa inteira
+   achando que se acertou o de uma pessoa.
+
+   Sem `<select>` de propósito: esta casca não tem um, e select nativo no WebView
+   é outro app dentro do app. "Escolher um de N" aqui é o que já é em toda a
+   casca — uma LISTA que se toca. */
+T.fichavinculo={nome:'Produto do cliente',grupo:'Cadastro',render(){
+  const f=DADOS.fichavinculo;
+  const temProduto=!!String(f.produto||'').trim();
+  /* O catálogo só aparece enquanto não há produto escolhido. Editando, o produto
+     NÃO troca (o servidor não aceita trocar o productId de um vínculo — é outro
+     vínculo): mostrar a lista ali seria oferecer o que não vai acontecer. */
+  const escolha=(!temProduto&&(f.catalogo||[]).length)?`
+    <div class="grupo" style="margin-top:2px">Qual produto</div>
+    <div class="lista-card">${f.catalogo.map(p=>`<button type="button" class="cli" data-acao="escolher-produto-vinculo" data-produto="${p[0]}">
+      <span class="ava">${ic(p[2]||'box',16)}</span>
+      <span><strong>${p[1]}</strong>${p[3]?`<span>${p[3]}</span>`:''}</span>
+      <span class="rgt"><span class="go">${ic('chev',15)}</span></span></button>`).join('')}</div>`:'';
+  /* O preço por cliente só aparece quando a empresa liga a chave — OU quando
+     este vínculo JÁ tem um preço combinado (senão a tela esconderia um número
+     que está valendo, e o dono nunca saberia por que a entrega sai por 22). */
+  const preco=(f.precoPorCliente||String(f.preco||'').trim())?`<label class="campo"><label>Preço só pra este cliente</label>
+      <input inputmode="decimal" placeholder="R$ 0,00" value="${f.preco}" data-campo="vinculo-preco">
+      ${f.precoDica?`<span class="dica" style="color:var(--ink-2)">${f.precoDica}</span>`:''}</label>`:'';
+  /* A porta só é pergunta pra quem tem mais de uma: com um endereço só, a
+     resposta é óbvia e a fileira seria enfeite. */
+  const porta=(f.locais||[]).length>1?`
+    <div class="grupo">Onde entrega</div>
+    <div class="lista-card">${f.locais.map(l=>`<button type="button" class="cli" data-acao="local-vinculo" data-local="${l[0]}">
+      <span class="ava${String(f.localId||'')===String(l[0])?' lime':''}">${ic('map',16)}</span>
+      <span><strong>${l[1]}</strong>${l[2]?`<span>${l[2]}</span>`:''}</span>
+      <span class="rgt">${String(f.localId||'')===String(l[0])?`<span style="color:var(--lime)">${ic('check',15)}</span>`:`<span class="go">${ic('chev',15)}</span>`}</span></button>`).join('')}</div>`:'';
+  return `${status}
+${hdr({voltar:f.volta||'ficha',semChat:1})}
+<div class="body">
+  <div class="stop-top" style="margin:2px 0 10px;grid-template-columns:auto 1fr auto">
+    <span class="thumb" style="width:52px;height:52px;flex:0 0 52px">${ic(f.ico||'box',26)}</span>
+    <span><strong style="font-size:16px">${temProduto?f.produto:'Novo produto / entrega'}</strong>
+      ${f.cliente?`<span style="font-size:11px;color:var(--ink-2)">${f.cliente}</span>`:''}</span>
+    ${!temProduto?'':`<span class="tag${f.ativo?' lime':''}">${f.ativo?'ativo':'pausado'}</span>`}
+  </div>
+  ${escolha}
+  ${!temProduto?'':`
+  <div class="campos">
+    <label class="campo"><label>Quantidade por entrega</label>
+      <input inputmode="numeric" placeholder="1" value="${f.qtd}" data-campo="vinculo-qtd"></label>
+    ${preco}
+  </div>
+  ${porta}
+  ${/* PAUSAR não é excluir, e a tela diz isso com duas peças diferentes: a chave
+       PAUSA (o vínculo fica, some das próximas rotas) e o botão vermelho REMOVE
+       (o vínculo morre; entregas já geradas continuam intactas). É a mesma
+       distinção que o servidor faz entre PATCH ativo=false e DELETE. */''}
+  <div class="cartao-lista" style="margin-top:9px">
+    <button class="linha-cfg" data-acao="chave-vinculo-ativo"><span class="ico">${ic('route',16)}</span>
+      <span><strong>Entra nas próximas rotas</strong><span>desligado, o produto para de ser gerado</span></span>
+      <span class="chave ${f.ativo?'on':''}"><i></i></span></button>
+  </div>
+  <div class="acts" style="margin-top:12px">
+    ${f.salvando
+      ?`<button class="act go wide ocupado" style="justify-content:center" disabled aria-busy="true">${ic('check',19)}<b>Salvando…</b></button>`
+      :`<button class="act go wide" style="justify-content:center" data-acao="salvar-vinculo">${ic('check',19)}<b>Salvar</b></button>`}
+    ${f.podeRemover?`<button class="act perigo" style="justify-content:center" data-acao="remover-vinculo">${ic('trash',17)}<b>Remover</b></button>`:''}
+  </div>`}
+</div>
+${nav('ajustes')}`;}};
+
 /* 21 — FICHA DO PRODUTO ---------------------------------------------------- */
 T.fichaproduto={nome:'Ficha do produto',grupo:'Cadastro',render(){const f=DADOS.fichaproduto;return `${status}
 ${hdr({voltar:'produtos',semChat:1})}
@@ -5915,13 +6040,67 @@ ${hdr({voltar:f.volta||'clientes',semChat:1})}
     ${ROT.map((r,i)=>dia(r,'',f.dias[i],i+1)).join('')}
   </div>
 
+  ${/* 🔴 A SETA PROMETIA UMA PORTA QUE NÃO EXISTIA (12/08, dono: "atualmente
+       aparecem, mas não são editáveis"). A linha do produto tinha o chevron —
+       o símbolo universal de "abre" — e nenhum `data-acao`; o "Novo produto /
+       entrega" era um botão sem verbo nenhum. É a Lei de 08/08 outra vez:
+       botão desenhado sem `data-acao` é pior que botão ausente.
+       O que abre é o VÍNCULO (este cliente x este produto: quantidade, preço
+       acordado, porta, ativo) — NUNCA a ficha do produto do catálogo, que é
+       outra tela (`fichaproduto`) e mexe no preço de TODO mundo.
+       O gancho nasce do DADO, igual ao `stop()`: sem id de vínculo a linha
+       continua inerte e o mock sai byte a byte igual. */''}
   <div class="grupo">O que leva</div>
   <div class="cartao-lista" style="padding:0 11px">
-    ${f.produtos.map(p=>`<div class="item-linha"><span class="ava" style="width:32px;height:32px">${ic(p[0],16)}</span>
+    ${f.produtos.map(p=>`<div class="item-linha"${p[3]?` data-acao="abrir-vinculo" data-vinculo="${p[3]}"`:''}><span class="ava" style="width:32px;height:32px">${ic(p[0],16)}</span>
       <span><strong>${p[1]}</strong><span>${p[2]}</span></span>
       <span style="color:var(--ink-3)">${ic('chev',15)}</span></div>`).join('')}
   </div>
-  <button class="act full" style="margin-top:7px;justify-content:center">${ic('plus',17)}<b>Novo produto / entrega</b></button>
+  <button class="act full" style="margin-top:7px;justify-content:center" data-acao="novo-vinculo">${ic('plus',17)}<b>Novo produto / entrega</b></button>
+
+  ${/* 🔴 O FINANCEIRO DO CLIENTE VOLTOU PRA FICHA (12/08, ordem do dono: "o
+       módulo Financeiro está ATIVO nos Ajustes; quando essa opção estiver ativa,
+       quero que TODO o financeiro existente do cliente volte para a ficha").
+       Ele existe INTEIRO no servidor (`GET /nucleo/clientes/:id` devolve os
+       campos, `PATCH /logistica/clientes/:id/financeiro` grava) e existia inteiro
+       no app que roda em produção (a seção 3 do editor de cliente, `paymentFields`).
+       O que morreu na fusão foi a SEÇÃO — e sem ela ligar a chave nos Ajustes não
+       fazia nada aparecer aqui.
+       Seção inteira some com o módulo desligado: sem financeiro, dinheiro não
+       aparece em lugar nenhum do app (a mesma regra da folha de chegada).
+       O SALDO é de todo mundo (o motorista precisa saber quanto o cliente deve
+       antes de bater na porta); a EDIÇÃO é do dono — o PATCH é ADMIN-only no
+       servidor, e desenhar campo que volta 403 é o botão morto que esta ficha já
+       matou uma vez no Excluir. */''}
+  ${f.financeiro?`
+  <div class="grupo">Financeiro</div>
+  ${f.saldo?`<div class="box"><div class="rowline" style="padding-top:2px"><span>Em aberto</span>
+    <b style="color:var(--amber)">${f.saldo}</b></div>
+    ${f.limiteLido?`<div class="rowline"><span>Limite de fiado</span><b>${f.limiteLido}</b></div>`:''}</div>`:''}
+  ${!f.financeiroEdita?'':`
+  ${(f.formas||[]).length?`<div class="modos${(f.formas||[]).length>3?' fino':''}">
+    ${f.formas.map(m=>`<button class="modo${f.forma===m[0]?' on':''}" data-acao="forma-cliente" data-forma="${m[0]}"><b>${m[1]}</b></button>`).join('')}</div>`:''}
+  <div class="campos" style="margin-top:8px">
+    ${f.forma==='na_hora'?`<label class="campo"><label>Recebe por</label>
+      <div class="modos" style="margin-top:0">
+        <button class="modo${f.metodo==='pix'?' on':''}" data-acao="metodo-cliente" data-metodo="pix"><b>Pix</b></button>
+        <button class="modo${f.metodo==='dinheiro'?' on':''}" data-acao="metodo-cliente" data-metodo="dinheiro"><b>Dinheiro</b></button>
+      </div></label>`:''}
+    ${f.forma==='mensal'
+      ?`<div class="dupla">
+        <label class="campo"><label>Dia de pagamento</label><input inputmode="numeric" placeholder="1 a 31" value="${f.diaFechamento}" data-campo="dia-fechamento"></label>
+        <label class="campo"><label>Limite de fiado</label><input inputmode="decimal" placeholder="sem limite" value="${f.limite}" data-campo="limite-fiado"></label>
+      </div>`
+      :`<label class="campo"><label>Limite de fiado</label><input inputmode="decimal" placeholder="sem limite" value="${f.limite}" data-campo="limite-fiado"></label>`}
+  </div>
+  <div class="cartao-lista" style="margin-top:7px">
+    <button class="linha-cfg" data-acao="chave-contabilizar"><span class="ico">${ic('wallet',16)}</span>
+      <span><strong>Contabilizar</strong><span>entra no financeiro da empresa</span></span>
+      <span class="chave ${f.contabilizar?'on':''}"><i></i></span></button>
+    <button class="linha-cfg" data-acao="chave-avisar-cobranca"><span class="ico">${ic('chat',16)}</span>
+      <span><strong>Avisar cobrança</strong><span>mensagem quando fica em aberto</span></span>
+      <span class="chave ${f.avisarCobranca?'on':''}"><i></i></span></button>
+  </div>`}`:''}
 
   <!-- 🔴 O EXCLUIR PROMETIA E NÃO CUMPRIA (medido no aparelho em 08/08): ele era
        data-superficie="confirmar", a confirmação DECORATIVA da maquete — na
@@ -6188,7 +6367,7 @@ ${nav('ajustes')}`;}};
    ========================================================================== */
 const ORDEM=['entrada','saida','rota','rotalista','mapa','mapachegou','mapalista','gerenciador','montagem','conferencia',
              'venda','folha','folhanao','rapida','salvas','fechamento','terminou','semana','clientes','novocliente','ficha','produtos',
-             'fichaproduto','chat','ajustes','creditos','financeiro','avancado','sons','historico',
+             'fichavinculo','fichaproduto','chat','ajustes','creditos','financeiro','avancado','sons','historico',
              'passeio','portoes'];
 const GRUPOS=['Sistema','Rota','Fechamento','Cadastro','Ajustes'];
 let atual='entrada';

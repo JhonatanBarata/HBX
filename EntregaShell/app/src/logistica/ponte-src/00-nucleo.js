@@ -638,6 +638,35 @@
     if (status === 'em_rota') return ['A caminho', 'blue', 'nav'];
     return ['Pendente', 'mute', 'clock'];
   }
+  /* 🔴 A PÍLULA SÓ FALA QUANDO HÁ DESFECHO (12/08, ordem do dono sobre a
+     Montagem: *"esse campo não deveria representar o status atual da parada.
+     Ele deve representar histórico do cliente"*).
+
+     Na ROTA a pílula continua inteira — lá a linha É uma entrega de hoje, e
+     "Pendente" é a notícia. Na MONTAGEM a linha é um CLIENTE do dia: antes de
+     montar, TODO mundo é "Pendente", e uma coluna inteira repetindo a mesma
+     palavra não informa nada — foi exatamente o que o dono viu na foto.
+     O que fica ali é o ÚLTIMO REGISTRO dele (abaixo); a pílula reaparece assim
+     que existe desfecho de verdade, que é quando ela volta a ser notícia — e
+     com isso a ordem de 09/08 ("os botões do status não estão aparecendo" na
+     rota já montada) continua valendo, sem exceção escrita à mão. */
+  function pilulaDeDesfecho(statusCru) {
+    const status = String(statusCru || '');
+    if (status === 'entregue' || status === 'cancelada' || status === 'em_rota') return pilulaDaParada(status);
+    return null;
+  }
+
+  /* 🔴 ÚLTIMO REGISTRO = A ÚLTIMA ENTREGA CONCLUÍDA DAQUELE CLIENTE (12/08).
+     A data vem PRONTA do servidor (`ultimaEntregaAt`, régua única em
+     `logistica-ultima-entrega.util`: status `entregue` + `deliveredAt`), nunca
+     de uma conta desta tela — derivar "quando foi a última vez" do status da
+     parada de hoje era justamente o defeito.
+     Sem registro nenhum a palavra é "Pendente": é o que a tela já dizia, e é
+     honesto — cliente novo não tem histórico. Data inventada aqui poria na mão
+     do motorista uma visita que nunca aconteceu. */
+  const ROTULO_ULTIMO_REGISTRO = 'Ult. Registro';
+  const ultimoRegistro = (iso) => [ROTULO_ULTIMO_REGISTRO, diaCurto(iso) || 'Pendente'];
+
   /** o tom do NÚMERO da parada — o par visual da pílula acima */
   function corDaParada(statusCru) {
     const status = String(statusCru || '');

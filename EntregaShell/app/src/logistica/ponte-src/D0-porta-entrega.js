@@ -399,6 +399,21 @@
     'salvar-cliente': salvarCliente,
     'excluir-cliente': excluirCliente,
     'salvar-produto': salvarProduto,
+    /* O VÍNCULO CLIENTE × PRODUTO (12/08) — a ficha voltou a ADMINISTRAR o que
+       o cliente leva, e não só a listar. Nada de endpoint novo: POST/PATCH/
+       DELETE de `/logistica/cliente-produtos` já existiam e já estavam na
+       allowlist do Kotlin; o que faltava era alguém bater na porta. */
+    'novo-vinculo': novoVinculo,
+    'salvar-vinculo': salvarVinculo,
+    'remover-vinculo': removerVinculo,
+    'remover-vinculo-agora': removerVinculoAgora,
+    'chave-vinculo-ativo': virarChaveDoVinculo,
+    /* As DUAS chaves do Financeiro da ficha. Elas mexem na MEMÓRIA e o Salvar
+       grava — ver `mexerFinanceiro`: nesta tela o dono mexe em nome, endereço,
+       dia, produto e dinheiro e aperta UM botão; chave que gravasse no toque
+       faria metade da ficha obedecer o Voltar e a outra metade não. */
+    'chave-contabilizar': () => mexerFinanceiro({ contabilizar: !(ficha && ficha.fin && ficha.fin.contabilizar) }),
+    'chave-avisar-cobranca': () => mexerFinanceiro({ avisarCobranca: !(ficha && ficha.fin && ficha.fin.avisarCobranca) }),
     // o "+" do cabeçalho: cadastrar cliente na porta
     'usar-meu-local': usarMeuLocal,
     // o GPS da FICHA (10/08): mesmo motor, cliente que já existe
@@ -592,6 +607,16 @@
     // cadastro e perder o dia que estava arrumando.
     if (chave === 'abrir-cliente') return abrirCliente(alvo.dataset.cliente, telaAtual());
     if (chave === 'abrir-produto') return abrirProduto(alvo.dataset.produto);
+    /* 🔴 DUAS PORTAS PARECIDAS QUE NÃO PODEM SE MISTURAR (12/08). `abrir-produto`
+       leva ao CATÁLOGO (preço de todo mundo); `abrir-vinculo` leva ao que ESTE
+       cliente leva. Confundi-las é mudar o preço da empresa achando que se
+       acertou o de uma pessoa — por isso são dois nomes, nunca um com "modo". */
+    if (chave === 'abrir-vinculo') return abrirVinculo(alvo.dataset.vinculo);
+    if (chave === 'escolher-produto-vinculo') return escolherProdutoDoVinculo(alvo.dataset.produto);
+    if (chave === 'local-vinculo') return escolherLocalDoVinculo(alvo.dataset.local);
+    // Os dois chips do Financeiro da ficha: mexem na memória, o Salvar grava.
+    if (chave === 'forma-cliente') return mexerFinanceiro({ forma: String(alvo.dataset.forma || 'na_hora') });
+    if (chave === 'metodo-cliente') return mexerFinanceiro({ metodo: String(alvo.dataset.metodo || '') });
     if (chave === 'abrir-salva') return abrirSalva(alvo.dataset.salva);
     if (chave === 'abrir-empresa') return acenderEmpresa(alvo.dataset.empresa);
     if (chave === 'pacote') return escolherPacote(alvo.dataset.pacote);

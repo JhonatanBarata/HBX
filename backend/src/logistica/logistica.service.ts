@@ -36,6 +36,7 @@ import {
 import { sourceDateFromOccurrenceKey, saoPauloMidnight } from './logistica-agenda-cursor.util';
 import { nextOccurrenceDate } from './logistica-agenda.service';
 import { saoPauloDateKey } from './logistica-dia.util';
+import { isoDaUltimaEntrega, ultimaEntregaPorCliente } from './logistica-ultima-entrega.util';
 import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
 // F3 (27/07) — {eta} no aviso de chegada (minutos até chegar, do etaAt).
 import { formatEtaMinutos } from './logistica-tracking-public.util';
@@ -386,6 +387,24 @@ export class LogisticaService {
       }
     }
 
+    /* 🔴 O ÚLTIMO REGISTRO DO CLIENTE (12/08, ordem do dono) — a data da última
+       entrega CONCLUÍDA. NÃO é gateado por financeiro: "quando eu estive aqui
+       pela última vez" é operação, não dinheiro (a mesma régua do `observacoes`
+       logo abaixo). Vem daqui pra que a PARADA AVULSA, que entra na lista da
+       Montagem por esta porta, escreva a mesma data que a agenda escreve —
+       régua única em `logistica-ultima-entrega.util`.
+       Best-effort: falha aqui nunca derruba a rota, o cartão só fica sem o dado. */
+    let ultimaEntregaPorClienteMap = new Map<string, Date>();
+    try {
+      ultimaEntregaPorClienteMap = await ultimaEntregaPorCliente(
+        this.prisma,
+        companyId,
+        Array.from(new Set(rows.map((r) => r.customerProfile.id))),
+      );
+    } catch (e: any) {
+      this.logger.warn(`[logistica] listRota ultimaEntrega company=${companyId} falhou: ${String(e?.message || e)}`);
+    }
+
     // PR27072026 F2 — PARADA AMARELA DE DEVEDOR: mesmo gate de moduloFinanceiroAtivoConfig
     // acima (sem financeiro real não existe "devedor"). resolverDevedorNaRota já
     // resolve NORMAL sozinho fora do Advanced+ — chamar sempre é seguro, só evitamos
@@ -619,6 +638,8 @@ export class LogisticaService {
           // PR18072026 W1 — observação livre sobre o cliente (operacional, sempre
           // visível — não gateado por billingAudience).
           observacoes: r.customerProfile.observacoes ?? null,
+          // 12/08 — "Ult. Registro" do cartão: ISO ou null, nunca data chutada.
+          ultimaEntregaAt: isoDaUltimaEntrega(ultimaEntregaPorClienteMap.get(r.customerProfile.id)),
           // PR18072026 W1 (coordenador) — DUAS exposições ADITIVAS gateadas por
           // moduloFinanceiroAtivoConfig (o valor REAL da config, independente do
           // ator) — NÃO por billingAudience: o entregador comum (sem cobrança)
@@ -3761,6 +3782,10 @@ export interface RotaCliente {
   phone: string | null;
   // PR18072026 W1 — observação livre sobre o cliente (operacional, sempre visível).
   observacoes?: string | null;
+  /* 12/08 — "Ult. Registro": ISO da última entrega CONCLUÍDA deste cliente, ou
+     null quando nunca houve. Operacional (não gateado por financeiro) — é a
+     resposta a "quando eu estive aqui pela última vez". */
+  ultimaEntregaAt?: string | null;
   formaPagamento?: string;
   metodoPadrao?: string | null;
   // F1 — "quanto me deve" (charges pending da logística + mensal a fechar) e o
