@@ -82,6 +82,10 @@ spark:'<path d="M12 4l1.6 4.7L18 10.3l-4.4 1.6L12 16.6l-1.6-4.7L6 10.3l4.4-1.6L1
    aula desta tela ainda não foi vista, e fica só de contorno depois. Ícone que
    explica o próprio estado dispensa legenda. */
 bulb:'<path d="M9.2 16.6a6.2 6.2 0 1 1 5.6 0v1.6H9.2v-1.6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.9 20.6h4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+/* A LOJA — o grupo dos comércios da RFB no painel da busca avulsa. O toldo diz
+   "isto é um ponto de comércio" sem precisar de legenda, e é o único selo dos
+   três que o dicionário não tinha (cliente é `users`, rua é `map`). */
+store:'<path d="M4.2 9.6h15.6v9.2a1.6 1.6 0 0 1-1.6 1.6H5.8a1.6 1.6 0 0 1-1.6-1.6V9.6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3.2 9.6 5 4.4h14l1.8 5.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.6 20.4v-5.2h4.8v5.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
 };
 /* Traço FINO: os ícones nasceram em 1,7–2,6 (grosso demais ao lado de texto
    leve). Aqui o traço é afinado num ponto só — 0,72 do original — em vez de
@@ -534,11 +538,16 @@ const DADOS={
   mapa:{
     chip:'Empresas por perto',
     empresas:[
+      /* AS DUAS CORES DO DESENHO (12/08): o salão e a auto peças são o AMBIENTE
+         (azuis, mudos — o corredor traz todo mundo). As três de baixo são do
+         TIPO da semana (`escolhida`), e por isso são as únicas que podem acender
+         e digitar o nome. É a cena que o dono decidiu: a rua tem mundo, mas só
+         fala com você quem você escolheu ouvir. */
       {nome:'Salão Bela Vista',   x:'30%', y:'38%', esc:.66},
       {nome:'Auto Peças Central', x:'61%', y:'31%', esc:.58},
-      {nome:'Mercado São Judas',  x:'78%', y:'49%', esc:1.12, ordem:[0,3,1,5,2,4], atraso:'.6s',   aceso:true},
-      {nome:'Padaria Avenida',    x:'22%', y:'57%', esc:.88,  ordem:[2,0,4,1,5,3], atraso:'2.1s',  aceso:true},
-      {nome:'Restaurante Sabor',  x:'74%', y:'68%', esc:1,    ordem:[1,2,5,0,4,3], atraso:'3.55s', aceso:true},
+      {nome:'Mercado São Judas',  x:'78%', y:'49%', esc:1.12, ordem:[0,3,1,5,2,4], atraso:'.6s',   escolhida:true, aceso:true},
+      {nome:'Padaria Avenida',    x:'22%', y:'57%', esc:.88,  ordem:[2,0,4,1,5,3], atraso:'2.1s',  escolhida:true, aceso:true},
+      {nome:'Restaurante Sabor',  x:'74%', y:'68%', esc:1,    ordem:[1,2,5,0,4,3], atraso:'3.55s', escolhida:true, aceso:true},
     ],
   },
   /* L3b — O CROMO DA NAVEGAÇÃO. Tudo o que estava CRAVADO no template do GPS
@@ -715,8 +724,14 @@ const DADOS={
        `cadastro` é a que o mercado tem primeiro (Circuit, Route4Em, Onfleet):
        a rota é uma LISTA que se compõe, e a 1ª fonte da lista é a sua base. */
     // (Circuit, Route4Me, Onfleet — todas abrem pela lista, não pelo endereço.)
-    porta:'cadastro',    // 'cadastro' | 'endereco'
-    busca:'',            // o que o dedo escreveu — devolvido a cada repinte
+    /* 🔴 AQUI O DESENHO ABRE NO PAINEL, O APARELHO ABRE NA LISTA — de propósito.
+       No aparelho quem manda é `rapidaEmBranco` (ponte), que publica
+       `porta:'cadastro'`: a porta padrão continua sendo a base do dono. Este
+       'endereco' é o estado da MAQUETE, pra que o painel da busca seja a tela
+       que o mock mostra — e, com isso, a tela que o portão de pixel confere.
+       Desenho que só existe atrás de um toque é desenho que ninguém mede. */
+    porta:'endereco',    // 'cadastro' | 'endereco'
+    busca:'bar do ze',   // o que o dedo escreveu — devolvido a cada repinte
     buscando:0, salvando:0,
     opcoes:[],           // [{titulo, detalhe, dist}] — as portas parecidas
     achado:null,         // {titulo, detalhe, quem} — a porta escolhida
@@ -730,6 +745,42 @@ const DADOS={
        bandeiras próprias, e não as do `buscando` da busca de endereço: uma
        porta no chão não pode apagar a outra (a escada do `mioloDe`). */
     buscaCliente:'', listaCarregando:0, listaSemFonte:0,
+    /* ---- O PAINEL DA BUSCA (F2, `docs/mockups/pesquisa-avulsa-v2.html`) ----
+       UMA busca, TRÊS fontes, todas do nosso banco: `GET /logistica/busca`
+       devolve clientes (fuzzy), ruas do Censo e comércios da RFB, já
+       ranqueados pela distância do GPS. Aqui é só o DESENHO com dado de
+       demonstração — quem enche no aparelho é a ponte, e ela escreve DIRETO
+       no rolo a cada tecla (§ `roloDaBuscaAvulsa`), sem repintar a camada. */
+    recentes:['Bar do Zé','Rua 8','Márcia'],   // as 6 últimas ESCOLHAS (do aparelho)
+    /* 🔴 A DICA É TEXTO FIXO, e o "Procurando…" mora DENTRO do rolo. Pôr o
+       estado do pedido numa peça de FORA do rolo obrigaria a passar pelo seam a
+       cada tecla — que é exatamente o repinte que este painel existe pra não
+       ter. Quem não achou nada AINDA não diz "não existe": diz "procurando". */
+    semNada:0,           // respondeu e não achou nada (≠ ainda não perguntei)
+    grupos:{
+      clientes:[
+        {titulo:'Marcos Bar do Zé',detalhe:'Av. 8, 402 · Centro · cliente desde 03/26',dist:'350 m',fonte:'cliente'},
+      ],
+      enderecos:[
+        {titulo:'Rua 8',detalhe:'Centro · 214 portas no Censo',dist:'400 m',fonte:'censo',cep:'13500-100'},
+      ],
+      comercios:[
+        {titulo:'Bar do Zé',detalhe:'Av. 8, 415 · Centro',dist:'350 m',fonte:'rfb'},
+        {titulo:'Bar do Zé Bebidas',detalhe:'Rua 21, 780 · Cervezão',dist:'2,1 km',fonte:'rfb'},
+        {titulo:'Bar do Zé',detalhe:'Piracicaba · Rua do Porto',dist:'34,0 km',fonte:'rfb'},
+      ],
+    },
+    /* O DEGRAU DO NÚMERO. Só a rua escolhida abre o dele — e um por vez: duas
+       perguntas de número abertas na mesma tela é o formulário de seis campos
+       que esta tela existe pra não ser. */
+    numAberto:-1,        // índice da rua com o degrau aberto (-1 = nenhum)
+    numValor:'', numSn:0,
+    colar:'',            // texto colado que é link do Maps/coordenada (cartão próprio)
+    /* O PÉ SÓ NASCE COM ESCOLHA FEITA — {tipo, i, titulo, dist, cep}. Botão
+       verde sem nada escolhido seria toque mudo, a doença que esta tela
+       persegue. (`tipo`+`i` também MARCAM o cartão escolhido lá em cima: o pé
+       e o cartão falam da mesma parada, e a tela mostra qual.) */
+    pe:{tipo:'loja',i:0,titulo:'Bar do Zé',dist:'350 m',cep:'13500-100'},
     escolhidos:[],       // ids marcados — o que vai virar parada num toque só
     clientes:[
       {id:'c1',ini:'LY',nome:'Larissa Ypê',endereco:'Rua 3a, 1354 · Jd. Ypê'},
@@ -814,16 +865,23 @@ const DADOS={
     estoqueDica:'do controle de estoque',
   },
   /* L8 — CHAT COM A CENTRAL. `recado` vazio esconde o cartão do portão (não há
-     nada a confirmar). `conversa` é [lado, texto, hora] — lado 'deles' ou
-     'minha'. `sino` é o contador do cabeçalho, um só pra TODAS as telas. */
+     nada a confirmar). `conversa` é [lado, texto, hora, anexo] — lado 'deles' ou
+     'minha'. `sino` é o contador do cabeçalho, um só pra TODAS as telas.
+
+     O 4º slot é o ANEXO (12/08): a parada ou a rota salva que a Central grudou
+     no texto. Ausente = mensagem de sempre, e é assim que 99% das linhas ficam.
+     `encaixar:1` é "existe rota ativa" — quem responde isso é a ponte. */
   chat:{
     recado:'Passa no Mercado Estrela antes das 11h', recadoTitulo:'Recado da Central',
     conversa:[
       ['deles','Bom dia! A Larissa remarcou pra quinta.','08:12'],
       ['minha','Beleza, tirei da rota.','08:14'],
-      ['deles','Passa no Mercado Estrela antes das 11h, eles fecham pro almoço.','09:03'],
+      ['deles','Passa no Mercado Estrela antes das 11h, eles fecham pro almoço.','09:03',
+        {id:'a1',tipo:'parada',nome:'Mercado Estrela',detalhe:'R. das Orquídeas, 55',estado:'pendente',encaixar:1}],
       ['minha','Tô a 2 paradas.','09:05'],
-      ['deles','Show. Qualquer coisa me chama.','09:06'],
+      ['deles','Se der, pega a rota da quarta depois do almoço.','09:06',
+        {id:'a2',tipo:'rota',nome:'Quarta Centro',detalhe:'6 paradas',estado:'encaixada',encaixar:1}],
+      ['deles','Show. Qualquer coisa me chama.','09:08'],
     ],
     sino:2, vazio:'',
   },
@@ -856,6 +914,28 @@ const DADOS={
        `prospector` é estar ligada. São dois, e não um, pelo mesmo motivo do
        `admin`: chave que a empresa não pode ter não vira linha na tela. */
     prospector:0, prospectorDisponivel:1,
+    /* PROSPECTOR v2 (12/08) — o que a PESSOA escolheu pra ESTA semana. A linha
+       dos Ajustes deixa de ser uma chave liga/desliga e passa a mostrar a
+       ESCOLHA ("Prospector · Mercados"), porque é ela que manda de verdade:
+       chave ligada sem escolha é prospector mudo, e uma chave que diz "ligado"
+       com a rua toda azul seria a tela mentindo. Vazio = ninguém escolheu. */
+    prospectorTipo:'',
+  },
+  /* A FOLHA DA ESCOLHA (PROSPECTOR v2, 12/08). `tipos` vem do SERVIDOR (a
+     curadoria mora lá, em logistica-prospector-tipos.ts) — a tela não tem uma
+     segunda cópia da lista, senão as duas divergem no primeiro ajuste. */
+  prospectortipo:{
+    tipo:'mercado',
+    tipos:[
+      {slug:'mercado',rotulo:'Mercados e mercearias'},
+      {slug:'restaurante',rotulo:'Restaurantes e lanchonetes'},
+      {slug:'bar',rotulo:'Bares'},
+      {slug:'padaria',rotulo:'Padarias e confeitarias'},
+      {slug:'farmacia',rotulo:'Farmácias e drogarias'},
+      {slug:'salao',rotulo:'Salões e barbearias'},
+      {slug:'oficina',rotulo:'Oficinas e autopeças'},
+      {slug:'construcao',rotulo:'Materiais de construção'},
+    ],
   },
   /* O TUTOR. Quem escreve é a ponte, no boot; o motor só LÊ.
      🔴 AUSENTE ≠ VAZIO, e aqui isso é o coração da coisa: enquanto
@@ -1586,7 +1666,13 @@ function empresasChao(){
     const nome=e.nome||'';
     const gancho=e.id?` data-acao="abrir-empresa" data-empresa="${e.id}"`:'';
     const geo=(e.lat!=null&&e.lng!=null)?` data-lat="${e.lat}" data-lng="${e.lng}" data-dist="${e.distM||0}"`:'';
-    return `<div class="emp no-ar${e.aceso?' on':''}"${gancho}${geo}
+    /* 🔴 A COR VEM DO SERVIDOR, NUNCA DA TELA (PROSPECTOR v2, 12/08). `escolhida`
+       é o CNAE da empresa batendo no TIPO que a pessoa escolheu pra semana — e
+       essa pergunta se responde no backend, com a curadoria na mão. A tela só
+       veste a classe. E o `on` só sai JUNTO com o `escolhida`: azul é ambiente,
+       e ambiente não fala (a ponte defende de novo em `vestirFase`). */
+    const verde=e.escolhida?' escolhida':'';
+    return `<div class="emp no-ar${verde}${e.aceso&&e.escolhida?' on':''}"${gancho}${geo}
       style="--x:${e.x||'50%'};--y:${e.y||'50%'};--esc:${e.esc||1};--n:${nome.length||1};--atraso:${e.atraso||'0s'}">
       <span class="emp-obj">${svgPredio(e.ordem)}</span>
       <span class="emp-rotulo">
@@ -1698,6 +1784,15 @@ function telaGps(chegou){
          a ponte (classe "on") quando pede caminho novo fora do traçado, e quem
          o apaga é a resposta — ou o teto de 4 s dela, o que vier antes. -->
     <div class="gps-redir">Redirecionando…</div>
+
+    <!-- O AVISO DE RADAR: mesmo contrato do selo acima — nó permanente, inerte,
+         apagado. A ponte acende a classe "on" quando existe radar no corredor
+         da rota À FRENTE do motorista, escreve o limite em ".lim" (vazio quando
+         a fonte não tem limite) e apaga quando ele fica para tras. Nada disto
+         passa pelo seam: aviso que muda a cada fix repintaria a camada do mapa
+         uma vez por segundo. (Sem CRASE aqui dentro: este comentario mora num
+         template literal e a crase o fecharia.) -->
+    <div class="gps-radar"><b class="lim"></b><span class="txt">Radar</span></div>
 
     <!-- eu: no centro da largura, com a cauda pousada no --gps-piso (o mesmo
          chão do velocímetro e dos botões). A tela é a rua À FRENTE. -->
@@ -2695,11 +2790,54 @@ T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){const a=DADOS.a
           expirou". Grupo próprio porque não é cobrança nem aviso: é uma FONTE
           DE CLIENTE. O nome carrega a consequência inteira, sem linha de
           explicação embaixo — mesma régua das 6 de cima. */''}
+    ${/* 🔴 A CHAVE VIROU DUAS LINHAS (PROSPECTOR v2, 12/08), e a de baixo é a
+          que manda. A chave de cima continua sendo a da EMPRESA (opt-in do
+          admin, um campo, um PATCH). A de baixo é a da PESSOA: o que ELA quer
+          caçar nesta semana. Sem escolha, o prospector fica mudo mesmo com a
+          chave ligada — então a linha diz "Escolher" em vez de fingir que
+          ligado basta. Ela só existe com a chave ligada, porque escolher tipo
+          numa empresa que não tem o recurso é decisão sem consequência. */''}
     ${a.prospectorDisponivel?`<div class="grupo">Vender no caminho</div>
     <div class="cartao-lista">
       ${ch('sales','Prospector — empresas no caminho',a.prospector,'chave-prospector')}
+      ${a.prospector?`<button class="linha-cfg" data-acao="abrir-prospector-tipo"><span class="ico">${ic('sales',16)}</span>
+        <span><strong>${a.prospectorTipo?`Procurando: ${a.prospectorTipo}`:'Escolher o que procurar'}</strong></span>
+        <span style="color:var(--ink-3)">${ic('chev',15)}</span></button>`:''}
     </div>`:''}`));
 }};
+
+/* 19b — PROSPECTOR: O QUE TE INTERESSA ESTA SEMANA (12/08) -----------------
+   FOLHA, não tela cheia: é uma decisão de UM toque em cima do Avançado, e a
+   folha é a peça que o app já usa pra isso (mesma família do "Histórico da
+   semana"). A entrada desliza pelo `.tela.entra .sheet` que já existe — regra
+   de ENTRADA que cita `.entra`, que é o que impede a folha de subir de novo a
+   cada toque de chip (o defeito do APK 267, `prova-folha-sobe-uma-vez`).
+
+   COPY MÍNIMA de propósito: a pergunta, os chips e o Desligar. Sem parágrafo
+   explicando o que é prospector — quem chegou aqui já ligou a chave de cima. */
+T.prospectortipo={nome:'Prospector · o que procurar',grupo:'Ajustes',render(){
+  const d=DADOS.prospectortipo||{};
+  const tipos=Array.isArray(d.tipos)?d.tipos:[];
+  return `${status}
+${hdr({voltar:'avancado',semChat:1})}
+<div class="body" style="opacity:.4;pointer-events:none"><h1 class="tela-tit">Avançado</h1></div>
+<div class="scrim"></div>
+<div class="sheet" style="max-height:76%">
+  <span class="handle"></span>
+  <div class="sheet-head">
+    <div><h2>O que te interessa esta semana?</h2><p>Só o que você escolher aparece aceso na rua.</p></div>
+    <button class="round sm" data-voltar="1" data-ir="avancado">${ic('close',16)}</button></div>
+  ${/* Lista VAZIA não vira tela vazia calada: sem os tipos (a porta não
+        respondeu) a folha diz o que houve e oferece a saída. */''}
+  ${tipos.length?`<div class="chips centro" style="flex-wrap:wrap;overflow:visible">
+    ${tipos.map(t=>`<button class="chip${d.tipo===t.slug?' on':''}" data-acao="prospector-tipo" data-tipo="${t.slug}">${t.rotulo}</button>`).join('')}
+  </div>
+  ${d.tipo?`<div style="margin-top:14px"><button class="linha-cfg" data-acao="prospector-desligar" style="border-radius:13px;background:var(--card);border:.7px solid var(--line)">
+    <span class="ico">${ic('close',16)}</span><span><strong>Desligar esta semana</strong></span><span></span></button></div>`:''}`
+  :`<div class="box"><div class="box-t">Não consegui carregar os tipos</div>
+    <div class="box-s">Toque em Fechar e abra de novo.</div></div>`}
+</div>
+${nav('ajustes')}`;}};
 
 T.sons={nome:'Ajustes · Sons',grupo:'Ajustes',render(){
   const linha=(t,s,on)=>`<button class="linha-cfg"><span class="ico">${ic('volume',16)}</span>
@@ -2768,6 +2906,107 @@ T.historico={nome:'Ajustes · Histórico',grupo:'Ajustes',render(){
    "Rota rápida" do app antigo e o título mentia a função. ROTA avulsa é o
    ESTADO da Montagem sem dia aceso (chip desligado); esta tela é só a porta de
    pôr gente/endereço na rota da vez — em qualquer modo. */
+/* ==== O PAINEL DA BUSCA (F2 do PR12082026) ================================
+   🔴 O ROLO É UMA FUNÇÃO SÓ, E ISSO É ARQUITETURA, NÃO ARRUMAÇÃO. A ponte
+   REESCREVE ESTE NÓ a cada tecla, sem passar pelo seam — a mesma divisão que o
+   velocímetro já tinha ("o DADO passa pelo seam; o que muda a cada quadro,
+   NÃO"), porque `usarDados` remonta a camada inteira e uma camada nova por
+   letra digitada é a tela piscando na mão de quem está em pé na calçada.
+   Se o desenho tivesse duas cópias — uma aqui, outra na ponte — a primeira
+   mexida faria o aparelho parar de ser o mock. Tem uma só, e é esta.
+
+   Por isso também NÃO EXISTE `animation:` nas regras `.avb-*`: elas nascem de
+   repinte, e repinte não "entra" (a lei do `.tela.entra`). */
+
+/* dobra acento e caixa SEM MUDAR O TAMANHO da string — o índice tem que
+   continuar valendo no texto original, senão o grifo cai no lugar errado. */
+const AVB_COM='áàâãäéèêëíìîïóòôõöúùûüçñÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ';
+const AVB_SEM='aaaaaeeeeiiiiooooouuuucnaaaaaeeeeiiiiooooouuuucn';
+const dobrarBusca=s=>String(s==null?'':s).toLowerCase().split('').map(c=>{
+  const i=AVB_COM.indexOf(c);return i<0?c:AVB_SEM[i];}).join('');
+/* 🔴 O GRIFO É DO TRECHO QUE CASOU, e ele é a resposta visual à pergunta "por
+   que este resultado está aqui?". Sem ele, "Mracia" trazendo "Márcia" parece
+   defeito. Some quando o casamento foi por erro de digitação (não há trecho
+   igual pra grifar) — e some CALADO, que é o certo: o cartão vale por si. */
+function grifarBusca(txt,q){
+  const t=String(txt==null?'':txt); const alvo=String(q||'').trim();
+  if(!alvo) return t;
+  const i=dobrarBusca(t).indexOf(dobrarBusca(alvo));
+  if(i<0) return t;
+  return t.slice(0,i)+'<mark>'+t.slice(i,i+alvo.length)+'</mark>'+t.slice(i+alvo.length);
+}
+/* um cartão do painel. `tipo` é a chave do grupo (cli/rua/loja) e viaja no
+   `data-` porque é ele que a ponte usa pra achar o item cru de volta. */
+function cartaoDaBusca(x,tipo,i,q,glifo,selo,marcado){
+  return `<button type="button" class="rowcard avb-item${marcado?' on':''}"
+    data-acao="busca-escolher" data-tipo="${tipo}" data-i="${i}">
+    <span class="ico${selo?' '+selo:''}">${ic(glifo,18)}</span>
+    <span><strong>${grifarBusca(x.titulo,q)}</strong>${x.detalhe?`<span>${x.detalhe}</span>`:''}</span>
+    <span class="rgt">${x.dist?`<b>${x.dist}</b>`:''}${x.fonte?`<small>${x.fonte}</small>`:''}</span>
+  </button>`;
+}
+/* O DEGRAU DO NÚMERO. Rua não é parada: "Rua 8" sozinha é 214 portas. Aqui a
+   pessoa diz o número (ou diz que NÃO TEM — metade do interior é S/N) e o
+   Censo devolve o pino da porta com o CEP junto. */
+function numeroDaBusca(x,i,d){
+  if(d.numAberto!==i) return '';
+  const sn=!!d.numSn;
+  return `<div class="avb-num">
+    <p>Qual o número na <b>${x.titulo}</b>?${x.cep?` <span style="color:var(--ink-3)">o Censo dá o pino da porta e o CEP ${x.cep}</span>`:''}</p>
+    <div class="fila">
+      <input data-campo="busca-numero" inputmode="numeric" enterkeyhint="done" autocomplete="off"
+        placeholder="nº" value="${sn?'S/N':d.numValor}"${sn?' disabled':''}>
+      <button type="button" class="chip${sn?' on':''}" data-acao="busca-sn">S/N</button>
+      <button type="button" class="act go" data-acao="busca-usar-rua"><b>Usar</b></button>
+    </div>
+  </div>`;
+}
+function roloDaBuscaAvulsa(d){
+  const q=String(d.busca||'');
+  /* NADA ESCRITO = a pergunta, mais os atalhos. Os recentes são as 6 últimas
+     ESCOLHAS (não as últimas digitações): repetir a parada de ontem é o gesto
+     mais comum de quem entrega, e ele merece um toque, não onze letras. */
+  if(!q){
+    const recs=(d.recentes||[]).slice(0,6);
+    return `${recs.length?`<div class="chips avb-recentes">${recs.map(r=>
+      `<button type="button" class="chip" data-acao="busca-recente" data-rec="${r}">${ic('clock',12)} ${r}</button>`).join('')}</div>`:''}
+    <div class="vazio"><span class="ico">${ic('search',24)}</span>
+      <strong>Pra onde vai a parada?</strong>
+      <span>Nome do cliente, rua com número, comércio,<br>CEP ou link do Maps.</span></div>`;
+  }
+  /* 🔴 O LINK DO MAPS NÃO ENTRA NO FLUXO POR TECLA — ele vira um CARTÃO. O que
+     a pessoa colou não se procura em banco nenhum: já é um ponto. O caminho
+     antigo (`/logistica/geo/link`, que segue o redirecionamento do link curto)
+     continua inteiro, só que agora atrás de um toque explícito, e não de uma
+     regex decidindo em silêncio o que fazer com o que foi digitado. */
+  const colar=d.colar?`<div class="avb-grupo">Localização colada</div>
+    <button type="button" class="rowcard avb-item" data-acao="busca-colar">
+      <span class="ico lime">${ic('target',18)}</span>
+      <span><strong>${d.colar}</strong><span>abrir este ponto e usar como parada</span></span>
+      <span class="rgt"><small>colado</small></span></button>`:'';
+  const g=d.grupos||{};
+  const bloco=(titulo,itens,tipo,glifo,selo)=>{
+    const lista=Array.isArray(itens)?itens:[];
+    if(!lista.length) return '';
+    return `<div class="avb-grupo">${titulo} <em>${lista.length}</em></div>`
+      +lista.map((x,i)=>cartaoDaBusca(x,tipo,i,q,glifo,selo,d.pe&&d.pe.tipo===tipo&&d.pe.i===i)
+        +(tipo==='rua'?numeroDaBusca(x,i,d):'')).join('');
+  };
+  const html=colar
+            +bloco('Meus clientes',g.clientes,'cli','users','')
+            +bloco('Endereços',g.enderecos,'rua','map','rua')
+            +bloco('Comércios perto de você',g.comercios,'loja','store','lime');
+  if(html) return html;
+  /* 🔴 "AINDA NÃO PERGUNTEI" NÃO É "NÃO ACHEI" (a lição do `start-process`).
+     Enquanto o pedido está em voo a tela não pode dizer que não existe nada —
+     ela diria isso no meio de toda palavra digitada. */
+  if(!d.semNada) return `<div class="vazio"><span class="ico">${ic('search',24)}</span>
+    <strong>Procurando…</strong><span>o mais perto de você vem primeiro</span></div>`;
+  return `<div class="vazio"><span class="ico">${ic('search',24)}</span>
+    <strong>Nada por aqui com esse nome.</strong>
+    <span>Confira a grafia — ou cole o link do Maps<br>que a pessoa mandou.</span></div>`;
+}
+
 T.rapida={nome:'Adicionar parada',grupo:'Rota',render(){
   const d=DADOS.rapida;
   const a=d.achado;
@@ -2785,7 +3024,12 @@ T.rapida={nome:'Adicionar parada',grupo:'Rota',render(){
      um botão chamado CADASTRO (Direção × Cadastro, que decide se o ponto vira
      cliente). Mesma palavra em dois sentidos na mesma tela é o defeito que a
      pessoa lê como bug. */
-  const portas=`<div class="modos" style="margin-top:4px">${[['cadastro','Meus clientes'],['endereco','Endereço']].map(p=>`
+  /* 🔴 A 2ª PORTA DEIXOU DE SE CHAMAR "ENDEREÇO" (12/08). O campo dela agora
+     acha CLIENTE, RUA e COMÉRCIO na mesma digitada — chamar isso de "Endereço"
+     era a tela mentindo o que ela faz, e no mesmo lugar em que o placeholder
+     diz "Cliente, rua ou comércio…". "Procurar" é o verbo, e o verbo é o que
+     não envelhece quando a fonte muda. */
+  const portas=`<div class="modos" style="margin-top:4px">${[['cadastro','Meus clientes'],['endereco','Procurar']].map(p=>`
     <button class="modo${ativa===p[0]?' on':''}" data-acao="rapida-porta" data-porta="${p[0]}"><b>${p[1]}</b></button>`).join('')}</div>`;
 
   /* A LISTA DA BASE. Marcar é um toque no cartão inteiro — alvo de dedo, não
@@ -2808,75 +3052,26 @@ T.rapida={nome:'Adicionar parada',grupo:'Rota',render(){
   const lista=d.clientes.length?`<div class="lista-card">${d.clientes.map(linhaCliente).join('')}</div>`
     :`<div class="vazio"><span class="ico">${ic('users',24)}</span>
       <strong>Nenhum cliente com esse nome</strong>
-      <span>Se ele ainda não existe, a porta é a do Endereço.</span></div>`;
+      <span>Se ele ainda não existe, use o Procurar: rua ou comércio.</span></div>`;
   const listaMiolo=mioloDe(d.listaCarregando,d.listaSemFonte,'users','rapida-recarregar',6,lista);
 
-  /* 🔴 UM CAMPO SÓ, e ele engole os quatro jeitos de dizer "é aqui": endereço
-     escrito, CEP com número ("13500-000 1067"), link do Maps e par de
-     coordenadas colado. Dois campos obrigatórios (CEP **e** número) foi o que
-     matou a versão anterior desta tela: pra ir na casa de um amigo — que mandou
-     a localização, não o CEP — ela não servia pra nada. */
-  const busca=`<label class="search" style="height:48px;margin-top:4px">${ic('search',18)}
+  /* 🔴 UM CAMPO SÓ — E AGORA ELE PROCURA SOZINHO (F2, 12/08). Era um campo
+     CEGO: digitava tudo, apertava "Buscar endereço", e uma regex decidia em
+     silêncio se caía no CNEFE ou no Nominatim público (1 req/s, fraco no
+     interior, até 7 s de espera). Agora ele responde por TECLA, contra o nosso
+     próprio banco (`GET /logistica/busca`): cliente com erro de digitação, rua
+     do Censo e comércio da RFB, o mais perto de você primeiro.
+     Zero Google, zero Nominatim neste caminho — autocomplete no Nominatim
+     público viola o ToS dele, e o preço é ban.
+     O link do Maps e a coordenada colada continuam vivos: eles não passam por
+     aqui, passam pelo cartão que a ponte oferece quando reconhece o texto. */
+  const busca=`<label class="search grande">${ic('search',18)}
     <input data-campo="rapida-busca" enterkeyhint="search" autocomplete="off"
-      placeholder="Endereço, CEP com número ou link" value="${d.busca}"></label>`;
-
-  /* 🔴 QUEM ESCOLHE É ELE. Endereço parecido demais pra máquina decidir sozinha
-     vira parada plantada no lugar errado — e pino errado custa mais caro que
-     pino nenhum. A lista e a porta escolhida NUNCA convivem: escolher uma fecha
-     a lista, e daí pra frente a tela fala de um endereço só. */
-  const opcoes=(!a&&d.opcoes.length)?`<div class="grupo">Achei estes — qual é?</div>
-    ${d.opcoes.map((o,i)=>`<div class="rowcard" data-acao="rapida-opcao" data-i="${i}">
-      <span class="ico">${ic('map',20)}</span>
-      <span><strong>${o.titulo}</strong>${o.detalhe?`<span>${o.detalhe}</span>`:''}</span>
-      ${o.dist?`<span class="rgt"><small>daqui</small><b>${o.dist}</b></span>`
-              :`<span class="go">${ic('chev',15)}</span>`}
-    </div>`).join('')}`:'';
-
-  /* A porta escolhida — e quem já mora nela. O cadastro existente VENCE a linha
-     do "achei": é ele que decide o verbo do botão do pé (usar o que já tem, em
-     vez de abrir linha nova na base). */
-  const porta=a?`<div class="grupo">Esta é a porta</div>
-    <div class="rowcard">
-      <span class="ico lime">${ic('map',20)}</span>
-      <span><strong>${a.titulo}</strong>${a.detalhe?`<span>${a.detalhe}</span>`:''}
-        ${a.quem?`<span class="meta"><i>${ic('users',12)} ${a.quem} já está nesta porta</i></span>`:''}</span>
-      <span class="go">${ic('check',16)}</span>
-    </div>`:'';
-
-  /* 🔴 DIREÇÃO × CADASTRO. Direção é "só traçar rota mesmo": a parada entra na
-     rota igual, mas NÃO vira cliente no Cadastro. Sem esta escolha, cada
-     endereço avulso virava um "cliente" chamado "Rua 14 JP, 1682" na base do
-     dono. Cadastro é o fluxo de sempre, pra quando é cliente de verdade.
-     Link e coordenada colados não têm cadastro a fazer — ali a fileira some. */
-  const modos=d.soDirecao?'':`<div class="grupo">O que é esta parada</div>
-    <div class="modos">${[['direcao','Direção'],['cadastro','Cadastro']].map(m=>`
-      <button class="modo${d.modo===m[0]?' on':''}" data-acao="rapida-modo" data-modo="${m[0]}"><b>${m[1]}</b></button>`).join('')}</div>`;
-
-  /* O nome só é pedido quando ele vai PARA algum lugar: em Direção a parada não
-     vira cadastro, e numa porta que já tem cliente quem manda é o nome de lá.
-     Campo que não salva é mentira na tela. */
-  const nome=(a&&d.pedeNome)?`<div class="grupo">Quem recebe nesta porta</div>
-    <div class="campos"><label class="campo">
-      <input data-campo="rapida-nome" value="${d.nome}" placeholder="nome do cliente" maxlength="120"></label></div>`:'';
-
-  /* 🔴 ONDE ELA ENTRA — só com rota de pé. "No caminho" mede o custo REAL do
-     encaixe em cada perna (pelas ruas, caindo pra linha reta sem rede) e põe a
-     parada onde ela custa menos; "Primeira parada" fura a fila. Sem paradas
-     abertas não existe "caminho" nem "primeira" que signifiquem alguma coisa —
-     e a fileira inteira some, em vez de virar um toque que não muda nada. */
-  const posicao=(a&&d.temRota)?`<div class="grupo">Onde ela entra</div>
-    <div class="modos">${[['perto','No caminho'],['primeira','Primeira parada']].map(p=>`
-      <button class="modo${d.posicao===p[0]?' on':''}" data-acao="rapida-posicao" data-posicao="${p[0]}"><b>${p[1]}</b></button>`).join('')}</div>`:'';
+      placeholder="Cliente, rua ou comércio…" value="${d.busca}"><span
+      class="avb-x" data-acao="busca-limpar">×</span></label>
+  <div class="avb-dica">O mais <b>perto de você</b> vem primeiro · erro de digitação não atrapalha</div>`;
 
   const aviso=d.aviso?`<div class="banner alerta">${ic('alert',16)}<span>${d.aviso}</span></div>`:'';
-
-  /* O BOTÃO DIZ O QUE ELE FAZ, e o recibo do toque mora nele (mesma lei do
-     "Montando…" da Montagem): sem porta escolhida ele procura; com porta
-     escolhida ele adiciona; e quando a porta já tem cadastro o verbo muda de
-     novo, porque a base não vai ganhar linha nova. */
-  const rotulo=salvando?'Adicionando…':procurando?'Procurando…'
-    :!a?'Buscar endereço'
-    :(a.quem&&d.modo==='cadastro')?'Usar este cadastro':'Adicionar na rota';
 
   /* 🔴 O PÉ SÓ EXISTE QUANDO TEM O QUE FAZER. Sem ninguém marcado, um botão
      verde ali seria toque mudo — a doença que esta tela persegue. Ele nasce no
@@ -2887,12 +3082,21 @@ T.rapida={nome:'Adicionar parada',grupo:'Rota',render(){
     ${salvando?'disabled aria-busy="true"':'data-acao="rapida-adicionar-escolhidos"'}>
     ${ic('plus',19)}<b>${salvando?'Adicionando…':`Adicionar ${quantos} na rota`}</b></button>
 </div></div>`:'';
-  const peEndereco=`<div class="tmx-dock"><div class="acts" style="margin-top:0">
-  <button class="act go wide${ocupado?' ocupado':''}" style="justify-content:center"
-    ${ocupado?'disabled aria-busy="true"':`data-acao="${a?'rapida-confirmar':'rapida-buscar'}"`}>
-    ${ic(a?'plus':'search',19)}<b>${rotulo}</b></button>
-</div></div>`;
-  const pe=noCadastro?peCadastro:peEndereco;
+  /* O PÉ DO PAINEL: o resumo do que foi escolhido (com o CEP que a parada vai
+     NASCER carregando — a lei do CEP em pessoa) e um botão só, que diz o verbo
+     inteiro. "Onde ela entra" virou a letra miúda do próprio botão: o encaixe
+     por menor custo já é o padrão, e transformar isso em pergunta era pedir pra
+     quem está na calçada decidir uma conta que o app faz melhor. */
+  const pePainel=(!noCadastro&&d.pe)?`<div class="tmx-dock">
+  <div class="avb-pe-resumo"><b>${d.pe.titulo}</b>${d.pe.dist?` · ${d.pe.dist} de você`:''}
+    ${d.pe.cep?`<span class="pill lime">nasce com CEP ${d.pe.cep}</span>`:''}</div>
+  <div class="acts" style="margin-top:0">
+  <button class="act go wide${salvando?' ocupado':''}" style="justify-content:center"
+    ${salvando?'disabled aria-busy="true"':'data-acao="rapida-confirmar"'}>
+    ${ic('plus',19)}<b>${salvando?'Adicionando…':'Adicionar à rota'}</b>
+    ${salvando?'':'<small>· encaixa na melhor posição sozinho</small>'}</button>
+</div></div>`:'';
+  const pe=noCadastro?peCadastro:pePainel;
 
   return `${status}
 ${hdr({voltar:d.volta||'montagem'})}
@@ -2902,11 +3106,7 @@ ${hdr({voltar:d.volta||'montagem'})}
   ${aviso}
   ${listaMiolo}`:`${busca}
   ${aviso}
-  ${opcoes}
-  ${porta}
-  ${modos}
-  ${nome}
-  ${posicao}`}
+  <div class="avb-rolo" data-rolo="busca">${roloDaBuscaAvulsa(d)}</div>`}
 </div>
 ${pe}
 ${nav('rota')}`;}};
@@ -3345,6 +3545,35 @@ ${hdr({voltar:'rota'})}
 ${nav('rota')}`;}};
 
 /* 12 — CHAT COM A CENTRAL (aba nova) -------------------------------------- */
+/* 🔴 O ANEXO DA MENSAGEM (12/08) — o recado que CARREGA trabalho.
+   `a` = {id, tipo:'parada'|'rota', nome, detalhe, estado, encaixar}.
+
+   `encaixar` chega PRONTO do seam e não é decidido aqui de propósito: quem sabe
+   se existe rota ativa é a ponte (`rotaMontada()`), e a tela que tentasse
+   adivinhar isso pelo que tem à mão ofereceria "Encaixar na rota" pra quem não
+   tem rota — o botão que não pode existir. Dado viaja como ARGUMENTO.
+
+   Sem rota ativa sobram Analisar/Negar: são os dois verbos que não dependem de
+   ter para onde encaixar. */
+function anexoDoRecado(a){
+  if(!a) return '';
+  const fim=a.estado==='encaixada'?'encaixada':a.estado==='negada'?'negada':'';
+  const ico=a.tipo==='rota'?'route':'map';
+  /* Referência que sumiu do cadastro (cliente excluído depois do envio) fala em
+     vez de virar card mudo — e sem nome não há o que encaixar: só Negar sobra. */
+  const nome=a.nome||'Não está mais no cadastro';
+  const podeEncaixar=!!a.encaixar&&!!a.nome;
+  const pe=fim
+    ?`<div class="selo">${fim==='encaixada'?ic('check',13)+' Encaixada na rota':ic('close',13)+' Negada'}</div>`
+    :`<div class="acoes">
+      ${podeEncaixar?`<button class="principal" data-acao="anexo-encaixar" data-anexo="${a.id}">Encaixar na rota</button>`:''}
+      ${a.nome?`<button data-acao="anexo-analisar" data-anexo="${a.id}">Analisar</button>`:''}
+      <button data-acao="anexo-negar" data-anexo="${a.id}">Negar</button></div>`;
+  return `<div class="anexo${fim?' '+fim:''}">
+    <div class="alvo"><span class="ico">${ic(ico,15)}</span>
+      <span><strong>${nome}</strong><span>${a.detalhe||''}</span></span></div>
+    ${pe}</div>`;
+}
 T.chat={nome:'Chat com a Central',grupo:'Rota',render(){const d=DADOS.chat;return `${status}
 ${hdr({})}
 <div class="body chat-corpo">
@@ -3357,7 +3586,7 @@ ${hdr({})}
   </div>`:''}
   <div class="conversa">
     ${miolo(d,'chat','recarregar-chat',4, d.conversa.length
-      ? d.conversa.map(m=>`<div class="msg ${m[0]}">${m[1]}<small>${m[2]}</small></div>`).join('')
+      ? d.conversa.map(m=>`<div class="msg ${m[0]}${m[3]?' tem-anexo':''}">${m[1]}${anexoDoRecado(m[3])}<small>${m[2]}</small></div>`).join('')
       : (d.vazio?`<div class="vazio"><span>${ic('chat',26)}</span><b>${d.vazio}</b></div>`:''))}
   </div>
   <label class="escrever">${ic('chat',16)}<input placeholder="Escrever para a Central" data-campo="recado-texto">

@@ -829,6 +829,33 @@
     return fila;
   }
 
+  /* ------------------------------------------------------------------------
+     O RAIO-X DO PROSPECTOR (12/08) — a pendência da "dirigida instrumentada".
+
+     🔴 POR QUE UM OBJETO E NÃO UM LOG. Em 12/08 mediu-se: 24 empresas embarcadas
+     no servidor e ZERO prédios na tela do g15 (memória:
+     prospector-servidor-verde-cliente-mudo). Servidor verde + tela muda é um
+     defeito que só se acha comparando QUATRO números que hoje ninguém consegue
+     ver juntos: quantas chegaram, quantas são do tipo, quantas estão no ar e em
+     que fase a régua parou. Log de cada quadro é impossível — `posicionarEmpresas`
+     roda a 60 fps na tela de quem está dirigindo, e logar ali é o próprio
+     defeito (a memória do "conferidor media a si mesmo"). Então: um objeto que
+     é ESCRITO a cada passada e LIDO quando alguém pergunta (`window.__hbxProspector`
+     no console do WebView, ou o Ver Tela do master). Escrever campo em objeto é
+     de graça; imprimir não é.
+
+     O ÚNICO log é o do `aplicarProspector`: ele acontece por CHEGADA DE DADO
+     (uma vez por poll), não por quadro. */
+  window.__hbxProspector = {
+    recebidas: 0,      // quantas o servidor mandou
+    escolhidas: 0,     // quantas são do TIPO da semana (as verdes)
+    noAr: 0,           // quantas estão desenhadas AGORA (fase 1..4 e na moldura)
+    fase0: 0,          // quantas a régua ainda não deixou nascer
+    reguaNula: false,  // true = sem rumo/fix: a régua não decide nada, ninguém nasce
+    tipo: null,        // o slug do que a pessoa escolheu (null = quieto)
+    atualizadoEm: null,
+  };
+
   function aplicarProspector(resp) {
     if (typeof window.usarDados !== 'function') return;
     const p = resp && resp.prospector;
@@ -851,13 +878,34 @@
           lat: Number(e.lat),
           lng: Number(e.lng),
           distM: Number(e.distM) || 0,
-          aceso: !!e.aceso,
+          /* 🔴 AS DUAS CORES (12/08). `escolhida` é do SERVIDOR: o CNAE dela
+             bateu no TIPO que a pessoa escolheu pra semana. Verde fala, azul é
+             ambiente. A ponte não recalcula nada — ela nem tem a curadoria. */
+          escolhida: !!e.escolhida,
+          // 🔴 E `aceso` NUNCA sobrevive sozinho: prédio azul aceso seria o app
+          // pedindo pro motorista parar por uma empresa que ele não escolheu.
+          // O servidor já garante isso; aqui é a segunda trava (a terceira é o
+          // `vestirFase`). Trava barata em cima de estrago caro.
+          aceso: !!e.aceso && !!e.escolhida,
           ordem: filaDeJanelas(id || String(i)),
           // escalona quem acende primeiro: as três da cena do desenho entram
           // com respiro entre elas, não todas no mesmo quadro.
           atraso: `${(i * 0.75).toFixed(2)}s`,
         };
       });
+    const raio = window.__hbxProspector;
+    raio.recebidas = p.empresas.length;
+    raio.escolhidas = empresas.filter((e) => e.escolhida).length;
+    raio.tipo = p.tipo || null;
+    raio.atualizadoEm = new Date().toISOString();
+    /* O ÚNICO log desta frente, e ele é por CHEGADA DE DADO (uma vez por poll),
+       nunca por quadro. É a linha que responde "o servidor mandou e a tela
+       recebeu?" — a pergunta que ficou sem resposta no g15 em 12/08. */
+    try {
+      console.log(
+        `[prospector] recebidas=${raio.recebidas} escolhidas=${raio.escolhidas} desenhaveis=${empresas.length} tipo=${raio.tipo || '-'}`,
+      );
+    } catch (_) { /* console fechado não é motivo pra derrubar a rota */ }
     window.usarDados('mapa', { empresas });
   }
 
@@ -5683,12 +5731,28 @@
     return el.__hbxAceso === 1;
   }
 
+  /* 🔴 VERDE OU AZUL (PROSPECTOR v2, 12/08). A classe `escolhida` vem do
+     template, escrita a partir do payload do servidor, e — ao contrário do `on`
+     — ela NÃO é mexida pela régua: o prédio é do tipo escolhido o tempo todo,
+     desde antes de nascer até depois de passar. Por isso ela pode ser lida
+     direto do elemento a qualquer momento, sem o cache que o `aceso` precisa
+     (o `on` é apagado pelo `recolherEmpresas`; o `escolhida` não). */
+  function empresaEscolhida(el) {
+    return el.classList.contains('escolhida');
+  }
+
   /** veste o prédio com o estado da fase — nada aqui pinta, só classifica */
   function vestirFase(el, fase, aceso) {
     el.classList.toggle('no-ar', fase >= 1 && fase < 5);
     el.classList.toggle('nasce', fase >= 1);
     el.classList.toggle('varrendo', fase >= 2);
-    el.classList.toggle('on', fase >= 3 && aceso);
+    /* 🔴 AZUL NUNCA GANHA `on`, mesmo que o servidor erre. As três travas desta
+       frente terminam aqui, e esta é a última linha de defesa: o servidor decide
+       (`aceso` só cai em escolhida), o seam confirma (`aplicarProspector` faz o
+       E lógico) e a régua se recusa a vestir. Um `aceso:true` errado numa azul
+       viraria rótulo, halo e convite pra parar o carro — barato demais checar
+       uma classe pra deixar isso depender de um só lugar estar certo. */
+    el.classList.toggle('on', fase >= 3 && aceso && empresaEscolhida(el));
     el.classList.toggle('passou', fase >= 4);
   }
 
@@ -5704,113 +5768,6 @@
       empresaAcesa(el);
       el.classList.remove('no-ar', 'nasce', 'varrendo', 'on', 'passou', 'mudo');
       if (el.style.visibility !== 'hidden') el.style.visibility = 'hidden';
-    });
-  }
-
-  /* ------------------------------------------------------------------------
-     🔴 O RÓTULO NÃO PODE SUBIR EM CIMA DO VIZINHO (08/08, medido no print).
-
-     O desenho do V4 tinha TRÊS empresas espalhadas na tela (30%, 61%, 78%). A
-     rua real não é assim: as 8 empresas que o corredor achou em produção estão
-     a 74 m umas das outras, e a 16,6 de zoom (`NAV_ZOOM`) 74 m são ~50 px.
-     Chip de nome tem ~250 px. MEDIDO no primeiro print com dado de verdade: 4
-     nomes empilhados, um por cima do outro, ILEGÍVEIS — e ilegível na tela de
-     quem está dirigindo é pior que ausente, porque ainda ocupa o lugar.
-
-     As duas alavancas já existiam na folha e ninguém escrevia nelas:
-       · `--rx` — o empurrão que segura o chip dentro da tela na borda (o fio
-         guia leva o empurrão INVERTIDO e continua apontando pro prédio);
-       · `.mudo` — apaga SÓ o rótulo, o prédio fica aceso e clicável.
-     Então isto é geometria de câmera, como o resto desta seção: nada de CSS
-     novo, nada de tocar no desenho.
-
-     A ORDEM DE PRIORIDADE é a mesma régua do servidor, mais o dedo na frente:
-       1. quem o motorista ACABOU de tocar — o dedo ganha do algoritmo, senão
-          encostar num prédio acenderia um nome que não aparece;
-       2. a mais PERTO (é a régua do `ordenarParaAcender`, lá no backend);
-       3. o CNPJ, pra empate não virar sorteio da ordem do DOM.
-     ------------------------------------------------------------------------ */
-  const ROTULO_CROMO = 34;     // padding + gap + ponto + borda do chip do nome
-  const ROTULO_ALT = 26;       // altura do chip com folga
-  const ROTULO_MARGEM = 8;     // respiro até a borda da tela
-  const ROTULO_AR = 6;         // ar mínimo entre dois chips vizinhos
-  /** quem o dedo tocou por último — prioridade 1 na hora de brigar por espaço */
-  let empresaDoDedo = null;
-
-  /* Largura do chip MEDIDA UMA VEZ por elemento e guardada nele.
-     · `scrollWidth` do `.emp-nome` é imune à digitação (a animação mexe na
-       largura VISÍVEL; o conteúdo continua inteiro por baixo do `overflow`) —
-       medir o `offsetWidth` daria o nome pela metade no meio da cena.
-     · Uma vez por elemento porque o repinte cria elementos NOVOS: medir a cada
-       `move` do mapa seria layout síncrono 60 vezes por segundo. */
-  function larguraDoRotulo(el) {
-    if (el.__hbxRotuloW) return el.__hbxRotuloW;
-    const nome = el.querySelector('.emp-nome');
-    if (!nome) return 0;
-    const w = nome.scrollWidth + ROTULO_CROMO;
-    if (w > ROTULO_CROMO) el.__hbxRotuloW = w;
-    return w;
-  }
-
-  function deconflitarRotulos(postos, largura) {
-    // só briga por espaço quem MOSTRA rótulo: apagada e "passou" já são
-    // opacidade 0 na folha, e marcá-las de `mudo` não mudaria nada na tela.
-    const naFila = postos.filter((p) => p.el.classList.contains('on') && !p.el.classList.contains('passou'));
-    postos.forEach((p) => {
-      if (naFila.indexOf(p) !== -1) return;
-      p.el.classList.remove('mudo');
-      p.el.style.zIndex = '';
-    });
-    naFila.sort((a, b) => {
-      const dedo = (p) => (String(p.el.dataset.empresa || '') === empresaDoDedo ? 0 : 1);
-      if (dedo(a) !== dedo(b)) return dedo(a) - dedo(b);
-      const dist = (Number(a.el.dataset.dist) || 0) - (Number(b.el.dataset.dist) || 0);
-      if (dist) return dist;
-      return String(a.el.dataset.empresa) < String(b.el.dataset.empresa) ? -1 : 1;
-    });
-    const ocupados = [];
-    const bateEm = (a) => ocupados.some((o) => a.e < o.d + ROTULO_AR && a.d > o.e - ROTULO_AR
-      && a.c < o.b + ROTULO_AR && a.b > o.c - ROTULO_AR);
-    naFila.forEach((p, rank) => {
-      const w = larguraDoRotulo(p.el);
-      const meio = w / 2;
-      // borda da tela primeiro: o empurrão MUDA a caixa, então tem que entrar
-      // antes de perguntar se ela bate em alguém.
-      let rx = 0;
-      if (largura > 0) {
-        if (p.x - meio < ROTULO_MARGEM) rx = ROTULO_MARGEM - (p.x - meio);
-        else if (p.x + meio > largura - ROTULO_MARGEM) rx = largura - ROTULO_MARGEM - (p.x + meio);
-      }
-      const cx = p.x + rx;
-      // o chip mora `56*esc + 8` ACIMA da âncora (a mesma conta do `bottom` da
-      // folha) — a `.emp` tem altura 0, então a âncora é o pé do prédio.
-      const cy = p.y - (56 * p.esc + 8) - ROTULO_ALT / 2;
-      const caixa = { e: cx - meio, d: cx + meio, c: cy - ROTULO_ALT / 2, b: cy + ROTULO_ALT / 2 };
-      const bate = bateEm(caixa);
-      p.el.classList.toggle('mudo', bate);
-      /* 🔴 O EMPILHAMENTO SEGUE A PRIORIDADE, e é isso que fecha o segundo
-         defeito do print: os `.emp` são IRMÃOS no DOM, então quem vem depois
-         pinta por cima — e a lista vem do servidor em ordem de distância, então
-         o prédio da empresa mais LONGE tapava o nome da mais PERTO ("APARECIDO
-         A███S DOS SANTOS", metade da razão social atrás de um telhado).
-         Com z decrescendo por rank, o nome de quem tem prioridade fica acima de
-         todo prédio que vier depois; e o contrário quase não existe, porque na
-         câmera inclinada prédio mais perto é mais BAIXO na tela e nome mais
-         longe é mais ALTO. O que sobra desse "quase" é o `ocupados` abaixo. */
-      p.el.style.zIndex = bate ? '' : String(90 - rank);
-      if (bate) return;
-      ocupados.push(caixa);
-      // O PRÉDIO DE QUEM JÁ FALOU TAMBÉM OCUPA LUGAR: ele tem z MAIOR que o dos
-      // próximos da fila, então vai pintar por cima do rótulo deles. Quem vem
-      // depois desvia — ou cala. (Os prédios de quem NÃO fala não entram: o
-      // z-index levanta quem tem rótulo por cima deles, e prédio mudo tapado é
-      // só profundidade.) Geometria do desenho: `.emp-obj` é `left:-30 top:-56
-      // 60x64` escalado por `--esc` em cima da âncora.
-      ocupados.push({
-        e: p.x - 30 * p.esc, d: p.x + 30 * p.esc,
-        c: p.y - 56 * p.esc, b: p.y + 8 * p.esc,
-      });
-      p.el.style.setProperty('--rx', `${rx.toFixed(1)}px`);
     });
   }
 
@@ -5861,11 +5818,18 @@
        prédio que ficou pra trás congelado em "aceso": ele voltaria pra tela
        numa curva ainda convidando, como se o motorista não tivesse passado. */
     const regua = naNavegacaoAqui ? reguaDaViagem() : null;
+    /* O RAIO-X DESTA PASSADA (ver `window.__hbxProspector` no 00-nucleo). Só
+       CONTA aqui e ESCREVE uma vez no fim — nada de log por quadro, que é o
+       próprio defeito que a instrumentação veio investigar. `reguaNula` é a
+       resposta pra "servidor verde, tela muda": sem rumo ou sem fix a régua não
+       decide nada e TODO prédio fica na fase 0, invisível, sem erro nenhum. */
+    let contaFase0 = 0;
     alvos.forEach((el) => {
       const lat = Number(el.dataset.lat); const lng = Number(el.dataset.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
       if (naNavegacaoAqui) {
         const fase = faseDaEmpresa(el, lat, lng, regua);
+        if (fase === 0) contaFase0 += 1;
         vestirFase(el, fase, empresaAcesa(el));
         // o filtro da V4:1312 (`fase>0 && fase<5`): quem ainda não nasceu não
         // ocupa quadro nenhum. Quem já sumiu ainda é projetado UM ciclo — é o
@@ -5897,6 +5861,16 @@
     });
     deconflitarRotulos(postos, larg);
     if (naNavegacaoAqui) cromoDoProspector(cena, postos.length);
+    // ESCREVER, não imprimir: 4 campos num objeto por passada é ruído zero.
+    try {
+      const raio = window.__hbxProspector;
+      if (raio) {
+        raio.noAr = postos.length;
+        raio.fase0 = contaFase0;
+        raio.reguaNula = naNavegacaoAqui && !regua;
+        raio.atualizadoEm = new Date().toISOString();
+      }
+    } catch (_) { /* instrumentação NUNCA derruba a tela de quem está dirigindo */ }
   }
 
   /* 🔴 "EMPRESAS POR PERTO" SÓ EXISTE QUANDO HÁ EMPRESA POR PERTO. O chip, a
@@ -5948,6 +5922,14 @@
     if (!id || typeof window.usarDados !== 'function') return;
     let lista;
     try { lista = ((DADOS.mapa || {}).empresas) || []; } catch (_) { return; }
+    /* 🔴 O DEDO SÓ MANDA DENTRO DO QUE A PESSOA ESCOLHEU (12/08). AZUL é
+       AMBIENTE: ele existe pra rua ter mundo, não pra ser tocado. Sem esta
+       guarda, encostar num prédio azul o acenderia — e aí a régua das duas
+       cores viraria sugestão, com o gesto abrindo pela lateral exatamente o que
+       a escolha da semana fecha. Quem quer caçar outro ramo troca o TIPO nos
+       Ajustes; é um toque, e é honesto. */
+    const alvo = lista.find((e) => String(e.id) === String(id));
+    if (!alvo || !alvo.escolhida) return;
     const antes = new Set(lista.filter((e) => e.aceso && e.id).map((e) => String(e.id)));
     /* 🔴 O DEDO GANHA DO ALGORITMO, e ANTES do atalho de baixo. Sem isto o
        prédio acendia e o nome dele podia sair `mudo` por causa de um vizinho
@@ -6508,6 +6490,256 @@
   }
 
   /* ------------------------------------------------------------------------
+     7b-ter. A BRIGA POR ESPAÇO DOS RÓTULOS DO PROSPECTOR.
+
+     Saiu de `60-prospector-nav.js` em 12/08, quando aquele arquivo passou do
+     teto de 1000 linhas (ordem do dono, 10/08). O corte é numa fronteira limpa:
+     tudo aqui é GEOMETRIA DE CHIP (medir, ordenar por prioridade, empurrar da
+     borda, calar quem sobrepõe) e nada aqui sabe de mapa, de régua de viagem ou
+     de fase. Quem chama é o `posicionarEmpresas`, no arquivo vizinho.
+
+     A ordem dos arquivos costurados não importa pra isto funcionar: declaração
+     de função IÇA no escopo da costura, e as constantes abaixo só são LIDAS
+     quando alguém chama (muito depois de todos os arquivos terem sido avaliados).
+     ------------------------------------------------------------------------ */
+
+  /* ------------------------------------------------------------------------
+     🔴 O RÓTULO NÃO PODE SUBIR EM CIMA DO VIZINHO (08/08, medido no print).
+
+     O desenho do V4 tinha TRÊS empresas espalhadas na tela (30%, 61%, 78%). A
+     rua real não é assim: as 8 empresas que o corredor achou em produção estão
+     a 74 m umas das outras, e a 16,6 de zoom (`NAV_ZOOM`) 74 m são ~50 px.
+     Chip de nome tem ~250 px. MEDIDO no primeiro print com dado de verdade: 4
+     nomes empilhados, um por cima do outro, ILEGÍVEIS — e ilegível na tela de
+     quem está dirigindo é pior que ausente, porque ainda ocupa o lugar.
+
+     As duas alavancas já existiam na folha e ninguém escrevia nelas:
+       · `--rx` — o empurrão que segura o chip dentro da tela na borda (o fio
+         guia leva o empurrão INVERTIDO e continua apontando pro prédio);
+       · `.mudo` — apaga SÓ o rótulo, o prédio fica aceso e clicável.
+     Então isto é geometria de câmera, como o resto desta seção: nada de CSS
+     novo, nada de tocar no desenho.
+
+     A ORDEM DE PRIORIDADE é a mesma régua do servidor, mais o dedo na frente:
+       1. quem o motorista ACABOU de tocar — o dedo ganha do algoritmo, senão
+          encostar num prédio acenderia um nome que não aparece;
+       2. a mais PERTO (é a régua do `ordenarParaAcender`, lá no backend);
+       3. o CNPJ, pra empate não virar sorteio da ordem do DOM.
+     ------------------------------------------------------------------------ */
+  const ROTULO_CROMO = 34;     // padding + gap + ponto + borda do chip do nome
+  const ROTULO_ALT = 26;       // altura do chip com folga
+  const ROTULO_MARGEM = 8;     // respiro até a borda da tela
+  const ROTULO_AR = 6;         // ar mínimo entre dois chips vizinhos
+  /** quem o dedo tocou por último — prioridade 1 na hora de brigar por espaço */
+  let empresaDoDedo = null;
+
+  /* Largura do chip MEDIDA UMA VEZ por elemento e guardada nele.
+     · `scrollWidth` do `.emp-nome` é imune à digitação (a animação mexe na
+       largura VISÍVEL; o conteúdo continua inteiro por baixo do `overflow`) —
+       medir o `offsetWidth` daria o nome pela metade no meio da cena.
+     · Uma vez por elemento porque o repinte cria elementos NOVOS: medir a cada
+       `move` do mapa seria layout síncrono 60 vezes por segundo. */
+  function larguraDoRotulo(el) {
+    if (el.__hbxRotuloW) return el.__hbxRotuloW;
+    const nome = el.querySelector('.emp-nome');
+    if (!nome) return 0;
+    const w = nome.scrollWidth + ROTULO_CROMO;
+    if (w > ROTULO_CROMO) el.__hbxRotuloW = w;
+    return w;
+  }
+
+  function deconflitarRotulos(postos, largura) {
+    // só briga por espaço quem MOSTRA rótulo: apagada e "passou" já são
+    // opacidade 0 na folha, e marcá-las de `mudo` não mudaria nada na tela.
+    const naFila = postos.filter((p) => p.el.classList.contains('on') && !p.el.classList.contains('passou'));
+    postos.forEach((p) => {
+      if (naFila.indexOf(p) !== -1) return;
+      p.el.classList.remove('mudo');
+      p.el.style.zIndex = '';
+    });
+    naFila.sort((a, b) => {
+      const dedo = (p) => (String(p.el.dataset.empresa || '') === empresaDoDedo ? 0 : 1);
+      if (dedo(a) !== dedo(b)) return dedo(a) - dedo(b);
+      const dist = (Number(a.el.dataset.dist) || 0) - (Number(b.el.dataset.dist) || 0);
+      if (dist) return dist;
+      return String(a.el.dataset.empresa) < String(b.el.dataset.empresa) ? -1 : 1;
+    });
+    const ocupados = [];
+    const bateEm = (a) => ocupados.some((o) => a.e < o.d + ROTULO_AR && a.d > o.e - ROTULO_AR
+      && a.c < o.b + ROTULO_AR && a.b > o.c - ROTULO_AR);
+    naFila.forEach((p, rank) => {
+      const w = larguraDoRotulo(p.el);
+      const meio = w / 2;
+      // borda da tela primeiro: o empurrão MUDA a caixa, então tem que entrar
+      // antes de perguntar se ela bate em alguém.
+      let rx = 0;
+      if (largura > 0) {
+        if (p.x - meio < ROTULO_MARGEM) rx = ROTULO_MARGEM - (p.x - meio);
+        else if (p.x + meio > largura - ROTULO_MARGEM) rx = largura - ROTULO_MARGEM - (p.x + meio);
+      }
+      const cx = p.x + rx;
+      // o chip mora `56*esc + 8` ACIMA da âncora (a mesma conta do `bottom` da
+      // folha) — a `.emp` tem altura 0, então a âncora é o pé do prédio.
+      const cy = p.y - (56 * p.esc + 8) - ROTULO_ALT / 2;
+      const caixa = { e: cx - meio, d: cx + meio, c: cy - ROTULO_ALT / 2, b: cy + ROTULO_ALT / 2 };
+      const bate = bateEm(caixa);
+      p.el.classList.toggle('mudo', bate);
+      /* 🔴 O EMPILHAMENTO SEGUE A PRIORIDADE, e é isso que fecha o segundo
+         defeito do print: os `.emp` são IRMÃOS no DOM, então quem vem depois
+         pinta por cima — e a lista vem do servidor em ordem de distância, então
+         o prédio da empresa mais LONGE tapava o nome da mais PERTO ("APARECIDO
+         A███S DOS SANTOS", metade da razão social atrás de um telhado).
+         Com z decrescendo por rank, o nome de quem tem prioridade fica acima de
+         todo prédio que vier depois; e o contrário quase não existe, porque na
+         câmera inclinada prédio mais perto é mais BAIXO na tela e nome mais
+         longe é mais ALTO. O que sobra desse "quase" é o `ocupados` abaixo. */
+      p.el.style.zIndex = bate ? '' : String(90 - rank);
+      if (bate) return;
+      ocupados.push(caixa);
+      // O PRÉDIO DE QUEM JÁ FALOU TAMBÉM OCUPA LUGAR: ele tem z MAIOR que o dos
+      // próximos da fila, então vai pintar por cima do rótulo deles. Quem vem
+      // depois desvia — ou cala. (Os prédios de quem NÃO fala não entram: o
+      // z-index levanta quem tem rótulo por cima deles, e prédio mudo tapado é
+      // só profundidade.) Geometria do desenho: `.emp-obj` é `left:-30 top:-56
+      // 60x64` escalado por `--esc` em cima da âncora.
+      ocupados.push({
+        e: p.x - 30 * p.esc, d: p.x + 30 * p.esc,
+        c: p.y - 56 * p.esc, b: p.y + 8 * p.esc,
+      });
+      p.el.style.setProperty('--rx', `${rx.toFixed(1)}px`);
+    });
+  }
+  /* ------------------------------------------------------------------------
+     7b-bis. A ESCOLHA DA SEMANA (PROSPECTOR v2, 12/08 — decisão do dono).
+
+     🔴 O QUE MUDOU NO PRODUTO. O prospector nascia ligado pra empresa inteira e
+     acendia o que a cesta achasse. Agora ele nasce DESLIGADO pra todo mundo: só
+     acorda quando a PESSOA aciona e diz que TIPO de empresa interessa a ela
+     NESTA SEMANA. Sem escolha, o servidor nem manda a chave `prospector` — a rua
+     fica sem prédio nenhum, que é o estado certo de quem não pediu nada.
+
+     🔴 DUAS PORTAS, E SÓ ELAS:
+       · GET  /logistica/prospector/semana  → { tipo, rotulo, semana, tipos[] }
+       · POST /logistica/prospector/semana  → { tipo } | { tipo:null } (desligar)
+     A CURADORIA (quais tipos existem) mora no SERVIDOR. A tela NÃO tem uma
+     segunda cópia da lista: é a mesma lei da cesta de CNAE — duas listas
+     escritas à mão divergem no primeiro ajuste, e aí o chip diz "Padarias" e o
+     servidor procura outra coisa.
+
+     🔴 A ESCOLHA É DA PESSOA, NÃO DA EMPRESA. O servidor lê pelo ator do JWT;
+     aqui não viaja id nenhum de usuário. Dois motoristas da mesma distribuidora
+     escolhem coisas diferentes na mesma segunda-feira.
+
+     🔴 SEM OTIMISMO NA TELA. O chip só fica marcado depois que o POST voltou —
+     mesma régua das 6 chaves dos Ajustes (§ `virarChave`). Marcar antes seria a
+     tela prometendo uma caçada que o servidor pode ter recusado, e a pessoa
+     dirigiria o dia inteiro esperando prédio verde que nunca vem.
+     ------------------------------------------------------------------------ */
+
+  /* O que o servidor respondeu por último. Guardado aqui (e não só no seam) por
+     UM motivo: a linha dos Ajustes precisa do RÓTULO, e ela é repintada pelo
+     `carregarAjustes`, que roda em outra hora e por outro caminho. Sem esta
+     memória, a linha voltaria a dizer "Escolher o que procurar" toda vez que os
+     Ajustes recarregassem — a tela esquecendo o que a pessoa acabou de decidir. */
+  let escolhaDaSemana = null;
+
+  /** O rótulo pra linha dos Ajustes ('' = ninguém escolheu / ainda não sei). */
+  function rotuloDoProspector() {
+    return (escolhaDaSemana && escolhaDaSemana.rotulo) || '';
+  }
+
+  /* Escreve o seam da folha. `tipos` vem SEMPRE do servidor; lista vazia é um
+     estado honesto (a folha diz que não carregou e oferece a saída), nunca uma
+     lista inventada aqui. */
+  function pintarFolhaDoProspector() {
+    if (typeof window.usarDados !== 'function') return;
+    const e = escolhaDaSemana || {};
+    window.usarDados('prospectortipo', {
+      tipo: e.tipo || '',
+      tipos: Array.isArray(e.tipos) ? e.tipos : [],
+    });
+  }
+
+  /**
+   * Busca a escolha e a curadoria. Best-effort COM VOZ: falhou, a folha abre
+   * sem tipo nenhum e diz isso — nunca trava a tela de Ajustes por causa de uma
+   * porta de preferência.
+   */
+  async function carregarProspectorSemana() {
+    if (!temPonte() || !window.API || typeof window.API.get !== 'function') return null;
+    try {
+      const r = await window.API.get('/logistica/prospector/semana');
+      if (r && typeof r === 'object') {
+        escolhaDaSemana = {
+          tipo: r.tipo || '',
+          rotulo: r.rotulo || '',
+          semana: r.semana || '',
+          tipos: Array.isArray(r.tipos) ? r.tipos : [],
+        };
+      }
+    } catch (erro) {
+      /* 🔴 NÃO ZERA A MEMÓRIA NO ERRO. "Não consegui perguntar" ≠ "a resposta é
+         não" (memória: start-process-nao-devolve-exitcode). Apagar aqui faria a
+         linha dos Ajustes dizer "Escolher o que procurar" pra quem já escolheu,
+         só porque o Wi-Fi caiu no meio do estacionamento. */
+      try { console.log(`[prospector] semana: leitura falhou (${String((erro && erro.message) || erro)})`); } catch (_) {}
+    }
+    pintarFolhaDoProspector();
+    return escolhaDaSemana;
+  }
+
+  /** Abre a folha JÁ COM DADO — tela de escolha que nasce vazia é tela que mente. */
+  async function abrirFolhaDoProspector() {
+    await carregarProspectorSemana();
+    if (typeof window.ir === 'function') window.ir('prospectortipo');
+  }
+
+  /**
+   * Grava a escolha (ou desliga, com `slug` vazio) e repinta as duas telas que
+   * dependem dela: a folha (o chip marcado) e o Avançado (o rótulo da linha).
+   *
+   * DEPOIS DE GRAVAR, A RUA MUDA SOZINHA: o próximo `GET /logistica/rota` já vem
+   * com `escolhida` recomputado contra a escolha nova, e o `aplicarProspector`
+   * repinta os prédios. Nada aqui mexe em cor de prédio — a cor é do servidor.
+   */
+  async function escolherTipoProspector(slug) {
+    if (!temPonte() || !window.API || typeof window.API.post !== 'function') return;
+    const alvo = String(slug || '');
+    // `comTrava` é a MESMA da `virarChave`: dedo rápido em dois chips não pode
+    // virar duas gravações correndo, com a última resposta a chegar vencendo.
+    await comTrava(async () => {
+      let r;
+      /* Botão que não faz nada e não avisa é pior que botão que dá erro. No erro
+         a tela NÃO muda (sem otimismo) e a pessoa lê o que houve — mesmo aviso
+         das 6 chaves de cima (`avisoErro`). */
+      try { r = await window.API.post('/logistica/prospector/semana', { tipo: alvo || null }); }
+      catch (e) { return avisoErro(e); }
+      escolhaDaSemana = {
+        tipo: (r && r.tipo) || '',
+        rotulo: (r && r.rotulo) || '',
+        semana: (r && r.semana) || '',
+        // A lista de tipos não muda no POST; se ela não vier, fica a que já veio
+        // do GET (perder a curadoria deixaria a folha vazia depois de um acerto).
+        tipos: (r && Array.isArray(r.tipos) && r.tipos.length)
+          ? r.tipos
+          : ((escolhaDaSemana && escolhaDaSemana.tipos) || []),
+      };
+      pintarFolhaDoProspector();
+      // A linha do Avançado mostra o rótulo — ela tem que saber na mesma hora.
+      await carregarAjustes();
+      /* 🔴 E A RUA TEM QUE MUDAR JUNTO. A cor é do servidor: sem reler a rota, os
+         prédios só trocariam de cor no próximo poll — e quem acabou de escolher
+         "Padarias" merece ver a rua responder ao toque, não daqui a 5 s. Mesma
+         razão do `carregarRota()` no fim da `virarChave`. */
+      await carregarRota();
+    });
+  }
+
+  /** "Desligar esta semana" — a MESMA porta, sem tipo. Ausência é o desligado. */
+  function desligarProspectorSemana() {
+    return escolherTipoProspector('');
+  }
+  /* ------------------------------------------------------------------------
      6c. O SELO DO RETRAÇO — "Redirecionando…" (12/08).
 
      Fora do traçado, o caminho novo demora o que a rede demorar — e nesse
@@ -6558,6 +6790,314 @@
     apagarSeloRedir(0);          // pedido novo não herda timer do anterior
     seloRedir(true);
     seloRedirTeto = setTimeout(() => { seloRedirTeto = null; seloRedir(false); }, SELO_REDIR_TETO_MS);
+  }
+  /* ---- 6d. O RADAR (12/08, F2+F3 do PR12082026-RADAR-E-VELOCIDADE) --------
+
+     O aparelho passa o dia inteiro com a rota do dia na memória e o pacote de
+     radares fixos do Sudeste no disco. Juntar os dois é de graça — e é a única
+     conta desta frente: nenhum serviço novo, nenhuma tabela nova, nenhuma
+     chamada de rede por fix.
+
+     🔴 A PERGUNTA É DE ORDEM, NUNCA DE DISTÂNCIA — a lição paga da MANOBRA
+     FANTASMA (`49bc1235`): `metrosEntre` é MÓDULO, não tem sinal, e quem
+     pergunta "está a 20 m?" recebe o mesmo sim pro radar que ficou pra trás e
+     pro que vem na frente. Aqui a régua é a FITA: o corredor é caminhado
+     segmento a segmento a partir da posição PRESA NA RUA (`presoNaRota`), e a
+     distância de um radar é o quanto de asfalto falta até ele. Radar atrás a
+     20 m simplesmente não existe pra esta função — ele não está em nenhum
+     segmento à frente. Sem rota traçada não há corredor, e sem corredor não há
+     aviso: o corredor é da ROTA, não do mundo.
+
+     🔴 E O DADO CHEGA PELA MESMA PORTA DO MAPA. O bucket do R2 não tem CORS,
+     então `fetch` cross-origin do WebView morre na origem. A saída é a que o
+     `MapaOffline` já pagou: o pacote é servido em MESMA ORIGEM
+     (`/radares/dados.json` no `appassets`), pelo `shouldInterceptRequest` da
+     MainActivity, de `filesDir` — quem baixa do R2, confere o sha256,
+     descompacta e guarda é o `RadaresOffline.kt`, 1× por dia operacional. Aqui
+     dentro é um `fetch` local que ou responde ou não responde.
+
+     🔴 FAIL-SILENT DE ENFEITE (a lei do "enfeite não derruba rota"): sem
+     pacote, sem rede, JSON quebrado — a navegação segue INTEIRA e o motorista
+     não vê um erro sequer. O chip fica apagado e ninguém fala nada. E o
+     disjuntor é DURO: três tentativas no dia, e para. Aviso auxiliar que fica
+     batendo na porta é a máquina de gastar bateria de quem está dirigindo. */
+
+  /** o pacote do dia, servido em mesma origem pela ponte nativa */
+  const RADAR_FONTE = '/radares/dados.json';
+  /** 35 m de cada lado da fita: a largura de uma via com canteiro, não do mundo */
+  const RADAR_CORREDOR_M = 35;
+  /** o aviso sai a ~9 s de distância, com piso e teto (o mesmo miolo do plano) */
+  const RADAR_AVISO_S = 9;
+  const RADAR_AVISO_PISO_M = 300;
+  const RADAR_AVISO_TETO_M = 600;
+  /** a janela do F3: dentro dela a velocidade é comparada com o limite do radar */
+  const RADAR_F3_M = 600;
+  /** 🔴 1 m DE FOLGA, E ELE TEM DONO: a fita vem do roteador e o ponto do radar
+     vem do pacote — duas contas diferentes pro mesmo metro. Sem esta folga o
+     limite exato da janela (300,0000001 m contra 300) acende e apaga o chip no
+     arredondamento, que é pisca na cara de quem dirige. */
+  const RADAR_MARGEM_M = 1;
+  /** até onde a fita é caminhada por fix — teto de trabalho, não de aviso */
+  const RADAR_ALCANCE_M = 1200;
+  /** 🔴 A MANOBRA MANDA NA VOZ. Depois de qualquer fala da navegação o radar
+     espera isto; e se a próxima fala da manobra está a menos de
+     RADAR_ANTECIPA_S segundos, ele nem começa — "vire à esquerda" nunca é
+     atropelado por um aviso auxiliar. */
+  const RADAR_FOLGA_MS = 2500;
+  const RADAR_ANTECIPA_S = 6;
+  /** silêncio por radar: cobre o tremor do corredor sem calar a volta pela
+     mesma avenida meia hora depois (dedup eterno é radar que some do dia) */
+  const RADAR_MUDO_MS = 10 * 60 * 1000;
+  /* 🔴 O DISJUNTOR DAQUI NÃO É O DA REDE — e confundir os dois deixava o dia
+     inteiro sem radar. Este pedido é LOCAL (a ponte nativa responde de
+     `filesDir`); quem fala com o R2 é o `RadaresOffline`, e é lá que mora o
+     freio de rede de verdade (30 min de pausa, 3 tentativas no dia, e tentativa
+     nenhuma é gasta sem sinal validado). Se este lado desistisse em 3 vezes,
+     bastava o turno começar numa zona morta pra o nativo nunca mais ser
+     cutucado — pacote pronto às 10h e ninguém pra pedir. Então: uma batida a
+     cada 5 min, teto de 40 no dia (≈3,3 h de cobertura, 40 requisições locais
+     que não tocam na rede). Isso não é tempestade: o GPS entrega 3.600 fixes na
+     mesma hora em que isto bate 12 vezes numa porta que já está na casa. */
+  const RADAR_REPOUSO_MS = 5 * 60 * 1000;
+  const RADAR_TENTATIVAS_DIA = 40;
+  /** teto de sanidade do pacote (o Sudeste inteiro tem ~5 mil pontos) */
+  const RADAR_MAX_PONTOS = 100000;
+
+  let radares = null;          // [{lat,lng,limite}] — null = ainda não chegou
+  let radarDia = '';           // dia operacional do pacote que está na memória
+  let radarPedindo = false;
+  let radarPausaAte = 0;
+  let radarTentativas = { dia: '', n: 0 };
+  /** chave do radar → quando ele foi falado (Map, não Set: o silêncio expira) */
+  const radarDitos = new Map();
+  let radarVozTimer = null;
+  /** quando a navegação falou pela última vez — quem escreve é `vozDaManobra` */
+  let radarVozOutraEm = 0;
+
+  /** a manobra acabou de falar: o radar cala pela folga (chamado do § da voz) */
+  function radarOuviuAVoz() { radarVozOutraEm = Date.now(); }
+
+  const chaveDoRadar = (r) => `${r.lat.toFixed(5)},${r.lng.toFixed(5)}`;
+
+  /* ---- O PACOTE ----------------------------------------------------------
+     Um pedido por dia operacional quando dá certo; no máximo três no dia
+     quando não dá. O `radarDitos` zera junto com o pacote: dia novo, avisos
+     novos. */
+  function garantirRadares() {
+    const dia = diaOperacional();
+    if (radarDia === dia || radarPedindo || Date.now() < radarPausaAte) return;
+    if (radarTentativas.dia !== dia) radarTentativas = { dia, n: 0 };
+    if (radarTentativas.n >= RADAR_TENTATIVAS_DIA) return;
+    radarTentativas.n += 1;
+    radarPedindo = true;
+    const desistir = () => {
+      radarPedindo = false;
+      radarPausaAte = Date.now() + RADAR_REPOUSO_MS;
+    };
+    let pedido = null;
+    try { pedido = window.fetch(RADAR_FONTE, { cache: 'no-store' }); } catch (_) { pedido = null; }
+    if (!pedido || typeof pedido.then !== 'function') { desistir(); return; }
+    pedido
+      .then((r) => (r && r.ok ? r.json() : null))
+      .then((lista) => {
+        if (!Array.isArray(lista)) { desistir(); return; }
+        radares = [];
+        for (let i = 0; i < lista.length && radares.length < RADAR_MAX_PONTOS; i += 1) {
+          const p = lista[i] || {};
+          const lat = Number(p.lat); const lng = Number(p.lng);
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+          // limite ausente é ausente — 3.680 dos 5.093 pontos têm número, e
+          // inventar um pros outros é o app multando o motorista de mentira.
+          const lim = Number(p.limite);
+          radares.push({ lat, lng, limite: Number.isFinite(lim) && lim > 0 ? lim : null });
+        }
+        radarDia = dia;
+        radarPedindo = false;
+        radarPausaAte = 0;
+        radarDitos.clear();
+      })
+      .catch(desistir);
+  }
+
+  /* ---- O CORREDOR, CAMINHADO PRA FRENTE ----------------------------------
+     Devolve `{ primeiro, comLimite }`: o radar mais perto à frente (o do chip)
+     e o mais perto à frente QUE TEM LIMITE (o do velocímetro). Podem ser o
+     mesmo, podem ser dois, pode não haver nenhum.
+
+     A conta é O(segmentos à frente × radares por perto) e as duas pontas são
+     pequenas: o pré-filtro em caixa joga fora o pacote inteiro menos os poucos
+     pontos do quarteirão, e a fita é caminhada só até RADAR_ALCANCE_M. */
+  function radarAdiante() {
+    if (!Array.isArray(radares) || !radares.length) return null;
+    const geo = navRota && navRota.geometria;
+    const c = geo && geo.coordinates;
+    if (!c || c.length < 2) return null;
+    const preso = presoNaRota(ultimoFix);
+    if (!preso) return null;                     // fora da rota: sem corredor, sem aviso
+
+    const kx = 111320 * Math.cos((preso.lat * Math.PI) / 180);
+    const ky = 110540;
+    const px = preso.lng * kx; const py = preso.lat * ky;
+
+    const perto = [];
+    for (let i = 0; i < radares.length; i += 1) {
+      const r = radares[i];
+      const x = r.lng * kx; const y = r.lat * ky;
+      if (Math.abs(x - px) > RADAR_ALCANCE_M || Math.abs(y - py) > RADAR_ALCANCE_M) continue;
+      perto.push({ r, x, y });
+    }
+    if (!perto.length) return null;
+
+    let primeiro = null;
+    let comLimite = null;
+    let ax = px; let ay = py; let andou = 0;
+    for (let i = preso.i + 1; i < c.length && andou < RADAR_ALCANCE_M; i += 1) {
+      const bx = c[i][0] * kx; const by = c[i][1] * ky;
+      const dx = bx - ax; const dy = by - ay;
+      const den = (dx * dx) + (dy * dy);
+      const comprimento = Math.sqrt(den);
+      if (den > 0) {
+        for (let j = 0; j < perto.length; j += 1) {
+          const cand = perto[j];
+          let t = ((((cand.x - ax) * dx) + ((cand.y - ay) * dy)) / den);
+          /* 🔴 AQUI MORA O FANTASMA, E ELE TEM DUAS CABEÇAS.
+             `t < 0` no PRIMEIRO segmento (o pedaço que ainda falta do segmento
+             em que o motorista está) quer dizer ATRÁS DELE: grampear em 0
+             transformaria um radar 20 m às costas num radar "a 0 m à frente".
+             Nos segmentos seguintes o grampe em 0 é CERTO — é o radar do lado
+             de fora de um cotovelo, cujo ponto mais perto da fita é o vértice.
+             `t > 1` NUNCA se grampeia, e isto custou uma rodada da prova: com o
+             grampe, um radar 25 m ADIANTE do fim do segmento casava ali mesmo,
+             com a distância LONGITUDINAL entrando no lugar da lateral — 35 m de
+             corredor viravam 35 m de sobra pra frente, e o radar era anunciado
+             um segmento cedo demais (medido: 255 m onde a rua tinha 280). Quem
+             está além deste segmento é medido no próximo, que é o dono dele. */
+          if (t > 1) continue;
+          if (t < 0) { if (i === preso.i + 1) continue; t = 0; }
+          const qx = ax + (t * dx); const qy = ay + (t * dy);
+          if (Math.hypot(cand.x - qx, cand.y - qy) > RADAR_CORREDOR_M) continue;
+          const achado = { radar: cand.r, distancia: andou + (t * comprimento) };
+          if (!primeiro || achado.distancia < primeiro.distancia) primeiro = achado;
+          if (Number.isFinite(cand.r.limite)
+            && (!comLimite || achado.distancia < comLimite.distancia)) comLimite = achado;
+        }
+      }
+      andou += comprimento;
+      ax = bx; ay = by;
+    }
+    return (primeiro || comLimite) ? { primeiro, comLimite } : null;
+  }
+
+  /** km/h do fix, sem arredondar pra tela: aqui o número é de COMPARAÇÃO */
+  const radarVelKmh = () => (ultimoFix && Number.isFinite(ultimoFix.velMps) && ultimoFix.velMps > 0
+    ? ultimoFix.velMps * 3.6 : 0);
+
+  /** ~9 s de estrada, entre 300 e 600 m: parado avisa cedo, na rodovia avisa antes */
+  const janelaDoAviso = () => {
+    const v = (ultimoFix && Number.isFinite(ultimoFix.velMps) && ultimoFix.velMps > 0)
+      ? ultimoFix.velMps : 0;
+    return Math.min(RADAR_AVISO_TETO_M, Math.max(RADAR_AVISO_PISO_M, v * RADAR_AVISO_S));
+  };
+
+  /* ---- A VOZ -------------------------------------------------------------
+     Uma fala por radar, com a distância arredondada da MESMA régua da manobra
+     (`emMetrosDaManobra`) — dois jeitos de dizer distância no mesmo aparelho é
+     um deles mentindo. Sem limite no pacote, a frase não inventa número. */
+  const radarMetrosFalados = (m) => {
+    const t = emMetrosDaManobra(m);
+    return t.indexOf(' km') > 0 ? t.replace(' km', ' quilômetros') : t.replace(/ m$/, ' metros');
+  };
+  const fraseDoRadar = (a) => (Number.isFinite(a.radar.limite)
+    ? `Radar de ${Math.round(a.radar.limite)} a ${radarMetrosFalados(a.distancia)}`
+    : `Radar a ${radarMetrosFalados(a.distancia)}`);
+
+  /** quanto o radar ainda tem que esperar pra falar (ms). 0 = pode falar. */
+  function esperaDaManobra() {
+    const desde = Date.now() - radarVozOutraEm;
+    if (desde < RADAR_FOLGA_MS) return RADAR_FOLGA_MS - desde;
+    const m = manobraDaVez();
+    if (!m || !m.passo || !(m.distancia >= 0)) return 0;
+    // a próxima fala da manobra: o "prepara" (~300 m) ou, passado ele, o "agora" (~60 m)
+    const faltaAteAFala = m.distancia > VOZ_PREPARA_M ? m.distancia - VOZ_PREPARA_M
+      : (m.distancia > VOZ_AGORA_M ? m.distancia - VOZ_AGORA_M : 0);
+    const v = (ultimoFix && Number.isFinite(ultimoFix.velMps) && ultimoFix.velMps > 0)
+      ? ultimoFix.velMps : 0;
+    if (!v) return faltaAteAFala <= 0 ? RADAR_FOLGA_MS : 0;
+    const segundos = faltaAteAFala / v;
+    if (segundos > RADAR_ANTECIPA_S) return 0;
+    return Math.round(segundos * 1000) + RADAR_FOLGA_MS;
+  }
+
+  /* 🔴 O ADIAMENTO NÃO VIRA LAÇO. O timer tem UMA chance: se na hora dele a
+     manobra ainda estiver mandando, ele desiste e quem re-arma é o próximo fix
+     (vem um por segundo). Timer que se reagenda sozinho vira fila infinita de
+     avisos velhos — e aviso velho fala uma distância que não existe mais. */
+  function agendarVozRadar(ms) {
+    if (radarVozTimer) clearTimeout(radarVozTimer);
+    radarVozTimer = setTimeout(() => {
+      radarVozTimer = null;
+      const achado = radarAdiante();
+      const alvo = achado && achado.primeiro;
+      if (!alvo || alvo.distancia > janelaDoAviso() + RADAR_MARGEM_M) return;
+      if (esperaDaManobra() > 0) return;
+      dizerRadar(alvo);
+    }, ms);
+  }
+
+  function dizerRadar(alvo) {
+    // a chave de som é a do APARELHO, e ela é conferida NA HORA DE FALAR: quem
+    // silenciou durante a espera da manobra não pode levar a fala adiada na cara
+    if (!vozLigada()) return;
+    const chave = chaveDoRadar(alvo.radar);
+    const dito = radarDitos.get(chave);
+    if (dito && Date.now() - dito < RADAR_MUDO_MS) return;
+    radarDitos.set(chave, Date.now());
+    falar(fraseDoRadar(alvo));
+  }
+
+  function vozDoRadar(alvo) {
+    if (!alvo || !vozLigada()) return;
+    const chave = chaveDoRadar(alvo.radar);
+    const dito = radarDitos.get(chave);
+    if (dito && Date.now() - dito < RADAR_MUDO_MS) return;
+    const espera = esperaDaManobra();
+    if (espera > 0) { agendarVozRadar(espera); return; }
+    dizerRadar(alvo);
+  }
+
+  /* ---- O QUE A TELA MOSTRA ------------------------------------------------
+     🔴 ESCRITA DIRETA NO NÓ, NUNCA NO SEAM (a lei que o pisca de 08/08 pagou):
+     isto muda a cada fix, e o seam remonta a camada — seria a tela do mapa
+     nascendo de novo uma vez por segundo. O `.gps-radar` e o `.gps-vel` são
+     nós PERMANENTES do desenho; aqui só se troca classe e texto. Repinte
+     devolve os dois no estado apagado, que é o estado seguro, e o fix seguinte
+     os reacende. */
+  function radarDaRota() {
+    const chip = naCamada('.gps-radar');
+    const vel = naCamada('.gps-vel');
+    if (!chip && !vel) return;
+    const achado = radarAdiante();
+    const primeiro = achado && achado.primeiro;
+    const naJanela = !!(primeiro && primeiro.distancia <= janelaDoAviso() + RADAR_MARGEM_M);
+
+    if (chip) {
+      chip.classList.toggle('on', naJanela);
+      const lim = chip.querySelector('.lim');
+      const texto = naJanela && Number.isFinite(primeiro.radar.limite)
+        ? String(Math.round(primeiro.radar.limite)) : '';
+      if (lim && lim.textContent !== texto) lim.textContent = texto;
+    }
+
+    /* F3 — o velocímetro avermelha contra o limite DO RADAR À FRENTE, que é o
+       limite que custa dinheiro. Radar sem limite nunca acende nada. */
+    if (vel) {
+      const alvo = achado && achado.comLimite;
+      const acima = !!(alvo && alvo.distancia <= RADAR_F3_M + RADAR_MARGEM_M
+        && radarVelKmh() > alvo.radar.limite);
+      vel.classList.toggle('acima', acima);
+    }
+
+    if (naJanela) vozDoRadar(primeiro);
   }
   /* ---- A PINTURA ---------------------------------------------------------
      Um lugar só escreve no seam do GPS, e ele escreve TUDO — inclusive o vazio.
@@ -7500,6 +8040,10 @@
     vozDitas.add(`${onde}#prepara`);      // pulou o preparar? ele não volta atrás
     vozDitas.add(`${onde}#${degrau}`);
     const rua = paraFalar(m.passo.rua);
+    // 🔴 A MANOBRA TEM PRIORIDADE NA VOZ (§ 6d): o radar escuta esta fala e
+    // cala pela folga dele. Um aviso auxiliar por cima de "vire à esquerda"
+    // faz o motorista perder a curva — e a curva não tem segunda chance.
+    radarOuviuAVoz();
     falar(degrau === 'agora'
       ? (rua ? `${verbo} na ${rua}` : verbo)
       : `Em ${Math.round(m.distancia / 10) * 10} metros, ${verbo}`);
@@ -7545,6 +8089,9 @@
       // a voz mora AQUI, no fix — não no repinte: quem entra na tela não pode
       // levar um "vire à direita" na cara só por ter aberto o mapa.
       vozDaManobra(manobraDaVez());
+      // e o radar vem DEPOIS dela, sempre: a ordem das duas linhas é a
+      // prioridade da manobra na voz (§ 6d).
+      radarDaRota();
     }
   }
 
@@ -7587,6 +8134,11 @@
     };
     ultimaPos = { lat: c.latitude, lng: c.longitude };
     bootChegou('fix');           // § 7a-ter: a abertura espera o 1º fix
+    /* O pacote de radares do dia é pedido AQUI, no 1º fix de qualquer tela, e
+       não na entrada da navegação: quem abre o app na garagem dá ao nativo o
+       tempo de baixar do R2 antes de a rua começar. Um pedido por dia quando
+       responde, três no dia quando não responde (§ 6d, `garantirRadares`). */
+    garantirRadares();
     /* 🔴 O 1º FIX QUASE SEMPRE CHEGA DEPOIS DA LISTA — numa garagem, bem
        depois. A montagem abre, busca o dia e pinta antes de existir GPS: se
        ninguém voltasse aqui, a tela ficaria na ordem do banco justamente na
@@ -8416,7 +8968,24 @@
          devolve 403 na cara do dono. */
       prospector: config.prospectorAtivo ? 1 : 0,
       prospectorDisponivel: prospectorPodeLigar(),
+      /* PROSPECTOR v2 (12/08) — o que a PESSOA escolheu pra esta semana. Vem da
+         memória do §7b-bis (o último GET/POST), não de uma segunda chamada: esta
+         tela não tem porta própria, e pendurar mais uma rede aqui faria a linha
+         piscar toda vez que os Ajustes recarregassem. Vazio = ainda não escolheu
+         (ou ainda não perguntei) — e a linha diz "Escolher o que procurar", que
+         é honesto nos dois casos. */
+      prospectorTipo: rotuloDoProspector(),
     });
+    /* Só pergunta a escolha se a empresa PODE ter prospector — chave desligada
+       não tem o que procurar, e seria uma ida à rede por tela de Ajustes de todo
+       mundo. Best-effort: falha aqui não atrapalha nada nesta tela. */
+    if (config.prospectorAtivo && prospectorPodeLigar()) {
+      carregarProspectorSemana().then(() => {
+        if (typeof window.usarDados === 'function') {
+          window.usarDados('avancado', { prospectorTipo: rotuloDoProspector() });
+        }
+      }).catch(() => undefined);
+    }
     if (cred) encherCarteira(cred);
   }
 
@@ -8990,10 +9559,14 @@
       // Montar "Recado de {autor}" me deu "Recado de Central" na tela — nome
       // de gente no lugar de instituição vira português torto.
       recadoTitulo: 'Recado da Central',
+      /* O 4º slot é o ANEXO (12/08) — a parada/rota que a Central grudou no
+         texto. `undefined` na esmagadora maioria das linhas, e é ele que faz a
+         bolha crescer os botões. Ver L8d (`A5-recado-anexo.js`). */
       conversa: recados.map((r) => [
         r.origem === 'motorista' ? 'minha' : 'deles',
         esc(r.texto),
         horaCurta(r.criadoEm),
+        anexoDoSeam(r),
       ]),
       // Fio vazio não é erro: é o dia em que ninguém precisou falar nada.
       vazio: recados.length ? '' : 'Nenhum recado por aqui',
@@ -9428,6 +10001,10 @@
 
   /** abrir o chat é LER: marca visto e o sino zera (o portão continua de pé) */
   async function aoAbrirChat() {
+    /* Voltar pro Chat é começar de novo: o motivo que ele ia escrever e não
+       escreveu morre aqui. Alvo de resposta que sobrevive à saída da tela
+       grudaria a próxima mensagem — de outro assunto — no recado negado ontem. */
+    limparMotivoDoAnexo();
     await carregarRecados();
     /* Regra do dono (03/08): abrir a conversa CALA toda repetição forte. Ele
        está lendo — insistir vira ruído. O portão continua cobrando o "Entendi";
@@ -9478,10 +10055,17 @@
       // clientMessageId: toque duplo ou retry de rede devolve a MESMA resposta
       // em vez de criar dois balões na central.
       const corpo = { texto, clientMessageId: window.HBX.uuid(), date: diaOperacional() };
-      const alvo = portaoRecados[0];
-      if (alvo) corpo.recadoId = alvo.id;
+      /* 🔴 O MOTIVO DO "NEGAR" TEM DONO (12/08). Quem acabou de negar um anexo
+         está escrevendo a justificativa DAQUELE recado — e o portão pode estar
+         cobrando outro assunto. Sem esta preferência, o "não vou conseguir
+         passar lá" chegaria na central pendurado na mensagem errada. */
+      const alvo = recadoIdDoMotivo() || (portaoRecados[0] && portaoRecados[0].id) || '';
+      if (alvo) corpo.recadoId = alvo;
       try { await window.API.post('/logistica/recados/responder', corpo); }
       catch (e) { return avisoErro(e); }
+      // Só o envio confirmado solta o alvo: rede caída no meio não pode
+      // transformar a próxima tentativa em resposta de outro assunto.
+      limparMotivoDoAnexo();
       if (el) el.value = '';
       await carregarRecados();
     });
@@ -9619,6 +10203,277 @@
       const botao = naCamada('.portao-wrap .principal');
       if (botao) botao.addEventListener('click', () => { gravar(); }, { once: true });
     });
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     L8d — O RECADO QUE CARREGA TRABALHO (12/08).
+
+     A Central gruda uma PARADA (um cliente) ou uma ROTA SALVA no texto do
+     recado; aqui o motorista decide. Com rota ativa são três saídas — Encaixar
+     na rota, Analisar, Negar; sem rota ativa, duas — Analisar e Negar (o botão
+     que não tem para onde encaixar não nasce).
+
+     🔴 POR QUE ISTO MORA NO CHAT. A tela própria pra isso existiu ("Rota
+     Indicada", aceitar/negar) e morreu no corte de 06/08: 4 linhas na história
+     inteira servidas por 2.981 polls. Ordem do dono: *"o mecanismo de 'fazem a
+     rota pra mim' fica no chat — todo motorista sabe usar chat"*.
+
+     🔴 NENHUM VERBO NOVO DE ROTA NASCE AQUI. Encaixar parada = a MESMA receita
+     da parada avulsa (`/logistica/entregas` com `paraMinhaRota` + o
+     `encaixarAvulsa` que mede custo de inserção); encaixar rota = o MESMO
+     `rota-modelos/:id/gerar` que o "Usar esta rota hoje?" já chama. Um segundo
+     caminho pra montar o dia é como nasce a rota que existe numa tela só.
+
+     🔴 NEGAR NÃO LIMPA NADA PORQUE NADA FOI CRIADO. Até o encaixe, o anexo é um
+     id dentro de uma mensagem: "a rota recebida é LIMPA, não fica presa em
+     limbo nenhum" é propriedade da construção, não faxina. O que sobra é a
+     linha no fio dizendo que negou — com ou sem motivo.
+     ══════════════════════════════════════════════════════════════════════════ */
+
+  /* O recado cujo MOTIVO está sendo escrito agora. Ele existe porque a próxima
+     mensagem do campo tem que responder ESTE recado (o `recadoId` do
+     `/recados/responder`), e não o que estiver por acaso no portão — senão o
+     "não vou conseguir passar lá" viraria resposta de outro assunto. Some no
+     envio, no cancelamento e ao sair do Chat. */
+  let motivoDoAnexo = null;
+
+  /** o id que a próxima mensagem do chat deve responder (vazio = nenhum) */
+  function recadoIdDoMotivo() {
+    return motivoDoAnexo ? String(motivoDoAnexo) : '';
+  }
+
+  function limparMotivoDoAnexo() {
+    motivoDoAnexo = null;
+  }
+
+  /** o recado do fio com este id — o anexo VIVE no fio, não numa lista à parte */
+  function recadoComAnexo(id) {
+    const alvo = String(id || '');
+    if (!alvo) return null;
+    const achado = (recados || []).find((r) => r && String(r.id) === alvo);
+    return achado && achado.anexo ? achado : null;
+  }
+
+  /* A CARA DO ANEXO NA BOLHA. `encaixar` é respondido AQUI e viaja pro seam
+     pronto: quem sabe se existe rota é a ponte (`rotaMontada()`), e a tela que
+     tentasse adivinhar ofereceria "Encaixar na rota" pra quem não tem rota. */
+  function anexoDoSeam(recado) {
+    const a = recado && recado.anexo;
+    if (!a) return undefined;
+    return {
+      id: String(recado.id),
+      tipo: a.tipo === 'rota' ? 'rota' : 'parada',
+      nome: esc(a.nome || ''),
+      detalhe: esc(a.detalhe || ''),
+      estado: a.estado === 'encaixada' || a.estado === 'negada' ? a.estado : 'pendente',
+      encaixar: rotaMontada() ? 1 : 0,
+    };
+  }
+
+  /** grava o desfecho no servidor e repinta o fio — o card vira selo sozinho */
+  async function gravarDesfecho(id, acao) {
+    await window.API.post(`/logistica/recados/${encodeURIComponent(String(id))}/anexo`, { acao });
+    await carregarRecados();
+  }
+
+  /* ── ENCAIXAR ────────────────────────────────────────────────────────────
+     🔴 A ORDEM É: CRIAR → ENCAIXAR → MARCAR. Marcar antes de criar deixaria o
+     card dizendo "Encaixada" com a rota intacta se a rede caísse no meio — a
+     mentira mais cara que este card pode contar. E o marcar é o ÚLTIMO porque
+     ele é a única coisa desta corrente que dá pra repetir sem estrago (o
+     servidor é idempotente); se ele falhar, a parada está lá e o próximo toque
+     conserta o selo. */
+  async function encaixarParada(recado) {
+    const a = recado.anexo;
+    const contaId = String(a.contaId || '');
+    if (!contaId) throw new Error('Este recado não diz qual cliente.');
+
+    /* A mesma porta não entra 2x na rota do dia — mesmo freio do
+       `rapidaConfirmar`. Aqui ele também FECHA o card: a parada já está na
+       rota, então o estado honesto é "encaixada", não "pendente pra sempre". */
+    if (paradaAbertaDaConta(contaId)) {
+      await gravarDesfecho(recado.id, 'encaixar');
+      return { ja: true, anterior: null };
+    }
+    const entrega = await window.API.post('/logistica/entregas', {
+      customerProfileId: contaId,
+      quantidade: 1,
+      scheduledAt: `${hojeISO()}T12:00:00.000Z`,
+      // 🔴 Sem `paraMinhaRota` a entrega nasce órfã e o Iniciar recusa o dia
+      // INTEIRO ("atribua as entregas a exatamente um motorista").
+      paraMinhaRota: true,
+    });
+    // A rota é relida ANTES do encaixe: é dela que sai a lista de abertas em
+    // que a parada nova vai entrar.
+    await carregarRota();
+    const novoId = entrega && entrega.id ? String(entrega.id) : '';
+    let encaixe = { aplicado: false, anterior: null };
+    if (novoId) encaixe = await encaixarAvulsa(novoId);
+    await carregarRota();
+    await gravarDesfecho(recado.id, 'encaixar');
+    return { ja: false, anterior: encaixe.anterior };
+  }
+
+  async function encaixarRota(recado) {
+    const a = recado.anexo;
+    const modeloId = String(a.rotaModeloId || '');
+    if (!modeloId) throw new Error('Este recado não diz qual rota.');
+    // O MESMO verbo do "Usar esta rota hoje?" — ele materializa as entregas do
+    // modelo no dia de hoje. Nada de endpoint novo.
+    await window.API.post(`/logistica/rota-modelos/${encodeURIComponent(modeloId)}/gerar`, {
+      date: diaOperacional(),
+    });
+    await carregarRota();
+    /* A ORDEM É A SEGUNDA METADE DO VERBO — e falhar aqui não desfaz nada: as
+       paradas existem. O recibo muda de tom em vez de mentir (mesma disciplina
+       do `rapidaAdicionarEscolhidos`). */
+    let ordenou = true;
+    try {
+      await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...origemGps() });
+    } catch (_) { ordenou = false; }
+    await carregarRota();
+    await gravarDesfecho(recado.id, 'encaixar');
+    return { ordenou };
+  }
+
+  /**
+   * O toque em "Encaixar na rota".
+   *
+   * `aguardeNoToque` é a MESMA disciplina do pé da Montagem: a classe entra no
+   * botão vivo ainda no quadro do toque (recibo imediato, cromo direto no nó) e
+   * a trava é variável da ponte, porque o repinte do meio do fluxo troca o nó e
+   * nó novo nasce sem classe. Sem isso, encaixar — que é rede em 4 etapas —
+   * fica segundos sem resposta e o dedo toca de novo.
+   */
+  function encaixarAnexo(id, alvo) {
+    const recado = recadoComAnexo(id);
+    if (!recado || recado.anexo.estado !== 'pendente') return;
+    if (!rotaMontada()) {
+      return window.portao({
+        tom: 'info', ico: 'route', titulo: 'Sem rota montada',
+        sub: 'Monte a rota de hoje e o encaixe volta a aparecer.',
+        acoes: [['Fechar', 'principal', true]],
+      });
+    }
+    aguardeNoToque(alvo, () => comTrava(async () => {
+      const ehRota = recado.anexo.tipo === 'rota';
+      let saida;
+      try { saida = ehRota ? await encaixarRota(recado) : await encaixarParada(recado); }
+      catch (e) { return avisoErro(e); }
+      const nome = recado.anexo.nome || 'A parada';
+      window.portao({
+        tom: 'ok', ico: 'check', titulo: ehRota ? 'Rota encaixada' : 'Parada encaixada',
+        sub: ehRota
+          ? (saida.ordenou ? 'A ordem já está montada.' : 'Toque em "Montar rota" pra achar a ordem.')
+          : saida.ja ? `${esc(nome)} já estava na rota de hoje.`
+            : saida.anterior ? `Entra depois de ${esc(saida.anterior)}.`
+              : 'Entra como primeira parada.',
+        acoes: [['Fechar', 'principal', true]],
+      });
+    }));
+  }
+
+  /* ── ANALISAR ────────────────────────────────────────────────────────────
+     Não decide nada: leva o dedo pra Montagem com o alvo ACESO.
+
+     🔴 O DESTAQUE É CROMO DIRETO NO NÓ, não campo de seam — mesma escolha do
+     `aguardeNoToque`. Ele é um "olha aqui" do momento da chegada, não um
+     estado: pendurá-lo no seam obrigaria alguém a lembrar de apagá-lo, e marca
+     que ninguém apaga é a próxima confirmação decorativa.
+
+     🔴 E ELE SÓ NASCE DEPOIS QUE A TELA PAROU DE SE PINTAR. `ir('montagem')`
+     dispara um `encherMontagem()` que termina DEPOIS; quando termina, o
+     `usarDados` repinta e leva a camada inteira embora — com o destaque dentro.
+     É a mesma receita do `voltarDaAvulsa`: navega, ESPERA o dado, e só então
+     marca. */
+  async function idsParaDestacar(recado) {
+    const a = recado.anexo;
+    if (a.tipo === 'parada') return a.contaId ? [String(a.contaId)] : [];
+    const modeloId = String(a.rotaModeloId || '');
+    if (!modeloId) return [];
+    // O catálogo de rotas salvas já é lido pelo app; só o buscamos quando ele
+    // ainda não estiver na memória deste ciclo.
+    if (!MODELOS.has(modeloId)) {
+      try { await carregarSalvas(); } catch (_) { return []; }
+    }
+    const modelo = MODELOS.get(modeloId);
+    const paradas = modelo && Array.isArray(modelo.paradas) ? modelo.paradas : [];
+    return paradas.map((p) => String(p && p.customerProfileId || '')).filter(Boolean);
+  }
+
+  function acenderNaMontagem(ids) {
+    if (!ids.length) return 0;
+    let achados = 0;
+    let primeiro = null;
+    ids.forEach((id) => {
+      const no = naCamada(`.stop[data-cliente="${id}"]`);
+      if (!no) return;
+      no.classList.add('destaque');
+      if (!primeiro) primeiro = no;
+      achados += 1;
+    });
+    // Rolar até o PRIMEIRO alvo: acender uma linha fora da tela é acender nada.
+    if (primeiro && primeiro.scrollIntoView) {
+      try { primeiro.scrollIntoView({ block: 'center' }); } catch (_) { /* sem suporte: a classe basta */ }
+    }
+    return achados;
+  }
+
+  function analisarAnexo(id) {
+    const recado = recadoComAnexo(id);
+    if (!recado) return;
+    void comTrava(async () => {
+      const ids = await idsParaDestacar(recado);
+      window.ir('montagem');
+      try { await encherMontagem(); } catch (_) { /* a tela vale mais que a marca */ }
+      const acesos = acenderNaMontagem(ids);
+      /* 🔴 "NÃO ACHEI" NÃO PODE SAIR CALADO. O cliente anexado pode não estar no
+         dia — e aí a tela abre sem nada aceso, que a pessoa lê como app quebrado.
+         Uma frase, e o card continua no chat esperando a decisão. */
+      if (!acesos && ids.length) {
+        window.portao({
+          tom: 'info', ico: 'map',
+          titulo: recado.anexo.tipo === 'rota' ? 'Essa rota não está no seu dia' : 'Essa parada não está no seu dia',
+          sub: 'Volte ao chat e use "Encaixar na rota".',
+          acoes: [['Fechar', 'principal', true]],
+        });
+      }
+    });
+  }
+
+  /* ── NEGAR ───────────────────────────────────────────────────────────────
+     Duas saídas e um só desfecho no servidor. A pergunta do motivo é uma
+     CORTESIA, não um pedágio: "Não" fecha e pronto — obrigar a justificar quem
+     está dirigindo é o tipo de trava que faz a pessoa parar de usar a porta.
+
+     🔴 O DESFECHO É GRAVADO NOS DOIS CAMINHOS, ANTES do campo de texto. Deixar
+     pro envio da mensagem faria "negar e não escrever nada" virar um card
+     pendente pra sempre — exatamente o limbo que o dono mandou não existir. */
+  function negarAnexo(id) {
+    const recado = recadoComAnexo(id);
+    if (!recado || recado.anexo.estado !== 'pendente' || typeof window.portao !== 'function') return;
+    window.portao({
+      tom: 'alerta', ico: 'chat', titulo: 'Enviar motivo?',
+      sub: `${esc(recado.anexo.nome || 'O que a Central mandou')} não entra na sua rota.`,
+      acoes: [['Não', ''], ['Sim', 'principal']], classe: 'duas',
+    });
+    const negar = (comMotivo) => comTrava(async () => {
+      try { await gravarDesfecho(recado.id, 'negar'); }
+      catch (e) { return avisoErro(e); }
+      if (!comMotivo) return;
+      /* "Sim" é o dedo indo pro campo — o texto é dele. A mensagem que ele
+         escrever sai ligada a ESTE recado (ver `recadoIdDoMotivo`), então a
+         central lê a negativa embaixo do que ela mesma mandou. */
+      motivoDoAnexo = String(recado.id);
+      const el = naCamada('[data-campo="recado-texto"]');
+      if (el) el.focus();
+    });
+    const sim = naCamada('.portao-wrap .principal');
+    if (sim) sim.addEventListener('click', () => { negar(true); }, { once: true });
+    /* O "Não" também GRAVA: o dono foi literal — "nos dois casos de negar, a
+       rota recebida é limpa". Fechar sem gravar deixaria o card pendente. */
+    const nao = naCamada('.portao-wrap .acoes button:not(.principal)');
+    if (nao) nao.addEventListener('click', () => { negar(false); }, { once: true });
   }
 
   /* ------------------------------------------------------------------------
@@ -10864,6 +11719,16 @@
     };
     const pNovo = pontoDe(novo);
     let indice = ids.length;
+    /* 🔴 O RECIBO TEM QUE DIZER O QUE FOI MEDIDO (12/08). O portão do fim
+       prometia "encaixa na melhor posição sozinho" e devolvia só o nome de
+       quem ficou antes — a POSIÇÃO e o CUSTO ficavam aqui dentro, calculados e
+       jogados fora. Recibo que não mostra a conta é recibo decorativo: quem
+       está na calçada não tem como saber se o encaixe fez sentido.
+       A unidade é honesta: com o OSRM de pé a matriz é de DURAÇÃO (segundos);
+       sem rede a conta cai pra linha reta (metros). Misturar as duas num "+1,1"
+       sem unidade seria mentir com número. */
+    let desvioValor = null;
+    let desvioEmSegundos = false;
     if (posicao === 'primeira') indice = 0;
     else if (pNovo && base.length) {
       const pOrigem = ultimaPos && pinoValido(ultimaPos.lat, ultimaPos.lng)
@@ -10893,6 +11758,7 @@
         const custo = entrada + saida - antiga;
         if (Number.isFinite(custo) && custo < melhor) { melhor = custo; indice = k; }
       }
+      if (Number.isFinite(melhor)) { desvioValor = Math.max(0, melhor); desvioEmSegundos = !!matriz; }
     }
     const ordem = [...ids.slice(0, indice), String(novoId), ...ids.slice(indice)];
     await window.API.post('/logistica/rota/planejar', {
@@ -10900,7 +11766,14 @@
     });
     const anterior = indice > 0 ? base[indice - 1] : null;
     const nomeAnterior = anterior && anterior.item && anterior.item.cliente && anterior.item.cliente.nome;
-    return { aplicado: true, anterior: nomeAnterior || null };
+    return {
+      aplicado: true,
+      anterior: nomeAnterior || null,
+      // 1-based: a pessoa conta paradas a partir de 1, não de 0.
+      posicao: indice + 1,
+      deTotal: ordem.length,
+      desvio: desvioValor == null ? '' : (desvioEmSegundos ? emMinutos(desvioValor) : emMetros(desvioValor)),
+    };
   }
 
   /* 🔴 O PORTÃO SÓ NASCE DEPOIS QUE A TELA PAROU DE SE PINTAR (09/08, medido).
@@ -11005,9 +11878,15 @@
       await voltarDaAvulsa(volta);
       window.portao({
         tom: 'ok', ico: 'check', titulo: 'Parada adicionada',
+        /* O RECIBO MOSTRA A CONTA QUE FOI FEITA — posição, de quantas, depois
+           de quem, e quanto custou o encaixe. Tudo saído da resposta do
+           `encaixarAvulsa`; nada aqui é enfeite escrito à mão. */
         sub: !encaixe.aplicado ? 'Ela entrou na rota de hoje.'
-          : encaixe.anterior ? `Entra depois de ${encaixe.anterior}.`
-            : 'Entra como primeira parada.',
+          : [
+            `Parada ${encaixe.posicao} de ${encaixe.deTotal}`,
+            encaixe.anterior ? `, depois de ${encaixe.anterior}` : ', como primeira',
+            encaixe.desvio ? ` · menor desvio: +${encaixe.desvio}` : '',
+          ].join('') + '.',
         acoes: [['Fechar', 'principal', true]],
       });
     } catch (e) {
@@ -11528,6 +12407,510 @@
     });
   }
 
+  /* ==========================================================================
+     O PAINEL DA BUSCA DA PARADA AVULSA — F2 do PR12082026.
+
+     Desenho aprovado: `docs/mockups/pesquisa-avulsa-v2.html`.
+     Contrato (F1, já em prod e provado): `GET /logistica/busca?q=&lat=&lng=`
+     devolve os TRÊS grupos — clientes (fuzzy pg_trgm), ruas do Censo (CNEFE) e
+     comércios da RFB — já ranqueados por nome × distância do GPS; e
+     `GET /logistica/busca/porta?municipio=&via=&numero=` devolve o pino da
+     PORTA com o CEP junto.
+
+     A doença que isto cura: a busca de endereço era um campo CEGO. Digitava
+     tudo, apertava um botão e uma regex decidia em silêncio se ia pro CNEFE (só
+     com CEP) ou pro Nominatim público — 1 req/s, fraco no interior, até ~7 s
+     parado na calçada. Zero sugestão, zero recentes, zero ranking.
+
+     ── AS TRÊS LEIS DESTE ARQUIVO ────────────────────────────────────────────
+
+     1. 🔴 TECLA NÃO PASSA PELO SEAM. `usarDados` remonta a CAMADA inteira
+        (`innerHTML = render()`); uma camada nova por letra digitada é a tela
+        piscando na mão de quem está em pé na porta de um cliente. Então o rolo
+        de resultados é escrito DIRETO NO NÓ (`[data-rolo="busca"]`) e o seam é
+        atualizado por baixo, sem repintar — a MESMA divisão que o velocímetro
+        já tinha (§ `data-vivo`, 60-prospector-nav): *o DADO passa pelo seam; o
+        que muda a cada quadro, NÃO*. Toque (escolher, S/N, Usar) é outra
+        história: ali repintar é o certo, e passa pelo seam de sempre.
+
+     2. 🔴 UM PEDIDO POR PAUSA, E O ATRASADO NÃO VENCE. Debounce de 250 ms e
+        um NÚMERO DE SÉRIE por pedido: quem volta com número velho é jogado
+        fora. Sem isso, digitar "bar do ze" enfileira 9 requisições e a última a
+        CHEGAR nem sempre é a última a SAIR — a tela mostraria o resultado de
+        "bar do z" por cima do de "bar do ze".
+
+     3. 🔴 NADA DE NOMINATIM/GOOGLE NO DIGITAR. Autocomplete no Nominatim
+        público viola o ToS dele e o preço é ban. O caminho do link do Maps /
+        coordenada colada continua VIVO — só que fora do fluxo por tecla: vira
+        um cartão que a pessoa toca (§ `busca-colar`), e ele chama o
+        `rapidaBuscar` de sempre.
+
+     E o verbo do fim é o que JÁ EXISTIA: a escolha vira `rapida.resolvido` e
+     quem grava é o `rapidaConfirmar` (C0) — mesmas três travas (porta não entra
+     2×, cadastro sem nome não passa, endereço com conta REUSA a conta) e o
+     mesmo `encaixarAvulsa`. Endpoint novo aqui: nenhum além dos dois da F1.
+     ========================================================================== */
+
+  /** espera o dedo parar. 250 ms é o piscar de olho — abaixo disso vira pedido
+   *  por letra; acima, a lista parece travada. */
+  const BUSCA_ESPERA_MS = 250;
+  /** menos que isto não é busca, é uma letra: o servidor devolve vazio (§
+   *  BUSCA_MIN_CHARS) e a ida seria só gasto de bateria. */
+  const BUSCA_MIN = 2;
+  /** as 6 últimas ESCOLHAS deste aparelho (não as últimas digitações) */
+  const BUSCA_RECENTES_CHAVE = 'hbx.busca.recentes';
+  const BUSCA_RECENTES_TETO = 6;
+
+  /* O número de série do pedido. Cresce sempre; resposta com número velho é
+     resposta de uma pergunta que a pessoa já mudou. */
+  let buscaSerie = 0;
+  let buscaTimerPainel = null;
+  /* Os itens CRUS do servidor, na ordem em que foram pintados. O seam leva a
+     versão de TELA (texto pronto); a escolha precisa do payload inteiro —
+     cep, lat/lng, codMunicipio, via, numero, fonte — porque é dele que a F4
+     (cadastro herdando a lei do CEP) vai beber. */
+  let buscaCrus = { cli: [], rua: [], loja: [] };
+  /* O escopo geográfico que o servidor resolveu (município/cidade/UF). O passo
+     do NÚMERO precisa do código do município, e ele não viaja no item. */
+  let buscaEscopo = { codMunicipio: null, cidade: null, uf: null };
+
+  /* ------------------------------------------------------------------------
+     OS RECENTES — memória do APARELHO, não da empresa.
+     Repetir a parada de ontem é o gesto mais comum de quem entrega, e ele
+     merece um toque em vez de onze letras. Fica em `localStorage` porque é
+     preferência de quem segura o telefone; mandar isso pro servidor seria
+     inventar uma tabela pra guardar o que não é da empresa.
+     Tudo em try/catch: WebView com DOM storage desligado não pode derrubar a
+     busca — sem recentes a tela continua inteira.
+     ------------------------------------------------------------------------ */
+  function recentesDaBusca() {
+    try {
+      const cru = window.localStorage.getItem(BUSCA_RECENTES_CHAVE);
+      const lista = cru ? JSON.parse(cru) : [];
+      return Array.isArray(lista) ? lista.filter((x) => typeof x === 'string' && x).slice(0, BUSCA_RECENTES_TETO) : [];
+    } catch (_) { return []; }
+  }
+  function guardarRecenteDaBusca(rotulo) {
+    const novo = String(rotulo || '').trim().slice(0, 60);
+    if (!novo) return;
+    try {
+      const lista = recentesDaBusca().filter((x) => x.toLowerCase() !== novo.toLowerCase());
+      lista.unshift(novo);
+      window.localStorage.setItem(BUSCA_RECENTES_CHAVE, JSON.stringify(lista.slice(0, BUSCA_RECENTES_TETO)));
+    } catch (_) { /* sem storage: os recentes somem, a busca não */ }
+  }
+
+  /* ------------------------------------------------------------------------
+     DO CONTRATO PRA TELA. Cada grupo vira {titulo, detalhe, dist, fonte} — e
+     nada mais: o que a pessoa lê é isto. O resto do payload fica em
+     `buscaCrus`, onde a escolha vai buscar.
+     ------------------------------------------------------------------------ */
+  /** "av 84" → "Av 84". A via vem CANÔNICA do banco (minúscula, abreviada);
+   *  escrever assim na tela pareceria defeito de banco de dados. */
+  const viaBonita = (v) => String(v || '').split(' ')
+    .map((p) => (p ? p.charAt(0).toUpperCase() + p.slice(1) : p)).join(' ');
+  const juntar = (partes) => partes.filter((x) => x != null && String(x).trim() !== '').join(' · ');
+
+  /* 🔴 O NÍVEL DO GEO TEM QUE APARECER (o próprio serviço avisa: "1=porta
+     2=rua 3=bairro 4=cidade — a tela TEM que diferenciar"). Comércio marcado
+     no CENTRO DO BAIRRO desenhado como se fosse a porta é parada plantada no
+     lugar errado — e pino errado custa mais caro que pino nenhum. */
+  const avisoDoGeo = (nivel) => (Number(nivel) >= 4 ? 'ponto aproximado (cidade)'
+    : Number(nivel) === 3 ? 'ponto aproximado (bairro)' : '');
+
+  /* 🔴 ZERO NÃO É PINO — e aqui isso vira dinheiro (medido no g15, 12/08, contra
+     PRODUÇÃO). Quem não tem porta marcada volta do servidor com `distM: 0`, e o
+     `emMetros` obediente escrevia "0 m": quatro clientes e dois bares apareceram
+     como se estivessem NA FRENTE do motorista. É a pior mentira possível numa
+     tela cuja promessa escrita, uma linha acima, é "o mais perto de você vem
+     primeiro" — e é a mesma lição do mapa na África, onde 0,0 virava um ponto.
+     Distância que não existe não vira número: o cartão simplesmente não a mostra
+     (a fonte e o endereço continuam lá, que é o que se sabe de verdade).
+     ⚠️ O RANKING em si é do SERVIDOR e continua pondo esses zeros na frente —
+     isso é conserto de F1, anotado no relatório com a foto. */
+  const distDaBusca = (m) => (Number(m) >= 1 ? emMetros(Number(m)) : '');
+
+  /* CEP se lê com máscara. O banco guarda 8 dígitos (e é assim que ele viaja no
+     cadastro, § digitos()); só o que a PESSOA lê ganha o traço — "13502150" na
+     tela é banco de dados vazando pra cara de quem trabalha. */
+  const cepBonito = (c) => {
+    const d = String(c == null ? '' : c).replace(/[^0-9]/g, '');
+    return d.length === 8 ? d.slice(0, 5) + '-' + d.slice(5) : String(c || '');
+  };
+
+  function paraTelaDaBusca(resp) {
+    const g = (resp && resp.grupos) || {};
+    const cli = Array.isArray(g.clientes) ? g.clientes : [];
+    const rua = Array.isArray(g.enderecos) ? g.enderecos : [];
+    const loja = Array.isArray(g.comercios) ? g.comercios : [];
+    return {
+      clientes: cli.map((c) => ({
+        titulo: esc(c.nome),
+        detalhe: esc(juntar([linhaDeEndereco(c.endereco, c.numero), c.bairro || c.cidade])),
+        dist: esc(distDaBusca(c.distM)),
+        fonte: 'cliente',
+      })),
+      enderecos: rua.map((v) => ({
+        titulo: esc(viaBonita(v.via)),
+        detalhe: esc(juntar([v.portas ? `${v.portas} portas no Censo` : '', buscaEscopo.cidade || ''])),
+        dist: esc(distDaBusca(v.distM)),
+        fonte: 'censo',
+        cep: esc(cepBonito(v.cep)),
+      })),
+      comercios: loja.map((e) => ({
+        titulo: esc(e.nome),
+        detalhe: esc(juntar([e.endereco, e.cidade, avisoDoGeo(e.nivelGeo)])),
+        dist: esc(distDaBusca(e.distM)),
+        fonte: 'rfb',
+      })),
+    };
+  }
+
+  /* ------------------------------------------------------------------------
+     A ESCRITA CIRÚRGICA. É aqui que a lei nº 1 deste arquivo acontece: o seam
+     é atualizado POR BAIXO (pra que o próximo repinte de verdade — um toque —
+     pinte a mesma coisa) e o HTML vai direto pro nó do rolo.
+
+     O desenho é o do MOCK (`roloDaBuscaAvulsa`), nunca uma segunda cópia aqui:
+     duas cópias do mesmo desenho divergem na primeira mexida, e aí o app deixa
+     de ser o mock.
+     ------------------------------------------------------------------------ */
+  function escreverRoloDaBusca(campos) {
+    if (typeof DADOS === 'undefined' || !DADOS.rapida) return;
+    Object.assign(DADOS.rapida, campos);
+    const no = naCamada('[data-rolo="busca"]');
+    if (!no || typeof roloDaBuscaAvulsa !== 'function') return;
+    no.innerHTML = roloDaBuscaAvulsa(DADOS.rapida);
+  }
+
+  /** o × do campo e o `data-campo` só existem/valem com a tela montada */
+  const noPainelDaBusca = () => !!rapida && rapida.porta === 'endereco' && telaAtual() === 'rapida';
+
+  /* 🔴 O QUE O DEDO ESCREVEU VOLTA EM TODO REPINTE DE TOQUE. `usarDados`
+     remonta a camada a partir do seam: se o `busca` não for devolvido, o campo
+     se apaga sozinho no instante em que a pessoa toca num resultado (a mesma
+     lição do `novoRascunho`). O nó VIVO manda — ele tem as letras que o
+     debounce ainda nem levou pro servidor. */
+  const textoDaBusca = () => {
+    const no = naCamada('[data-campo="rapida-busca"]');
+    if (no) return String(no.value || '');
+    return String((rapida && rapida.buscaTexto)
+      || (typeof DADOS !== 'undefined' && DADOS.rapida && DADOS.rapida.busca) || '');
+  };
+
+  /* ------------------------------------------------------------------------
+     O PEDIDO. Best-effort com VOZ: falhou a rede, o rolo diz que não achou —
+     nunca fica girando pra sempre, e nunca inventa lista.
+     ------------------------------------------------------------------------ */
+  async function procurarNaBusca(texto) {
+    const q = String(texto || '').trim();
+    const r = rapida;
+    if (!r || !temPonte() || !window.API) return;
+    /* LINK/COORDENADA COLADA NÃO SE PROCURA EM BANCO — vira cartão (lei nº 3).
+       O mesmo texto pode ser as duas coisas ("13500-000 1067" é CEP e é busca),
+       então o cartão SOMA, não substitui. */
+    const colado = (/https?:\/\//i.test(q) || PAR_COORD.test(q)) ? q.slice(0, 60) : '';
+    if (q.length < BUSCA_MIN) {
+      buscaCrus = { cli: [], rua: [], loja: [] };
+      escreverRoloDaBusca({
+        busca: esc(q), grupos: { clientes: [], enderecos: [], comercios: [] },
+        semNada: 0, colar: esc(colado), numAberto: -1, recentes: recentesDaBusca().map(esc),
+      });
+      return;
+    }
+    const serie = ++buscaSerie;
+    // o rolo já diz "Procurando…" (é o vazio honesto de quem ainda não sabe)
+    escreverRoloDaBusca({ busca: esc(q), semNada: 0, colar: esc(colado) });
+    const perto = ultimaPos && pinoValido(ultimaPos.lat, ultimaPos.lng)
+      ? `&lat=${encodeURIComponent(ultimaPos.lat)}&lng=${encodeURIComponent(ultimaPos.lng)}` : '';
+    let resp = null;
+    try {
+      resp = await window.API.get(`/logistica/busca?q=${encodeURIComponent(q)}${perto}`);
+    } catch (e) {
+      // 🔴 "NÃO CONSEGUI PERGUNTAR" ≠ "NÃO EXISTE". Falha de rede não pode
+      // apagar o que já está na tela: só marca que esta pergunta não voltou.
+      if (serie !== buscaSerie || !noPainelDaBusca() || rapida !== r) return;
+      escreverRoloDaBusca({ semNada: 1 });
+      return;
+    }
+    /* 🔴 A RESPOSTA ATRASADA NÃO SOBRESCREVE A NOVA. Este é o teste do
+       painel inteiro: sem esta linha, o resultado de "bar do z" (que saiu
+       antes e voltou depois) sentaria por cima do de "bar do ze". */
+    if (serie !== buscaSerie || rapida !== r || !noPainelDaBusca()) return;
+    const esc0 = (resp && resp.escopo) || {};
+    buscaEscopo = {
+      codMunicipio: esc0.codMunicipio || null,
+      cidade: esc0.cidade || null,
+      uf: esc0.uf || null,
+    };
+    const g = (resp && resp.grupos) || {};
+    buscaCrus = {
+      cli: Array.isArray(g.clientes) ? g.clientes : [],
+      rua: Array.isArray(g.enderecos) ? g.enderecos : [],
+      loja: Array.isArray(g.comercios) ? g.comercios : [],
+    };
+    const grupos = paraTelaDaBusca(resp);
+    const nada = !grupos.clientes.length && !grupos.enderecos.length && !grupos.comercios.length;
+    escreverRoloDaBusca({
+      busca: esc(q), grupos, semNada: nada ? 1 : 0, colar: esc(colado), numAberto: -1,
+    });
+  }
+
+  /* ------------------------------------------------------------------------
+     O TECLADO. Ouvinte DELEGADO no documento (e não por nó): o campo nasce de
+     novo a cada repinte da camada, e listener por nó precisaria de guarda e de
+     um gancho no repinte. `input` sobe, então um ouvinte só cobre todos os
+     nascimentos do campo, hoje e depois.
+     ------------------------------------------------------------------------ */
+  document.addEventListener('input', (ev) => {
+    const alvo = ev.target;
+    if (!alvo || !alvo.dataset || alvo.dataset.campo !== 'rapida-busca') return;
+    if (!temPonte() || !rapida) return;
+    const valor = String(alvo.value || '');
+    // o que o dedo escreveu tem que sobreviver ao próximo repinte de verdade
+    rapida.buscaTexto = valor;
+    clearTimeout(buscaTimerPainel);
+    buscaTimerPainel = setTimeout(() => { void procurarNaBusca(valor); }, BUSCA_ESPERA_MS);
+  });
+
+  /* ------------------------------------------------------------------------
+     A ESCOLHA. Ela ARMA a parada (não grava nada): preenche o rascunho que o
+     `rapidaConfirmar` já sabe gravar, e acende o pé com o resumo REAL —
+     incluindo o CEP com que a parada vai nascer.
+     ------------------------------------------------------------------------ */
+  /** o pé, com o que a pessoa acabou de escolher */
+  function armarPeDaBusca(tipo, i, titulo, dist, cep) {
+    if (typeof window.usarDados !== 'function') return;
+    window.usarDados('rapida', {
+      pe: { tipo, i, titulo: esc(titulo), dist: esc(dist || ''), cep: esc(cepBonito(cep)) },
+      numAberto: -1, aviso: '', busca: esc(textoDaBusca()),
+    });
+  }
+
+  function escolherDaBusca(tipo, indice) {
+    const r = rapida;
+    const i = Number(indice);
+    if (!r || r.salvando) return;
+    const cru = (buscaCrus[tipo] || [])[i];
+    if (!cru) return;
+    r.aviso = '';
+    r.posicao = 'perto';          // "encaixa na melhor posição sozinho" é o pé
+    r.opcoes = [];
+
+    if (tipo === 'cli') {
+      /* CLIENTE JÁ TEM CONTA — e por isso ele NÃO passa por `POST /nucleo/contas`.
+         Enchendo `duplicado` com a conta dele, o `rapidaConfirmar` reusa a linha
+         que existe (e cobra o freio "a mesma porta não entra 2× na rota de hoje"
+         de graça). Abrir cadastro novo pra quem já está na base é o defeito que
+         enche a base de gente repetida. */
+      r.duplicado = { id: String(cru.id), nome: cru.nome, isCliente: true, isLead: false, isFornecedor: false };
+      r.origem = 'busca';
+      r.nome = String(cru.nome || '');
+      r.cep = String(cru.cep || '');
+      r.numero = String(cru.numero || '');
+      r.resolvido = {
+        fonte: 'cliente', endereco: cru.endereco || '', numero: cru.numero || '',
+        bairro: cru.bairro || '', cidade: cru.cidade || '', uf: cru.uf || '',
+        cep: cru.cep || '', lat: cru.lat, lng: cru.lng,
+      };
+      r.escolhaBusca = { tipo: 'cliente', fonte: 'cliente', contaId: String(cru.id), cep: cru.cep || '', lat: cru.lat, lng: cru.lng };
+      guardarRecenteDaBusca(cru.nome);
+      armarPeDaBusca(tipo, i, cru.nome, distDaBusca(cru.distM), cru.cep || '');
+      return;
+    }
+
+    if (tipo === 'rua') {
+      /* RUA NÃO É PARADA. "Rua 8" sozinha são 214 portas do Censo: aqui abre o
+         DEGRAU DO NÚMERO, e só depois dele existe pino, CEP e parada. Um degrau
+         por vez — é o contrário do formulário de seis campos que ninguém
+         termina em pé, com o carro ligado. */
+      if (typeof window.usarDados === 'function') {
+        window.usarDados('rapida', { numAberto: i, numValor: '', numSn: 0, pe: null, aviso: '', busca: esc(textoDaBusca()) });
+      }
+      return;
+    }
+
+    // COMÉRCIO (RFB × CnpjGeo): o pino é a intenção, então ele VIAJA no cadastro.
+    r.duplicado = null;
+    r.origem = 'busca';
+    r.nome = String(cru.nome || '');
+    r.cep = String(cru.cep || '');
+    r.numero = '';
+    r.resolvido = {
+      fonte: 'rfb', endereco: cru.endereco || '', numero: '',
+      bairro: '', cidade: cru.cidade || '', uf: cru.uf || '',
+      cep: cru.cep || '', lat: cru.lat, lng: cru.lng,
+    };
+    r.escolhaBusca = {
+      tipo: 'comercio', fonte: 'rfb', cnpj: String(cru.cnpj || ''), cep: cru.cep || '',
+      lat: cru.lat, lng: cru.lng, nivelGeo: cru.nivelGeo,
+    };
+    guardarRecenteDaBusca(cru.nome);
+    armarPeDaBusca(tipo, i, cru.nome, distDaBusca(cru.distM), cru.cep || '');
+  }
+
+  /* ------------------------------------------------------------------------
+     O DEGRAU DO NÚMERO — `GET /logistica/busca/porta`.
+
+     🔴 SEM NÚMERO NÃO É ERRO. Metade do interior é S/N (posto, chácara, praça,
+     estrada): o botão "S/N" trava o campo e a resposta vira o pino do TRECHO,
+     com a `precisao` dizendo o que ela é. Exigir número travava o motorista
+     parado num lugar que número não tem.
+     ------------------------------------------------------------------------ */
+  async function usarRuaDaBusca() {
+    const r = rapida;
+    const d = (typeof DADOS !== 'undefined' && DADOS.rapida) || {};
+    const i = Number(d.numAberto);
+    const cru = (buscaCrus.rua || [])[i];
+    if (!r || !cru || r.salvando) return;
+    if (!buscaEscopo.codMunicipio) {
+      r.aviso = 'Não sei em que município procurar esta rua. Ligue o GPS e tente de novo.';
+      return publicarRapida();
+    }
+    const sn = !!d.numSn;
+    const numero = sn ? '' : digitos(campo('busca-numero'));
+    const p = [
+      `municipio=${encodeURIComponent(buscaEscopo.codMunicipio)}`,
+      `via=${encodeURIComponent(cru.via)}`,
+    ];
+    if (numero) p.push(`numero=${encodeURIComponent(numero)}`);
+    let porta = null;
+    try { porta = await window.API.get(`/logistica/busca/porta?${p.join('&')}`); }
+    catch (e) { r.aviso = humano(e); return publicarRapida(); }
+    if (rapida !== r) return;
+    if (!porta || porta.fonte !== 'cnefe' || !pinoValido(porta.lat, porta.lng)) {
+      r.aviso = numero
+        ? `Não achei o nº ${numero} nesta rua no Censo. Confira, ou marque S/N.`
+        : 'Não achei o ponto desta rua no Censo.';
+      return publicarRapida();
+    }
+    const titulo = [viaBonita(porta.via || cru.via), porta.numero || (sn ? 'S/N' : '')]
+      .filter(Boolean).join(', ');
+    r.duplicado = null;
+    r.nome = titulo;
+    r.numero = porta.numero ? String(porta.numero) : '';
+    r.cep = String(porta.cep || '');
+    r.resolvido = {
+      fonte: 'cnefe', endereco: viaBonita(porta.via || cru.via), numero: r.numero,
+      bairro: '', cidade: buscaEscopo.cidade || '', uf: buscaEscopo.uf || '',
+      cep: r.cep, lat: porta.lat, lng: porta.lng,
+    };
+    /* 🔴 COM CEP NA MÃO, QUEM RESOLVE O PINO É O SERVIDOR (a lei do CEP).
+       `origem:'cep'` faz o `rapidaConfirmar` mandar cep+número e NÃO mandar
+       lat/lng: aí a conta nasce pelo CNEFE, com a `geoFonte` certa gravada na
+       fonte. Mandar o pino junto carimbaria a conta como ponto marcado à mão —
+       mentira sobre a procedência de um pino que é do Censo.
+       Sem CEP na resposta o pino é a única coisa que temos: ele viaja. */
+    r.origem = r.cep ? 'cep' : 'busca';
+    r.escolhaBusca = {
+      tipo: 'endereco', fonte: 'cnefe', precisao: porta.precisao || null,
+      codMunicipio: buscaEscopo.codMunicipio, via: porta.via || cru.via,
+      numero: r.numero, cep: r.cep, lat: porta.lat, lng: porta.lng,
+    };
+    r.aviso = porta.precisao === 'porta' ? ''
+      : porta.precisao === 'rua' ? 'O Censo não tem este número exato: o ponto é o do vizinho mais perto.'
+        : 'Sem número: o ponto é o da rua. Confira antes de adicionar.';
+    guardarRecenteDaBusca(titulo);
+    armarPeDaBusca('rua', i, titulo, distDaBusca(cru.distM), r.cep);
+    // quem já mora nesta porta? (best-effort — só avisa, nunca trava)
+    await rapidaCheckarPorta();
+  }
+
+  /* ------------------------------------------------------------------------
+     O TEXTO COLADO — o caminho ANTIGO, vivo, fora do fluxo por tecla.
+     ------------------------------------------------------------------------ */
+  async function colarNaBusca() {
+    const r = rapida;
+    if (!r || r.salvando) return;
+    await rapidaBuscar();               // o mesmo /geo/link + /geo/cep de sempre
+    const alvo = rapida;
+    if (alvo !== r || !r.resolvido) return;
+    const titulo = r.nome || [r.resolvido.endereco, r.resolvido.numero].filter(Boolean).join(', ') || 'Localização colada';
+    guardarRecenteDaBusca(titulo);
+    armarPeDaBusca('colado', -1, titulo, '', digitos(r.cep || r.resolvido.cep || ''));
+  }
+
+  /* ------------------------------------------------------------------------
+     OS TOQUES PEQUENOS: limpar, S/N, recente.
+     ------------------------------------------------------------------------ */
+  /* 🔴 O PAINEL NASCE VAZIO E COM OS RECENTES DESTE APARELHO. Sem esta porta o
+     painel abriria com o que o MOCK deixou no seam — três recentes de mentira
+     ("Bar do Zé", "Rua 8", "Márcia") na tela de um motorista que nunca buscou
+     nada. Dado de demonstração na mão de quem trabalha é a mesma doença do
+     "João da Silva" que o boot apaga desde 07/08. */
+  function zerarPainelDaBusca() {
+    const r = rapida;
+    if (r) { r.resolvido = null; r.duplicado = null; r.aviso = ''; r.buscaTexto = ''; r.escolhaBusca = null; }
+    buscaCrus = { cli: [], rua: [], loja: [] };
+    buscaEscopo = { codMunicipio: null, cidade: null, uf: null };
+    buscaSerie += 1;                    // pedido em voo perde a vez
+    clearTimeout(buscaTimerPainel);
+    if (typeof window.usarDados !== 'function') return;
+    window.usarDados('rapida', {
+      busca: '', grupos: { clientes: [], enderecos: [], comercios: [] },
+      semNada: 0, colar: '', numAberto: -1, numValor: '', numSn: 0, pe: null,
+      aviso: '', recentes: recentesDaBusca().map(esc),
+    });
+  }
+  const abrirPainelDaBusca = zerarPainelDaBusca;
+  const limparBusca = zerarPainelDaBusca;
+
+  function virarSnDaBusca() {
+    const d = (typeof DADOS !== 'undefined' && DADOS.rapida) || {};
+    if (typeof window.usarDados !== 'function') return;
+    // o que já estava digitado sobrevive ao S/N: desmarcar devolve o número
+    const escrito = d.numSn ? String(d.numValor || '') : digitos(campo('busca-numero'));
+    window.usarDados('rapida', { numSn: d.numSn ? 0 : 1, numValor: esc(escrito), busca: esc(textoDaBusca()) });
+  }
+
+  function usarRecenteDaBusca(rotulo) {
+    const r = rapida;
+    const texto = String(rotulo || '').trim();
+    if (!r || !texto) return;
+    r.buscaTexto = texto;
+    // repinta com o texto no campo (toque, não tecla: aqui o seam é o caminho)
+    if (typeof window.usarDados === 'function') window.usarDados('rapida', { busca: esc(texto), numAberto: -1, pe: null });
+    clearTimeout(buscaTimerPainel);
+    void procurarNaBusca(texto);
+  }
+
+  /* ------------------------------------------------------------------------
+     OS TOQUES DO PAINEL — ouvinte PRÓPRIO, e isso é uma decisão, não descuido.
+
+     O lugar canônico de `data-acao` é o mapa do `D0-porta-entrega.js`. Este
+     painel fica FORA dele por um motivo de operação: em 12/08 há outra sessão
+     escrevendo no D0 (o anexo do recado), e código meu misturado ao lote dela
+     no mesmo arquivo é código que ninguém consegue entregar separado — ou eu
+     comito o trabalho inacabado dela, ou o meu fica pendurado.
+
+     Tecnicamente não há diferença de comportamento: o D0 já registra DOIS
+     ouvintes de clique no documento, este é o terceiro, roda ANTES dele (ordem
+     léxica da costura) e as chaves não se cruzam — quem não é minha segue o
+     caminho de sempre.
+
+     🔴 Quando o lote do anexo pousar, estas seis linhas voltam pro mapa do D0.
+     Está anotado no relatório como pendência, e não como "assim está bom".
+     ------------------------------------------------------------------------ */
+  document.addEventListener('click', (ev) => {
+    const alvo = ev.target && ev.target.closest ? ev.target.closest('[data-acao]') : null;
+    if (!alvo || !temPonte()) return;
+    const chave = alvo.dataset.acao;
+    if (chave === 'busca-limpar') return limparBusca();
+    if (chave === 'busca-sn') return virarSnDaBusca();
+    if (chave === 'busca-usar-rua') return void comTrava(usarRuaDaBusca);
+    if (chave === 'busca-colar') return void comTrava(colarNaBusca);
+    if (chave === 'busca-escolher') return escolherDaBusca(alvo.dataset.tipo, alvo.dataset.i);
+    if (chave === 'busca-recente') return usarRecenteDaBusca(alvo.dataset.rec);
+    /* 🔴 TROCAR PRA PORTA "PROCURAR" É A ÚNICA ENTRADA DO PAINEL — e é por isso
+       que ele se zera aqui. O seam do `rapida` nasce com o dado de
+       DEMONSTRAÇÃO do mock (três recentes de mentira): sem isto o motorista
+       abriria a busca vendo "Bar do Zé, Rua 8, Márcia" de gente que ele nunca
+       procurou. Vai pro fim da fila (`setTimeout 0`) de propósito: quem troca
+       o `rapida.porta` é o D0, que roda DEPOIS deste ouvinte. */
+    if (chave === 'rapida-porta' && alvo.dataset.porta === 'endereco') {
+      setTimeout(() => { if (rapida && rapida.porta === 'endereco') abrirPainelDaBusca(); }, 0);
+    }
+  });
   /* ------------------------------------------------------------------------
      8. L4 — A PORTA: chegar, entregar e receber.
 
@@ -12065,6 +13448,12 @@
     // otimismo na tela. É ela que deixa o capítulo "Ligue o prospector"
     // terminar num `fazer` de verdade — o dono liga na hora, aprendeu fazendo.
     'chave-prospector': () => virarChave('prospectorAtivo'),
+    /* PROSPECTOR v2 (12/08) — as três portas da ESCOLHA DA SEMANA. Elas NÃO são
+       chave de config: a chave de cima é da EMPRESA (um campo, um PATCH), estas
+       são da PESSOA que dirige (§7b-bis). Abrir CARREGA antes de navegar — folha
+       de escolha que nasce vazia é folha que mente sobre o que está escolhido. */
+    'abrir-prospector-tipo': abrirFolhaDoProspector,
+    'prospector-desligar': desligarProspectorSemana,
     // Som e voz sao do APARELHO (soundPrefs do Kotlin), nao do servidor.
     'chave-sons': () => {
       try {
@@ -12148,7 +13537,16 @@
     if (chave === 'forma-cliente') return mexerFinanceiro({ forma: String(alvo.dataset.forma || 'na_hora') });
     if (chave === 'metodo-cliente') return mexerFinanceiro({ metodo: String(alvo.dataset.metodo || '') });
     if (chave === 'abrir-salva') return abrirSalva(alvo.dataset.salva);
+    /* AS TRÊS DO ANEXO DO RECADO (12/08, L8d). O argumento é o id do RECADO —
+       nunca o do cliente/rota: quem guarda o estado da decisão é o recado, e
+       chavear pelo alvo faria duas mensagens sobre o mesmo cliente virarem uma
+       decisão só. `encaixar` leva o NÓ junto, que é onde o `aguarde` entra. */
+    if (chave === 'anexo-encaixar') return encaixarAnexo(alvo.dataset.anexo, alvo);
+    if (chave === 'anexo-analisar') return analisarAnexo(alvo.dataset.anexo);
+    if (chave === 'anexo-negar') return negarAnexo(alvo.dataset.anexo);
     if (chave === 'abrir-empresa') return acenderEmpresa(alvo.dataset.empresa);
+    // O chip da folha do prospector: o TIPO é o argumento do toque (§7b-bis).
+    if (chave === 'prospector-tipo') return escolherTipoProspector(alvo.dataset.tipo);
     if (chave === 'pacote') return escolherPacote(alvo.dataset.pacote);
     if (chave === 'modo-rota') return escolherModo(alvo.dataset.modo);
     // As três da parada avulsa que carregam ARGUMENTO no próprio botão.
