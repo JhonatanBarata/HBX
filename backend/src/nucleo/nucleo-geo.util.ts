@@ -57,8 +57,16 @@ export interface ServerGeoAddressInput {
 export interface ServerGeoResult {
   lat: number;
   lng: number;
-  /** 'cnefe' = base IBGE local (porta/rua provada); 'geocode' = Nominatim com freio. */
-  geoFonte: 'geocode' | 'cnefe';
+  /**
+   * 'cnefe' = a PORTA da base IBGE local (a casa, casando CEP+número);
+   * 'cnefe_cep' = o ponto do TRECHO — acerta a rua, não a casa;
+   * 'geocode' = Nominatim com freio.
+   *
+   * 🔴 12/08 — 'cnefe_cep' entrou aqui porque o resolver devolve DUAS precisões
+   * (`porta` e `rua`, o vizinho de numeração) e as duas eram carimbadas como
+   * 'cnefe'. Ver `resolveServerGeo`.
+   */
+  geoFonte: 'geocode' | 'cnefe' | 'cnefe_cep';
 }
 
 /** `address` do payload jsonv2 do Nominatim (só os campos que a validação usa). */
@@ -277,7 +285,24 @@ async function geocodeViaNominatim(input: ServerGeoAddressInput): Promise<{ lat:
  */
 export async function resolveServerGeo(input: ServerGeoAddressInput): Promise<ServerGeoResult | null> {
   const porCnefe = await resolverCnefe({ cep: input.cep, numero: input.numero, endereco: input.endereco, uf: input.uf });
-  if (porCnefe) return { lat: porCnefe.lat, lng: porCnefe.lng, geoFonte: 'cnefe' };
+  if (porCnefe) {
+    /* 🔴 O PINO DO VIZINHO NÃO SE VESTE DE PORTA (12/08, F4 do PR12082026).
+       `resolverCnefe` devolve DUAS precisões: `porta` (a casa, casando CEP+número)
+       e `rua` (o vizinho de numeração — até 200 números de distância e 400 m de
+       dispersão, § escolherPinoRua). As duas viravam `geoFonte: 'cnefe'` aqui — e
+       na escada da procedência (logistica-geo-fonte.util) 'cnefe' é a PORTA
+       PROVADA: força 3, `geoFonteDaPorta` = true. Consequência medida em código:
+       o ponto do VIZINHO ficava intocável pela cura do Censo (só troca o que está
+       ABAIXO da porta), contava como "provado" no fechamento do dia e sumia com o
+       convite de GPS — ou seja, mentia de porta e ainda bloqueava a correção que
+       o consertaria. O nome certo dele já existia: `cnefe_cep`, "acerta a rua,
+       não a casa" (força 2, substituível pela porta). */
+    return {
+      lat: porCnefe.lat,
+      lng: porCnefe.lng,
+      geoFonte: porCnefe.precisao === 'porta' ? 'cnefe' : 'cnefe_cep',
+    };
+  }
   const preciso = await geocodeViaNominatim(input);
   return preciso ? { ...preciso, geoFonte: 'geocode' } : null;
 }
