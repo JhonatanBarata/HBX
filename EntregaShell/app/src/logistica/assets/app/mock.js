@@ -1853,23 +1853,13 @@ function telaGps(chegou){
         ${num(g.distancia,g.distanciaRotulo,0,'distancia','route')}
         ${num(g.chegada,g.chegadaRotulo,1,'chegada','flag')}
       </div>
-      <!-- 🔴 OS NUMEROS SUBIRAM E A LINHA DE BAIXO VIROU DAS ACOES (10/08,
-           ordem do dono: "abaixo de chegada, restante e distancia crie os
-           botoes, 3 opcoes"). O "Sair" estava espremido ao lado de tres
-           numeros que ele nao tem nada a ver: numero se LE, botao se APERTA,
-           e misturar os dois na mesma fila deixa o polegar decidindo entre
-           coisas de natureza diferente. Agora a barra tem duas leituras: em
-           cima o CONTRATO da viagem, embaixo o que da pra FAZER.
-           O Sair fica na DIREITA, no mesmo canto do polegar de sempre — a
-           tela mudou, o gesto que ele ja tem na memoria nao. -->
+      <!-- Os três verbos ficam sempre expostos na mesma faixa. Nenhum deles
+           depende de abrir menu: quem está dirigindo precisa enxergar a saída,
+           o registro na porta e o encerramento antes de tocar. -->
       <div class="gps-encerrar">
         <button class="gps-encerrar-main" data-ir="fechamento">Encerrar rota</button>
-        <details><summary aria-label="Mais ações da rota">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true"><path d="m7 14 5-5 5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </summary><div class="gps-acoes-extra">
-          ${g.registrar?`<button data-acao="registrar-local">${ic('gps',16)}<b>${g.registrar}</b></button>`:''}
-          <button class="sair" data-ir="rota">${g.encerrar||'Sair'}</button>
-        </div></details>
+        <button class="gps-registrar" data-acao="registrar-local">${g.registrar||'Registrar'}</button>
+        <button class="gps-sair" data-ir="rota">${g.encerrar||'Sair'}</button>
       </div>
     </div>
   </div>

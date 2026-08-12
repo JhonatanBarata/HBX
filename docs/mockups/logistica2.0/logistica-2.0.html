@@ -1921,8 +1921,8 @@ button,input{font:inherit;color:inherit}
 
 /* O RODAPÉ DA NAVEGAÇÃO VESTE O CARTÃO ÚNICO APROVADO EM 12/08. A tela de
    chegada continua com o rodapé operacional dela; só a cena `.dirigindo`
-   recebe esta composição. As três funções antigas continuam vivas: fechar é
-   a ação principal, e Registrar/Sair ficam na seta lateral do mesmo botão. */
+   recebe esta composição. As três funções ficam expostas na mesma faixa: não
+   existe seta, menu ou segundo toque escondendo Registrar e Sair. */
 .gps.dirigindo .gps-rodape{left:4px;right:4px;bottom:4px;border:.7px solid var(--line);border-radius:20px;
   padding:11px 11px 10px;background:var(--glass);box-shadow:0 10px 28px rgba(0,0,0,.46)}
 .gps.dirigindo .gps-rodape .parada{display:none}
@@ -1933,17 +1933,13 @@ button,input{font:inherit;color:inherit}
 .gps.dirigindo .gps-rodape .n small{font-size:10.5px;color:var(--ink-2);margin-top:2px;white-space:nowrap}
 .gps.dirigindo .gps-rodape .n.destaque b{color:var(--ink)}
 .gps-encerrar{display:flex;align-items:stretch;height:46px;margin-top:10px;border:.7px solid var(--line-2);
-  border-radius:16px;background:var(--card);overflow:visible}
-.gps-encerrar-main{min-width:0;flex:1;border:0;background:transparent;color:var(--lime);cursor:pointer;
-  font-size:11.5px;font-weight:750;letter-spacing:.12em;text-transform:uppercase}
-.gps-encerrar details{position:relative;display:block;width:50px;border-left:.7px solid var(--line)}
-.gps-encerrar summary{width:50px;height:44px;display:grid;place-items:center;color:var(--ink-2);cursor:pointer;list-style:none}
-.gps-encerrar summary::-webkit-details-marker{display:none}
-.gps-acoes-extra{position:absolute;right:-1px;bottom:calc(100% + 9px);width:180px;padding:7px;border:.7px solid var(--line-2);
-  border-radius:14px;background:var(--card);box-shadow:0 12px 28px rgba(0,0,0,.48);display:grid;gap:6px}
-.gps-acoes-extra button{height:40px;border:.7px solid var(--line);border-radius:11px;background:var(--glass);
-  color:var(--ink);display:flex;align-items:center;justify-content:center;gap:7px;cursor:pointer}
-.gps-acoes-extra .sair{height:40px;padding:0;border-color:var(--red-line-2);background:var(--red-bg);color:#ff8b85}
+  border-radius:16px;background:var(--card);overflow:hidden}
+.gps-encerrar button{min-width:0;border:0;background:transparent;cursor:pointer;font-size:11.5px;font-weight:700;
+  white-space:nowrap}
+.gps-encerrar button+button{border-left:.7px solid var(--line)}
+.gps-encerrar-main{flex:1.35;color:var(--lime);font-weight:750;letter-spacing:.08em;text-transform:uppercase}
+.gps-encerrar .gps-registrar{flex:1;color:var(--ink)}
+.gps-encerrar .gps-sair{flex:.64;color:#ff8b85;background:var(--red-bg)}
 
 /* ==========================================================================
    AS EMPRESAS DO CORREDOR — o prospector desenhado na tela de navegação.
@@ -3026,6 +3022,7 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .gps-manobra .baixo{background:#f4f7fb;border-top-color:var(--line)}
 [data-luz="claro"] .gps-manobra.chegou .seta{background:#f0f8e4;color:var(--lime)}
 [data-luz="claro"] .gps.dirigindo .gps-rodape{background:#fff;border-color:var(--line-2)}
+[data-luz="claro"] .gps.dirigindo .gps-sair{background:#fff;color:#a01a16}
 
 /* O mapa claro: RUA BRANCA sobre quadra cinza — exatamente o oposto do escuro,
    onde a rua é que é escura. Sem isto o mapa fica preto no meio da tela clara. */
@@ -5027,23 +5024,13 @@ function telaGps(chegou){
         ${num(g.distancia,g.distanciaRotulo,0,'distancia','route')}
         ${num(g.chegada,g.chegadaRotulo,1,'chegada','flag')}
       </div>
-      <!-- 🔴 OS NUMEROS SUBIRAM E A LINHA DE BAIXO VIROU DAS ACOES (10/08,
-           ordem do dono: "abaixo de chegada, restante e distancia crie os
-           botoes, 3 opcoes"). O "Sair" estava espremido ao lado de tres
-           numeros que ele nao tem nada a ver: numero se LE, botao se APERTA,
-           e misturar os dois na mesma fila deixa o polegar decidindo entre
-           coisas de natureza diferente. Agora a barra tem duas leituras: em
-           cima o CONTRATO da viagem, embaixo o que da pra FAZER.
-           O Sair fica na DIREITA, no mesmo canto do polegar de sempre — a
-           tela mudou, o gesto que ele ja tem na memoria nao. -->
+      <!-- Os três verbos ficam sempre expostos na mesma faixa. Nenhum deles
+           depende de abrir menu: quem está dirigindo precisa enxergar a saída,
+           o registro na porta e o encerramento antes de tocar. -->
       <div class="gps-encerrar">
         <button class="gps-encerrar-main" data-ir="fechamento">Encerrar rota</button>
-        <details><summary aria-label="Mais ações da rota">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true"><path d="m7 14 5-5 5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </summary><div class="gps-acoes-extra">
-          ${g.registrar?`<button data-acao="registrar-local">${ic('gps',16)}<b>${g.registrar}</b></button>`:''}
-          <button class="sair" data-ir="rota">${g.encerrar||'Sair'}</button>
-        </div></details>
+        <button class="gps-registrar" data-acao="registrar-local">${g.registrar||'Registrar'}</button>
+        <button class="gps-sair" data-ir="rota">${g.encerrar||'Sair'}</button>
       </div>
     </div>
   </div>
