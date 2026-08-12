@@ -1068,6 +1068,12 @@ button,input{font:inherit;color:inherit}
   background:var(--card);border:.7px solid var(--line);border-radius:11px}
 .stop.on{background:#0f1c31;border-color:var(--blue-line)}
 .stop.on::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:2.5px;border-radius:0 2px 2px 0;background:var(--blue)}
+/* 🔴 O "OLHA AQUI" DO ANALISAR (12/08) — o alvo do anexo do chat aceso na
+   Montagem. É PULSO, não estado: `.on` diz "esta é a parada da vez" e vive
+   enquanto o dia viver; isto diz "foi por aqui que você entrou" e apaga. Marca
+   que fica sem ninguém apagar vira a próxima confirmação decorativa. */
+.stop.destaque{border-color:var(--amber-line);animation:mvDestaque 1.6s ease-out 2 both}
+@keyframes mvDestaque{0%{background:var(--amber-bg)}100%{background:var(--card)}}
 /* O bloco do número+hora ganha o painel mais claro da foto. */
 .numwrap{background:#101c2f;border-radius:9px;padding:4px 2px}
 .grip{width:9px;height:14px;margin-top:9px;color:#3b4c6d;
@@ -2480,6 +2486,34 @@ button,input{font:inherit;color:inherit}
 .msg.deles{background:var(--card);border:.7px solid var(--line);border-bottom-left-radius:5px;align-self:flex-start}
 .msg.minha{background:var(--lime-bg-2);border:.7px solid var(--lime-line);border-bottom-right-radius:5px;align-self:flex-end}
 .msg small{display:block;font-size:9.5px;color:var(--ink-3);margin-top:3px}
+/* RECADO COM ROTA/PARADA EMBUTIDA (12/08) — o anexo mora DENTRO da bolha, e não
+   num cartão separado como o `.recado` do portão. A razão é de leitura: o texto
+   ("passa no Mercado Estrela antes das 11h") e o alvo são a MESMA frase; separar
+   os dois faria a pessoa parear mensagem com anexo pelo horário. E, sendo bolha,
+   o histórico do que foi encaixado/negado fica no fio de graça — que é o que o
+   dono pediu que sobrasse. Bolha larga só quando tem anexo: 82% é medida de
+   TEXTO, e a fileira de 3 botões não cabe nela. */
+.msg.tem-anexo{max-width:96%}
+.msg .anexo{margin-top:7px;padding:8px;border-radius:11px;border:.7px solid var(--line-2);background:var(--bg-2)}
+.msg .anexo .alvo{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:center}
+.msg .anexo .ico{width:28px;height:28px;border-radius:9px;background:var(--amber-bg);color:var(--amber);
+  display:grid;place-items:center}
+.msg .anexo strong{display:block;font-size:12px;font-weight:500;color:var(--ink)}
+.msg .anexo .alvo>span>span{display:block;font-size:10.5px;color:var(--ink-3);margin-top:1px}
+.msg .anexo .acoes{display:flex;gap:6px;margin-top:8px}
+.msg .anexo .acoes button{flex:1;height:32px;border-radius:9px;border:.7px solid var(--line-2);
+  background:var(--card);color:var(--ink);font-size:11px;font-weight:500;cursor:pointer}
+.msg .anexo .acoes .principal{background:linear-gradient(180deg,var(--go-1),var(--go-2));border:0;color:var(--go-ink)}
+/* O DESFECHO OCUPA O LUGAR DOS BOTÕES, nunca soma a eles: card decidido com
+   botão vivo do lado é a confirmação decorativa de novo. */
+.msg .anexo .selo{display:flex;align-items:center;gap:5px;margin-top:8px;font-size:11px;color:var(--ink-2)}
+.msg .anexo.encaixada .selo{color:var(--lime)}
+/* `--lime-bg` e `--card` são redefinidos no claro; `--amber-bg` NÃO é (o
+   `.recado .ico` já resolve isso com override próprio, e este segue o mesmo
+   caminho lá embaixo). Negada usa cinza, não vermelho: negar não é erro. */
+.msg .anexo.encaixada .ico{background:var(--lime-bg);color:var(--lime)}
+.msg .anexo.negada .selo{color:var(--ink-3)}
+.msg .anexo.negada .ico{background:var(--card);color:var(--ink-3)}
 .escrever{display:flex;align-items:center;gap:8px;margin-top:12px;height:42px;padding:0 12px;border-radius:14px;
   background:var(--card);border:.7px solid var(--line)}
 .escrever input{flex:1;border:0;background:transparent;outline:0;font-size:13px;color:var(--ink)}
@@ -2770,6 +2804,12 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .aviso .barra{background:#e2e8f2}
 [data-luz="claro"] .recado{background:#fdf3e0;border-color:#e0b978}
 [data-luz="claro"] .recado .ico{background:#f8e6c8;color:var(--amber)}
+/* Mesmo âmbar suave do cartão do portão: uma cor só pra "a Central mandou isto".
+   🔴 O `:not()` NÃO É ENFEITE — sem ele esta regra empata em especificidade com
+   `.msg .anexo.encaixada .ico`, vem DEPOIS no arquivo e ganha: no modo claro o
+   anexo já encaixado voltaria a ficar âmbar, dizendo "decida" numa coisa
+   decidida. A pele do estado tem que valer nos dois modos ou não vale. */
+[data-luz="claro"] .msg .anexo:not(.encaixada):not(.negada) .ico{background:#f8e6c8;color:var(--amber)}
 [data-luz="claro"] .recado .acoes button:not(.principal){background:#fff}
 [data-luz="claro"] .msg.minha{background:#f0f8e4;border-color:#a8cc6e}
 [data-luz="claro"] .scrim,[data-luz="claro"] .portao-wrap,
@@ -3807,16 +3847,23 @@ const DADOS={
     estoqueDica:'do controle de estoque',
   },
   /* L8 — CHAT COM A CENTRAL. `recado` vazio esconde o cartão do portão (não há
-     nada a confirmar). `conversa` é [lado, texto, hora] — lado 'deles' ou
-     'minha'. `sino` é o contador do cabeçalho, um só pra TODAS as telas. */
+     nada a confirmar). `conversa` é [lado, texto, hora, anexo] — lado 'deles' ou
+     'minha'. `sino` é o contador do cabeçalho, um só pra TODAS as telas.
+
+     O 4º slot é o ANEXO (12/08): a parada ou a rota salva que a Central grudou
+     no texto. Ausente = mensagem de sempre, e é assim que 99% das linhas ficam.
+     `encaixar:1` é "existe rota ativa" — quem responde isso é a ponte. */
   chat:{
     recado:'Passa no Mercado Estrela antes das 11h', recadoTitulo:'Recado da Central',
     conversa:[
       ['deles','Bom dia! A Larissa remarcou pra quinta.','08:12'],
       ['minha','Beleza, tirei da rota.','08:14'],
-      ['deles','Passa no Mercado Estrela antes das 11h, eles fecham pro almoço.','09:03'],
+      ['deles','Passa no Mercado Estrela antes das 11h, eles fecham pro almoço.','09:03',
+        {id:'a1',tipo:'parada',nome:'Mercado Estrela',detalhe:'R. das Orquídeas, 55',estado:'pendente',encaixar:1}],
       ['minha','Tô a 2 paradas.','09:05'],
-      ['deles','Show. Qualquer coisa me chama.','09:06'],
+      ['deles','Se der, pega a rota da quarta depois do almoço.','09:06',
+        {id:'a2',tipo:'rota',nome:'Quarta Centro',detalhe:'6 paradas',estado:'encaixada',encaixar:1}],
+      ['deles','Show. Qualquer coisa me chama.','09:08'],
     ],
     sino:2, vazio:'',
   },
@@ -6418,6 +6465,35 @@ ${hdr({voltar:'rota'})}
 ${nav('rota')}`;}};
 
 /* 12 — CHAT COM A CENTRAL (aba nova) -------------------------------------- */
+/* 🔴 O ANEXO DA MENSAGEM (12/08) — o recado que CARREGA trabalho.
+   `a` = {id, tipo:'parada'|'rota', nome, detalhe, estado, encaixar}.
+
+   `encaixar` chega PRONTO do seam e não é decidido aqui de propósito: quem sabe
+   se existe rota ativa é a ponte (`rotaMontada()`), e a tela que tentasse
+   adivinhar isso pelo que tem à mão ofereceria "Encaixar na rota" pra quem não
+   tem rota — o botão que não pode existir. Dado viaja como ARGUMENTO.
+
+   Sem rota ativa sobram Analisar/Negar: são os dois verbos que não dependem de
+   ter para onde encaixar. */
+function anexoDoRecado(a){
+  if(!a) return '';
+  const fim=a.estado==='encaixada'?'encaixada':a.estado==='negada'?'negada':'';
+  const ico=a.tipo==='rota'?'route':'map';
+  /* Referência que sumiu do cadastro (cliente excluído depois do envio) fala em
+     vez de virar card mudo — e sem nome não há o que encaixar: só Negar sobra. */
+  const nome=a.nome||'Não está mais no cadastro';
+  const podeEncaixar=!!a.encaixar&&!!a.nome;
+  const pe=fim
+    ?`<div class="selo">${fim==='encaixada'?ic('check',13)+' Encaixada na rota':ic('close',13)+' Negada'}</div>`
+    :`<div class="acoes">
+      ${podeEncaixar?`<button class="principal" data-acao="anexo-encaixar" data-anexo="${a.id}">Encaixar na rota</button>`:''}
+      ${a.nome?`<button data-acao="anexo-analisar" data-anexo="${a.id}">Analisar</button>`:''}
+      <button data-acao="anexo-negar" data-anexo="${a.id}">Negar</button></div>`;
+  return `<div class="anexo${fim?' '+fim:''}">
+    <div class="alvo"><span class="ico">${ic(ico,15)}</span>
+      <span><strong>${nome}</strong><span>${a.detalhe||''}</span></span></div>
+    ${pe}</div>`;
+}
 T.chat={nome:'Chat com a Central',grupo:'Rota',render(){const d=DADOS.chat;return `${status}
 ${hdr({})}
 <div class="body chat-corpo">
@@ -6430,7 +6506,7 @@ ${hdr({})}
   </div>`:''}
   <div class="conversa">
     ${miolo(d,'chat','recarregar-chat',4, d.conversa.length
-      ? d.conversa.map(m=>`<div class="msg ${m[0]}">${m[1]}<small>${m[2]}</small></div>`).join('')
+      ? d.conversa.map(m=>`<div class="msg ${m[0]}${m[3]?' tem-anexo':''}">${m[1]}${anexoDoRecado(m[3])}<small>${m[2]}</small></div>`).join('')
       : (d.vazio?`<div class="vazio"><span>${ic('chat',26)}</span><b>${d.vazio}</b></div>`:''))}
   </div>
   <label class="escrever">${ic('chat',16)}<input placeholder="Escrever para a Central" data-campo="recado-texto">

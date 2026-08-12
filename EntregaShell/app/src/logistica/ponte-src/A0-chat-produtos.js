@@ -40,10 +40,14 @@
       // Montar "Recado de {autor}" me deu "Recado de Central" na tela — nome
       // de gente no lugar de instituição vira português torto.
       recadoTitulo: 'Recado da Central',
+      /* O 4º slot é o ANEXO (12/08) — a parada/rota que a Central grudou no
+         texto. `undefined` na esmagadora maioria das linhas, e é ele que faz a
+         bolha crescer os botões. Ver L8d (`A5-recado-anexo.js`). */
       conversa: recados.map((r) => [
         r.origem === 'motorista' ? 'minha' : 'deles',
         esc(r.texto),
         horaCurta(r.criadoEm),
+        anexoDoSeam(r),
       ]),
       // Fio vazio não é erro: é o dia em que ninguém precisou falar nada.
       vazio: recados.length ? '' : 'Nenhum recado por aqui',
@@ -478,6 +482,10 @@
 
   /** abrir o chat é LER: marca visto e o sino zera (o portão continua de pé) */
   async function aoAbrirChat() {
+    /* Voltar pro Chat é começar de novo: o motivo que ele ia escrever e não
+       escreveu morre aqui. Alvo de resposta que sobrevive à saída da tela
+       grudaria a próxima mensagem — de outro assunto — no recado negado ontem. */
+    limparMotivoDoAnexo();
     await carregarRecados();
     /* Regra do dono (03/08): abrir a conversa CALA toda repetição forte. Ele
        está lendo — insistir vira ruído. O portão continua cobrando o "Entendi";
@@ -528,10 +536,17 @@
       // clientMessageId: toque duplo ou retry de rede devolve a MESMA resposta
       // em vez de criar dois balões na central.
       const corpo = { texto, clientMessageId: window.HBX.uuid(), date: diaOperacional() };
-      const alvo = portaoRecados[0];
-      if (alvo) corpo.recadoId = alvo.id;
+      /* 🔴 O MOTIVO DO "NEGAR" TEM DONO (12/08). Quem acabou de negar um anexo
+         está escrevendo a justificativa DAQUELE recado — e o portão pode estar
+         cobrando outro assunto. Sem esta preferência, o "não vou conseguir
+         passar lá" chegaria na central pendurado na mensagem errada. */
+      const alvo = recadoIdDoMotivo() || (portaoRecados[0] && portaoRecados[0].id) || '';
+      if (alvo) corpo.recadoId = alvo;
       try { await window.API.post('/logistica/recados/responder', corpo); }
       catch (e) { return avisoErro(e); }
+      // Só o envio confirmado solta o alvo: rede caída no meio não pode
+      // transformar a próxima tentativa em resposta de outro assunto.
+      limparMotivoDoAnexo();
       if (el) el.value = '';
       await carregarRecados();
     });

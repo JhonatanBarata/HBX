@@ -624,6 +624,13 @@
     if (chave === 'forma-cliente') return mexerFinanceiro({ forma: String(alvo.dataset.forma || 'na_hora') });
     if (chave === 'metodo-cliente') return mexerFinanceiro({ metodo: String(alvo.dataset.metodo || '') });
     if (chave === 'abrir-salva') return abrirSalva(alvo.dataset.salva);
+    /* AS TRÊS DO ANEXO DO RECADO (12/08, L8d). O argumento é o id do RECADO —
+       nunca o do cliente/rota: quem guarda o estado da decisão é o recado, e
+       chavear pelo alvo faria duas mensagens sobre o mesmo cliente virarem uma
+       decisão só. `encaixar` leva o NÓ junto, que é onde o `aguarde` entra. */
+    if (chave === 'anexo-encaixar') return encaixarAnexo(alvo.dataset.anexo, alvo);
+    if (chave === 'anexo-analisar') return analisarAnexo(alvo.dataset.anexo);
+    if (chave === 'anexo-negar') return negarAnexo(alvo.dataset.anexo);
     if (chave === 'abrir-empresa') return acenderEmpresa(alvo.dataset.empresa);
     // O chip da folha do prospector: o TIPO é o argumento do toque (§7b-bis).
     if (chave === 'prospector-tipo') return escolherTipoProspector(alvo.dataset.tipo);

@@ -399,6 +399,12 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         // RECADOS (03/08) — o "Entendi" do portão: POST /logistica/recados/:id/entendi.
         // O id fica no terceiro segmento; a ação, no quarto.
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "recados") && segments[3] == "entendi" -> true
+        // RECADO COM ROTA/PARADA EMBUTIDA (12/08) — o desfecho do anexo:
+        // POST /logistica/recados/:id/anexo {acao:'encaixar'|'negar'}. Mesma
+        // forma do "entendi" (id no 3º segmento, ação no 4º). Sem esta linha o
+        // app barra a chamada DENTRO do aparelho e o card fica pendente pra
+        // sempre com o servidor 100% ok — a lição do "Ver tela".
+        method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "recados") && segments[3] == "anexo" -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("nucleo", "clientes") && segments[3] in setOf("locais", "telefones") -> true
         method == "PATCH" && segments == listOf("logistica", "config") -> true
         method == "PATCH" && segments.size == 5
