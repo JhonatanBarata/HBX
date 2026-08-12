@@ -10,7 +10,8 @@ import {
   normalizarBuscaTexto,
   parGpsValido,
   sqlBuscaClientes,
-  sqlBuscaComercios,
+  sqlBuscaComerciosFuzzy,
+  sqlBuscaComerciosLike,
   sqlBuscaVias,
   sqlCidadeDoMunicipio,
   sqlCidadeModalDoTenant,
@@ -291,19 +292,30 @@ export class LogisticaBuscaService {
     // NUNCA varrer a RFB sem escopo — sem cidade resolvida o grupo nem consulta.
     if (!cidade || !uf) return { itens: [], fonte: 'sem_escopo' };
     try {
-      const pronto = sqlBuscaComercios({ cityNorm: cidade, uf, q, lat, lng });
-      // SET LOCAL na MESMA transação: o limiar do `<%` (word_similarity) é o
-      // NOSSO (0.40 medido), não o default 0.6 do banco — e morre no COMMIT,
-      // sem vazar pra conexão do pool.
-      const [, rows] = await this.comTeto(
-        this.prisma.$transaction([
-          this.prisma.$executeRawUnsafe(
-            `SET LOCAL pg_trgm.word_similarity_threshold = ${FUZZY_COMERCIO_MIN}`,
-          ),
-          this.prisma.$queryRawUnsafe(pronto.sql, ...pronto.params),
-        ]) as Promise<[unknown, any[]]>,
+      // Caminho RÁPIDO primeiro (substring — o caso comum, poucos ms).
+      const rapido = sqlBuscaComerciosLike({ cityNorm: cidade, uf, q, lat, lng });
+      let rows: any[] = await this.comTeto(
+        this.prisma.$queryRawUnsafe(rapido.sql, ...rapido.params) as Promise<any[]>,
         'busca/comercios',
       );
+      if (!rows.length) {
+        // Fallback do TYPO: word_similarity na cidade inteira — mais caro
+        // (centenas de ms numa cidade de 33k), pago SÓ quando o rápido não
+        // achou nada. SET LOCAL na MESMA transação: o limiar do `<%` é o
+        // NOSSO (0.40 medido), não o default 0.6 do banco — e morre no
+        // COMMIT, sem vazar pra conexão do pool.
+        const fuzzy = sqlBuscaComerciosFuzzy({ cityNorm: cidade, uf, q, lat, lng });
+        const [, fuzzyRows] = await this.comTeto(
+          this.prisma.$transaction([
+            this.prisma.$executeRawUnsafe(
+              `SET LOCAL pg_trgm.word_similarity_threshold = ${FUZZY_COMERCIO_MIN}`,
+            ),
+            this.prisma.$queryRawUnsafe(fuzzy.sql, ...fuzzy.params),
+          ]) as Promise<[unknown, any[]]>,
+          'busca/comercios-fuzzy',
+        );
+        rows = fuzzyRows as any[];
+      }
       const itens = (rows as any[]).map((r): BuscaComercioItem => ({
         cnpj: String(r.cnpj),
         nome: String(r.nome ?? ''),

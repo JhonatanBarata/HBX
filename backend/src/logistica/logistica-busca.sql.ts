@@ -343,11 +343,22 @@ export function sqlBuscaVias(args: {
  * Escopo obrigatório (normalizedCity, state) ANTES de qualquer ranking — sem
  * cidade resolvida este SQL nem é montado (o serviço devolve grupo vazio).
  *
- * DUAS FASES no mesmo SQL (medido em 12/08, Rio Claro = 33k empresas ativas):
- *   fase 1 — candidatos por NOME, cidade-escopados, ORDER BY sim LIMIT 40;
- *   fase 2 — só os 40 pagam o join com CnpjGeo e o reranking por distância.
+ * TRÊS FASES no mesmo SQL (medido em 12/08, Rio Claro = 33k empresas ativas):
+ *   fase 1 — candidatos por NOME, cidade-escopados, ORDER BY sim LIMIT 40.
+ *     Só colunas do ÍNDICE COBRIDOR ("CnpjPublicCompany_buscaSpCover_idx":
+ *     normalizedCity INCLUDE situacao, searchText, cnpj — parcial state='SP'):
+ *     a cidade tinha 1 linha POR PÁGINA no heap de 61 GB (Heap Blocks: 31.765
+ *     medidos = ~140 ms SÓ de heap); index-only scan corta o heap fora.
+ *   fase 2 — só os 40 voltam ao heap por PK pras colunas de exibição;
+ *   fase 3 — join com CnpjGeo e reranking por distância.
  * Sem as fases, o ORDER BY final obrigava word_similarity + join na cidade
- * INTEIRA: 580 ms medidos. Com elas, o caminho LIKE fica em poucos ms.
+ * INTEIRA: 580 ms medidos.
+ *
+ * ⚠️ O UF entra LITERAL no SQL (validado ^[A-Z]{2}$, vem do NOSSO cnefe, nunca
+ * do usuário): o índice é PARCIAL (state='SP', o corte honesto — CnpjGeo só
+ * cobre SP, ver plano) e o planner não casa predicado parcial com parâmetro.
+ * UF ≠ SP simplesmente não casa o índice e degrada pro caminho do heap
+ * (~140 ms na cidade de 33k) — funciona, só não voa. Anotado no plano.
  *
  * DOIS CAMINHOS (o serviço tenta o rápido e só cai no fuzzy se vier vazio):
  *   · LIKE (rápido): substring no searchText — é o caso comum (nome certo ou
@@ -367,55 +378,63 @@ function sqlComerciosBase(matchSql: string, args: {
   lat: number | null;
   lng: number | null;
 }): SqlPronto {
+  const uf = String(args.uf ?? '').trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(uf)) throw new Error(`UF inválida na busca de comércio: ${args.uf}`);
   const qNorm = normalizarBuscaTexto(args.q);
   const qLike = `%${escaparLike(qNorm)}%`;
   const sql = `
-    WITH cand AS (
-      SELECT c."cnpj",
-             COALESCE(NULLIF(BTRIM(c."nomeFantasia"), ''), c."razaoSocial") AS nome,
-             c."address" AS endereco, c."city" AS cidade, c."state" AS uf,
-             c."cnae", c."cnaeDescription" AS "cnaeDescricao",
-             word_similarity($3, c."searchText") AS sim
+    WITH nome AS (
+      SELECT c."cnpj", word_similarity($2, c."searchText") AS sim
         FROM "CnpjPublicCompany" c
        WHERE c."normalizedCity" = $1
-         AND c."state" = $2
+         AND c."state" = '${uf}'
          AND c."situacao" = 'ativa'
          AND ${matchSql}
-       ORDER BY word_similarity($3, c."searchText") DESC, c."cnpj" ASC
+       ORDER BY word_similarity($2, c."searchText") DESC, c."cnpj" ASC
        LIMIT ${num(COMERCIO_PRE_LIMITE)}
+    ), cand AS (
+      SELECT n."cnpj", n.sim,
+             COALESCE(NULLIF(BTRIM(c."nomeFantasia"), ''), c."razaoSocial") AS nome,
+             c."address" AS endereco, c."city" AS cidade, c."state" AS uf,
+             c."cnae", c."cnaeDescription" AS "cnaeDescricao"
+        FROM nome n
+        JOIN "CnpjPublicCompany" c ON c."cnpj" = n."cnpj"
     ), geo AS (
       SELECT cand.*, g."lat" AS lat, g."lng" AS lng, g."nivelGeo" AS "nivelGeo", g."cep" AS cep,
-             CASE WHEN $5::float8 IS NULL OR g."lat" IS NULL OR g."lng" IS NULL OR g."nivelGeo" > 2 THEN NULL
-                  ELSE ${distSql('g."lat"', 'g."lng"', '$5::float8', '$6::float8')}
+             CASE WHEN $4::float8 IS NULL OR g."lat" IS NULL OR g."lng" IS NULL OR g."nivelGeo" > 2 THEN NULL
+                  ELSE ${distSql('g."lat"', 'g."lng"', '$4::float8', '$5::float8')}
              END AS dist_m
         FROM cand
         LEFT JOIN "CnpjGeo" g ON g."cnpj" = cand."cnpj"
     )
     SELECT geo.*,
            geo.sim
-           * (CASE WHEN $5::float8 IS NULL THEN 1.0
+           * (CASE WHEN $4::float8 IS NULL THEN 1.0
                    WHEN geo.dist_m IS NULL THEN ${num(PROX_SEM_PINO)}
                    ELSE GREATEST(${num(PROX_PISO)}, 1.0 / (1.0 + geo.dist_m / ${num(PROX_MEIA_M)}.0)) END) AS score
       FROM geo
      ORDER BY score DESC, geo."cnpj" ASC
      LIMIT ${num(BUSCA_LIMITE_GRUPO)}
   `;
-  return { sql, params: [args.cityNorm, args.uf, qNorm, qLike, args.lat, args.lng] };
+  return { sql, params: [args.cityNorm, qNorm, qLike, args.lat, args.lng] };
 }
 
 /** Caminho RÁPIDO (caso comum): substring no searchText, cidade-escopado. */
 export function sqlBuscaComerciosLike(args: {
   cityNorm: string; uf: string; q: string; lat: number | null; lng: number | null;
 }): SqlPronto {
-  return sqlComerciosBase(`c."searchText" LIKE $4 ESCAPE '\\'`, args);
+  return sqlComerciosBase(`c."searchText" LIKE $3 ESCAPE '\\'`, args);
 }
 
-/** Fallback do TYPO: word_similarity indexável (`<%`) — só roda quando o LIKE
- *  veio vazio; exige SET LOCAL do limiar na mesma transação (ver serviço). */
+/** Fallback do TYPO: word_similarity (`<%`) — só roda quando o LIKE veio
+ *  vazio; exige SET LOCAL do limiar na mesma transação (ver serviço).
+ *  O OR com o LIKE existe por TIPAGEM ($3 precisa ser referenciado pro
+ *  protocolo do Postgres inferir o tipo) e é inofensivo: neste caminho o LIKE
+ *  já provou que vem vazio. */
 export function sqlBuscaComerciosFuzzy(args: {
   cityNorm: string; uf: string; q: string; lat: number | null; lng: number | null;
 }): SqlPronto {
-  return sqlComerciosBase(`$3 <% c."searchText"`, args);
+  return sqlComerciosBase(`($2 <% c."searchText" OR c."searchText" LIKE $3 ESCAPE '\\')`, args);
 }
 
 // ---------------------------------------------------------------------------

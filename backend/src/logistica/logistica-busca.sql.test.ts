@@ -9,7 +9,8 @@ import {
   normalizarBuscaTexto,
   parGpsValido,
   sqlBuscaClientes,
-  sqlBuscaComercios,
+  sqlBuscaComerciosFuzzy,
+  sqlBuscaComerciosLike,
   sqlBuscaVias,
   viaCanonDaBusca,
   PortaRow,
@@ -69,14 +70,19 @@ test('sqlBuscaClientes: multi-tenant no CTE de recência E no WHERE do cliente',
   assert.ok(!p.sql.includes('mracia'), 'q vazou pro texto do SQL');
 });
 
-test('sqlBuscaComercios: escopo por cidade+UF SEMPRE, e fuzzy pelo operador indexado', () => {
-  const p = sqlBuscaComercios({ cityNorm: 'rio claro', uf: 'SP', q: 'Bar do Zé', lat: null, lng: null });
-  assert.match(p.sql, /"normalizedCity" = \$1/);
-  assert.match(p.sql, /"state" = \$2/);
-  assert.match(p.sql, /situacao" = 'ativa'/);
-  // `<%` é o word_similarity que USA o GIN trgm de 4 GB da RFB:
-  assert.match(p.sql, /\$3 <% c\."searchText"/);
-  assert.equal(p.params[2], 'bar do ze');
+test('sqlBuscaComercios: escopo por cidade+UF SEMPRE, nos DOIS caminhos', () => {
+  const argumentos = { cityNorm: 'rio claro', uf: 'SP', q: 'Bar do Zé', lat: null, lng: null };
+  for (const p of [sqlBuscaComerciosLike(argumentos), sqlBuscaComerciosFuzzy(argumentos)]) {
+    assert.match(p.sql, /"normalizedCity" = \$1/);
+    assert.match(p.sql, /"state" = \$2/);
+    assert.match(p.sql, /situacao" = 'ativa'/);
+    assert.equal(p.params[2], 'bar do ze');
+    // As duas fases: candidatos por nome LIMITADOS antes do join com o geo.
+    assert.match(p.sql, /LIMIT 40/);
+  }
+  // Rápido = substring; fuzzy = `<%` (word_similarity que USA o GIN da RFB).
+  assert.match(sqlBuscaComerciosLike(argumentos).sql, /"searchText" LIKE \$4/);
+  assert.match(sqlBuscaComerciosFuzzy(argumentos).sql, /\$3 <% c\."searchText"/);
 });
 
 test('sqlBuscaVias: escopo por município e as duas grafias de casamento', () => {

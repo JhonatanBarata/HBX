@@ -92,8 +92,12 @@ function msQuente(db, sql, prefixo = '') {
   let sqlFuzzy = sqlPronto(B.sqlBuscaClientes({ companyId: COMPANY_ID, q: 'Mracia', lat: null, lng: null }));
   if (SABOTAGEM) sqlFuzzy = sqlFuzzy.replace(/>= 0\.25/, '>= 0.95'); // aperta o limiar: a cena TEM que morrer
   const fuzzy = linhas('hbx_prod', sqlFuzzy);
-  const achouMarcia = fuzzy.some((r) => /marcia/.test(String(r[1] || '').toLowerCase()));
-  eh('1. "Mracia" acha Márcia (fuzzy, limiar 0.25)', achouMarcia, `linhas=${fuzzy.length}`);
+  // Cena do dono: digitou errado e a Márcia aparece NA FRENTE (top 3), não
+  // enterrada — foi exatamente o defeito medido no 1º red-run (word_similarity
+  // empatava meia lista em 0.2857 e o desempate alfabético cortava a Márcia).
+  const achouMarcia = fuzzy.slice(0, 3).some((r) => /marcia/.test(String(r[1] || '').toLowerCase()));
+  eh('1. "Mracia" acha Márcia no top 3 (fuzzy, limiar 0.25)', achouMarcia,
+    `top3=${fuzzy.slice(0, 3).map((r) => r[1]).join(',')}`);
 
   // ── 2. PROXIMIDADE: mesmo nome, o mais perto vem primeiro ───────────────────
   // Dois clientes com o mesmo token no nome, a ≥800 m um do outro; GPS na porta
@@ -150,20 +154,22 @@ function msQuente(db, sql, prefixo = '') {
   const uf = cidRows.length ? cidRows[0][0] : null;
   const cidade = cidRows.length ? cidRows[0][1] : null;
   eh('4a. município → cidade/UF pro escopo da RFB', !!cidade && !!uf, `${cidade}/${uf}`);
+  const prefixoTrgm = `SET pg_trgm.word_similarity_threshold = ${B.FUZZY_COMERCIO_MIN};\n`;
   if (cidade && uf) {
-    const pC = B.sqlBuscaComercios({ cityNorm: cidade, uf, q: 'mercado', lat: gps.lat, lng: gps.lng });
-    // SET de sessão = o SET LOCAL que o serviço faz na transação (mesmo limiar).
-    const prefixoTrgm = `SET pg_trgm.word_similarity_threshold = ${B.FUZZY_COMERCIO_MIN};\n`;
-    const com = linhas('hbx_prod', prefixoTrgm + sqlPronto(pC));
-    // colunas: cnpj, nome, endereco, cidade, uf, cnae, cnaeDescricao, lat, lng, nivelGeo, cep, sim, dist_m, score
-    eh('4b. "mercado" devolve comércios da cidade', com.length > 0, `linhas=${com.length}`);
+    // colunas: cnpj(0) nome(1) endereco(2) cidade(3) uf(4) cnae(5)
+    //          cnaeDescricao(6) sim(7) lat(8) lng(9) nivelGeo(10) cep(11)
+    //          dist_m(12) score(13)
+    const com = linhas('hbx_prod', sqlPronto(B.sqlBuscaComerciosLike({ cityNorm: cidade, uf, q: 'mercado', lat: gps.lat, lng: gps.lng })));
+    eh('4b. "mercado" devolve comércios da cidade (caminho rápido)', com.length > 0, `linhas=${com.length}`);
     eh('4c. todos do escopo (nenhum de outra cidade)', com.every((r) => (r[3] || '').toLowerCase().includes(cidade.split(' ')[0])),
       com.map((r) => r[3]).join(','));
     const comPino = com.filter((r) => r[12] !== '');
     eh('4d. distância presente em quem tem pino confiável', comPino.length > 0, `${comPino.length}/${com.length}`);
-    const distOrdenada = comPino.every((r, i, a) => i === 0 || Number(a[i - 1][13]) >= Number(r[13]) - 1e-9);
     eh('4e. lista ordenada por score (nome × distância)', com.every((r, i, a) => i === 0 || Number(a[i - 1][13]) >= Number(r[13]) - 1e-9), 'score decrescente');
-    void distOrdenada;
+    // O TYPO cai no fallback fuzzy e AINDA acha (é o caminho que o serviço só
+    // paga quando o LIKE vem vazio — mesmo SET do SET LOCAL da transação).
+    const typo = linhas('hbx_prod', prefixoTrgm + sqlPronto(B.sqlBuscaComerciosFuzzy({ cityNorm: cidade, uf, q: 'mercdo', lat: gps.lat, lng: gps.lng })));
+    eh('4f. typo "mercdo" acha mercado pelo fallback fuzzy', typo.some((r) => /merc/.test(String(r[1] || '').toLowerCase())), `linhas=${typo.length}`);
   }
 
   // ── 5. O PASSO DO NÚMERO (busca/porta) ──────────────────────────────────────
@@ -208,8 +214,11 @@ function msQuente(db, sql, prefixo = '') {
       .test(txt.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')); // comentário pode citar URL; código não
     eh(`6. sem rede externa em ${path.basename(f)}`, semRede);
   }
+  // (tira comentário antes: o serviço CITA o logistica-geo.service justamente
+  //  pra dizer que não o importa — a prova cobra o CÓDIGO, não a prosa)
+  const soCodigoServico = fontes[1].txt.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '');
   eh('6d. o serviço NÃO importa o caminho do Nominatim (logistica-geo)',
-    !/logistica-geo\.service|nucleo-geo\.util/.test(fontes[1].txt));
+    !/logistica-geo\.service|nucleo-geo\.util/.test(soCodigoServico));
 
   // ── 7. LATÊNCIA (EXPLAIN ANALYZE, quente) ───────────────────────────────────
   const msClientes = msQuente('hbx_prod', sqlPronto(B.sqlBuscaClientes({ companyId: COMPANY_ID, q: 'Mracia', lat: gps.lat, lng: gps.lng })));
@@ -224,10 +233,14 @@ function msQuente(db, sql, prefixo = '') {
     eh('7c. posição→município < 100 ms', msEscopo < 100, `${msEscopo} ms`);
   }
   if (cidade && uf) {
-    const pC = B.sqlBuscaComercios({ cityNorm: cidade, uf, q: 'mercado', lat: gps.lat, lng: gps.lng });
-    const msCom = msQuente('hbx_prod', sqlPronto(pC), `SET pg_trgm.word_similarity_threshold = ${B.FUZZY_COMERCIO_MIN};\n`);
-    console.log(`  ⏱  comércios: ${msCom.toFixed(1)} ms`);
-    eh('7d. comércios < 100 ms', msCom < 100, `${msCom} ms`);
+    const msCom = msQuente('hbx_prod', sqlPronto(B.sqlBuscaComerciosLike({ cityNorm: cidade, uf, q: 'mercado', lat: gps.lat, lng: gps.lng })));
+    console.log(`  ⏱  comércios: ${msCom.toFixed(1)} ms (caminho rápido)`);
+    eh('7d. comércios (caminho comum) < 100 ms', msCom < 100, `${msCom} ms`);
+    // O fallback do typo paga word_similarity na cidade inteira — MEDIDO e
+    // reportado às claras; teto de sanidade folgado (o serviço corta em 1500).
+    const msTypo = msQuente('hbx_prod', sqlPronto(B.sqlBuscaComerciosFuzzy({ cityNorm: cidade, uf, q: 'mercdo', lat: gps.lat, lng: gps.lng })), prefixoTrgm);
+    console.log(`  ⏱  comércios: ${msTypo.toFixed(1)} ms (fallback do typo)`);
+    eh('7e. fallback do typo dentro do teto do serviço (<1200 ms)', msTypo < 1200, `${msTypo} ms`);
   }
 
   console.log('');
