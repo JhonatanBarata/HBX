@@ -76,12 +76,6 @@ export function sqlSetStatementTimeout(ms: number): string {
   return `SET LOCAL statement_timeout = ${num(inteiro)}`;
 }
 
-/** SET do limiar do `<%` do fallback fuzzy — a constante passa pela MESMA
- *  guarda `num()` de toda interpolação desta peça (fiscal, 12/08: nenhuma
- *  constante entra em texto de SQL fora da guarda, nem no serviço). */
-export const SQL_SET_LIMIAR_FUZZY_COMERCIO =
-  `SET LOCAL pg_trgm.word_similarity_threshold = ${num(FUZZY_COMERCIO_MIN)}`;
-
 /** Fuzzy de CLIENTE — 0.25 pega 'mracia'→'marcia' (0.2857 medido). */
 export const FUZZY_CLIENTE_MIN = 0.25;
 /**
@@ -103,6 +97,15 @@ export const COMERCIO_PRE_LIMITE = 40;
 export const FUZZY_COMERCIO_MIN = 0.4;
 /** Fuzzy de VIA — 0.40: via é string curta, abaixo disso vira loteria. */
 export const FUZZY_VIA_MIN = 0.4;
+
+/* SET do limiar do `<%` do fallback fuzzy de comércio. Mora AQUI, e não lá em
+   cima junto dos outros freios, por um motivo que o compilador cobra: `const`
+   não sobe (TDZ) — escrito antes do FUZZY_COMERCIO_MIN, o arquivo NÃO compila.
+   Ele existe pra que a constante passe pela MESMA guarda `num()` de toda
+   interpolação desta peça (fiscal, 12/08: nenhum número entra em texto de SQL
+   fora da guarda — nem aqui, nem no serviço). */
+export const SQL_SET_LIMIAR_FUZZY_COMERCIO =
+  `SET LOCAL pg_trgm.word_similarity_threshold = ${num(FUZZY_COMERCIO_MIN)}`;
 
 /** Fator de proximidade = 1/(1 + dist/2000): vale 1.0 na porta, 0.5 a 2 km. */
 export const PROX_MEIA_M = 2000;

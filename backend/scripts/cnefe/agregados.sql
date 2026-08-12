@@ -32,7 +32,7 @@ SET statement_timeout='0';
 SET work_mem='192MB';
 SET maintenance_work_mem='512MB';
 
-\echo '### 0/7 dicionario de numeral por extenso (o IBGE escreve "RUA OITO")'
+\echo '### 0/8 dicionario de numeral por extenso (o IBGE escreve "RUA OITO")'
 CREATE TABLE IF NOT EXISTS num_pt (palavra text PRIMARY KEY, valor int);
 TRUNCATE num_pt;
 INSERT INTO num_pt (palavra, valor) VALUES
@@ -263,7 +263,7 @@ INSERT INTO num_pt (palavra, valor) VALUES
 ON CONFLICT (palavra) DO NOTHING;
 SELECT count(*) AS numerais FROM num_pt;
 
-\echo '### 0b/7 as duas normalizacoes (norm_via espelha normalizeVia do backend)'
+\echo '### 0b/8 as duas normalizacoes (norm_via espelha normalizeVia do backend)'
 CREATE OR REPLACE FUNCTION norm_cidade(t text) RETURNS text LANGUAGE sql IMMUTABLE AS $fn$
   SELECT btrim(regexp_replace(lower(translate(coalesce(t, ''),
     'ÁÀÂÃÄÅÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑÝáàâãäåéèêëíìîïóòôõöúùûüçñýÿ',
@@ -312,7 +312,7 @@ BEGIN
   RETURN array_to_string(saida, ' ');
 END $fn$;
 
-\echo '### 1/7 (uf, cidade) -> cod_municipio: e por aqui que o cadastro entra'
+\echo '### 1/8 (uf, cidade) -> cod_municipio: e por aqui que o cadastro entra'
 CREATE TABLE IF NOT EXISTS cnefe_mun_map (uf text NOT NULL, city_norm text NOT NULL, cod_municipio text, PRIMARY KEY (uf, city_norm));
 TRUNCATE cnefe_mun_map;
 INSERT INTO cnefe_mun_map
@@ -321,7 +321,7 @@ FROM cnefe_endereco WHERE municipio IS NOT NULL AND cod_municipio IS NOT NULL
 ORDER BY btrim(uf), norm_cidade(municipio), cod_municipio;
 SELECT count(*) AS municipios_mapeados FROM cnefe_mun_map;
 
-\echo '### 2/7 dicionario de vias canonicas'
+\echo '### 2/8 dicionario de vias canonicas'
 CREATE TABLE IF NOT EXISTS via_canon_dict (logradouro_norm text PRIMARY KEY, via_canon text);
 TRUNCATE via_canon_dict;
 INSERT INTO via_canon_dict
@@ -329,7 +329,7 @@ SELECT logradouro_norm, canon_via(logradouro_norm)
 FROM (SELECT DISTINCT logradouro_norm FROM cnefe_endereco WHERE logradouro_norm IS NOT NULL) t;
 SELECT count(*) AS vias, count(*) FILTER (WHERE via_canon <> logradouro_norm) AS mudaram FROM via_canon_dict;
 
-\echo '### 3/7 cnefe_porta (municipio+via+numero+bairro) — a tabela que o backend le'
+\echo '### 3/8 cnefe_porta (municipio+via+numero+bairro) — a tabela que o backend le'
 CREATE TABLE IF NOT EXISTS cnefe_porta (
   cod_municipio text, via_canon text, numero int, loc_norm text,
   lat double precision, lng double precision, cep text, n int, spread_m double precision,
@@ -353,7 +353,7 @@ SELECT count(*) AS portas_com_bairro FROM cnefe_porta;
 -- lat/lng; sem este índice é seq scan na tabela inteira e estoura o teto de 4 s.
 CREATE INDEX IF NOT EXISTS idx_cnefe_porta_lat ON cnefe_porta (lat, lng);
 
-\echo '### 4/7 cnefe_porta_any (municipio+via+numero) = a porta sem o bairro'
+\echo '### 4/8 cnefe_porta_any (municipio+via+numero) = a porta sem o bairro'
 CREATE TABLE IF NOT EXISTS cnefe_porta_any (
   cod_municipio text, via_canon text, numero int,
   lat double precision, lng double precision, cep text, n int, spread_m double precision,
@@ -370,7 +370,7 @@ SELECT cod_municipio, via_canon, numero,
 FROM cnefe_porta GROUP BY 1,2,3;
 SELECT count(*) AS portas FROM cnefe_porta_any;
 
-\echo '### 5/7 cnefe_via (municipio+via)'
+\echo '### 5/8 cnefe_via (municipio+via)'
 CREATE TABLE IF NOT EXISTS cnefe_via (
   cod_municipio text, via_canon text, lat double precision, lng double precision,
   cep text, n int, spread_m double precision, PRIMARY KEY (cod_municipio, via_canon)
@@ -387,7 +387,7 @@ WHERE e.lat IS NOT NULL AND e.lng IS NOT NULL
 GROUP BY 1,2;
 SELECT count(*) AS vias FROM cnefe_via;
 
-\echo '### 6/7 cnefe_bairro (municipio+bairro)'
+\echo '### 6/8 cnefe_bairro (municipio+bairro)'
 CREATE TABLE IF NOT EXISTS cnefe_bairro (
   cod_municipio text, loc_norm text, lat double precision, lng double precision,
   n int, spread_m double precision, PRIMARY KEY (cod_municipio, loc_norm)
@@ -401,7 +401,7 @@ SELECT cod_municipio, coalesce(nullif(norm_cidade(localidade),''),'-'),
 FROM cnefe_endereco WHERE lat IS NOT NULL GROUP BY 1,2;
 SELECT count(*) AS bairros FROM cnefe_bairro;
 
-\echo '### 7/7 cnefe_mun (municipio)'
+\echo '### 7/8 cnefe_mun (municipio)'
 CREATE TABLE IF NOT EXISTS cnefe_mun (
   cod_municipio text PRIMARY KEY, lat double precision, lng double precision,
   n int, spread_m double precision

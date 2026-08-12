@@ -38,6 +38,16 @@ if (!fs.existsSync(DIST)) {
   console.error('dist ausente — rode antes:  cd backend && npm run build');
   process.exit(2);
 }
+/* 🔴 FRESCOR, não só existência (fiscal, 12/08): a prova executa o SQL do
+   COMPILADO. Quem edita a peça pura e esquece o build provaria o código VELHO
+   e levaria verde falso — o pior tipo de portão, o que ensina a confiar. */
+{
+  const SRC = path.join(RAIZ, 'backend', 'src', 'logistica', 'logistica-busca.sql.ts');
+  if (fs.existsSync(SRC) && fs.statSync(SRC).mtimeMs > fs.statSync(DIST).mtimeMs) {
+    console.error('dist VELHO (fonte editada depois do build) — rode:  cd backend && npm run build');
+    process.exit(2);
+  }
+}
 const B = require(DIST);
 
 const ok = [];
@@ -64,7 +74,12 @@ function vps(script) {
 }
 function psql(db, sql) {
   const b64 = Buffer.from(sql, 'utf8').toString('base64');
-  const saida = vps(`echo ${b64} | base64 -d | docker exec -i hbx-postgres psql -U hbx_user -d ${db} -At -v ON_ERROR_STOP=1 -f -`);
+  /* 🔒 SÓ-LEITURA POR MECANISMO, não por promessa (fiscal, 12/08): isto roda
+     como o usuário de ESCRITA do app, no banco de PRODUÇÃO. Uma linha nova na
+     prova (ou um builder editado) gravaria em cima do dado do dono sem nada
+     barrar. Com `default_transaction_read_only=on` o SERVIDOR recusa qualquer
+     escrita — EXPLAIN ANALYZE de SELECT e SET de sessão seguem passando. */
+  const saida = vps(`echo ${b64} | base64 -d | docker exec -i -e PGOPTIONS='-c default_transaction_read_only=on' hbx-postgres psql -U hbx_user -d ${db} -At -v ON_ERROR_STOP=1 -f -`);
   return saida.split('\n').map((l) => l.trimEnd()).filter((l) => l !== '' && l !== 'SET');
 }
 function linhas(db, sql) {

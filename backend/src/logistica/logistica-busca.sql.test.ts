@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
   coordDaQuery,
@@ -134,4 +136,44 @@ test('coordDaQuery/parGpsValido: NaN e (0,0) nunca entram', () => {
   assert.equal(parGpsValido(0, 0), false);
   assert.equal(parGpsValido(-22.4, -47.5), true);
   assert.equal(parGpsValido(-22.4, null), false);
+});
+
+/* 🔴 A TRAVA DO SCORE MENTIROSO (fiscal, 12/08).
+   O defeito real que passou VERDE por uma prova que só olhava o SQL: a lista de
+   comércios vinha ORDENADA pelo score composto (nome × distância) e ETIQUETADA
+   com a similaridade crua (`r.sim`) — número que o app ia mostrar/usar como
+   ranking. Ordem certa, campo mentiroso; nenhum teste percebia.
+   Esta trava cobra as DUAS pontas, porque cada uma sozinha mente:
+     (1) todo builder que o serviço ranqueia PRECISA expor a coluna `score`
+         (sem ela, `r.score` viraria 0 calado);
+     (2) todo `score:` do serviço lê `r.score` — nunca `r.sim`.
+   É portão de TEXTO de propósito: o mapeamento mora no serviço, que só roda com
+   banco. Texto pega o regressor, e o custo é zero. */
+test('score do serviço é o do SQL — nem sim cru, nem coluna ausente', () => {
+  const comLike = sqlBuscaComerciosLike({ cityNorm: 'rio claro', uf: 'SP', q: 'bar do ze', lat: -22.4, lng: -47.5 });
+  const comFuzzy = sqlBuscaComerciosFuzzy({ cityNorm: 'rio claro', uf: 'SP', q: 'bar do ze', lat: -22.4, lng: -47.5 });
+  const cli = sqlBuscaClientes({ companyId: 41, q: 'marcia', lat: -22.4, lng: -47.5 });
+  for (const [nome, p] of [['comercios/like', comLike], ['comercios/fuzzy', comFuzzy], ['clientes', cli]] as const) {
+    assert.match(p.sql, /AS score\b/, `${nome}: o SQL precisa expor a coluna score`);
+    assert.match(p.sql, /ORDER BY\s+score DESC/, `${nome}: a ordem é a do score composto`);
+  }
+
+  // O teste roda COMPILADO (dist/logistica/), então o fonte mora dois andares
+  // acima, em src/ — mas aceita rodar de src também (ts-node), sem adivinhar.
+  const moradias = [
+    join(__dirname, '..', '..', 'src', 'logistica', 'logistica-busca.service.ts'),
+    join(__dirname, 'logistica-busca.service.ts'),
+  ];
+  const caminho = moradias.find((c) => existsSync(c));
+  assert.ok(caminho, `fonte do serviço não encontrado (procurei em: ${moradias.join(' | ')})`);
+  const fonte = readFileSync(caminho as string, 'utf8');
+  // Só as linhas de MAPEAMENTO — a declaração de tipo (`score: number;`) casa
+  // com o mesmo começo e não mapeia nada (a régua reprovou nela no 1º run).
+  const mapeamentos = (fonte.match(/^\s*score: .*$/gm) ?? [])
+    .filter((l) => !/^\s*score: (number|string)\s*[;,]?\s*$/.test(l));
+  assert.ok(mapeamentos.length >= 2, 'o serviço deve mapear score em clientes e comércios');
+  for (const linha of mapeamentos) {
+    assert.match(linha, /r\.score\b/, `mapeamento de score fora do SQL: ${linha.trim()}`);
+    assert.ok(!/r\.sim\b/.test(linha), `score mapeado de sim cru (o defeito de 12/08): ${linha.trim()}`);
+  }
 });

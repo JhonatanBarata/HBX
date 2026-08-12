@@ -755,7 +755,10 @@ CREATE INDEX IF NOT EXISTS "CnpjPublicCompany_cnaeSecundarias_gin_idx"
 -- index-only scan a fase de nome nao toca o heap. Parcial em SP de proposito
 -- (CnpjGeo so cobre SP; outra UF degrada pro caminho do heap e segue funcionando).
 -- Mesma convencao do trgm acima: fora do Prisma, recriado aqui a cada carga;
--- migration espelho em prisma/migrations/20260812150000_busca_avulsa_trgm_searchname.
+-- migration espelho em prisma/migrations/20260812170000_busca_sp_cover_idx.
+-- (a 20260812150000_busca_avulsa_trgm_searchname e a do trgm de CustomerProfile,
+--  outro indice, outro banco de assunto -- apontar pra ela mandaria quem for
+--  conferir a carga mensal pro arquivo errado.)
 CREATE INDEX IF NOT EXISTS "CnpjPublicCompany_buscaSpCover_idx"
   ON "CnpjPublicCompany" ("normalizedCity") INCLUDE ("situacao", "searchText", "cnpj")
   WHERE "state" = 'SP';
