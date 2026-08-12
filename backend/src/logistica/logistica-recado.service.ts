@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException, Optional } 
 import { PrismaService } from '../prisma/prisma.service';
 import { MobilePushService } from '../auth/mobile-push.service';
 import { canonicalRouteDate } from './logistica-route-billing.util';
+import { linhaEnderecoDaFonte } from './logistica-geo-fonte.util';
 import { resolveOperationalCapabilities } from '../team/operational-capabilities';
 import {
   AparelhoCandidato,
@@ -67,6 +68,46 @@ const OPEN_STATUS = ['agendada', 'em_rota'] as const;
  */
 const ALVO_FRIO_MS = 15 * 60_000;
 
+/* ── ANEXO (12/08) — o recado que CARREGA trabalho ──────────────────────────
+ *
+ * 🔴 POR QUE NO CHAT E NÃO NUMA TELA DE "ROTA INDICADA". Essa tela existiu e
+ * morreu no corte de 06/08: 4 linhas na história inteira, servidas por 2.981
+ * chamadas de poll. Canal próprio para um gesto raro é caro e ninguém aprende a
+ * usar. Ordem do dono: *"o mecanismo de 'fazem a rota pra mim' fica no chat —
+ * todo motorista sabe usar chat"*. O que renasce daqui é só o DESENHO DE
+ * ESTADOS da falecida (pendente → aceita/negada), nunca o canal.
+ *
+ * 🔴 NEGAR NÃO PRECISA LIMPAR NADA. A parada só é criada no 'encaixar'; até lá
+ * o anexo é uma REFERÊNCIA (um id) dentro de uma mensagem. Então "a rota
+ * recebida é limpa, não fica presa em limbo nenhum" sai de graça da construção
+ * — e o que sobra é o que o dono quer que sobre: a linha no histórico do chat
+ * dizendo que negou, com ou sem motivo.
+ */
+const ANEXO_TIPOS = ['parada', 'rota'] as const;
+export type RecadoAnexoTipo = (typeof ANEXO_TIPOS)[number];
+const ANEXO_PENDENTE = 'pendente';
+const ANEXO_FINAIS = ['encaixada', 'negada'] as const;
+export type RecadoAnexoEstado = typeof ANEXO_PENDENTE | (typeof ANEXO_FINAIS)[number];
+
+/** O que a Central manda: só o id — nome e endereço são resolvidos na leitura. */
+export type RecadoAnexoInput =
+  | { tipo: 'parada'; contaId: string }
+  | { tipo: 'rota'; rotaModeloId: string };
+
+/** O que a tela recebe: o id MAIS o que dá pra ler sem abrir outra tela. */
+export interface RecadoAnexoDTO {
+  tipo: RecadoAnexoTipo;
+  contaId: string | null;
+  rotaModeloId: string | null;
+  /** "Mercado Estrela" · "Rota da Quarta" — vazio = a referência sumiu do cadastro. */
+  nome: string;
+  /** "R. das Orquídeas, 55" · "6 paradas". */
+  detalhe: string;
+  /** Só em rota: quantas paradas ela tem hoje. */
+  paradas: number | null;
+  estado: RecadoAnexoEstado;
+}
+
 export interface RecadoDTO {
   id: string;
   motoristaUserId: number;
@@ -81,6 +122,8 @@ export interface RecadoDTO {
   ackEm: string | null;
   /** Estado em UMA palavra — é o que o cockpit pinta embaixo da bolha. */
   estado: 'enviado' | 'no_aparelho' | 'visto' | 'entendido';
+  /** null = recado só de texto (todo o banco de antes de 12/08). */
+  anexo: RecadoAnexoDTO | null;
 }
 
 export interface EnviarRecadoInput {
@@ -94,6 +137,15 @@ export interface EnviarRecadoInput {
    * Só vale em recado individual: em broadcast cada pessoa tem o aparelho dela.
    */
   deviceId?: string | null;
+  /**
+   * O trabalho grudado no texto (12/08). Só em recado individual.
+   *
+   * CRU de propósito — quem chega aqui é o DTO, que só garante forma; quem
+   * garante SENTIDO (o par tipo×id, e a empresa dona) é `anexoSeguro`. Tipar a
+   * entrada como união já validada seria o contrato mentindo sobre onde a
+   * conferência acontece.
+   */
+  anexo?: { tipo?: string; contaId?: string; rotaModeloId?: string } | null;
 }
 
 /** Uma linha da tela "vai para qual aparelho". */
@@ -142,6 +194,12 @@ export class LogisticaRecadoService {
     const alvoBruto = input?.paraUserId;
     const ehBroadcast = alvoBruto === null || alvoBruto === undefined;
 
+    /* 🔴 ANEXO NÃO ENTRA EM BROADCAST. O anexo é uma decisão de UMA pessoa
+       ("encaixa esta parada na SUA rota"); mandado pra todo mundo na rua, cinco
+       motoristas encaixariam a mesma parada e o cliente receberia cinco
+       visitas. Recusa explícita e cedo — antes de qualquer escrita. */
+    const anexo = await this.anexoSeguro(companyId, input?.anexo, ehBroadcast);
+
     const destinos = ehBroadcast
       ? await this.quemEstaNaRua(companyId, routeDate)
       : [await this.exigirMotorista(companyId, alvoBruto)];
@@ -179,6 +237,10 @@ export class LogisticaRecadoService {
             routeDate,
             loteId,
             deviceId: alvoPorPessoa.get(motoristaUserId) ?? null,
+            // null vs 'pendente' são coisas diferentes: null = recado sem anexo
+            // (o banco inteiro de antes de 12/08); 'pendente' = há trabalho
+            // grudado e ninguém decidiu ainda.
+            ...(anexo ? { anexoJson: anexo, anexoEstado: ANEXO_PENDENTE } : {}),
           },
         }),
       ),
@@ -200,7 +262,7 @@ export class LogisticaRecadoService {
       })),
     ).catch(() => undefined);
 
-    return criados.map((row) => this.toDTO(row));
+    return this.comAnexos(companyId, criados);
   }
 
   /** Resposta do motorista — mesmo fio, direção contrária. */
@@ -301,7 +363,7 @@ export class LogisticaRecadoService {
       orderBy: { createdAt: 'desc' },
       take: FIO_TAKE,
     });
-    return rows.reverse().map((row) => this.toDTO(row));
+    return this.comAnexos(companyId, rows.reverse());
   }
 
   /**
@@ -354,16 +416,19 @@ export class LogisticaRecadoService {
 
     const alvo = String(deviceId || '').trim();
     // Chamada sem aparelho (navegador do admin): comportamento de antes.
-    if (!alvo) return rows.map((row) => this.toDTO(row));
+    if (!alvo) return this.comAnexos(companyId, rows);
 
     const meus = rows.filter((row) => !row.deviceId || row.deviceId === alvo);
     const deOutro = rows.filter((row) => row.deviceId && row.deviceId !== alvo);
-    if (!deOutro.length) return meus.map((row) => this.toDTO(row));
+    if (!deOutro.length) return this.comAnexos(companyId, meus);
 
     const resgatados = await this.resgatarDeAlvoFrio(companyId, alvo, deOutro);
-    return [...meus, ...resgatados]
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-      .map((row) => this.toDTO(row));
+    return this.comAnexos(
+      companyId,
+      [...meus, ...resgatados].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      ),
+    );
   }
 
   /**
@@ -488,7 +553,7 @@ export class LogisticaRecadoService {
       orderBy: { createdAt: 'asc' },
       take: 5,
     });
-    return rows.map((row) => this.toDTO(row));
+    return this.comAnexos(companyId, rows);
   }
 
   /** "Entendi" do portão (e o visto que vem junto — ele leu pra poder clicar). */
@@ -535,6 +600,198 @@ export class LogisticaRecadoService {
       data: { vistoEm: new Date() },
     });
     return res.count;
+  }
+
+  // ── ANEXO (12/08) ─────────────────────────────────────────────────────────
+  /**
+   * O DESFECHO. O motorista decidiu o que fazer com o trabalho que veio grudado.
+   *
+   * 🔴 IDEMPOTENTE POR DESENHO. O aparelho repete o gesto quando a rede engasga
+   * (é a mesma lei do "Entendi"), e estado JÁ FINAL responde `ok` sem mudar
+   * nada: transformar um encaixe gravado em erro na segunda tentativa faria o
+   * motorista encaixar a parada duas vezes.
+   *
+   * 🔴 DECIDIR É LER — E LER DESTRAVA O PORTÃO. Recado urgente com anexo cobra
+   * o "Entendi"; se negar sem motivo não carimbasse `ackEm`, o motorista
+   * decidiria o anexo e continuaria travado pra fechar a próxima entrega, por
+   * um recado que ele acabou de responder com o dedo. Mesmo carimbo que o
+   * `responder` já dá — e pela mesma razão.
+   */
+  async decidirAnexo(
+    companyId: number,
+    motoristaUserId: number,
+    id: string,
+    acao: 'encaixar' | 'negar',
+  ): Promise<{ ok: true; estado: RecadoAnexoEstado }> {
+    if (!companyId || !motoristaUserId) throw new BadRequestException('Sessão inválida.');
+    const recadoId = String(id || '').trim();
+    if (!recadoId) throw new BadRequestException('Recado não informado.');
+    const destino: RecadoAnexoEstado = acao === 'encaixar' ? 'encaixada' : 'negada';
+
+    const linha = await this.prisma.logisticaRecado.findFirst({
+      where: { id: recadoId, companyId, motoristaUserId, origem: ORIGEM_ESCRITORIO },
+      select: { id: true, nivel: true, anexoJson: true, anexoEstado: true },
+    });
+    // Fail-closed: recado de outra empresa/pessoa é 404, nunca vazamento.
+    if (!linha) throw new NotFoundException('Recado não encontrado neste aparelho.');
+    if (!this.lerAnexo(linha.anexoJson)) {
+      throw new BadRequestException('Este recado não tem rota nem parada anexada.');
+    }
+    const atual = String(linha.anexoEstado || ANEXO_PENDENTE);
+    if ((ANEXO_FINAIS as readonly string[]).includes(atual)) {
+      return { ok: true, estado: atual as RecadoAnexoEstado };
+    }
+
+    const agora = new Date();
+    await this.prisma.logisticaRecado.updateMany({
+      where: {
+        id: recadoId,
+        companyId,
+        motoristaUserId,
+        origem: ORIGEM_ESCRITORIO,
+        // A corrida entre dois toques morre aqui: quem chega segundo não acha
+        // linha pendente e o `findFirst` acima já devolveu o estado final.
+        anexoEstado: ANEXO_PENDENTE,
+      },
+      data: {
+        anexoEstado: destino,
+        vistoEm: agora,
+        ...(NIVEL_COBRA_ACK.includes(String(linha.nivel)) ? { ackEm: agora } : {}),
+      },
+    });
+    this.logger.log(
+      `[logistica] anexo do recado ${recadoId} company=${companyId} motorista=${motoristaUserId} -> ${destino}`,
+    );
+    return { ok: true, estado: destino };
+  }
+
+  /**
+   * O anexo que a Central mandou, conferido contra a EMPRESA de quem manda.
+   *
+   * Multi-tenant é a única coisa que este método existe pra garantir: sem ele,
+   * um id de conta de outra empresa viraria uma parada real na rota de alguém
+   * — que é o pior vazamento possível, porque ele sai andando na rua.
+   */
+  private async anexoSeguro(
+    companyId: number,
+    bruto: { tipo?: string; contaId?: string; rotaModeloId?: string } | null | undefined,
+    ehBroadcast: boolean,
+  ): Promise<RecadoAnexoInput | null> {
+    if (!bruto) return null;
+    if (ehBroadcast) {
+      throw new BadRequestException('Recado com parada ou rota anexada é para UMA pessoa.');
+    }
+    const tipo = String((bruto as any).tipo || '').trim();
+
+    if (tipo === 'parada') {
+      const contaId = String((bruto as any).contaId || '').trim();
+      if (!contaId) throw new BadRequestException('Escolha o cliente da parada.');
+      const conta = await this.prisma.customerProfile.findFirst({
+        where: { id: contaId, companyId },
+        select: { id: true },
+      });
+      if (!conta) throw new NotFoundException('Cliente não encontrado nesta empresa.');
+      return { tipo: 'parada', contaId };
+    }
+
+    if (tipo === 'rota') {
+      const rotaModeloId = String((bruto as any).rotaModeloId || '').trim();
+      if (!rotaModeloId) throw new BadRequestException('Escolha a rota salva.');
+      const modelo = await this.prisma.logisticaRotaModelo.findFirst({
+        where: { id: rotaModeloId, companyId },
+        select: { id: true },
+      });
+      if (!modelo) throw new NotFoundException('Rota salva não encontrada nesta empresa.');
+      return { tipo: 'rota', rotaModeloId };
+    }
+
+    throw new BadRequestException('Só dá pra anexar uma parada ou uma rota salva.');
+  }
+
+  /** O JSON do banco de volta na forma canônica — ou null se não for anexo. */
+  private lerAnexo(valor: unknown): RecadoAnexoInput | null {
+    if (!valor || typeof valor !== 'object' || Array.isArray(valor)) return null;
+    const tipo = String((valor as any).tipo || '');
+    if (tipo === 'parada') {
+      const contaId = String((valor as any).contaId || '').trim();
+      return contaId ? { tipo: 'parada', contaId } : null;
+    }
+    if (tipo === 'rota') {
+      const rotaModeloId = String((valor as any).rotaModeloId || '').trim();
+      return rotaModeloId ? { tipo: 'rota', rotaModeloId } : null;
+    }
+    return null;
+  }
+
+  /**
+   * Uma lista de recados vira DTO com os anexos RESOLVIDOS — duas queries no
+   * pior caso (contas + rotas), nunca uma por linha. O fio tem 40 linhas e o
+   * poll do aparelho roda de 5 em 5 segundos: uma query por recado aqui viraria
+   * tráfego de banco proporcional à conversa.
+   */
+  private async comAnexos<T extends LinhaDeRecado>(companyId: number, rows: T[]): Promise<RecadoDTO[]> {
+    const anexos = rows.map((row) => this.lerAnexo((row as any).anexoJson));
+    if (!anexos.some(Boolean)) return rows.map((row) => this.toDTO(row));
+
+    const contaIds = [...new Set(anexos.filter((a) => a?.tipo === 'parada').map((a) => (a as any).contaId))];
+    const rotaIds = [...new Set(anexos.filter((a) => a?.tipo === 'rota').map((a) => (a as any).rotaModeloId))];
+
+    const [contas, rotas] = await Promise.all([
+      contaIds.length
+        ? this.prisma.customerProfile.findMany({
+            where: { id: { in: contaIds }, companyId },
+            select: { id: true, name: true, endereco: true, numero: true, bairro: true, cidade: true },
+          })
+        : Promise.resolve([] as any[]),
+      rotaIds.length
+        ? this.prisma.logisticaRotaModelo.findMany({
+            where: { id: { in: rotaIds }, companyId },
+            // A CONTAGEM sai da relação (a tabela é a fonte desde 09/08, quando
+            // o `paradasJson` foi dropado por divergir dela em produção).
+            select: { id: true, nome: true, paradas: { select: { id: true } } },
+          })
+        : Promise.resolve([] as any[]),
+    ]);
+    const porConta = new Map((contas as any[]).map((c) => [String(c.id), c]));
+    const porRota = new Map((rotas as any[]).map((r) => [String(r.id), r]));
+
+    return rows.map((row, i) => {
+      const anexo = anexos[i];
+      if (!anexo) return this.toDTO(row);
+      const estado = this.estadoDoAnexo((row as any).anexoEstado);
+      if (anexo.tipo === 'parada') {
+        const conta = porConta.get(anexo.contaId);
+        return this.toDTO(row, {
+          tipo: 'parada',
+          contaId: anexo.contaId,
+          rotaModeloId: null,
+          // Conta apagada do cadastro depois do envio: nome VAZIO, e a tela diz
+          // isso em vez de mostrar um card mudo com botão de encaixar.
+          nome: String(conta?.name || '').trim(),
+          detalhe: conta ? linhaEnderecoDaFonte(conta) : '',
+          paradas: null,
+          estado,
+        });
+      }
+      const rota = porRota.get(anexo.rotaModeloId);
+      const quantas = rota ? (rota.paradas as any[]).length : 0;
+      return this.toDTO(row, {
+        tipo: 'rota',
+        contaId: null,
+        rotaModeloId: anexo.rotaModeloId,
+        nome: String(rota?.nome || '').trim(),
+        detalhe: rota ? `${quantas} ${quantas === 1 ? 'parada' : 'paradas'}` : '',
+        paradas: rota ? quantas : null,
+        estado,
+      });
+    });
+  }
+
+  private estadoDoAnexo(valor: unknown): RecadoAnexoEstado {
+    const limpo = String(valor ?? ANEXO_PENDENTE).trim();
+    return (ANEXO_FINAIS as readonly string[]).includes(limpo)
+      ? (limpo as RecadoAnexoEstado)
+      : ANEXO_PENDENTE;
   }
 
   // ── Internos ──────────────────────────────────────────────────────────────
@@ -736,20 +993,9 @@ export class LogisticaRecadoService {
     }
   }
 
-  private toDTO(row: {
-    id: string;
-    motoristaUserId: number;
-    origem: string;
-    autorNome: string;
-    texto: string;
-    nivel: string;
-    loteId: string | null;
-    createdAt: Date;
-    entregueEm: Date | null;
-    vistoEm: Date | null;
-    ackEm: Date | null;
-  }): RecadoDTO {
+  private toDTO(row: LinhaDeRecado, anexo: RecadoAnexoDTO | null = null): RecadoDTO {
     return {
+      anexo,
       id: row.id,
       motoristaUserId: row.motoristaUserId,
       origem: row.origem === ORIGEM_MOTORISTA ? ORIGEM_MOTORISTA : ORIGEM_ESCRITORIO,
@@ -764,6 +1010,27 @@ export class LogisticaRecadoService {
       estado: row.ackEm ? 'entendido' : row.vistoEm ? 'visto' : row.entregueEm ? 'no_aparelho' : 'enviado',
     };
   }
+}
+
+/**
+ * A linha do banco como o `toDTO` precisa dela. `anexoJson`/`anexoEstado` são
+ * OPCIONAIS aqui de propósito: quem chama `toDTO` direto (a resposta do
+ * motorista, que nunca tem anexo) não precisa selecioná-las.
+ */
+interface LinhaDeRecado {
+  id: string;
+  motoristaUserId: number;
+  origem: string;
+  autorNome: string;
+  texto: string;
+  nivel: string;
+  loteId: string | null;
+  createdAt: Date;
+  entregueEm: Date | null;
+  vistoEm: Date | null;
+  ackEm: Date | null;
+  anexoJson?: unknown;
+  anexoEstado?: string | null;
 }
 
 /** Janela local do dia (mesma semântica do resolveDayRange e do rota-aviso). */

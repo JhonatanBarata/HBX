@@ -1594,6 +1594,21 @@ model LogisticaRecado {
   // tela. null = recado antigo/sem alvo: entra no primeiro aparelho elegível
   // que puxar (compat com tudo que já está no banco — nada de backfill).
   deviceId        String?  @db.VarChar(64)
+  // RECADO COM ROTA/PARADA EMBUTIDA (12/08) — o recado deixa de ser só texto e
+  // passa a poder CARREGAR trabalho: uma parada (conta) ou uma rota salva
+  // inteira. Guardado como JSON pelo mesmo motivo do `MasterNotice.payloadJson`:
+  // é conteúdo de UMA mensagem, lido inteiro e nunca consultado por dentro —
+  // tabela filha aqui só criaria join e órfão.
+  //   { tipo: 'parada', contaId }  ·  { tipo: 'rota', rotaModeloId }
+  // 🔴 O ID VIAJA, O NOME É RESOLVIDO NA LEITURA. Congelar nome/endereço aqui
+  // faria o card mostrar o endereço de antes da correção do cadastro — e é
+  // justamente pelo endereço que o motorista decide se encaixa.
+  anexoJson       Json?
+  // pendente → encaixada | negada. NEGAR NÃO CRIA NADA: a parada só nasce no
+  // encaixar, então "limpar a rota recebida" é uma propriedade da construção,
+  // não uma faxina que alguém precisa lembrar de rodar. null = recado sem
+  // anexo (todo o banco de hoje) — nada de backfill.
+  anexoEstado     String?  @db.VarChar(12)
   // ✓ enviado é o createdAt. Daqui pra frente é prova de aparelho:
   entregueEm      DateTime?
   vistoEm         DateTime?

@@ -30,10 +30,15 @@ function harness(
     entregasPorDono?: number[];
     /** Aparelhos da empresa (o que a régua do turno enxerga). */
     aparelhos?: Linha[];
+    /** Contas (CustomerProfile) — o alvo do anexo tipo 'parada'. */
+    contas?: Linha[];
+    /** Rotas salvas (LogisticaRotaModelo) — o alvo do anexo tipo 'rota'. */
+    rotasSalvas?: Linha[];
   } = {},
 ) {
   const linhas: Linha[] = opts.linhas ? [...opts.linhas] : [];
   const criados: Linha[] = [];
+  const entregasCriadas: Linha[] = [];
   let seq = 0;
 
   const prisma: any = {
@@ -88,6 +93,12 @@ function harness(
           if (where.vistoEm === null && row.vistoEm !== null) continue;
           if (where.ackEm === null && row.ackEm !== null) continue;
           if (where.nivel?.in && !where.nivel.in.includes(row.nivel)) continue;
+          /* 🔴 O DUBLÊ TEM QUE ENTENDER A CLÁUSULA DA CORRIDA. `decidirAnexo`
+             grava com `anexoEstado: 'pendente'` no where — é ela que faz o
+             segundo toque não regravar. Dublê que ignora a chave passa verde
+             enquanto o banco de verdade recusaria: teste que não sabe o que
+             está medindo é pior que teste nenhum. */
+          if (where.anexoEstado !== undefined && (row.anexoEstado ?? null) !== where.anexoEstado) continue;
           if (!casaOr(where, row)) continue;
           Object.assign(row, data);
           n++;
@@ -112,6 +123,10 @@ function harness(
     },
     entrega: {
       groupBy: async () => (opts.entregasPorDono ?? []).map((id) => ({ entregadorId: id })),
+      /* NEGAR NÃO CRIA NADA — e a única forma honesta de provar isso é ter uma
+         porta de criação de entrega VIGIADA. Sem este contador, "não criou"
+         seria uma afirmação que ninguém mediu. */
+      create: async ({ data }: any) => { entregasCriadas.push(data); return { id: `ent_${entregasCriadas.length}` }; },
     },
     mobileDevice: {
       findMany: async ({ where }: any = {}) => {
@@ -133,10 +148,37 @@ function harness(
             (where?.companyId == null || linha.companyId === where.companyId),
         ) ?? null,
     },
+    /* ANEXO (12/08) — as duas tabelas que o recado passou a REFERENCIAR. Os
+       dois dublês obedecem `companyId` de propósito: é exatamente o filtro que
+       impede uma conta de outra empresa de virar parada na rota de alguém. */
+    customerProfile: {
+      findFirst: async ({ where }: any) =>
+        (opts.contas ?? []).find(
+          (linha) => linha.id === where?.id && linha.companyId === where?.companyId,
+        ) ?? null,
+      findMany: async ({ where }: any) =>
+        (opts.contas ?? []).filter(
+          (linha) =>
+            (!where?.id?.in || where.id.in.includes(linha.id)) &&
+            (where?.companyId == null || linha.companyId === where.companyId),
+        ),
+    },
+    logisticaRotaModelo: {
+      findFirst: async ({ where }: any) =>
+        (opts.rotasSalvas ?? []).find(
+          (linha) => linha.id === where?.id && linha.companyId === where?.companyId,
+        ) ?? null,
+      findMany: async ({ where }: any) =>
+        (opts.rotasSalvas ?? []).filter(
+          (linha) =>
+            (!where?.id?.in || where.id.in.includes(linha.id)) &&
+            (where?.companyId == null || linha.companyId === where.companyId),
+        ),
+    },
     $transaction: async (input: any) => typeof input === 'function' ? input(prisma) : Promise.all(input),
   };
 
-  return { service: new LogisticaRecadoService(prisma), linhas, criados };
+  return { service: new LogisticaRecadoService(prisma), linhas, criados, entregasCriadas };
 }
 
 test('enviar: recado individual nasce sem loteId e no estado "enviado"', async () => {
@@ -371,4 +413,173 @@ test('APARELHO: a tela mostra quem recebe (o do turno marcado) sem ninguém adiv
   assert.equal(lista.find((item) => item.deviceId === 'e22')?.doTurno, true);
   assert.equal(lista.find((item) => item.deviceId === 'g15')?.doTurno, false);
   assert.equal(lista.find((item) => item.deviceId === 'g15')?.recebeOperacao, false);
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RECADO COM ROTA/PARADA EMBUTIDA (12/08).
+
+   O que morde aqui é multi-tenant (um id de outra empresa viraria uma parada
+   REAL andando na rua) e o LIMBO: a cena do dono termina em "a rota recebida é
+   LIMPA — não fica presa em limbo nenhum". A prova disso é que negar não cria
+   entrega nenhuma e que o estado vira final na primeira vez.
+   ══════════════════════════════════════════════════════════════════════════ */
+const CONTA_ESTRELA = {
+  id: 'conta_estrela', companyId: 1, name: 'Mercado Estrela',
+  endereco: 'R. das Orquídeas', numero: '55', bairro: 'Centro', cidade: 'Rio Claro',
+};
+const ROTA_QUARTA = {
+  id: 'rota_quarta', companyId: 1, nome: 'Quarta Centro',
+  paradas: [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }],
+};
+const comAnexo = (extra: Record<string, any> = {}) =>
+  harness({ contas: [CONTA_ESTRELA], rotasSalvas: [ROTA_QUARTA], ...extra });
+
+test('ANEXO: a parada anexada volta com NOME e ENDEREÇO resolvidos (o card decide por eles)', async () => {
+  const h = comAnexo();
+  const [row] = await h.service.enviar(1, { id: 9, nome: 'Dono' }, {
+    paraUserId: 7, texto: 'Passa no Mercado Estrela antes das 11h',
+    anexo: { tipo: 'parada', contaId: 'conta_estrela' },
+  });
+  assert.equal(row.anexo?.tipo, 'parada');
+  assert.equal(row.anexo?.nome, 'Mercado Estrela');
+  assert.equal(row.anexo?.detalhe, 'R. das Orquídeas, 55', 'é pelo endereço que ele decide se encaixa');
+  assert.equal(row.anexo?.estado, 'pendente');
+  assert.equal(row.anexo?.contaId, 'conta_estrela');
+});
+
+test('ANEXO: a rota salva volta com o nome e a CONTAGEM de paradas', async () => {
+  const h = comAnexo();
+  const [row] = await h.service.enviar(1, { id: 9, nome: 'Dono' }, {
+    paraUserId: 7, texto: 'Faz essa rota hoje', anexo: { tipo: 'rota', rotaModeloId: 'rota_quarta' },
+  });
+  assert.equal(row.anexo?.tipo, 'rota');
+  assert.equal(row.anexo?.nome, 'Quarta Centro');
+  assert.equal(row.anexo?.detalhe, '3 paradas');
+  assert.equal(row.anexo?.paradas, 3);
+});
+
+test('ANEXO multi-tenant: conta de OUTRA empresa é recusada e nada é gravado', async () => {
+  const h = harness({ contas: [{ ...CONTA_ESTRELA, companyId: 2 }] });
+  await assert.rejects(
+    () => h.service.enviar(1, { id: 9, nome: 'Dono' }, {
+      paraUserId: 7, texto: 'oi', anexo: { tipo: 'parada', contaId: 'conta_estrela' },
+    }),
+    /Cliente não encontrado nesta empresa/,
+  );
+  assert.equal(h.linhas.length, 0, 'recado com anexo inválido não nasce meio gravado');
+});
+
+test('ANEXO multi-tenant: rota salva de OUTRA empresa é recusada', async () => {
+  const h = harness({ rotasSalvas: [{ ...ROTA_QUARTA, companyId: 2 }] });
+  await assert.rejects(
+    () => h.service.enviar(1, { id: 9, nome: 'Dono' }, {
+      paraUserId: 7, texto: 'oi', anexo: { tipo: 'rota', rotaModeloId: 'rota_quarta' },
+    }),
+    /Rota salva não encontrada nesta empresa/,
+  );
+  assert.equal(h.linhas.length, 0);
+});
+
+test('ANEXO: tipo desconhecido e id faltando são recusados ANTES de escrever', async () => {
+  const h = comAnexo();
+  await assert.rejects(
+    () => h.service.enviar(1, { id: 9, nome: 'Dono' }, { paraUserId: 7, texto: 'oi', anexo: { tipo: 'parada' } as any }),
+    /Escolha o cliente/,
+  );
+  await assert.rejects(
+    () => h.service.enviar(1, { id: 9, nome: 'Dono' }, { paraUserId: 7, texto: 'oi', anexo: { tipo: 'bagunca' } as any }),
+    /parada ou uma rota salva/,
+  );
+  assert.equal(h.linhas.length, 0);
+});
+
+test('ANEXO: BROADCAST com anexo é recusado — cinco motoristas não encaixam a mesma parada', async () => {
+  const h = comAnexo({ motoristas: [7, 8], entregasPorDono: [7, 8] });
+  await assert.rejects(
+    () => h.service.enviar(1, { id: 9, nome: 'Dono' }, {
+      texto: 'todo mundo passa lá', anexo: { tipo: 'parada', contaId: 'conta_estrela' },
+    }),
+    /para UMA pessoa/,
+  );
+  assert.equal(h.linhas.length, 0);
+});
+
+test('ANEXO: encaixar muda o estado UMA vez; o toque repetido devolve o mesmo sem regravar', async () => {
+  const h = comAnexo();
+  const [row] = await h.service.enviar(1, { id: 9, nome: 'Dono' }, {
+    paraUserId: 7, texto: 'Encaixa aí', anexo: { tipo: 'parada', contaId: 'conta_estrela' },
+  });
+  const primeira = await h.service.decidirAnexo(1, 7, row.id, 'encaixar');
+  assert.equal(primeira.estado, 'encaixada');
+  const carimbo = h.linhas[0].vistoEm;
+
+  const retry = await h.service.decidirAnexo(1, 7, row.id, 'encaixar');
+  assert.equal(retry.estado, 'encaixada', 'retry de rede é sucesso, não erro');
+  assert.equal(h.linhas[0].vistoEm, carimbo, 'e não regrava nada');
+
+  // …e depois de encaixada ninguém a nega por trás: estado final é final.
+  const depois = await h.service.decidirAnexo(1, 7, row.id, 'negar');
+  assert.equal(depois.estado, 'encaixada');
+  assert.equal(h.linhas[0].anexoEstado, 'encaixada');
+});
+
+test('ANEXO: negar NÃO cria entrega nenhuma — a rota recebida não fica em limbo', async () => {
+  const h = comAnexo();
+  const [row] = await h.service.enviar(1, { id: 9, nome: 'Dono' }, {
+    paraUserId: 7, texto: 'Passa lá', anexo: { tipo: 'parada', contaId: 'conta_estrela' },
+  });
+  const saida = await h.service.decidirAnexo(1, 7, row.id, 'negar');
+  assert.equal(saida.estado, 'negada');
+  assert.equal(h.entregasCriadas.length, 0, 'negar não escreve trabalho em lugar nenhum');
+  // …e o recado CONTINUA no fio: o dono quer o histórico de quem negou.
+  const fio = await h.service.fio(1, 7);
+  assert.equal(fio.length, 1);
+  assert.equal(fio[0].anexo?.estado, 'negada');
+});
+
+test('ANEXO: decidir DESTRAVA o portão do urgente (negar sem motivo não deixa a rua presa)', async () => {
+  const h = comAnexo();
+  const [row] = await h.service.enviar(1, { id: 9, nome: 'Dono' }, {
+    paraUserId: 7, texto: 'Urgente: passa lá', nivel: 'urgente',
+    anexo: { tipo: 'parada', contaId: 'conta_estrela' },
+  });
+  await h.service.marcarRecebidos(1, 7, [row.id]);
+  assert.equal((await h.service.portao(1, 7)).length, 1, 'antes de decidir, o urgente cobra');
+  await h.service.decidirAnexo(1, 7, row.id, 'negar');
+  assert.equal((await h.service.portao(1, 7)).length, 0, 'decidir é ler — e ler destrava');
+});
+
+test('ANEXO multi-tenant: decidir o anexo de outra empresa/pessoa não muda nada', async () => {
+  const h = comAnexo();
+  const [row] = await h.service.enviar(1, { id: 9, nome: 'Dono' }, {
+    paraUserId: 7, texto: 'oi', anexo: { tipo: 'parada', contaId: 'conta_estrela' },
+  });
+  await assert.rejects(() => h.service.decidirAnexo(2, 7, row.id, 'encaixar'), /não encontrado/i);
+  await assert.rejects(() => h.service.decidirAnexo(1, 8, row.id, 'encaixar'), /não encontrado/i);
+  assert.equal(h.linhas[0].anexoEstado, 'pendente');
+});
+
+test('ANEXO: recado SEM anexo continua exatamente como antes (anexo null, e decidir recusa)', async () => {
+  const h = comAnexo();
+  const [row] = await h.service.enviar(1, { id: 9, nome: 'Dono' }, { paraUserId: 7, texto: 'só texto' });
+  assert.equal(row.anexo, null);
+  assert.equal(h.linhas[0].anexoJson, undefined, 'nada de coluna preenchida à toa');
+  assert.equal(h.linhas[0].anexoEstado, undefined);
+  await assert.rejects(() => h.service.decidirAnexo(1, 7, row.id, 'encaixar'), /não tem rota nem parada/);
+});
+
+test('ANEXO: referência que sumiu do cadastro vira card SEM nome, nunca card mudo com botão', async () => {
+  const semCadastro = harness({
+    contas: [], rotasSalvas: [],
+    linhas: [{
+      id: 'r1', companyId: 1, motoristaUserId: 7, origem: 'escritorio', nivel: 'normal',
+      autorNome: 'Central', texto: 'Passa lá', loteId: null, createdAt: new Date(),
+      entregueEm: null, vistoEm: null, ackEm: null,
+      anexoJson: { tipo: 'parada', contaId: 'conta_estrela' }, anexoEstado: 'pendente',
+    }],
+  });
+  const orfao = await semCadastro.service.fio(1, 7);
+  assert.equal(orfao[0].anexo?.tipo, 'parada');
+  assert.equal(orfao[0].anexo?.nome, '');
+  assert.equal(orfao[0].anexo?.detalhe, '');
 });

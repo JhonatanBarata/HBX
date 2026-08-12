@@ -1163,6 +1163,35 @@ export class TirarDoDiaDto {
 }
 
 /**
+ * RECADO COM ROTA/PARADA EMBUTIDA (12/08) — o que viaja GRUDADO no texto.
+ *
+ * Duas formas e nada mais: uma PARADA (a conta do cliente) ou uma ROTA SALVA
+ * (`LogisticaRotaModelo`). O par certo (`tipo` × id) é cobrado no serviço, com
+ * a mensagem dizendo qual campo falta — validador de união aqui só devolveria
+ * "requisição inválida", que é a frase que não conserta nada.
+ *
+ * 🔴 SÓ O ID VIAJA. Nome e endereço são RESOLVIDOS na leitura: congelá-los aqui
+ * faria o card do motorista mostrar o endereço de antes da correção do cadastro
+ * — e é pelo endereço que ele decide se dá pra encaixar.
+ */
+export class RecadoAnexoDto {
+  @IsIn(['parada', 'rota'])
+  tipo!: 'parada' | 'rota';
+
+  /** tipo 'parada': a conta (CustomerProfile) da MESMA empresa. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  contaId?: string;
+
+  /** tipo 'rota': a rota salva (LogisticaRotaModelo) da MESMA empresa. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  rotaModeloId?: string;
+}
+
+/**
  * COCKPIT (03/08) — recado do escritório pro motorista.
  * `paraUserId` ausente/null = broadcast pra todo mundo com trabalho hoje.
  */
@@ -1190,10 +1219,32 @@ export class EnviarRecadoDto {
   @IsIn(['normal', 'urgente', 'alarme'])
   nivel?: 'normal' | 'urgente' | 'alarme';
 
+  /**
+   * O trabalho que vai GRUDADO no texto (12/08). Só em recado INDIVIDUAL — ver
+   * a recusa no serviço: anexo em broadcast faria cinco motoristas encaixarem a
+   * mesma parada e nascerem cinco visitas ao mesmo cliente.
+   */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => RecadoAnexoDto)
+  anexo?: RecadoAnexoDto;
+
   @IsOptional()
   @IsString()
   @MaxLength(10)
   date?: string;
+}
+
+/**
+ * APP: o desfecho do anexo — o motorista decidiu.
+ *
+ * 'negar' NÃO cria nada porque nada foi criado até aqui: a parada só nasce no
+ * 'encaixar'. "A rota recebida é limpa" é, portanto, uma propriedade da
+ * construção — não uma faxina que alguém precisa lembrar de rodar.
+ */
+export class DecidirAnexoRecadoDto {
+  @IsIn(['encaixar', 'negar'])
+  acao!: 'encaixar' | 'negar';
 }
 
 /** APK: resposta do motorista no mesmo fio. */

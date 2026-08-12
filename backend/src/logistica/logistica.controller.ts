@@ -68,6 +68,7 @@ import {
   EnviarRecadoDto,
   RecebidosRecadoDto,
   ResponderRecadoDto,
+  DecidirAnexoRecadoDto,
   VistoRecadoDto,
   AtribuirLoteDto,
   ConfirmarEntregaDto,
@@ -1292,6 +1293,25 @@ export class LogisticaController {
       dto?.date,
       { clientMessageId: dto?.clientMessageId, recadoId: dto?.recadoId },
     );
+  }
+
+  /**
+   * APP: O DESFECHO DO ANEXO (12/08) — o motorista decidiu.
+   *
+   * Só GRAVA a decisão. Quem cria a parada é o app, com as MESMAS portas de
+   * sempre (`/logistica/entregas` + `/logistica/rota/planejar`, ou o
+   * `rota-modelos/:id/gerar` da rota salva) — endpoint que criasse rota por
+   * dentro do recado seria um segundo jeito de montar o dia, e dois jeitos de
+   * montar o dia é como nasce a rota que existe em uma tela só.
+   *
+   * 'negar' não desfaz nada porque nada foi feito: até o encaixe, o anexo é uma
+   * referência dentro de uma mensagem. Fica no histórico do chat — que é o que
+   * o dono pediu que sobrasse.
+   */
+  @Post('recados/:id/anexo')
+  decidirAnexoRecado(@Req() req: any, @Param('id') id: string, @Body() dto: DecidirAnexoRecadoDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.recado.decidirAnexo(companyId, this.ensureUserId(req.user), id, dto?.acao);
   }
 
   /** APP: o "Entendi" que destrava o portão. */
