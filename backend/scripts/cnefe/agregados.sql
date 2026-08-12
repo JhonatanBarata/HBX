@@ -415,6 +415,14 @@ SELECT cod_municipio,
 FROM cnefe_endereco WHERE lat IS NOT NULL GROUP BY 1;
 SELECT count(*) AS municipios FROM cnefe_mun;
 
+\echo '### 8/8 pg_trgm + GIN em cnefe_via.via_canon (busca da parada avulsa, 12/08)'
+-- `GET /logistica/busca` (PR12082026) faz fuzzy/prefixo em cnefe_via escopado
+-- por cod_municipio (PK). O GIN é o reforço do fuzzy pra município grande.
+-- pg_trgm é extensão TRUSTED (PG13+): o dono do banco cria sem superuser.
+-- O TRUNCATE lá em cima NÃO derruba índice — recarga de UF mantém este vivo.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX IF NOT EXISTS idx_cnefe_via_canon_trgm ON cnefe_via USING gin (via_canon gin_trgm_ops);
+
 ANALYZE num_pt; ANALYZE cnefe_mun_map; ANALYZE via_canon_dict; ANALYZE cnefe_porta;
 ANALYZE cnefe_porta_any; ANALYZE cnefe_via; ANALYZE cnefe_bairro; ANALYZE cnefe_mun;
 SELECT 'tamanho dos agregados' AS x, pg_size_pretty(sum(pg_total_relation_size(c.oid))) AS total

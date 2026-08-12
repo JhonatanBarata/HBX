@@ -71,6 +71,12 @@ import { LogisticaPlanosPublicoController } from './logistica-planos-publico.con
 import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
 import { LogisticaEstoqueService } from './logistica-estoque.service';
 import { LogisticaTutorialService } from './logistica-tutorial.service';
+// BUSCA DA PARADA AVULSA (12/08, PR12082026-PESQUISA-PAINEL-AVULSA F1):
+// `GET /logistica/busca` — 3 fontes locais (clientes fuzzy, CNEFE, RFB), zero
+// Nominatim no digitar. Arquivos novos, dono próprio (mesmo precedente F3 de
+// 27/07) — zero edição em logistica.service.ts/logistica.controller.ts.
+import { LogisticaBuscaController } from './logistica-busca.controller';
+import { LogisticaBuscaService } from './logistica-busca.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (app de entrega, cliente água).
@@ -220,6 +226,7 @@ import { LogisticaTutorialService } from './logistica-tutorial.service';
     LogisticaEstoqueController,
     LogisticaNivelMasterController,
     LogisticaPlanosPublicoController,
+    LogisticaBuscaController,
   ],
   providers: [
     LogisticaService,
@@ -258,6 +265,7 @@ import { LogisticaTutorialService } from './logistica-tutorial.service';
     LogisticaFechamentoDiaService,
     LogisticaEstoqueService,
     LogisticaTutorialService,
+    LogisticaBuscaService,
   ],
   exports: [
     LogisticaService,

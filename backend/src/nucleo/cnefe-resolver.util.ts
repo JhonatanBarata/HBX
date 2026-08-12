@@ -468,7 +468,11 @@ function comTimeout<T>(promessa: Promise<T>, ms: number, rotulo: string): Promis
 const CNEFE_CONNECT_TIMEOUT_MS = 15000;
 let conexaoCnefe: Promise<void> | null = null;
 
-async function cnefeQuery(sql: string, params: unknown[], timeoutMs = CNEFE_QUERY_TIMEOUT_MS): Promise<any[]> {
+/* Exportada em 12/08 (busca da parada avulsa, PR12082026): a consulta de vias/
+   portas do painel de busca fala com o MESMO banco `cnefe` e precisa das MESMAS
+   leis (client único, connect pago uma vez, teto de consulta, cooldown só pra
+   falha de banco). Duplicar isso no serviço da busca seria a 13ª régua do pino. */
+export async function cnefeQuery(sql: string, params: unknown[], timeoutMs = CNEFE_QUERY_TIMEOUT_MS): Promise<any[]> {
   if (queryOverride) return queryOverride(sql, params);
   if (Date.now() < indisponivelAte) throw new Error('cnefe em cooldown');
   const url = cnefeDatabaseUrl();
