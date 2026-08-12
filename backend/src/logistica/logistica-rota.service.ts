@@ -29,6 +29,10 @@ import {
   RAIO_PADRAO_M,
   MAX_DIA_PADRAO,
 } from './prospector-corredor.sql';
+// PROSPECTOR v2 (12/08) — a 5ª chave: o TIPO que a PESSOA escolheu nesta semana.
+import { LogisticaProspectorSemanaService } from './logistica-prospector-semana.service';
+import { cnaeEhDoTipo, type ProspectorTipo } from './logistica-prospector-tipos';
+import { ehEsquemaAusente } from './logistica-esquema-ausente.util';
 import { isAdminTierActor, isBillingOwnerActor, type ActorKindUserLike } from '../access/actor-kind';
 import { isLogisticaAdmin } from './logistica-operacao.service';
 import { quemMontouODia, rotaDeOutroMotoristaError } from './logistica-quem-montou.util';
@@ -91,6 +95,12 @@ export class LogisticaRotaService {
     // ÚLTIMO pelo mesmo motivo dos anteriores: sem ele, a rota é EXATAMENTE a
     // de antes (nenhum prospecto, nenhum campo novo no payload).
     @Optional() private readonly prospector?: ProspectorCorredorService,
+    // PROSPECTOR v2 (12/08) — a 5ª CHAVE: a escolha de TIPO que a PESSOA fez nesta
+    // semana. @Optional() e por ÚLTIMO pelo mesmo motivo dos anteriores — mas com
+    // uma diferença que importa: ausente aqui é FAIL-CLOSED, não "segue como antes".
+    // Sem este serviço ninguém tem escolha, e sem escolha o prospector fica QUIETO,
+    // que é exatamente a decisão do dono ("desligado pra todos até a pessoa acionar").
+    @Optional() private readonly prospectorSemana?: LogisticaProspectorSemanaService,
   ) {}
 
   /**
@@ -112,7 +122,7 @@ export class LogisticaRotaService {
 
   // ── PROSPECTOR CNPJ (PR07082026 F1-servidor) ─────────────────────────────────
   /**
-   * As 4 CHAVES do prospector, TODAS obrigatórias — qualquer uma fechada devolve
+   * As 5 CHAVES do prospector, TODAS obrigatórias — qualquer uma fechada devolve
    * zero prospecto SEM erro e sem efeito nenhum no iniciar-rota:
    *
    *  1. `HBX_PROSPECTOR_ENABLED` (env global, default OFF) — a chave mestra.
@@ -124,7 +134,14 @@ export class LogisticaRotaService {
    *     `prospectorEquipe` ligado. Mesma leitura do `passeioEquipe`
    *     (logistica-passeio.service.ts) e FAIL-CLOSED: chamada sem ator
    *     identificado é tratada como funcionário comum.
-   *  4. PINO: a empresa precisa ter `CnpjGeo` no corredor. Sem pino na região o
+   *  4. SEMANA DA PESSOA (12/08, PROSPECTOR v2) — a chave NOVA, e a que o dono
+   *     pediu: o prospector nasce DESLIGADO pra todo mundo e só acorda quando a
+   *     PESSOA aciona e escolhe o TIPO de empresa que interessa a ela NESTA
+   *     SEMANA (`LogisticaProspectorSemana`). Sem escolha = mesma semântica de
+   *     chave fechada: payload SEM a chave `prospector`, nem uma consulta ao
+   *     corredor. Segunda-feira nova zera a escolha sozinha — quieto de novo,
+   *     sem faxina (ver logistica-prospector-semana.service.ts).
+   *  5. PINO: a empresa precisa ter `CnpjGeo` no corredor. Sem pino na região o
    *     resultado é lista VAZIA — vazio honesto, não erro (`CnpjGeo` hoje é
    *     SP-only, item 6 das decisões em aberto do plano).
    *
@@ -175,7 +192,7 @@ export class LogisticaRotaService {
     companyId: number,
     plan: PlanejarRotaResult,
     rotaDia: string,
-    actor?: ActorKindUserLike,
+    actor?: AtorProspector,
   ): Promise<RotaProspectorPayload | null> {
     try {
       // Chave 1 — env global. Antes de qualquer ida ao banco.
@@ -186,7 +203,14 @@ export class LogisticaRotaService {
       if (!politica || !politica.ativo) return null;
       if (!isAdminTierActor(actor) && !politica.equipe) return null;
 
-      // Chave 4 — pino. As paradas DO DIA (as da rota que está iniciando); quem
+      // Chave 4 — A SEMANA DA PESSOA. Sem serviço injetado ou sem escolha viva, o
+      // prospector fica QUIETO: nem o corredor roda (é ele que varre a RFB), nem a
+      // chave `prospector` nasce no payload. FAIL-CLOSED de propósito — "desligado
+      // pra todos até a pessoa acionar" é a decisão, não um efeito colateral.
+      const tipoDaSemana = (await this.prospectorSemana?.escolhaVigente(companyId, idDoAtor(actor))) ?? null;
+      if (!tipoDaSemana) return null;
+
+      // Chave 5 — pino. As paradas DO DIA (as da rota que está iniciando); quem
       // não tem coordenada não entra (o corredor também descarta, mas mandar só
       // o que é ponto de verdade deixa o log honesto sobre quantas paradas
       // realmente viraram corredor).
@@ -215,8 +239,9 @@ export class LogisticaRotaService {
         );
       }
 
+      const escolhidas = resultado.prospectos.filter((p) => cnaeEhDoTipo(p.cnae, tipoDaSemana)).length;
       this.logger.log(
-        `[logistica] prospector: ${resultado.prospectos.length} empresa(s) embarcada(s) company=${companyId} rotaDia=${rotaDia} raio=${resultado.raioM}m acende=${resultado.acendeNoDia}.`,
+        `[logistica] prospector: ${resultado.prospectos.length} empresa(s) embarcada(s) company=${companyId} rotaDia=${rotaDia} raio=${resultado.raioM}m acende=${resultado.acendeNoDia} tipo=${tipoDaSemana.slug} escolhidas=${escolhidas}.`,
       );
 
       return {
@@ -224,6 +249,10 @@ export class LogisticaRotaService {
         raioM: resultado.raioM,
         acendeNoDia: resultado.acendeNoDia,
         persistido: !resultado.somenteMemoria,
+        // O tipo viaja pro app poder DIZER o que está caçando (a linha dos Ajustes
+        // e o chip da tela). É rótulo, não régua: quem decide a cor é `escolhida`.
+        tipo: tipoDaSemana.slug,
+        tipoRotulo: tipoDaSemana.rotulo,
         // 🔴 LEI DO VENDEDOR: o motorista vê o FATO (nome, ramo, distância,
         // onde fica) e nada mais. `phoneDigits` e `porte` FICAM no servidor —
         // o disparo (F3) é feito pelo backend, o app nunca precisa do telefone.
@@ -240,6 +269,10 @@ export class LogisticaRotaService {
             lng: p.lng,
             distM: p.distM,
             afinidade: p.afinidade,
+            // PROSPECTOR v2 — VERDE ou AZUL. A pergunta é de CÓDIGO de CNAE contra
+            // os prefixos do tipo da semana; o resto do corredor continua vindo
+            // (é o AMBIENTE), só que mudo.
+            escolhida: cnaeEhDoTipo(p.cnae, tipoDaSemana),
             aceso: false,
           })),
           resultado.acendeNoDia,
@@ -273,14 +306,20 @@ export class LogisticaRotaService {
    * dia. O `listRota` é hot-path de polling do app — mandar o corredor rodar
    * aqui seria varrer a RFB a cada refresh.
    *
-   * AS MESMAS 4 CHAVES do embarque, na mesma ordem (env → tenant → ator →
-   * pino), porque desligar o prospector tem que apagar a tela também, não só
-   * parar de embarcar novos. A chave nº4 aqui é "tem linha gravada pro dia".
+   * AS MESMAS 5 CHAVES do embarque, na mesma ordem (env → tenant → ator →
+   * SEMANA DA PESSOA → pino), porque desligar o prospector tem que apagar a tela
+   * também, não só parar de embarcar novos. A chave nº5 aqui é "tem linha
+   * gravada pro dia".
+   *
+   * 🔴 E A COR TAMBÉM É RECOMPUTADA AQUI (12/08). `escolhida` não é snapshot: a
+   * pessoa pode trocar de tipo na quarta-feira, e a rua tem que mudar de cor no
+   * próximo poll. Por isso `ProspectoRota` passou a guardar o CÓDIGO do CNAE — a
+   * releitura faz a MESMA pergunta que o embarque fez, contra a escolha de AGORA.
    */
   async lerProspectosDoDia(
     companyId: number,
     rotaDia: string,
-    actor?: ActorKindUserLike,
+    actor?: AtorProspector,
   ): Promise<RotaProspectorPayload | null> {
     try {
       // Chave 1 — env global. Antes de qualquer ida ao banco.
@@ -291,17 +330,23 @@ export class LogisticaRotaService {
       if (!politica || !politica.ativo) return null;
       if (!isAdminTierActor(actor) && !politica.equipe) return null;
 
+      // Chave 4 — a SEMANA DA PESSOA. Sem escolha, a tela APAGA: não basta parar
+      // de embarcar novos, o que já está no banco também some da vista (é a mesma
+      // lei que fez as 4 chaves valerem na releitura desde 08/08).
+      const tipoDaSemana = (await this.prospectorSemana?.escolhaVigente(companyId, idDoAtor(actor))) ?? null;
+      if (!tipoDaSemana) return null;
+
       const raioM = clampRaioM(politica.raioM ?? RAIO_PADRAO_M);
       const maxDia = clampMaxDia(politica.maxDia ?? MAX_DIA_PADRAO);
 
-      // Chave 4 — o que foi embarcado NESTE dia. `lead` e `dispensado` ficam de
+      // Chave 5 — o que foi embarcado NESTE dia. `lead` e `dispensado` ficam de
       // fora: quem virou lead saiu do corredor pra sempre (mora no /vendas
       // agora) e quem foi dispensado está de castigo — os dois voltarem como
       // prédio apagado seria o app oferecendo de novo o que o motorista já
       // resolveu.
       const linhas = await this.prisma.prospectoRota.findMany({
         where: { companyId, rotaDia, estado: { notIn: ['lead', 'dispensado'] } },
-        select: { cnpj: true, nome: true, cnaeDescricao: true, lat: true, lng: true, distM: true },
+        select: { cnpj: true, nome: true, cnae: true, cnaeDescricao: true, lat: true, lng: true, distM: true },
         orderBy: [{ distM: 'asc' }, { cnpj: 'asc' }],
         take: 64,
       });
@@ -313,6 +358,8 @@ export class LogisticaRotaService {
         acendeNoDia: maxDia,
         // Veio da tabela: por definição está persistido.
         persistido: true,
+        tipo: tipoDaSemana.slug,
+        tipoRotulo: tipoDaSemana.rotulo,
         // LEI DO VENDEDOR (a mesma do embarque): `phoneDigits` está no SELECT?
         // Não — e é de propósito. O telefone nunca sai do servidor; o disparo
         // da F3 é feito pelo backend.
@@ -328,6 +375,10 @@ export class LogisticaRotaService {
             lat: l.lat,
             lng: l.lng,
             distM: l.distM,
+            // A MESMA pergunta do embarque, contra a escolha de AGORA. Linha antiga
+            // (embarcada antes da coluna `cnae` existir) tem código nulo → AZUL:
+            // "não sei" pinta como ambiente, nunca como convite.
+            escolhida: cnaeEhDoTipo(l.cnae, tipoDaSemana),
             aceso: false,
           })),
           maxDia,
@@ -489,7 +540,9 @@ export class LogisticaRotaService {
     // é "admin sempre, funcionário só com prospectorEquipe", e isso é PAPEL.
     // Aditivo e por último: quem não passa ator cai no fail-closed (tratado
     // como funcionário comum) e o resto do iniciar-rota é byte a byte o mesmo.
-    actor?: ActorKindUserLike,
+    // 12/08 — o TIPO do ator ganhou o `id`: a chave nº4 (escolha da semana) é DA
+    // PESSOA, então o papel sozinho já não responde a pergunta inteira.
+    actor?: AtorProspector,
   ): Promise<PlanejarRotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const effectiveDriverId = entregadorId ?? (await this.resolveSingleDriver(companyId, input.date, input.deliveryIds, actor));
@@ -2748,17 +2801,25 @@ type PoliticaProspector = {
 };
 
 /**
- * Coluna/tabela que o CÓDIGO já conhece mas o BANCO ainda não (migration
- * pendente). P2022/P2021 são os códigos do Prisma; 42703/42P01 são os do
- * Postgres que vazam pelo raw. É a diferença entre "transição esperada" e
- * "defeito de verdade" — as duas continuam no log, com rótulos diferentes.
+ * O ATOR do prospector: o papel (que decide a chave nº3) MAIS o id (que decide a
+ * chave nº4, a escolha da semana). Era só `ActorKindUserLike`; o id entrou quando a
+ * escolha passou a ser DA PESSOA. `req.user` e `LogisticaActor` já satisfazem os dois.
  */
-function ehEsquemaAusente(error: unknown): boolean {
-  const code = String((error as any)?.code || '');
-  if (code === 'P2022' || code === 'P2021') return true;
-  const meta = String((error as any)?.meta?.code || '');
-  if (meta === '42703' || meta === '42P01') return true;
-  return /42703|42P01|does not exist in the current database/i.test(String((error as any)?.message || ''));
+export type AtorProspector =
+  | ({ id?: number | string | null } & NonNullable<ActorKindUserLike>)
+  | null
+  | undefined;
+
+/**
+ * O id de quem está dirigindo — ou 0, que FECHA a chave da semana.
+ *
+ * Fail-closed é a mesma régua da chave nº3 ("chamada sem ator é tratada como
+ * funcionário comum"): sem saber QUEM é, não há de quem ler a escolha, e a resposta
+ * honesta é o prospector quieto.
+ */
+function idDoAtor(actor: AtorProspector): number {
+  const id = Math.trunc(Number((actor as any)?.id || 0));
+  return Number.isFinite(id) && id > 0 ? id : 0;
 }
 
 /** Uma empresa do corredor, do jeito que o APK desenha o prédio no mapa. */
@@ -2781,6 +2842,19 @@ export interface RotaProspectoEmpresa {
    * "não sei" e "não tem afinidade" são coisas diferentes.
    */
   afinidade?: boolean;
+  /**
+   * PROSPECTOR v2 (12/08) — VERDE ou AZUL, e é o servidor que diz.
+   *
+   * `true`  = o CNAE bate nos prefixos do TIPO que a pessoa escolheu nesta semana.
+   *           Só ela pode acender, falar e ganhar rótulo.
+   * `false` = está no corredor mas não é do tipo: prédio AZUL, ambiente, MUDO. Ele
+   *           continua vindo de propósito — filtrar no corredor deixaria a rua vazia
+   *           e mataria a sensação de "tem mundo aí fora", que é metade da cena.
+   *
+   * Recomputado nos DOIS payloads contra a escolha de AGORA (nunca snapshot), senão
+   * trocar de tipo na quarta não mudaria a cor da rua até a semana virar.
+   */
+  escolhida: boolean;
   /**
    * O prédio nasce ACESO na tela de navegação (o resto nasce apagado e é
    * reserva do clique do motorista). Decidido pelo SERVIDOR, nos dois payloads,
@@ -2807,15 +2881,30 @@ export interface RotaProspectoEmpresa {
  *
  * Desempate por `cnpj` porque duas empresas na mesma esquina dão o mesmo `distM`
  * arredondado — sem ele a ordem viraria a do banco, que não é estável.
+ *
+ * 🔴 PROSPECTOR v2 (12/08) — O TETO É SÓ ENTRE AS ESCOLHIDAS. Antes o teto do dia
+ * caía nas N mais perto, quaisquer que fossem. Agora as azuis são AMBIENTE: elas
+ * ocupam a rua mas não ocupam vaga de "acesa" — senão três mercearias e um pet shop
+ * na frente do padeiro que a pessoa está caçando gastariam o teto inteiro em prédio
+ * mudo, e a tela ficaria cheia de convite que ninguém pediu. Nenhuma escolhida no
+ * corredor = NINGUÉM acende, e está certo: a rua fica azul e quieta.
  */
 export function ordenarParaAcender(
   empresas: readonly RotaProspectoEmpresa[],
   acendeNoDia: number,
 ): RotaProspectoEmpresa[] {
   const teto = Number.isFinite(acendeNoDia) ? Math.max(0, Math.trunc(acendeNoDia)) : 0;
+  let acesas = 0;
   return [...empresas]
     .sort((a, b) => (a.distM !== b.distM ? a.distM - b.distM : a.cnpj < b.cnpj ? -1 : a.cnpj > b.cnpj ? 1 : 0))
-    .map((e, i) => ({ ...e, aceso: i < teto }));
+    .map((e) => {
+      // A ORDEM da lista continua sendo a de distância (é ela que a tela usa pra
+      // brigar por rótulo e empilhar prédio). O que passou a ser filtrado é só quem
+      // GASTA vaga do teto.
+      const aceso = !!e.escolhida && acesas < teto;
+      if (aceso) acesas += 1;
+      return { ...e, aceso };
+    });
 }
 
 export interface RotaProspectorPayload {
@@ -2826,6 +2915,11 @@ export interface RotaProspectorPayload {
   acendeNoDia: number;
   /** false = a tabela ProspectoRota ainda não existe (a lista vale só hoje). */
   persistido: boolean;
+  /** Slug do TIPO que a pessoa escolheu nesta semana (a chave nº4). Sempre presente:
+   *  sem escolha este payload inteiro não existe. */
+  tipo: string;
+  /** O mesmo tipo em português, pro app não ter que traduzir slug. */
+  tipoRotulo: string;
   empresas: RotaProspectoEmpresa[];
 }
 

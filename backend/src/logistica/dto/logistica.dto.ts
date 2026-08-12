@@ -902,6 +902,26 @@ export class SetProspectorAutomacaoDto {
   prospectorAutomacaoMaxDia?: number;
 }
 
+// ── PROSPECTOR v2: A ESCOLHA DA SEMANA (12/08, decisão do dono) ──────────────
+// POST /logistica/prospector/semana. É a 5ª chave do prospector, e ela é DA
+// PESSOA que está dirigindo — não do tenant, não do master. Por isso NÃO tem
+// guard de admin: é o próprio ator dizendo o que interessa a ele nesta semana.
+//
+// `tipo` ausente/null/'' = DESLIGAR (apaga a escolha). É `@IsOptional` de
+// propósito, sem `@IsNotEmpty`: "não quero mais" precisa caber no mesmo verbo,
+// senão nasce um segundo endereço só pra desligar — e dois caminhos pro mesmo
+// estado é como eles passam a discordar.
+//
+// A validação de QUAIS slugs existem NÃO mora aqui: mora na curadoria
+// (`logistica-prospector-tipos.ts`), que é onde a lista pode mudar sem release
+// de DTO. Aqui só se garante que é texto curto de slug.
+export class SetProspectorSemanaDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  tipo?: string | null;
+}
+
 // Toggle "avisar entrega" de UM cliente (2º nível de silêncio, soma com o global).
 export class SetAvisarClienteDto {
   @IsBoolean()

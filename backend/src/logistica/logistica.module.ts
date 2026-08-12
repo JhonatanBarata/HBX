@@ -50,6 +50,8 @@ import { LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaRotaCobrancaService } from './logistica-rota-cobranca.service';
 import { LogisticaPasseioService } from './logistica-passeio.service';
 import { ProspectorCorredorService } from './prospector-corredor.service';
+// PROSPECTOR v2 (12/08) — a 5ª chave: o TIPO que a PESSOA escolheu nesta semana.
+import { LogisticaProspectorSemanaService } from './logistica-prospector-semana.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
 import { LogisticaTrackingMobileController } from './logistica-tracking-mobile.controller';
 import { LogisticaTrackingPublicService } from './logistica-tracking-public.service';
@@ -255,6 +257,7 @@ import { LogisticaBuscaService } from './logistica-busca.service';
     LogisticaRotaCobrancaService,
     LogisticaPasseioService,
     ProspectorCorredorService,
+    LogisticaProspectorSemanaService,
     LogisticaTrackingService,
     LogisticaTrackingPublicService,
     LogisticaOfflineService,

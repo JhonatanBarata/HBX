@@ -319,21 +319,28 @@ export class ProspectorCorredorService {
     const linhas = Prisma.join(
       prospectos.map(
         (p) => Prisma.sql`(
-          ${randomUUID()}, ${companyId}, ${p.cnpj}, ${p.nome}, ${p.cnaeDescricao},
+          ${randomUUID()}, ${companyId}, ${p.cnpj}, ${p.nome}, ${p.cnae}, ${p.cnaeDescricao},
           ${p.lat}::float8, ${p.lng}::float8, ${p.distM}::int, ${p.phoneDigits},
           ${ESTADO_EMBARCADO}, ${rotaDia}, now(), now()
         )`,
       ),
     );
 
+    /* PROSPECTOR v2 (12/08) — o CÓDIGO do CNAE entrou no INSERT. Ele é o que deixa a
+       RELEITURA do dia responder "essa é do tipo que a pessoa escolheu?" com a MESMA
+       régua do embarque; sem ele, reabrir o app repintava de azul o que estava verde.
+       A coluna e a tabela `LogisticaProspectorSemana` nascem na MESMA migration de
+       propósito: sem escolha de semana este caminho nem roda, então não existe janela
+       em que o código novo tente escrever numa coluna que ainda não existe. */
     await this.prisma.$executeRaw(Prisma.sql`
       INSERT INTO "ProspectoRota" (
-        "id", "companyId", "cnpj", "nome", "cnaeDescricao",
+        "id", "companyId", "cnpj", "nome", "cnae", "cnaeDescricao",
         "lat", "lng", "distM", "phoneDigits",
         "estado", "rotaDia", "createdAt", "updatedAt"
       ) VALUES ${linhas}
       ON CONFLICT ("companyId", "cnpj") DO UPDATE SET
         "nome" = EXCLUDED."nome",
+        "cnae" = EXCLUDED."cnae",
         "cnaeDescricao" = EXCLUDED."cnaeDescricao",
         "lat" = EXCLUDED."lat",
         "lng" = EXCLUDED."lng",

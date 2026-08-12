@@ -15,6 +15,7 @@ import {
   Query,
   Req,
   Res,
+  ServiceUnavailableException,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -50,6 +51,8 @@ import { LogisticaGeoService } from './logistica-geo.service';
 import { LogisticaAgendaService } from './logistica-agenda.service';
 import { LogisticaTutorialService } from './logistica-tutorial.service';
 import { LogisticaPasseioService } from './logistica-passeio.service';
+// PROSPECTOR v2 (12/08) — a escolha de TIPO que a PESSOA faz na semana.
+import { LogisticaProspectorSemanaService } from './logistica-prospector-semana.service';
 // PULSO DO APP (04/08) — a tela atual do aparelho pega carona no poll dos recados.
 import { PulsoAppService } from '../pulso-app/pulso-app.service';
 // VER TELA + ERROS DO CLIENTE (05/08) — os dois entram pelo mesmo poll.
@@ -86,6 +89,7 @@ import {
   SetAvisarClienteDto,
   SetLogisticaNivelDto,
   SetProspectorAutomacaoDto,
+  SetProspectorSemanaDto,
   UpdateClienteProdutoDto,
   UpdateDiasClienteDto,
   UpdateFinanceiroClienteDto,
@@ -165,6 +169,9 @@ export class LogisticaController {
     // TUTORIAL OBRIGATÓRIO (09/08) — carimbo por usuário (zero migration). Mesmo
     // padrão de default acima.
     private readonly tutorial: LogisticaTutorialService = null as any,
+    // PROSPECTOR v2 (12/08) — a escolha da semana, por pessoa. Mesmo padrão de
+    // default acima (testes legados instanciam o controller direto).
+    private readonly prospectorSemana: LogisticaProspectorSemanaService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -967,6 +974,48 @@ export class LogisticaController {
       // (admin sempre, funcionário só com prospectorEquipe), não por id.
       req.user,
     );
+  }
+
+  /**
+   * PROSPECTOR v2 (12/08) — A ESCOLHA DA SEMANA, e ela é DA PESSOA.
+   *
+   * 🔴 SEM GUARD DE ADMIN, e é decisão, não esquecimento. As chaves 1-3 já
+   * decidiram se ESTA pessoa pode ver prospector (env global, opt-in da empresa,
+   * e o papel dela). Esta porta é a pessoa dizendo o que interessa a ELA nesta
+   * semana — pedir admin aqui seria o dono escolhendo o que o motorista caça na
+   * rua, que é o contrário do pedido.
+   *
+   * GET devolve sempre a lista de tipos (ela vem do CÓDIGO, não do banco), então
+   * a folha do app abre mesmo com o banco no chão: a pessoa consegue escolher.
+   */
+  @Get('prospector/semana')
+  async getProspectorSemana(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    this.ensureProspectorSemana();
+    return this.prospectorSemana.lerEscolha(companyId, userId);
+  }
+
+  /**
+   * Grava ou TROCA a escolha da semana. `tipo` ausente/null/'' = DESLIGAR.
+   *
+   * Trocar no meio da semana é upsert: a rua muda de cor no próximo poll do app,
+   * sem esperar segunda-feira. Desligar apaga a linha — e ausência de linha é a
+   * única forma de "não quero" que o gate entende (ver o serviço).
+   */
+  @Post('prospector/semana')
+  async setProspectorSemana(@Req() req: any, @Body() dto: SetProspectorSemanaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    this.ensureProspectorSemana();
+    return this.prospectorSemana.gravarEscolha(companyId, userId, dto?.tipo ?? null);
+  }
+
+  /** Instância antiga do controller (teste legado) não tem o serviço: 503 honesto. */
+  private ensureProspectorSemana(): void {
+    if (!this.prospectorSemana) {
+      throw new ServiceUnavailableException('Recurso indisponível neste servidor.');
+    }
   }
 
   /**

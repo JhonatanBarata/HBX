@@ -34,6 +34,8 @@
     "test:rota-custo-preview": "npm run build && node --test dist/logistica/logistica-custo-preview.service.test.js",
     "test:base-saude": "npm run build && node --test dist/logistica/logistica-base-saude.service.test.js",
     "test:agenda-fuso": "npm run build && node ./scripts/test-agenda-fuso.mjs",
+    "test:prospector": "npm run build && node --test dist/logistica/logistica-prospector-semana.test.js dist/logistica/logistica-rota-prospector.test.js dist/logistica/logistica-config-prospector.test.js dist/logistica/prospector-corredor.service.test.js",
+    "test:prospector-semana-fuso": "npm run build && node ./scripts/test-prospector-semana-fuso.mjs",
     "test:logistica-billing": "npm run build && node --test dist/logistica/logistica-rota-cobranca.service.test.js dist/logistica/logistica-custo-preview.service.test.js dist/logistica/logistica-tracking-bonus.service.test.js",
     "test:logistica-tracking-public": "npm run build && node --test dist/logistica/logistica-tracking-public.util.test.js dist/logistica/logistica-tracking-public.service.test.js dist/logistica/logistica-tracking-public.controller.test.js dist/logistica/logistica-tracking.service.test.js",
     "test:logistica-offline": "npm run build && node --test dist/logistica/logistica-offline-grant.test.js",

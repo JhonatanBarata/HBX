@@ -302,6 +302,8 @@ model Company {
   logisticaAgendaEventos LogisticaAgendaEvento[]
   // PROSPECTOR CNPJ F0 (07/08) — empresas do corredor da rota embarcadas na folha.
   prospectosRota         ProspectoRota[]
+  // PROSPECTOR v2 (12/08) — a escolha de TIPO de empresa que cada pessoa fez na semana.
+  prospectorSemanas      LogisticaProspectorSemana[]
   entregaComprovantes    EntregaComprovante[]
   clienteProdutos        ClienteProduto[]
   logisticaRoutes        LogisticaRoute[]
@@ -6736,6 +6738,13 @@ model ProspectoRota {
   /// de propósito: o card do APK não pode depender de join com 28M linhas da RFB pra pintar.
   nome           String
   cnaeDescricao  String?
+  /// PROSPECTOR v2 (12/08) — o CÓDIGO do CNAE (7 dígitos, sem pontuação), não só a
+  /// descrição. Precisou existir porque a RELEITURA do dia (`lerProspectosDoDia`) tem
+  /// que dizer se a empresa é DO TIPO que a pessoa escolheu — e "escolhida" é uma
+  /// pergunta de CÓDIGO, não de texto livre. Sem esta coluna, reabrir o app pintaria
+  /// de azul o que estava verde, que é exatamente a tela mudando sozinha sem nada ter
+  /// acontecido na rua. Null = embarcado antes desta coluna existir (nunca escolhida).
+  cnae           String?
   lat            Float
   lng            Float
   /// Distância em METROS até a parada mais próxima da rota daquele dia.
@@ -6761,4 +6770,47 @@ model ProspectoRota {
 
   @@unique([companyId, cnpj])
   @@index([companyId, rotaDia])
+}
+
+/// PROSPECTOR v2 (12/08) — A ESCOLHA DA SEMANA, e ela é DA PESSOA.
+///
+/// 🔴 A DECISÃO DO DONO que esta tabela carrega: o prospector nasce DESLIGADO pra todo
+/// mundo e só acorda quando a PESSOA aciona e diz que TIPO de empresa interessa a ela
+/// NESTA SEMANA. Sem linha aqui, o payload da rota sai SEM a chave `prospector` — a
+/// mesma semântica de chave fechada que as 4 chaves anteriores já produziam. É a 5ª
+/// chave da cadeia (env → empresa → ator → SEMANA DA PESSOA → pino).
+///
+/// POR QUE POR USUÁRIO, não por empresa: quem dirige é quem vê o prédio na rua. Dois
+/// motoristas da mesma distribuidora podem estar atrás de coisas diferentes na mesma
+/// segunda-feira, e a escolha de um não pode acender a tela do outro.
+///
+/// POR QUE A SEMANA EXPIRA SOZINHA: `semana` é a chave ISO ('2026-W33') calculada no
+/// dia civil de SÃO PAULO (`saoPauloDateKey` → `semanaIsoDeDiaCivil`), nunca no UTC do
+/// container. Segunda-feira nova = semana nova = NENHUMA linha = quieto de novo. Não
+/// existe faxina, não existe job de expiração: o silêncio volta por construção (é a
+/// LEI DO DESAPARECER aplicada a uma preferência).
+///
+/// `@@unique([companyId, userId, semana])` = UMA escolha viva por pessoa por semana;
+/// trocar de tipo no meio da semana é upsert, e desligar é DELETE (ausência = "não
+/// quero", que é diferente de uma linha com tipo vazio).
+///
+/// `userId` sem relação formal de propósito, mesma régua do `ProspectoRota.leadId`:
+/// preferência de semana não é motivo pra travar a exclusão de um usuário.
+model LogisticaProspectorSemana {
+  id        String   @id @default(cuid())
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId Int
+  /// `User.id` de quem escolheu. A escolha é da PESSOA que dirige, não da empresa.
+  userId    Int
+  /// Slug do tipo curado (ver `logistica-prospector-tipos.ts`): mercado, bar, padaria…
+  /// Slug desconhecido (curadoria mudou embaixo) é tratado como AUSENTE na leitura —
+  /// nunca vira erro na cara de quem está dirigindo.
+  tipo      String
+  /// Semana ISO 'YYYY-Www' do fuso America/Sao_Paulo. NUNCA o UTC do container.
+  semana    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, userId, semana])
+  @@index([companyId, semana])
 }

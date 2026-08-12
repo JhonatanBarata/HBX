@@ -2,18 +2,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { ProspectorCorredorService } from './prospector-corredor.service';
+import { tipoPorSlug } from './logistica-prospector-tipos';
 
 /**
  * PROSPECTOR CNPJ — F1 do lado do SERVIDOR: o corredor ligado no INICIAR ROTA.
  * Plano: docs/PLANEJAMENTOS/PR07082026-PROSPECTOR-CNPJ.md (§0, §1, F0/F1).
+ * PROSPECTOR v2 (12/08): a 5ª chave (a escolha da SEMANA, por PESSOA) e as DUAS
+ * CORES (azul = ambiente mudo · verde = o tipo escolhido).
  *
  * O que se prova aqui é o que o iniciar-rota passou a decidir — e o que ele
  * JAMAIS pode deixar de fazer:
  *
- *  · AS 4 CHAVES, uma a uma: env global · prospectorAtivo do tenant · ATOR
- *    (admin sempre, funcionário só com prospectorEquipe) · pino na região.
- *    Chave fechada = ZERO prospecto, sem erro, e o payload byte a byte o de
- *    hoje (a chave `prospector` nem existe).
+ *  · AS 5 CHAVES, uma a uma: env global · prospectorAtivo do tenant · ATOR
+ *    (admin sempre, funcionário só com prospectorEquipe) · A SEMANA DA PESSOA ·
+ *    pino na região. Chave fechada = ZERO prospecto, sem erro, e o payload byte
+ *    a byte o de hoje (a chave `prospector` nem existe).
+ *  · AS DUAS CORES: `escolhida` sai do CÓDIGO do CNAE contra o tipo da semana, e
+ *    `aceso` NUNCA cai em quem não é escolhida — azul é ambiente, e ambiente não
+ *    fala.
  *  · ENFEITE NÃO DERRUBA ROTA: corredor quebrado (banco no chão), tabela
  *    ausente, exceção crua — a rota inicia IGUAL, e o alarme sai no log. A
  *    lição do CNEFE é essa: best-effort MUDO desligou 23M endereços por 5
@@ -40,6 +46,12 @@ type CenarioBancada = {
   erroConfig?: any;
   /** Dublê do corredor. Ausente = serviço não injetado. */
   prospector?: any;
+  /**
+   * Dublê da ESCOLHA DA SEMANA (chave nº4). `undefined` = a bancada injeta o
+   * padrão (a pessoa escolheu "salao", que é o ramo da EMPRESA_SALAO); `null` =
+   * serviço NÃO injetado, que tem que fechar o gate igual a "não escolheu".
+   */
+  semana?: any;
 };
 
 const PARADAS_RIO_CLARO = [
@@ -129,6 +141,7 @@ function bancada(cenario: CenarioBancada = {}) {
     garantirPasseDoDia: async () => undefined,
   };
 
+  const semana = cenario.semana === undefined ? semanaDuble().servico : cenario.semana ?? undefined;
   const rota = new LogisticaRotaService(
     prisma,
     cobranca,
@@ -136,6 +149,7 @@ function bancada(cenario: CenarioBancada = {}) {
     undefined, // osrm
     undefined, // cargaEstoque (B4)
     cenario.prospector,
+    semana, // PROSPECTOR v2 — a escolha da semana (chave nº4)
   );
   (rota as any).logger = {
     log: (m: string) => logs.push({ nivel: 'log', msg: String(m) }),
@@ -161,6 +175,27 @@ function bancada(cenario: CenarioBancada = {}) {
     );
 
   return { rota, iniciar, logs, configReads, companyId };
+}
+
+/**
+ * Dublê da ESCOLHA DA SEMANA. Registra QUEM perguntou (a escolha é por PESSOA, e a
+ * prova disso é o `userId` chegando aqui) e devolve o tipo curado do slug — ou null,
+ * que é "essa pessoa não escolheu nada nesta semana".
+ */
+function semanaDuble(slug: string | null = 'salao') {
+  const chamadas: Array<{ companyId: unknown; userId: unknown }> = [];
+  return {
+    chamadas,
+    servico: {
+      escolhaVigente: async (companyId: unknown, userId: unknown) => {
+        chamadas.push({ companyId, userId });
+        // FIEL AO SERVIÇO DE VERDADE: sem ator identificado não há de quem ler a
+        // escolha. Dublê mais frouxo que o original é dublê que esconde defeito.
+        if (!Number(userId)) return null;
+        return slug ? tipoPorSlug(slug) : null;
+      },
+    } as any,
+  };
 }
 
 /** Dublê do corredor que registra as chamadas e devolve o que o teste mandar. */
@@ -326,19 +361,80 @@ test('CHAVE 3: chamada SEM ator é fail-closed (tratada como funcionário comum)
     assert.equal(r1.prospector, undefined, 'sem ator e sem liberação de equipe = fechado');
     assert.equal(fechado.chamadas.length, 0);
 
+    /* 🔴 12/08 — SEM ATOR AGORA É FECHADO ATÉ COM prospectorEquipe LIGADO, e é a
+       chave nº4 que fecha: a escolha da semana é DA PESSOA, então chamada interna
+       sem ator não tem de quem ler escolha nenhuma. Antes desta leva, `equipe:true`
+       deixava passar uma chamada anônima — o que hoje seria acender prédio na tela
+       de alguém que nunca disse o que queria caçar. */
     const aberto = corredorDuble({ prospectos: [EMPRESA_SALAO] });
     const b2 = bancada({ config: { ...CONFIG_LIGADA, prospectorEquipe: true }, prospector: aberto.servico });
     const r2: any = await b2.iniciar(undefined);
-    assert.equal(aberto.chamadas.length, 1, 'com equipe liberada, chamada interna passa');
-    assert.equal(r2.prospector.empresas.length, 1);
+    assert.equal(r2.prospector, undefined, 'sem PESSOA não há escolha da semana — fechado');
+    assert.equal(aberto.chamadas.length, 0, 'e o corredor (que varre a RFB) nem roda');
   });
 });
 
 // ---------------------------------------------------------------------------
-// CHAVE 4 — pino na região (vazio HONESTO)
+// 🔴 CHAVE 4 — A ESCOLHA DA SEMANA, e ela é DA PESSOA (PROSPECTOR v2, 12/08)
+//
+// A decisão do dono: o prospector nasce DESLIGADO pra todo mundo e só acorda
+// quando a PESSOA aciona e diz o TIPO que interessa a ela NESTA semana.
 // ---------------------------------------------------------------------------
 
-test('CHAVE 4: empresa sem pino na região devolve lista VAZIA — vazio honesto, não erro', async () => {
+test('CHAVE 4: sem escolha na semana, o payload sai BYTE A BYTE o de sempre e o corredor nem roda', async () => {
+  await comEnv('true', async () => {
+    const corredor = corredorDuble({ prospectos: [EMPRESA_SALAO] });
+    const semana = semanaDuble(null); // a pessoa não escolheu nada
+    const b = bancada({ config: CONFIG_LIGADA, prospector: corredor.servico, semana: semana.servico });
+    const r: any = await b.iniciar(ADMIN);
+
+    assert.equal(r.total, 3, 'a rota inicia normal — o prospector é ENFEITE');
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(r, 'prospector'),
+      false,
+      'a chave `prospector` nem pode existir: ausente ≠ vazio (a ponte lê `[]` como "apague a tela")',
+    );
+    assert.equal(corredor.chamadas.length, 0, 'a RFB não é varrida por quem não pediu nada');
+    assert.equal(semana.chamadas.length, 1, 'e a escolha foi perguntada uma vez só');
+    assert.equal(b.logs.filter((l) => l.nivel === 'error').length, 0, 'não escolher não é erro');
+  });
+});
+
+test('CHAVE 4: a escolha é perguntada com a EMPRESA e a PESSOA — nunca só com a empresa', async () => {
+  await comEnv('true', async () => {
+    const semana = semanaDuble('salao');
+    const b = bancada({
+      companyId: 41,
+      config: CONFIG_LIGADA,
+      prospector: corredorDuble({ prospectos: [EMPRESA_SALAO] }).servico,
+      semana: semana.servico,
+    });
+    await b.iniciar(GERENTE); // id 8
+
+    assert.deepEqual(semana.chamadas[0], { companyId: 41, userId: 8 });
+    // 🔴 Dois motoristas da mesma distribuidora escolhem coisas diferentes na mesma
+    // segunda-feira. Ler a escolha só por empresa acenderia a tela de um com o
+    // gosto do outro.
+  });
+});
+
+test('CHAVE 4: serviço da semana NÃO injetado é FAIL-CLOSED (nada de "segue como antes")', async () => {
+  await comEnv('true', async () => {
+    const corredor = corredorDuble({ prospectos: [EMPRESA_SALAO] });
+    const b = bancada({ config: CONFIG_LIGADA, prospector: corredor.servico, semana: null });
+    const r: any = await b.iniciar(ADMIN);
+
+    assert.equal(r.total, 3);
+    assert.equal(r.prospector, undefined, 'sem a peça que sabe da escolha, o prospector fica QUIETO');
+    assert.equal(corredor.chamadas.length, 0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CHAVE 5 — pino na região (vazio HONESTO)
+// ---------------------------------------------------------------------------
+
+test('CHAVE 5: empresa sem pino na região devolve lista VAZIA — vazio honesto, não erro', async () => {
   await comEnv('true', async () => {
     const corredor = corredorDuble({ prospectos: [] });
     const b = bancada({ config: CONFIG_LIGADA, prospector: corredor.servico });
@@ -370,17 +466,21 @@ test('payload: aditivo, com nome/ramo/distância — e SEM telefone, porte ou qu
     assert.equal(r.prospector.rotaDia, '2026-08-07');
     assert.equal(r.prospector.raioM, 150);
     assert.equal(r.prospector.acendeNoDia, 4);
+    // 12/08 — o TIPO da semana viaja pro app poder DIZER o que está caçando.
+    assert.equal(r.prospector.tipo, 'salao');
+    assert.equal(r.prospector.tipoRotulo, 'Salões e barbearias');
 
     const empresa = r.prospector.empresas[0];
     assert.deepEqual(
       Object.keys(empresa).sort(),
-      ['aceso', 'afinidade', 'cnpj', 'distM', 'id', 'lat', 'lng', 'nome', 'ramo'].sort(),
+      ['aceso', 'afinidade', 'cnpj', 'distM', 'escolhida', 'id', 'lat', 'lng', 'nome', 'ramo'].sort(),
     );
     assert.equal(empresa.id, EMPRESA_SALAO.cnpj, 'o `id` é o gancho do prédio no mapa');
     assert.equal(empresa.nome, 'Salão Bela Vista');
     assert.equal(empresa.ramo, 'Cabeleireiros, manicure e pedicure');
     assert.equal(empresa.distM, 42);
     assert.equal(empresa.afinidade, true);
+    assert.equal(empresa.escolhida, true, 'CNAE 9602501 é salão, e a pessoa escolheu salão');
     // `aceso` é decisão do SERVIDOR (08/08) e vale nos dois payloads: única do
     // dia com teto 4, ela nasce acesa. A ponte não escolhe nada.
     assert.equal(empresa.aceso, true);
@@ -397,6 +497,117 @@ test('payload: sem cnaeDescricao, o ramo cai no rótulo da cesta (nunca vazio à
     const b = bancada({ config: CONFIG_LIGADA, prospector: corredor.servico });
     const r: any = await b.iniciar(ADMIN);
     assert.equal(r.prospector.empresas[0].ramo, 'salão / estética');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 🔴 AS DUAS CORES (PROSPECTOR v2) — AZUL é ambiente e é MUDO; VERDE é o tipo
+// que a pessoa escolheu, e só ele acende.
+// ---------------------------------------------------------------------------
+
+/** Empresas de ramos diferentes, todas no mesmo corredor. Distância crescente. */
+const RUA_MISTA = [
+  { ...EMPRESA_SALAO, cnpj: '11111111000191', nome: 'Mercadinho da Praça', cnae: '4712100', distM: 20 },
+  { ...EMPRESA_SALAO, cnpj: '22222222000192', nome: 'Salão Bela Vista', cnae: '9602501', distM: 40 },
+  { ...EMPRESA_SALAO, cnpj: '33333333000193', nome: 'Loja de Roupas', cnae: '4781400', distM: 60 },
+  { ...EMPRESA_SALAO, cnpj: '44444444000194', nome: 'Barbearia do Zé', cnae: '9602502', distM: 80 },
+];
+
+test('DUAS CORES: só quem bate no CNAE do tipo escolhido é `escolhida` — o resto vem AZUL', async () => {
+  await comEnv('true', async () => {
+    const corredor = corredorDuble({ prospectos: RUA_MISTA });
+    const b = bancada({ config: CONFIG_LIGADA, prospector: corredor.servico, semana: semanaDuble('salao').servico });
+    const r: any = await b.iniciar(ADMIN);
+
+    assert.deepEqual(
+      r.prospector.empresas.map((e: any) => [e.nome, e.escolhida]),
+      [
+        ['Mercadinho da Praça', false],
+        ['Salão Bela Vista', true],
+        ['Loja de Roupas', false],
+        ['Barbearia do Zé', true],
+      ],
+    );
+    // 🔴 O CORREDOR CONTINUA TRAZENDO TODO MUNDO. Filtrar aqui deixaria a rua vazia
+    // e mataria a sensação de "tem mundo aí fora", que é metade do valor da cena.
+    assert.equal(r.prospector.empresas.length, 4, 'as azuis são AMBIENTE — elas ficam');
+  });
+});
+
+test('DUAS CORES: trocar o tipo da semana repinta a MESMA rua (a cor não é snapshot)', async () => {
+  await comEnv('true', async () => {
+    const pintarCom = async (slug: string) => {
+      const b = bancada({
+        config: CONFIG_LIGADA,
+        prospector: corredorDuble({ prospectos: RUA_MISTA }).servico,
+        semana: semanaDuble(slug).servico,
+      });
+      const r: any = await b.iniciar(ADMIN);
+      return r.prospector.empresas.filter((e: any) => e.escolhida).map((e: any) => e.nome);
+    };
+
+    assert.deepEqual(await pintarCom('salao'), ['Salão Bela Vista', 'Barbearia do Zé']);
+    assert.deepEqual(await pintarCom('mercado'), ['Mercadinho da Praça']);
+    // Ninguém do tipo na rua: a rua fica azul e QUIETA — e isso é um desfecho
+    // legítimo, não uma falha.
+    assert.deepEqual(await pintarCom('farmacia'), []);
+  });
+});
+
+test('DUAS CORES: `aceso` NUNCA cai em azul — o teto do dia é gasto só entre as escolhidas', async () => {
+  await comEnv('true', async () => {
+    const corredor = corredorDuble({ prospectos: RUA_MISTA, maxDia: 2, acendeNoDia: 2 });
+    const b = bancada({
+      config: { ...CONFIG_LIGADA, prospectorMaxDia: 2 },
+      prospector: corredor.servico,
+      semana: semanaDuble('salao').servico,
+    });
+    const r: any = await b.iniciar(ADMIN);
+
+    /* 🔴 O DEFEITO QUE ISTO TRANCA: com o teto caindo nas N mais PERTO quaisquer,
+       o mercadinho (20 m) e o salão (40 m) gastariam as 2 vagas — e o mercadinho é
+       AZUL, mudo. A barbearia, que é o que a pessoa está caçando, ficaria apagada
+       atrás de um prédio que ela nem pediu pra ver. */
+    assert.deepEqual(
+      r.prospector.empresas.map((e: any) => [e.nome, e.escolhida, e.aceso]),
+      [
+        ['Mercadinho da Praça', false, false],
+        ['Salão Bela Vista', true, true],
+        ['Loja de Roupas', false, false],
+        ['Barbearia do Zé', true, true],
+      ],
+    );
+    // A ORDEM da lista continua sendo a de DISTÂNCIA (é ela que a tela usa pra
+    // empilhar prédio e brigar por rótulo) — o que mudou é só quem gasta vaga.
+    assert.deepEqual(r.prospector.empresas.map((e: any) => e.distM), [20, 40, 60, 80]);
+  });
+});
+
+test('DUAS CORES: o teto continua sendo TETO — a 3ª escolhida não acende', async () => {
+  await comEnv('true', async () => {
+    const tresSaloes = [
+      { ...EMPRESA_SALAO, cnpj: '11111111000191', cnae: '9602501', distM: 10 },
+      { ...EMPRESA_SALAO, cnpj: '22222222000192', cnae: '9602501', distM: 20 },
+      { ...EMPRESA_SALAO, cnpj: '33333333000193', cnae: '9602501', distM: 30 },
+    ];
+    const corredor = corredorDuble({ prospectos: tresSaloes, maxDia: 2, acendeNoDia: 2 });
+    const b = bancada({
+      config: { ...CONFIG_LIGADA, prospectorMaxDia: 2 },
+      prospector: corredor.servico,
+      semana: semanaDuble('salao').servico,
+    });
+    const r: any = await b.iniciar(ADMIN);
+    assert.deepEqual(r.prospector.empresas.map((e: any) => e.aceso), [true, true, false]);
+  });
+});
+
+test('DUAS CORES: empresa SEM cnae nasce azul — "não sei" nunca vira convite', async () => {
+  await comEnv('true', async () => {
+    const corredor = corredorDuble({ prospectos: [{ ...EMPRESA_SALAO, cnae: null }] });
+    const b = bancada({ config: CONFIG_LIGADA, prospector: corredor.servico, semana: semanaDuble('salao').servico });
+    const r: any = await b.iniciar(ADMIN);
+    assert.equal(r.prospector.empresas[0].escolhida, false);
+    assert.equal(r.prospector.empresas[0].aceso, false, 'prédio que ninguém classificou não pede parada');
   });
 });
 
@@ -648,11 +859,16 @@ type CenarioReleitura = {
   erroConfig?: any;
   /** Linhas de ProspectoRota. `Error` no lugar do array = banco no chão. */
   linhas?: any[] | Error;
+  /** Escolha da semana. `undefined` = padrão ('salao'); `null` = serviço ausente. */
+  semana?: any;
 };
 
 const LINHA = (over: Record<string, unknown> = {}) => ({
   cnpj: '11111111000191',
   nome: 'Salão Bela Vista',
+  // 12/08 — o CÓDIGO do CNAE passou a ser gravado no embarque: é ele que deixa a
+  // releitura responder "é do tipo escolhido?" com a MESMA régua do iniciar.
+  cnae: '9602501',
   cnaeDescricao: 'Cabeleireiros, manicure e pedicure',
   lat: -22.4261,
   lng: -47.5787,
@@ -683,7 +899,16 @@ function bancadaReleitura(cenario: CenarioReleitura = {}) {
 
   // Corredor NÃO injetado de propósito: a releitura não pode depender dele —
   // se algum dia alguém fizer o `listRota` embarcar, estes testes quebram.
-  const rota = new LogisticaRotaService(prisma, {} as any);
+  const semanaDub = cenario.semana === undefined ? semanaDuble().servico : cenario.semana ?? undefined;
+  const rota = new LogisticaRotaService(
+    prisma,
+    {} as any,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    semanaDub,
+  );
   (rota as any).logger = {
     log: (m: string) => logs.push({ nivel: 'log', msg: String(m) }),
     warn: (m: string) => logs.push({ nivel: 'warn', msg: String(m) }),
@@ -732,7 +957,46 @@ test('RELEITURA: NÃO EMBARCA — o corredor (que varre a RFB) nunca roda no hot
   });
 });
 
-test('RELEITURA: as 4 chaves valem aqui também — desligar apaga a tela, não só para de embarcar', async () => {
+test('RELEITURA: a COR é recomputada contra a escolha de AGORA — nunca é snapshot', async () => {
+  await comEnv('true', async () => {
+    const rua = [
+      LINHA({ cnpj: '11111111000191', nome: 'Mercadinho', cnae: '4712100', distM: 20 }),
+      LINHA({ cnpj: '22222222000192', nome: 'Salão', cnae: '9602501', distM: 40 }),
+    ];
+    /* 🔴 O DEFEITO QUE ISTO TRANCA: sem o `cnae` gravado, a releitura não teria como
+       responder a pergunta da cor — e reabrir o app repintaria de azul o que estava
+       verde. Tela mudando sozinha sem nada ter acontecido na rua é bug de produto
+       (é a MESMA lei do `aceso` de 08/08). */
+    const comSalao = await bancadaReleitura({ config: CONFIG_LIGADA, linhas: rua }).ler(ADMIN);
+    assert.deepEqual(comSalao!.empresas.map((e) => [e.nome, e.escolhida, e.aceso]), [
+      ['Mercadinho', false, false],
+      ['Salão', true, true],
+    ]);
+
+    // A pessoa trocou pra "mercado" na quarta-feira: a MESMA linha do banco muda de
+    // cor no próximo poll, sem esperar a semana virar.
+    const comMercado = await bancadaReleitura({
+      config: CONFIG_LIGADA,
+      linhas: rua,
+      semana: semanaDuble('mercado').servico,
+    }).ler(ADMIN);
+    assert.deepEqual(comMercado!.empresas.map((e) => [e.nome, e.escolhida, e.aceso]), [
+      ['Mercadinho', true, true],
+      ['Salão', false, false],
+    ]);
+  });
+});
+
+test('RELEITURA: linha antiga (embarcada antes da coluna cnae) é AZUL, nunca acesa', async () => {
+  await comEnv('true', async () => {
+    const b = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA({ cnae: null })] });
+    const r = await b.ler(ADMIN);
+    assert.equal(r!.empresas[0].escolhida, false);
+    assert.equal(r!.empresas[0].aceso, false);
+  });
+});
+
+test('RELEITURA: as 5 chaves valem aqui também — desligar apaga a tela, não só para de embarcar', async () => {
   // Chave 1 — env global
   await comEnv(undefined, async () => {
     const b = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()] });
@@ -769,7 +1033,21 @@ test('RELEITURA: as 4 chaves valem aqui também — desligar apaga a tela, não 
     const gerente = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()] });
     assert.equal((await gerente.ler(GERENTE))!.empresas.length, 1);
 
-    // Chave 4 — nenhuma linha embarcada no dia
+    // Chave 4 — a PESSOA não escolheu nada nesta semana: a tela APAGA. Não basta
+    // parar de embarcar novos; o que já está no banco também some da vista.
+    const semEscolha = bancadaReleitura({
+      config: CONFIG_LIGADA,
+      linhas: [LINHA()],
+      semana: semanaDuble(null).servico,
+    });
+    assert.equal(await semEscolha.ler(ADMIN), null);
+    assert.equal(semEscolha.buscas.length, 0, 'sem escolha não gasta nem a consulta da tabela');
+
+    // Chave 4 — serviço da semana ausente é FAIL-CLOSED
+    const semServico = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()], semana: null });
+    assert.equal(await semServico.ler(ADMIN), null);
+
+    // Chave 5 — nenhuma linha embarcada no dia
     const vazio = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [] });
     assert.equal(await vazio.ler(ADMIN), null, 'dia sem embarque não inventa chave no payload');
   });
