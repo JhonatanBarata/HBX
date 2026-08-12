@@ -400,8 +400,13 @@ async function dirigir(navegador, pele, porta, radares, roteiro) {
   eh('G. no total: exatamente UMA fala por radar do corredor',
     falasRadar.length === 2, falasRadar.join(' | ') || 'nenhuma');
 
+  /* 🔴 A VOZ FALA O VERBO COMO ELE VEM DA TABELA — "vire à esquerda na Rua do
+     Lago", minúsculo. A MAIÚSCULA é do CARTÃO (`maiuscula(m.passo.verbo)` em
+     `pintarNavegacao`), e cobrar dela aqui era esta prova inventando uma copy
+     que o app nunca disse: medido em 12/08, com o radar ainda nem escrito, H e
+     J4 já falhavam sozinhas. A asserção é do fato, não do gosto. */
   eh('H. a voz da manobra continua inteira (prepara + agora)',
-    idxPrepara >= 0 && final.falas.some((x) => /^Vire à esquerda/.test(x)),
+    idxPrepara >= 0 && final.falas.some((x) => /^vire à esquerda/i.test(x)),
     final.falas.filter((x) => !ehFalaRadar(x)).join(' | '));
 
   const ct = c1.contraste;
@@ -438,7 +443,7 @@ async function dirigir(navegador, pele, porta, radares, roteiro) {
     g.every((x) => x.velTexto !== '') && finalB.manobraVerbo === 'Vire à esquerda',
     `vel: ${g.map((x) => x.velTexto || '—').join(',')} · manobra: "${finalB.manobraVerbo}"`);
   eh('J4. a voz da manobra segue falando; nenhuma fala de radar',
-    finalB.falas.some((x) => /^Vire à esquerda/.test(x)) && !finalB.falas.some(ehFalaRadar),
+    finalB.falas.some((x) => /^vire à esquerda/i.test(x)) && !finalB.falas.some(ehFalaRadar),
     finalB.falas.join(' | ') || 'nenhuma fala');
 
   await navegador.close();

@@ -189,6 +189,16 @@ button,input{font:inherit;color:inherit}
   --emp-trilho:rgba(120,140,170,.35); --emp-barra:#b2ff43;
   --emp-guia:rgba(178,255,67,.5);
   --emp-radar:rgba(75,157,255,.55); --emp-linha-scan:rgba(85,180,255,.22);
+  /* O AVISO DE RADAR E O VELOCÍMETRO ACIMA DO LIMITE (12/08, F2+F3). Eles NÃO
+     entram na família do vidro (`--glass`): vidro é cromo neutro por cima do
+     mapa e some no fundo, e estes dois são ALARME — têm que se ver de relance a
+     60 km/h. Por isso a cor é OPACA nos dois temas, não translúcida: fundo de
+     vidro COMPÕE com o mapa que estiver embaixo, e contraste que depende do
+     tile é contraste que ninguém pode medir. Medido com getComputedStyle nos
+     dois temas pelo `prova-radar-aviso.js` (AA ≥ 4,5:1). */
+  --radar-bg:#2a1013; --radar-fio:rgba(255,120,110,.45); --radar-ink:#ffd9d4;
+  --radar-lim-bg:#fff5f4; --radar-lim-ink:#8a1c17; --radar-lim-fio:#e2483c;
+  --vel-acima-bg:#c0271f; --vel-acima-fio:#e2483c; --vel-acima-ink:#ffffff;
 
   background:radial-gradient(560px 300px at 50% -8%,rgba(47,126,247,.10),transparent 70%),
              linear-gradient(180deg,var(--bg-2),var(--bg) 34%);
@@ -1788,6 +1798,40 @@ button,input{font:inherit;color:inherit}
   background:var(--glass);border:.7px solid var(--line);display:grid;place-items:center;text-align:center;line-height:1}
 .gps-vel b{display:block;font-size:26px;font-weight:500}
 .gps-vel small{display:block;font-size:11px;color:var(--ink-2);margin-top:3px}
+/* 🔴 O VELOCÍMETRO ACIMA DO LIMITE DO RADAR (12/08, F3). Estado, não peça nova:
+   é o MESMO disco, com a classe `acima` posta direto no nó pela ponte enquanto
+   houver radar COM limite a menos de 600 m À FRENTE e a velocidade estiver
+   acima dele. Fora dessa janela ele volta a ser o velocímetro de sempre.
+   O seletor começa em `.gps` de propósito: `[data-luz="claro"] .gps-vel` (a
+   lista do vidro, mais abaixo) empata em especificidade com `.gps-vel.acima` e
+   vem DEPOIS no arquivo — sem o `.gps` na frente, o alarme sumia no tema claro
+   e ninguém veria.
+   🔴 E É TROCA SECA, SEM TRANSIÇÃO — por duas razões que apontam pro mesmo
+   lado. Quem passou do limite precisa ver AGORA, não daqui a 180 ms; e uma
+   transição de `background-color` faz o `getComputedStyle` do fiscal ler a cor
+   VELHA no quadro em que a classe entra (medido: 1,00:1 no claro, branco sobre
+   branco), então o contraste deixaria de ser mensurável — cor que não se mede
+   é cor que ninguém garante. */
+.gps .gps-vel.acima{background:var(--vel-acima-bg);border-color:var(--vel-acima-fio)}
+.gps .gps-vel.acima b,.gps .gps-vel.acima small{color:var(--vel-acima-ink)}
+/* 🔴 O CHIP DO RADAR: nó PERMANENTE e inerte, irmão do selo do retraço — quem o
+   acende é a ponte (classe `on`), e o repinte da camada o devolve apagado, que
+   é o estado seguro. Ele pousa ACIMA do velocímetro, no mesmo `--gps-piso` (72
+   px do disco + 10 de respiro): o limite do radar e a velocidade do carro são a
+   MESMA pergunta, e o olho responde as duas sem varrer a tela. Fica longe do
+   cartão da manobra (topo) e do chip do prospector (`.emp-chip`, canto de
+   cima) — aviso nunca cobre instrução. `.lim` some quando o radar não traz
+   limite: número inventado é pior que nenhum número. */
+.gps-radar{position:absolute;left:11px;bottom:calc(var(--gps-piso) + 82px);z-index:20;
+  display:flex;align-items:center;gap:7px;padding:5px 11px;border-radius:999px;
+  background:var(--radar-bg);border:.7px solid var(--radar-fio);color:var(--radar-ink);
+  font-size:12px;line-height:1;pointer-events:none;opacity:0;transform:translateY(6px);
+  transition:opacity .22s ease,transform .22s ease}
+.gps-radar.on{opacity:1;transform:translateY(0)}
+.gps-radar .lim{display:grid;place-items:center;width:26px;height:26px;margin-left:-5px;
+  border-radius:50%;background:var(--radar-lim-bg);color:var(--radar-lim-ink);
+  border:2px solid var(--radar-lim-fio);font-size:12px;font-weight:600}
+.gps-radar .lim:empty{display:none}
 /* A coluna cresce PRA CIMA (é ancorada pelo pé), então quem paga qualquer
    sobra é sempre o botão de baixo — o mais perto do polegar. Por isso ela pousa
    no mesmo `--gps-piso` do velocímetro: os dois lados da tela na mesma linha. */
@@ -2855,6 +2899,14 @@ button,input{font:inherit;color:inherit}
   --emp-trilho:rgba(120,140,170,.3); --emp-barra:#4f9310;
   --emp-guia:rgba(79,147,16,.55);
   --emp-radar:rgba(31,102,224,.4); --emp-linha-scan:rgba(31,102,224,.14);
+  /* O alarme no tema de dia: mesma peça, tinta invertida. O velocímetro "acima"
+     fica VERMELHO CHEIO nos dois temas de propósito — no claro ele não pode
+     virar "branco com número vermelho", que é o que a lista do vidro faria com
+     ele (o `[data-luz="claro"] .gps-vel{background:#fff}` logo abaixo), e é
+     exatamente a armadilha do `--lime` no claro. */
+  --radar-bg:#fff1ef; --radar-fio:rgba(194,60,45,.45); --radar-ink:#8a1c17;
+  --radar-lim-bg:#ffffff; --radar-lim-ink:#8a1c17; --radar-lim-fio:#c62f22;
+  --vel-acima-bg:#c0271f; --vel-acima-fio:#8a1c17; --vel-acima-ink:#ffffff;
 }
 [data-luz="claro"] .gps{background:#e8edf5}
 [data-luz="claro"] .gps-horizonte{background:linear-gradient(180deg,#e8edf5 22%,rgba(232,237,245,.72) 58%,transparent)}
@@ -4667,6 +4719,15 @@ function telaGps(chegou){
          a ponte (classe "on") quando pede caminho novo fora do traçado, e quem
          o apaga é a resposta — ou o teto de 4 s dela, o que vier antes. -->
     <div class="gps-redir">Redirecionando…</div>
+
+    <!-- O AVISO DE RADAR: mesmo contrato do selo acima — nó permanente, inerte,
+         apagado. A ponte acende a classe "on" quando existe radar no corredor
+         da rota À FRENTE do motorista, escreve o limite em ".lim" (vazio quando
+         a fonte não tem limite) e apaga quando ele fica para tras. Nada disto
+         passa pelo seam: aviso que muda a cada fix repintaria a camada do mapa
+         uma vez por segundo. (Sem CRASE aqui dentro: este comentario mora num
+         template literal e a crase o fecharia.) -->
+    <div class="gps-radar"><b class="lim"></b><span class="txt">Radar</span></div>
 
     <!-- eu: no centro da largura, com a cauda pousada no --gps-piso (o mesmo
          chão do velocímetro e dos botões). A tela é a rua À FRENTE. -->

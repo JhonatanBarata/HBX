@@ -45,6 +45,10 @@
     vozDitas.add(`${onde}#prepara`);      // pulou o preparar? ele não volta atrás
     vozDitas.add(`${onde}#${degrau}`);
     const rua = paraFalar(m.passo.rua);
+    // 🔴 A MANOBRA TEM PRIORIDADE NA VOZ (§ 6d): o radar escuta esta fala e
+    // cala pela folga dele. Um aviso auxiliar por cima de "vire à esquerda"
+    // faz o motorista perder a curva — e a curva não tem segunda chance.
+    radarOuviuAVoz();
     falar(degrau === 'agora'
       ? (rua ? `${verbo} na ${rua}` : verbo)
       : `Em ${Math.round(m.distancia / 10) * 10} metros, ${verbo}`);
@@ -90,6 +94,9 @@
       // a voz mora AQUI, no fix — não no repinte: quem entra na tela não pode
       // levar um "vire à direita" na cara só por ter aberto o mapa.
       vozDaManobra(manobraDaVez());
+      // e o radar vem DEPOIS dela, sempre: a ordem das duas linhas é a
+      // prioridade da manobra na voz (§ 6d).
+      radarDaRota();
     }
   }
 
@@ -132,6 +139,11 @@
     };
     ultimaPos = { lat: c.latitude, lng: c.longitude };
     bootChegou('fix');           // § 7a-ter: a abertura espera o 1º fix
+    /* O pacote de radares do dia é pedido AQUI, no 1º fix de qualquer tela, e
+       não na entrada da navegação: quem abre o app na garagem dá ao nativo o
+       tempo de baixar do R2 antes de a rua começar. Um pedido por dia quando
+       responde, três no dia quando não responde (§ 6d, `garantirRadares`). */
+    garantirRadares();
     /* 🔴 O 1º FIX QUASE SEMPRE CHEGA DEPOIS DA LISTA — numa garagem, bem
        depois. A montagem abre, busca o dia e pinta antes de existir GPS: se
        ninguém voltasse aqui, a tela ficaria na ordem do banco justamente na
