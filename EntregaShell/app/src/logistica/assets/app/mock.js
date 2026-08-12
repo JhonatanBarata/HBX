@@ -289,10 +289,28 @@ const ROTA_ESTADOS={
   /* Com a rota RODANDO o que o motorista faz é ANDAR: o botão do meio abre a
      navegação. "Pausar"/"Continuar" saíram — pausa não existe no servidor
      (o estado da rota é PLANNED|ACTIVE|COMPLETED|ENCERRADA), então eram dois
-     botões que não pausavam nada. Fechar o dia é o "Finalizar" do pé da lista. */
+     botões que não pausavam nada. Fechar o dia é o "Finalizar" do pé da lista.
+
+     🔴 O "FINALIZAR" ABRE O FECHAMENTO — NÃO FECHA NADA (12/08, dono: "ela
+     aparece algumas vezes no final, sem necessidade, transforme isso em 1x
+     só"). Ele apontava pra `fechar-dia`, o MESMO gancho do botão "Fechar o dia"
+     que mora dentro da tela de Fechamento. O toque abria um portão, o portão
+     mandava o POST, e o caminho terminava em `ir('fechamento')` — ou seja, na
+     tela que tem o botão de novo. Anel: fecha, cai onde fecha, fecha outra vez.
+     E o dia nunca acabava, porque `fechamento/finalizar` não encerra rota
+     nenhuma (ele carimba a página do dia e salva a Rota salva) — a rota seguia
+     ACTIVE e este mesmo rodapé voltava com "Navegar" sobre um dia terminado.
+
+     A régua desta casa já dizia o que fazer, dois blocos abaixo, na dica do dia
+     vazio: repetir o verbo numa segunda peça ensina que existem dois lugares
+     pra mesma coisa — e um dia os dois discordam. Então o verbo ficou com UM
+     dono (o "Fechar o dia" da tela de Fechamento, que é onde o dinheiro está à
+     vista) e este satélite virou o que ele sempre pareceu ser: a PORTA. É o
+     padrão de todo app de rota — "Finish route" abre o recibo do dia, e o dia
+     só fecha depois que o motorista viu o número. */
   rodando:  {main:{acao:'navegar', glifo:'nav', rotulo:'Navegar'},
              esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar', acao:'cancelar-rota'},
-             dir:{tipo:'info', glifo:'check', rotulo:'Finalizar', acao:'fechar-dia'}},
+             dir:{tipo:'info', glifo:'check', rotulo:'Finalizar', acao:'ir-fechamento'}},
   /* 🔴 O RECIBO DO TOQUE MORA NO BOTÃO TOCADO. Enquanto o servidor monta, o
      meio vira "Montando…": mesmo lugar, mesmo tamanho, SEM ação (dois toques
      não montam duas vezes) e sem satélite — cancelar ou iniciar no meio de uma
@@ -611,6 +629,13 @@ const DADOS={
     formaTotal:'R$ 336,00',
     clientes:'14', produtos:'20', marcado:'R$ 336,00',
   },
+  /* L5b — O FIM DO DIA. Só o que é FATO do momento em que ele fechou: a hora e
+     quem ficou pra amanhã. O dinheiro NÃO se repete aqui — a tela desenha o
+     `fechamentoCorpo()`, o mesmo corpo da tela de Fechamento, porque número em
+     dois donos é número que um dia diverge. `titulo` é COPY (texto do desenho,
+     não vem de porta nenhuma) e por isso NÃO entra no apagador da demonstração;
+     `quando` e `sobra` são DADO e nascem vazios no aparelho. */
+  terminou:{ titulo:'Dia encerrado', quando:'Fechado às 19:12', sobra:'' },
   /* A SEMANA. `dias` é [dia, data, vendas, produtos, recebido, marcado]; slot sem
      fonte vai VAZIO e a coluna some — número de enfeite em tela de dinheiro é
      mentira com cara de app pronto. */
@@ -1834,6 +1859,50 @@ ${hdr({voltar:'rota'})}
     <button class="act" style="justify-content:center" data-ir="semana">${ic('chart',17)}<b>Ver detalhes</b></button>
   </div>
 </div>
+${nav('rota')}`;}};
+
+/* 5b — TERMINOU: O RECIBO DO DIA ------------------------------------------
+   🔴 A TELA QUE NÃO EXISTIA (12/08, dono: *"ao finalizar (última rota), criar
+   uma tela de finalizou… fecha bonitinho, e não volta pra essa tela. Entra no
+   estado de 'tudo certo até agora' e o botão Gerar Rota"*).
+
+   Sem ela o dia não tinha fim: fechado o caixa, o app devolvia o motorista pro
+   Fechamento (a tela do botão que ele acabou de apertar) com a rota ainda viva
+   atrás. Aqui a corrente termina — e termina do jeito que todo app de rota
+   termina: uma marca, o recibo, e o verbo do dia SEGUINTE.
+
+   🔴 O CORPO É O MESMO `fechamentoCorpo()` DA TELA DE FECHAMENTO, de propósito.
+   Redesenhar os números aqui criaria um segundo dono pro caixa do dia, e dois
+   donos do mesmo número um dia discordam (é a lei que a `semana` já obedece:
+   ela desenha este mesmo corpo, desbotado, como fundo).
+
+   🔴 O QUE ESTA TELA NÃO DIZ: "tudo certo". O selo desta família diz FATO,
+   nunca veredito — o app não tem como saber que o dia foi bom, e com parada
+   sobrando "tudo certo" seria mentira na cara de quem parou no meio. O repouso
+   é o DESENHO (tela calma, um verbo só); o texto é a hora e quem ficou.
+
+   🔴 O RODAPÉ É `semparada` CRAVADO, e não `dockDaRota(estadoRota)`. Não é
+   régua repetida: é que aqui o dia ACABOU por construção, e o próximo verbo é o
+   mesmo nos dois desfechos possíveis — encerrar devolve as paradas que sobraram
+   pra pendência SEM ordem (`rotaOrdem: null`, no `encerrarRota` do servidor),
+   então pra tirar qualquer uma delas de novo é preciso MONTAR. O estado vivo da
+   rota continua morando na aba Rota, com o dock de verdade; esta tela é RECIBO,
+   não painel de controle. */
+T.terminou={nome:'Dia encerrado',grupo:'Fechamento',render(){const d=DADOS.terminou;return `${status}
+${hdr({})}
+<div class="body com-dock">
+  <div class="vazio">
+    <span class="ico" style="color:var(--lime)">${ic('check',26)}</span>
+    <strong>${d.titulo}</strong>
+    ${d.quando?`<span>${d.quando}</span>`:''}
+    ${d.sobra?`<span>${d.sobra}</span>`:''}
+  </div>
+  ${fechamentoCorpo()}
+  <div class="acts">
+    <button class="act" style="justify-content:center" data-ir="fechamento">${ic('note',17)}<b>Ver fechamento</b></button>
+  </div>
+</div>
+<div class="tmx-dock">${transmux('semparada')}</div>
 ${nav('rota')}`;}};
 
 /* 6 — HISTÓRICO DA SEMANA ------------------------------------------------- */
@@ -3215,7 +3284,7 @@ ${nav('ajustes')}`;}};
    MONTAGEM
    ========================================================================== */
 const ORDEM=['entrada','saida','rota','rotalista','mapa','mapachegou','mapalista','gerenciador','montagem','conferencia',
-             'venda','folha','folhanao','rapida','salvas','fechamento','semana','clientes','novocliente','ficha','produtos',
+             'venda','folha','folhanao','rapida','salvas','fechamento','terminou','semana','clientes','novocliente','ficha','produtos',
              'fichaproduto','chat','ajustes','creditos','financeiro','avancado','sons','historico',
              'passeio','portoes'];
 const GRUPOS=['Sistema','Rota','Fechamento','Cadastro','Ajustes'];

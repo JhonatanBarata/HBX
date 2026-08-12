@@ -216,6 +216,48 @@
     else encherFolha(aberta.item, aberta.n);
   }
 
+  /* ------------------------------------------------------------------------
+     🔴 A ÚLTIMA PARADA ABRE O FECHAMENTO SOZINHA (12/08, dono: *"ao finalizar
+     (última rota) … já abrindo o fechamento"*).
+
+     Os dois desfechos — entregue e não entregue — largavam o motorista no mapa,
+     sempre. No mapa de um dia ACABADO o que sobra é um botão "Navegar" sem para
+     onde ir e um "Finalizar" que ele precisa descobrir sozinho. A tela sabia
+     que o dia tinha acabado e não dizia.
+
+     🔴 UMA VEZ SÓ — e a marca é o motivo de esta porta existir sem repetir a
+     doença que este lote veio matar. Sem marca, TODO retorno ao dia terminado
+     (voltar de Ajustes, do Chat, reabrir o app) reabriria o Fechamento por cima
+     do que o motorista estivesse fazendo: seria a mesma tela "aparecendo
+     algumas vezes", entrando por uma porta nova. A marca mora no APARELHO
+     (`HBX.cache` = localStorage: sobrevive a fechar o app, que é justamente
+     quando um estado de memória mentiria) e é carimbada pelo DIA — o `iniciar`
+     a apaga, então a 2ª leva do mesmo dia ganha o recibo dela.
+
+     🔴 E ELA NÃO FECHA NADA. Abrir é da máquina; fechar é do dedo. Fechar o dia
+     encerra a rota no servidor e não tem `git revert` — máquina nenhuma aperta
+     isso sozinha ("respeitando o último finalizar ainda", nas palavras do
+     dono). O que a porta automática faz é POUPAR o toque de achar o botão.
+
+     🔴 SÓ COM A ROTA NA RUA. Dia por montar, rota pronta e parada avulsa fora
+     de rota nenhuma continuam caindo na Rota como sempre: "acabou" só existe
+     pra quem começou.
+     ------------------------------------------------------------------------ */
+  const chaveDoFim = () => `fim-visto:${hojeISO()}`;
+  function irDepoisDoDesfecho() {
+    if (typeof window.ir !== 'function') return;
+    let acabou = false;
+    try {
+      acabou = (estadoRota === 'rodando' || estadoRota === 'pausada')
+        && paradasPendentes().length === 0;
+    } catch (_) { acabou = false; }
+    if (!acabou) return window.ir('rota');
+    const chave = chaveDoFim();
+    if (window.HBX.cache.get(chave, '')) return window.ir('rota');
+    window.HBX.cache.set(chave, '1');
+    window.ir('fechamento');
+  }
+
   /** o desfecho: entregue. `metodo` vazio = a folha ainda não sabe como pagou. */
   async function confirmarEntrega(metodo) {
     if (!aberta) return;
@@ -267,7 +309,7 @@
       window.HBX.cache.remove(`chegada:${aberta.id}`);
       aberta = null; forma = '';
       await carregarRota();
-      window.ir('rota');
+      irDepoisDoDesfecho();
     });
   }
 
@@ -293,7 +335,7 @@
       window.HBX.cache.remove(`chegada:${aberta.id}`);
       aberta = null; motivo = '';
       await carregarRota();
-      window.ir('rota');
+      irDepoisDoDesfecho();
     });
   }
 
@@ -407,6 +449,11 @@
       carregarCreditos();
     },
     'recarregar-financeiro': () => retentar('financeiro', carregarFinanceiro),
+    /* O "Finalizar" do dock da rota. Ele é PORTA, não verbo: abre o Fechamento,
+       onde o dinheiro do dia está à vista e mora o único botão que fecha (ver
+       `fecharDia`). Antes apontava pro próprio `fechar-dia` — dois botões no
+       mesmo gancho, um deles numa tela que o outro abre. */
+    'ir-fechamento': () => window.ir('fechamento'),
     'ir-creditos': () => window.ir('creditos'),
     'ir-financeiro': () => window.ir('financeiro'),
     'ir-avancado': () => window.ir('avancado'),

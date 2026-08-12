@@ -109,6 +109,9 @@ const PONTE = ({
     outroMotorista: outroMotorista ? Object.assign({ usado: false }, outroMotorista) : null,
     assentos: assentos ? Object.assign({ usado: false }, assentos) : null,
     passeComprado: 0,
+    // quantas vezes o dia foi REGISTRADO (o `fechamento/finalizar`). É por ele
+    // que a cena V prova o "1x só": fechar duas vezes não existe mais.
+    fechou: 0,
   };
   window.__S = S;
   /* O DIALETO REAL do /nucleo/clientes (09/08): lat/lng (o map da resposta
@@ -158,6 +161,22 @@ const PONTE = ({
   const abertas = () => S.entregas.filter((e) => e.status !== 'entregue' && e.status !== 'cancelada');
 
   window.HBX = {
+    /* 🔴 O DUBLÊ SUBSTITUI O `HBX` INTEIRO — e o caminho do CONFIRMAR precisa de
+       `cache` (idempotência + carimbo de chegada) e `uuid`. Sem eles a cena X
+       morria num TypeError antes de provar qualquer coisa. Espelho fiel do
+       native.js (localStorage com prefixo `hbx:`), porque a cena X também lê a
+       marca `fim-visto` ATRAVÉS de navegações — memória de página não serve. */
+    cache: {
+      get(key, fallback) {
+        try { const raw = localStorage.getItem(`hbx:${key}`); return raw ? JSON.parse(raw) : fallback; }
+        catch (_) { return fallback; }
+      },
+      set(key, value) {
+        try { localStorage.setItem(`hbx:${key}`, JSON.stringify(value)); } catch (_) {}
+      },
+      remove(key) { try { localStorage.removeItem(`hbx:${key}`); } catch (_) {} },
+    },
+    uuid() { window.__uuidSeq = (window.__uuidSeq || 0) + 1; return `prova-${window.__uuidSeq}`; },
     api(caminho, opcoes) {
       const metodo = (opcoes && opcoes.method) || 'GET';
       const corpo = (opcoes && opcoes.body) || null;
@@ -306,6 +325,39 @@ const PONTE = ({
           .forEach((e, i) => { e.rotaOrdem = i; });
         S.routeStatus = 'ACTIVE';
         S.custo = Object.assign({}, S.custo, { blocosJaDebitados: S.custo.blocosTotais, creditosAIniciar: 0 });
+        return R({ ok: true });
+      }
+      /* 🔴 AS PORTAS DO FIM DO DIA (12/08). Nenhuma das três existia aqui: elas
+         caíam no `R({})` do fim do dublê, então TODO fechar dava certo — até o
+         do dia sem venda nenhuma — e o `routeStatus` nunca mudava. Dublê
+         complacente é prova que não reprova.
+
+         `encerrar` é o espelho do `encerrarRota` do servidor: devolve a aberta
+         pra pendência SEM ordem (`rotaOrdem: null`) e encerra a rota
+         operacionalmente — o app lê qualquer coisa != ACTIVE como encerrada. */
+      if (caminho.indexOf('/logistica/rota/encerrar') === 0 && metodo === 'POST') {
+        abertas().forEach((e) => { e.rotaOrdem = null; e.status = 'agendada'; });
+        S.routeStatus = 'ENCERRADA';
+        return R({ ok: true });
+      }
+      /* `finalizar` salva a página do dia como Rota salva — e o servidor REJEITA
+         com 400 quando não há nada entregue pra salvar. É o beco em que ficava
+         preso quem rodou o dia inteiro sem vender. */
+      if (caminho.indexOf('/logistica/fechamento/finalizar') === 0 && metodo === 'POST') {
+        if (!S.entregas.some((e) => e.status === 'entregue')) {
+          return REJ(400, { message: 'Nada registrado neste dia ainda.' });
+        }
+        S.fechou += 1;
+        return R({ ok: true, dia: corpo && corpo.dia, clientes: 1 });
+      }
+      /* O DESFECHO DE UMA PARADA — é ele que zera as abertas e faz a última
+         entrega ser A ÚLTIMA. Precisa vir ANTES do `/logistica/entregas` POST
+         genérico (que CRIA entrega): os dois caminhos começam igual, e na ordem
+         errada "confirmar" cadastraria gente nova. */
+      if (metodo === 'POST' && /^\/logistica\/entregas\/[^/?]+\/confirmar/.test(caminho)) {
+        const id = caminho.split('?')[0].split('/')[3];
+        const alvo = S.entregas.find((e) => String(e.id) === decodeURIComponent(id));
+        if (alvo) alvo.status = 'entregue';
         return R({ ok: true });
       }
       if (caminho.indexOf('/logistica/rota/limpar-dia') === 0) {
@@ -497,6 +549,12 @@ const SO_MEDIR = process.argv.includes('--antes');
     dock: (document.querySelector('.tmx-main b, .tmx-main .rot') || {}).textContent || '',
     entregasNoServidor: window.__S.entregas.length,
     routeStatus: window.__S.routeStatus,
+    // cena V/W: quantas vezes o dia foi REGISTRADO, e as peças do fim.
+    fechou: window.__S.fechou,
+    heroi: (document.querySelector('.vazio strong') || {}).textContent || '',
+    heroiSub: [...document.querySelectorAll('.vazio span')].map((e) => e.textContent.trim()).filter(Boolean),
+    temFinalizar: document.querySelectorAll('.tmx-sat [data-acao="ir-fechamento"]').length,
+    temFecharDia: document.querySelectorAll('[data-acao="fechar-dia"]').length,
   }));
   const posts = () => p.evaluate(() => window.__chamadas.filter((c) => c[0] === 'POST').map((c) => c[1]));
   /* os POSTs COM O CORPO. "Saiu o POST" não prova nada quando o defeito é um
@@ -1521,6 +1579,212 @@ const SO_MEDIR = process.argv.includes('--antes');
     tU1.tela === 'rota' && /Montar rota/i.test(tU1.dock), `tela=${tU1.tela} dock="${tU1.dock}"`);
   eh('U4 · o pedido de cena NAO sobrevive ao cancelar', pendenteU1 === false,
     `apos montar=${pendenteU} apos cancelar=${pendenteU1}`);
+
+  /* ===================================================================
+     CENA V — O FIM DO DIA ACONTECE UMA VEZ (12/08).
+
+     O dono, com o print da tela de dirigir: *"ao finalizar (última rota), criar
+     uma tela de finalizou… fecha bonitinho, e não volta pra essa tela"* e
+     *"ela aparece algumas vezes no final, sem necessidade, transforme isso em
+     1x só"*.
+
+     O que havia: o "Finalizar" do dock e o "Fechar o dia" da tela de Fechamento
+     eram O MESMO gancho (`fechar-dia`). O toque abria um portão, mandava o
+     `fechamento/finalizar` — que NÃO encerra rota nenhuma — e terminava em
+     `ir('fechamento')`, ou seja, na tela que tem o botão. Anel: fecha, cai onde
+     fecha, fecha outra vez; e a rota seguia ACTIVE atrás de tudo.
+
+     A corrente agora tem três tempos com um dono cada, e é isto que a cena mede:
+     o Finalizar ABRE (sem POST), o Fechar o dia FECHA (encerra + registra, uma
+     vez) e o recibo é o fim da linha — sem botão de fechar de novo.
+     =================================================================== */
+  await cena({
+    entregas: [
+      { id: 'v1', status: 'entregue', rotaOrdem: 0, origem: 'recorrente', cliente: CLI_C1 },
+      { id: 'v2', status: 'agendada', rotaOrdem: 1, origem: 'recorrente', cliente: CLI_C5 },
+    ],
+    routeStatus: 'ACTIVE', mesmaBase: true,
+  });
+  const tV0 = await espiar();
+  nota(`[V] rota na rua: tela=${tV0.tela} · dock="${tV0.dock}" · satelite Finalizar=${tV0.temFinalizar}`);
+  eh('V1 · o dock da rota na rua tem o "Finalizar", e ele aponta pro FECHAMENTO',
+    tV0.temFinalizar === 1, `temFinalizar=${tV0.temFinalizar} dock="${tV0.dock}"`);
+  await zerar();
+  const achouFimV = await p.evaluate(() => {
+    const x = document.querySelector('.tmx-sat [data-acao="ir-fechamento"]');
+    if (x) { x.click(); return true; }
+    return false;
+  });
+  await p.waitForTimeout(900);
+  const tV1 = await espiar();
+  const postsV1 = await posts();
+  nota(`[V] toque no Finalizar: tela=${tV1.tela} · POSTs=${postsV1.length ? postsV1.join(' , ') : '(nenhum)'}`);
+  /* 🔴 "ZERO POST" NAO E A ASSERÇÃO — e a 1ª versão desta linha reprovou por
+     isso. O app tem trânsito de fundo próprio (o poll de recados sai no seu
+     tempo, não no meu dedo), então exigir a lista vazia é medir o relógio dele.
+     O que este toque promete é não FECHAR nada: então o que se cobra é a
+     ausência das DUAS portas do fechar, nominalmente. */
+  const FIM_DO_DIA = ['/logistica/rota/encerrar', '/logistica/fechamento/finalizar'];
+  eh('V2 · o Finalizar LEVA pro fechamento (nao fecha nada sozinho)',
+    achouFimV && tV1.tela === 'fechamento' && !postsV1.some((x) => FIM_DO_DIA.indexOf(x) >= 0),
+    `tela=${tV1.tela} posts=${postsV1.join(',')}`);
+  await zerar();
+  await p.evaluate(() => {
+    const x = document.querySelector('[data-acao="fechar-dia"]');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(600);
+  const tV2 = await espiar();
+  nota(`[V] portao: "${tV2.portao}" · sub="${tV2.portaoSub}"`);
+  eh('V3 · o portao avisa QUEM fica pra amanha antes de encerrar',
+    /Fechar o dia\?/i.test(tV2.portao) && /1 parada fica pra amanh/i.test(tV2.portaoSub),
+    `portao="${tV2.portao}" sub="${tV2.portaoSub}"`);
+  await p.evaluate(() => {
+    const x = document.querySelector('.portao-wrap .principal');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(2600);
+  const tV3 = await espiar();
+  const postsV3 = await posts();
+  nota(`[V] fechar: POSTs=${postsV3.join(' , ')} · tela=${tV3.tela} · status=${tV3.routeStatus} · dock="${tV3.dock}"`);
+  nota(`    recibo: "${tV3.heroi}" · ${tV3.heroiSub.join(' · ')} · registrou ${tV3.fechou}x`);
+  eh('V4 · fechar ENCERRA a rota de verdade (a porta que ninguem chamava)',
+    postsV3.indexOf('/logistica/rota/encerrar') >= 0 && tV3.routeStatus === 'ENCERRADA',
+    `posts=${postsV3.join(',')} status=${tV3.routeStatus}`);
+  eh('V5 · e registra a pagina do dia — UMA vez',
+    postsV3.filter((x) => x === '/logistica/fechamento/finalizar').length === 1 && tV3.fechou === 1,
+    `posts=${postsV3.join(',')} fechou=${tV3.fechou}`);
+  eh('V6 · a tela termina no RECIBO, nao volta pro mapa nem pro fechamento',
+    tV3.tela === 'terminou' && /Dia encerrado/i.test(tV3.heroi),
+    `tela=${tV3.tela} heroi="${tV3.heroi}"`);
+  eh('V7 · o recibo diz quem ficou pra amanha, e a hora',
+    tV3.heroiSub.some((s) => /ficou pra amanh/i.test(s)) && tV3.heroiSub.some((s) => /Fechado às/i.test(s)),
+    tV3.heroiSub.join(' | '));
+  eh('V8 · o recibo NAO tem botao de fechar de novo — o verbo tem UM dono',
+    tV3.temFecharDia === 0 && /Montar rota/i.test(tV3.dock),
+    `fecharDia=${tV3.temFecharDia} dock="${tV3.dock}"`);
+
+  /* ===================================================================
+     CENA W — DIA SEM VENDA TAMBÉM ACABA (o 400 deixou de ser beco).
+
+     `fechamento/finalizar` responde 400 "Nada registrado neste dia ainda."
+     quando não há entrega entregue pra virar Rota salva. Como ele era o ÚNICO
+     passo do fechar, quem rodou o dia inteiro sem vender ficava PRESO: o erro
+     na tela e a rota viva pra sempre. Hoje quem encerra o dia é o passo de
+     cima, que já aconteceu — não ter o que salvar não é erro de quem trabalhou.
+     =================================================================== */
+  await cena({
+    entregas: [{ id: 'w1', status: 'agendada', rotaOrdem: 0, origem: 'recorrente', cliente: CLI_C1 }],
+    routeStatus: 'ACTIVE', mesmaBase: true,
+  });
+  await irPara('fechamento', 1200);
+  await zerar();
+  await p.evaluate(() => {
+    const x = document.querySelector('[data-acao="fechar-dia"]');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(600);
+  await p.evaluate(() => {
+    const x = document.querySelector('.portao-wrap .principal');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(2600);
+  const tW = await espiar();
+  const postsW = await posts();
+  nota(`[W] dia sem venda: POSTs=${postsW.join(' , ')} · tela=${tW.tela} · status=${tW.routeStatus} · aviso="${tW.aviso || '(nenhum)'}"`);
+  eh('W1 · o 400 do "Nada registrado" NAO segura o fim do dia',
+    tW.tela === 'terminou', `tela=${tW.tela} aviso="${tW.aviso}"`);
+  eh('W2 · e a rota foi encerrada do mesmo jeito',
+    tW.routeStatus === 'ENCERRADA' && postsW.indexOf('/logistica/rota/encerrar') >= 0,
+    `status=${tW.routeStatus} posts=${postsW.join(',')}`);
+  eh('W3 · sem venda, o recibo nao inventa numero de dinheiro', tW.fechou === 0, `fechou=${tW.fechou}`);
+
+  /* ===================================================================
+     CENA X — A PORTA AUTOMÁTICA ABRE UMA VEZ (12/08).
+
+     O pedido literal: *"ao finalizar (última rota) … JÁ ABRINDO o fechamento"*
+     + *"transforme isso em 1x só"*. A cena V provou o caminho do DEDO
+     (Finalizar → Fechar o dia → recibo); esta prova o da MÁQUINA: o desfecho
+     da ÚLTIMA parada cai no Fechamento sozinho — e SÓ o primeiro fim de dia
+     ganha isso. A marca é `fim-visto:<dia>` no cache do aparelho; quem a
+     apaga é o `iniciar` (2ª leva = dia novo de trabalho, recibo novo).
+
+     Os desfechos aqui passam pela FOLHA DE VERDADE (abrir a parada → confirmar
+     venda), não por atalho de estado — é o caminho do dedo do motorista, com
+     idempotência e carimbo de chegada no meio.
+     =================================================================== */
+  await cena({
+    entregas: [
+      { id: 'x1', status: 'agendada', rotaOrdem: 0, origem: 'recorrente', cliente: CLI_C1 },
+      { id: 'x2', status: 'agendada', rotaOrdem: 1, origem: 'recorrente', cliente: CLI_C5 },
+    ],
+    routeStatus: 'ACTIVE', mesmaBase: true,
+  });
+  const CHAVE_FIM = `fim-visto:${HOJE}`;
+  // o cache é localStorage e SOBREVIVE entre cenas — o dia começa sem marca.
+  await p.evaluate((k) => window.HBX.cache.remove(k), CHAVE_FIM);
+  const confirmarNaFolha = async (id) => {
+    await irPara('rotalista', 900);
+    await p.waitForSelector(`[data-acao="abrir-parada"][data-parada="${id}"]`, { timeout: 8000 });
+    await p.evaluate((i) => document.querySelector(`[data-acao="abrir-parada"][data-parada="${i}"]`).click(), id);
+    await p.waitForSelector('[data-acao="confirmar-venda"]', { timeout: 8000 });
+    await p.evaluate(() => document.querySelector('[data-acao="confirmar-venda"]').click());
+    await p.waitForTimeout(2000);
+  };
+  await confirmarNaFolha('x1');
+  const tX1 = await espiar();
+  nota(`[X] confirmou a 1a de 2: tela=${tX1.tela} · pendentes no servidor=${tX1.entregasNoServidor - 1}`);
+  eh('X1 · desfecho com parada SOBRANDO volta pra rota (a porta nao abre cedo)',
+    tX1.tela === 'rota', `tela=${tX1.tela}`);
+  await zerar();
+  await confirmarNaFolha('x2');
+  const tX2 = await espiar();
+  const postsX2 = await posts();
+  const marcaX2 = await p.evaluate((k) => window.HBX.cache.get(k, ''), CHAVE_FIM);
+  nota(`[X] confirmou a ULTIMA: tela=${tX2.tela} · marca=${marcaX2 || '(nenhuma)'} · POSTs=${postsX2.join(' , ')}`);
+  eh('X2 · a ultima parada JA ABRE o fechamento sozinha',
+    tX2.tela === 'fechamento' && !!marcaX2, `tela=${tX2.tela} marca=${marcaX2}`);
+  eh('X3 · e a maquina so ABRE — fechar continua sendo do dedo',
+    !postsX2.some((x) => FIM_DO_DIA.indexOf(x) >= 0), postsX2.join(','));
+  /* o 2º fim do MESMO dia: uma avulsa entra depois do primeiro recibo e é
+     entregue. `paradasPendentes` volta a zerar — e a porta NÃO pode reabrir,
+     senão é a mesma tela "aparecendo algumas vezes" por caminho novo. */
+  await p.evaluate(() => {
+    window.__S.entregas.push({
+      id: 'x3', status: 'agendada', rotaOrdem: 2, origem: 'avulsa',
+      cliente: { id: 'c9', nome: 'Zé do Fim', enderecoLinha: 'Rua Z, 9', lat: -22.406, lng: -47.556 },
+    });
+  });
+  await p.evaluate(() => window.HBXRota.carregar());
+  await p.waitForTimeout(900);
+  await confirmarNaFolha('x3');
+  const tX4 = await espiar();
+  nota(`[X] 2o fim do mesmo dia (avulsa entregue): tela=${tX4.tela}`);
+  eh('X4 · o SEGUNDO fim do dia NAO reabre o fechamento — 1x so',
+    tX4.tela === 'rota', `tela=${tX4.tela}`);
+
+  /* ===================================================================
+     CENA X2 — O INICIAR APAGA A MARCA (a 2ª leva ganha recibo).
+
+     A marca de "já mostrei o fim deste dia" sobrevive no aparelho — inclusive
+     a esta troca de página, que é o app fechando e abrindo. Sem o iniciar
+     apagá-la, quem sai pra 2ª leva terminaria a rota no mapa mudo. O gesto é
+     o da cena G (o caminho real: chip do dia → Iniciar rota).
+     =================================================================== */
+  await cena({ entregas: [], agendaHoje: AGENDA_HOJE, custoComoServidor: true, mesmaBase: true });
+  const marcaAntes = await p.evaluate((k) => window.HBX.cache.get(k, ''), CHAVE_FIM);
+  await abrirDiaDeHoje(2600);
+  await p.waitForSelector('.pe-montagem [data-acao="iniciar-rota"]', { timeout: 8000 });
+  await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="iniciar-rota"]').click());
+  await p.waitForTimeout(2600);
+  const tX5 = await espiar();
+  const marcaDepois = await p.evaluate((k) => window.HBX.cache.get(k, ''), CHAVE_FIM);
+  nota(`[X2] iniciar de novo: status=${tX5.routeStatus} · marca antes="${marcaAntes}" depois="${marcaDepois || '(nenhuma)'}"`);
+  eh('X5 · a marca do dia fechado SOBREVIVE a fechar e abrir o app',
+    marcaAntes === '1', `antes="${marcaAntes}"`);
+  eh('X6 · o iniciar APAGA a marca — a 2a leva ganha o recibo dela',
+    tX5.routeStatus === 'ACTIVE' && !marcaDepois,
+    `status=${tX5.routeStatus} depois="${marcaDepois}"`);
 
   await b.close();
   console.log('\n=== MEDIDAS ===');

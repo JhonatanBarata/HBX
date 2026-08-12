@@ -597,22 +597,93 @@
     });
   }
 
-  /** Fechar o dia: registra o dia de hoje e salva nas Rotas salvas. */
+  /* ------------------------------------------------------------------------
+     🔴 O ÚNICO VERBO QUE FECHA O DIA (12/08, dono: *"ela aparece algumas vezes
+     no final, sem necessidade, transforme isso em 1x só"*).
+
+     Eram DOIS botões no mesmo gancho — o "Finalizar" do dock da rota e o
+     "Fechar o dia" desta tela — e nenhum dos dois fechava coisa alguma:
+     `fechamento/finalizar` carimba a página do dia e salva a Rota salva, mas
+     NÃO encerra rota nenhuma. Ela seguia `ACTIVE`, o rodapé voltava a oferecer
+     "Navegar" sobre um dia terminado, e o caminho acabava em `ir('fechamento')`
+     — a tela do próprio botão. Anel fechado: fecha, cai onde fecha, fecha de
+     novo. Foi isso que o dono viu "aparecendo algumas vezes".
+
+     Hoje a corrente tem TRÊS TEMPOS e um dono cada: o "Finalizar" do dock ABRE
+     esta tela (`ir-fechamento`), este botão FECHA o dia, e o `terminou` é o
+     recibo. É o desenho de todo app de rota do mercado — o dia só fecha depois
+     que o motorista viu o número.
+
+     O fechar faz as duas coisas do dia, na ordem que importa:
+       1) ENCERRA A ROTA (`rota/encerrar` — porta que já existia inteira e já
+          estava na allowlist do Kotlin). É ela que marca `operationalEndedAt`,
+          e é por isso que o dock vira "Montar rota" SOZINHO depois: sem parada
+          aberta, `estadoDaRota` cai em 'montar' e `dockDaRota` deriva
+          `semparada`. O estado de recomeço não é novo — ele já existia e nunca
+          era alcançado, porque ninguém encerrava.
+          Só é chamada com a rota VIVA: esta tela também abre pelos Ajustes e
+          pelo caixa da Rota, e mandar encerrar um dia que não começou é POST
+          sem dono.
+       2) REGISTRA A PÁGINA (`fechamento/finalizar`) — o dinheiro.
+
+     🔴 E O 400 DEIXOU DE SER BECO. Dia sem nenhuma venda faz o servidor
+     responder "Nada registrado neste dia ainda." — e com isso quem rodou o dia
+     inteiro sem vender ficava PRESO, sem conseguir fechar. Quem encerra o dia é
+     o passo 1, que já aconteceu; o passo 2 salva a rota como modelo, e não ter
+     o que salvar não é erro de quem trabalhou. Erro de verdade (rede, sessão,
+     403, 500) continua falando alto — o `!== 400` é o corte.
+
+     🔴 O ESTADO É LIDO NO CLIQUE, NÃO NA ABERTURA DO PORTÃO. Entre desenhar a
+     pergunta e o dedo responder cabe um `carregarRota` (o poll, um recado, o
+     desfecho de outra parada) — decidir com o estado de dois segundos atrás é
+     como o dock do mapa herdava o dia da montagem.
+     ------------------------------------------------------------------------ */
   async function fecharDia() {
     if (typeof window.portao !== 'function') return;
     const dia = diaDaSemana();
+    const sobrando = paradasPendentes().length;
     window.portao({
       tom: 'info', ico: 'lock', titulo: 'Fechar o dia?',
-      sub: `Registrar como ${DIAS_SEMANA[dia]}`,
+      /* Quem sobrou é dito ANTES, não depois: encerrar devolve a parada aberta
+         pra pendência (sem ordem) e ainda vira recado no escritório. Quem tem
+         direito de saber disso é quem está apertando o botão. */
+      sub: sobrando
+        ? `${sobrando} ${sobrando === 1 ? 'parada fica' : 'paradas ficam'} pra amanhã · registrar como ${DIAS_SEMANA[dia]}`
+        : `Registrar como ${DIAS_SEMANA[dia]}`,
       acoes: [['Agora não', ''], ['Fechar o dia', 'principal']], classe: 'duas',
     });
     const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;
     botao.addEventListener('click', () => comTrava(async () => {
+      if (estadoRota === 'rodando' || estadoRota === 'pausada') {
+        try { await window.API.post('/logistica/rota/encerrar', { date: hojeISO() }); }
+        catch (e) { return avisoErro(e); }
+      }
       try { await window.API.post('/logistica/fechamento/finalizar', { dia }); }
-      catch (e) { return avisoErro(e); }
+      catch (e) { if (Number(e && e.status) !== 400) return avisoErro(e); }
       await carregarRota();
-      window.ir('fechamento');
+      encherTerminou();
+      window.ir('terminou');
     }), { once: true });
+  }
+
+  /* O RECIBO SE ESCREVE DEPOIS DO `carregarRota`, com o dia já do jeito que
+     ficou: quem sobrou aqui é a contagem REAL pós-encerramento (as abertas
+     voltaram 'agendada'), não a que eu li antes de mandar o POST.
+     A hora é a do APARELHO de propósito — é a hora em que ESTE dedo fechou,
+     não um fato do servidor; nada é comparado nem gravado com ela. */
+  function encherTerminou() {
+    if (typeof window.usarDados !== 'function') return;
+    let hora = '';
+    try {
+      hora = new Intl.DateTimeFormat('pt-BR', {
+        timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit',
+      }).format(new Date());
+    } catch (_) { hora = ''; }
+    const sobrou = paradasPendentes().length;
+    window.usarDados('terminou', {
+      quando: hora ? `Fechado às ${hora}` : '',
+      sobra: sobrou ? `${sobrou} ${sobrou === 1 ? 'parada ficou' : 'paradas ficaram'} pra amanhã` : '',
+    });
   }
 

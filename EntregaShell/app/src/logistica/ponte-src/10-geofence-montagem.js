@@ -484,6 +484,11 @@
          mostrava 6 dias inventados e R$ 2.648,00. */
       fechamento: { entregues: '', selo: '', formas: [], formaTotal: '', clientes: '', produtos: '' },
       semana: { dias: [], marcado: '', recebido: '', pendencia: '' },
+      /* O recibo do fim do dia (12/08). Zera DADO e só dado: `quando` e `sobra`
+         são o retrato do momento em que ESTE aparelho fechou o dia — nascer com
+         "Fechado às 19:12" do desenho seria carimbar hora num dia que ninguém
+         terminou. `titulo` NÃO entra: é COPY, texto fixo da tela. */
+      terminou: { quando: '', sobra: '' },
       /* 🔴 AS EMPRESAS DO CORREDOR SÃO A MENTIRA MAIS CARA DESTA TELA. O
          desenho traz "Mercado São Judas", "Padaria Avenida" e "Restaurante
          Sabor" com nome, ramo e posição — e o destino delas, no produto, é

@@ -777,6 +777,13 @@
       // limpeza da tela que mandou, nunca leitura de estado alheio (o dock do
       // mapa manda 'dia' e não encosta no chip de ninguém).
       if (recortada) { montarDia = -1; window.usarDados('montagem', { diaSel: -1 }); }
+      /* 🔴 ROTA NOVA, RECIBO NOVO (12/08). A marca de "já mostrei o fim deste
+         dia" (ver `irDepoisDoDesfecho`) é carimbada pelo DIA, e o mesmo dia
+         pode ter uma 2ª leva — o servidor devolve `operationalEndedAt` pra
+         null justamente pra isso. Sem apagar aqui, quem sai pra rua de novo
+         terminaria a 2ª rota no mapa mudo, com o app achando que já tinha
+         avisado. Quem abre a rota é quem limpa o fim dela. */
+      try { window.HBX.cache.remove(`fim-visto:${hojeISO()}`); } catch (_) { /* sem cache: nada a limpar */ }
       /* 🔴 INICIAR É UM GESTO SÓ (dono, 10/08: "clico em iniciar, o botão muda
          para navegar NÃO QUERO — é iniciar de uma vez só, ou navegar de uma vez
          só"). Antes o toque deixava o motorista na tela Rota com o dock

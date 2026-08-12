@@ -181,15 +181,26 @@
      caminho de verdade, e aí a posição mostrada é a REAL. Prender sempre seria
      desenhar o motorista numa rua onde ele não está — mentira com cara de GPS. */
   const SNAP_MAX_M = 60;
-  function presoNaRota(fix) {
-    const geo = navRota && navRota.geometria;
+  /* 🔴 A PROJEÇÃO DEVOLVE O ÍNDICE, E ELE É O QUE FALTAVA DO OUTRO LADO DA CASA
+     (12/08). Esta conta era privada do traço, e o `i` — o segmento da fita em
+     que o motorista está — morria aqui dentro. Quem escolhe a MANOBRA perguntava
+     "quantos metros até a curva" e nunca "ela já ficou pra trás", que é pergunta
+     de ORDEM e é este inteiro que responde. Ver o fantasma em `manobraDaVez`.
+
+     `ateSegmento` corta a varredura: a fita é a rota do DIA INTEIRO e ela se
+     cruza (rua de mão dupla, quarteirão dado duas vezes, cul-de-sac de entrega),
+     e 60 m de snap cabem folgados na volta. Sem o corte, a projeção grudaria num
+     pedaço que ainda VEM e declararia passada uma curva que está na frente. */
+  function projetarNaFita(ponto, geo, ateSegmento) {
     const c = geo && geo.coordinates;
-    if (!fix || !Number.isFinite(fix.lat) || !c || c.length < 2) return null;
-    const kx = 111320 * Math.cos((fix.lat * Math.PI) / 180);
+    if (!ponto || !Number.isFinite(ponto.lat) || !c || c.length < 2) return null;
+    const kx = 111320 * Math.cos((ponto.lat * Math.PI) / 180);
     const ky = 110540;
-    const px = fix.lng * kx; const py = fix.lat * ky;
+    const px = ponto.lng * kx; const py = ponto.lat * ky;
+    const teto = Number.isFinite(ateSegmento) && ateSegmento >= 1
+      ? Math.min(c.length - 1, ateSegmento) : c.length - 1;
     let melhor = null;
-    for (let i = 0; i < c.length - 1; i += 1) {
+    for (let i = 0; i < teto; i += 1) {
       const ax = c[i][0] * kx; const ay = c[i][1] * ky;
       const dx = (c[i + 1][0] * kx) - ax; const dy = (c[i + 1][1] * ky) - ay;
       const den = (dx * dx) + (dy * dy);
@@ -199,7 +210,24 @@
       const d = Math.hypot(px - qx, py - qy);
       if (!melhor || d < melhor.d) melhor = { d, i, lat: qy / ky, lng: qx / kx };
     }
-    return (melhor && melhor.d <= SNAP_MAX_M) ? melhor : null;
+    return melhor;
+  }
+
+  /* 🔴 UMA PROJEÇÃO POR FIX, E ELA É A MESMA PRA TODO MUNDO. Ela é O(n) sobre a
+     geometria do dia e rodava 4 a 6 vezes no MESMO fix — traço, rumo, câmera,
+     cartão e voz, cada um refazendo a conta. O CPU era o menor problema: eram
+     CINCO respostas para a mesma pergunta, e régua repetida diverge calada.
+     A memória é por IDENTIDADE: `aoFix` monta um objeto novo a cada posição e
+     `pedirRota` troca o `navRota` inteiro, então não há o que invalidar na mão —
+     e nada aqui pode ficar velho sem que um dos dois tenha trocado. */
+  let presoMemo = { fix: undefined, rota: undefined, valor: null };
+  function presoNaRota(fix) {
+    if (fix === presoMemo.fix && navRota === presoMemo.rota) return presoMemo.valor;
+    const p = projetarNaFita(fix, navRota && navRota.geometria,
+      navRota ? navRota.fimDaPerna : null);
+    const valor = (p && p.d <= SNAP_MAX_M) ? p : null;
+    presoMemo = { fix, rota: navRota, valor };
+    return valor;
   }
 
   /** onde a tela deve mostrar o motorista: na rua se der, no fix se não der */

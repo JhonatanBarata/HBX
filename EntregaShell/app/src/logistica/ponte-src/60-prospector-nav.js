@@ -531,17 +531,50 @@
     // nenhum, na tela de quem está dirigindo. Escapa na FONTE.
     const rua = esc(String((passo && passo.name) || '').trim());
     const saida = (verbo, icone) => ({ verbo, icone, rua });
-    if (tipo === 'arrive') return saida('você chegou', 'check');
+    /* 🔴 `arrive` NÃO É MANOBRA (12/08). Ele nunca aparecia porque o fantasma da
+       curva anterior ocupava a vaga o trecho inteiro; com a catraca no lugar o
+       cursor CHEGA nele — e aí a tela diria "300 m · Você chegou", que é mentira
+       com cara de instrução. Chegada não é curva: quem diz que chegou é a tela
+       `mapachegou`, e o quanto falta já está no rodapé. Sem manobra, o desenho
+       some com o cartão (a Lei do IF) e o motorista vê o mapa — que é o fato. */
+    if (tipo === 'arrive') return null;
     if ((tipo === 'roundabout' || tipo === 'rotary') && Number.isFinite(Number(m.exit))) {
       return saida(`na rotatória, pegue a ${Math.trunc(Number(m.exit))}ª saída`, 'nav');
     }
+    // a origem não é manobra. Ficava de fora por acaso (não tinha linha na
+    // tabela); agora é por escrito, senão um `depart` com modifier cai nas
+    // regras de baixo e o app manda virar antes de o motorista sair do lugar.
+    if (tipo === 'depart') return null;
+    /* 🔴 O RETORNO VINHA COMO "CONTINUE" (12/08). O OSRM manda meia-volta em
+       `continue`+`uturn`, e o ramo do `continue` lá embaixo nunca testou o
+       modifier: com o roteador mandando VOLTAR, o app dizia "continue na Rua X".
+       Isto é pior que manobra fora da tabela — é a tabela mentindo com palavra
+       da casa. Vem antes de todo mundo porque `uturn` aparece em vários tipos. */
+    if (mod === 'uturn') return saida('faça o retorno', 'nav');
     if (mod === 'slight left') return saida('mantenha-se à esquerda', 'curvaEsquerda');
     if (mod === 'slight right') return saida('mantenha-se à direita', 'curvaDireita');
-    if (tipo === 'turn' && mod === 'left') return saida('vire à esquerda', 'curvaEsquerda');
-    if (tipo === 'turn' && mod === 'right') return saida('vire à direita', 'curvaDireita');
+    /* 🔴 O T DA ESQUINA NÃO TINHA PALAVRA. `end of road` é o que o OSRM manda em
+       toda rua que morre em outra — pão de cada dia na grade de Rio Claro — e
+       ele caía no `return null` lá embaixo: o passo sumia e o cartão anunciava a
+       curva DEPOIS do T. `sharp` é a mesma dobra, mais fechada. As palavras são
+       as que já estavam na tabela: o que faltava era a manobra chegar nelas. */
+    const dobra = tipo === 'turn' || tipo === 'end of road';
+    if (dobra && (mod === 'left' || mod === 'sharp left')) return saida('vire à esquerda', 'curvaEsquerda');
+    if (dobra && (mod === 'right' || mod === 'sharp right')) return saida('vire à direita', 'curvaDireita');
+    // entrar numa via que já corre: o gesto é ENTRAR, não virar (aprovado 12/08)
+    if (tipo === 'merge' && mod === 'left') return saida('entre à esquerda', 'curvaEsquerda');
+    if (tipo === 'merge' && mod === 'right') return saida('entre à direita', 'curvaDireita');
+    // cruzamento em que o caminho segue reto e o roteador ainda marca manobra
+    if (mod === 'straight' && (dobra || tipo === 'fork'
+      || tipo === 'exit roundabout' || tipo === 'exit rotary')) return saida('siga em frente', 'nav');
     if (tipo === 'continue' || tipo === 'new name') {
       return saida(rua ? `continue na ${rua}` : 'continue', 'nav');
     }
+    /* 🔴 O QUE SOBRA CONTINUA MUDO, DE PROPÓSITO (Lei 8): `on ramp`/`off ramp`
+       (alça de rodovia) e `fork` sem `slight`. O passo é descartado, mas com a
+       catraca isso não ressuscita mais nada — o `vi` é contado sobre a lista
+       CRUA, então quem sai da lista continua gastando fita. Antes de 12/08 essa
+       queda era a outra porta do fantasma. */
     return null;
   }
 
@@ -581,12 +614,33 @@
   let navUltimoPedidoEm = 0;
   let navUltimaOrigem = null;
   let navFalhas = 0;
+  // `avisou` = o alarme do teto já saiu hoje (zera junto na virada do dia)
   let navGastoDia = { dia: '', n: 0 };
+  // resposta sem geometria já foi alarmada nesta sessão (§ pedirRota)
+  let geoNulaAvisada = false;
 
   const navGastar = () => {
     const dia = diaOperacional();
     if (navGastoDia.dia !== dia) navGastoDia = { dia, n: 0 };
-    if (navGastoDia.n >= NAV_TETO_DIA) return false;
+    if (navGastoDia.n >= NAV_TETO_DIA) {
+      /* 🔴 O TETO NÃO RECUSA CALADO (12/08). Estourado, isto aqui devolvia
+         false e pronto: a rota parava de se recalcular pelo RESTO DO DIA e
+         nada na tela dizia por quê — a armadilha de
+         [[cnefe-morto-por-cast-de-cep]], best-effort que engole erro precisa
+         de ALARME. Uma vez por dia, no canal de aviso da casa. */
+      if (!navGastoDia.avisou) {
+        navGastoDia.avisou = true;
+        try { console.warn(`[nav] teto diário de rotas atingido (${NAV_TETO_DIA})`); } catch (_) { /* sem console */ }
+        if (typeof window.portao === 'function') {
+          window.portao({
+            tom: 'trava', ico: 'alert', titulo: 'O mapa parou de recalcular',
+            sub: 'O limite diário de cálculos de rota acabou. O caminho na tela continua valendo, mas não se ajusta mais hoje.',
+            acoes: [['Entendi', '']],
+          });
+        }
+      }
+      return false;
+    }
     navGastoDia.n += 1;
     return true;
   };
@@ -699,14 +753,39 @@
       // 🔴 CARIMBO. Sem ele, a resposta que voltou tarde escreve o traço de uma
       // rota que já não é a de agora — e o motorista segue a manobra da rota
       // anterior sem nada na tela dizendo que mudou.
+      // a fita verde do V4 — vem de graça na mesma resposta (§7d)
+      const geometria = geometriaDe(rota);
+      /* 🔴 SEM FITA NÃO HÁ CATRACA, E MANOBRA SEM CATRACA É O FANTASMA DE VOLTA
+         (12/08). O proxy sempre pede `geometries=geojson`, então isto é motor
+         trocado/quebrado no VPS — mas se acontecer, guardar os passos deixaria
+         o cartão PRESO na 1ª manobra o dia inteiro (`vi` nulo nunca avança).
+         Cartão mudo (a Lei do IF) diz mais verdade; chegada, restante e
+         distância não dependem da fita e continuam. E não continua calado:
+         alarme uma vez por sessão, no canal da casa. */
+      if (!geometria && !geoNulaAvisada) {
+        geoNulaAvisada = true;
+        try { console.warn('[nav] OSRM respondeu sem geometria — navegação sem manobras'); } catch (_) { /* sem console */ }
+        if (typeof window.portao === 'function') {
+          window.portao({
+            tom: 'trava', ico: 'alert', titulo: 'O caminho veio sem desenho',
+            sub: 'O servidor de rotas respondeu sem o traçado. A rota continua pela lista de paradas, mas o mapa fica sem o traço e sem as instruções de curva.',
+            acoes: [['Entendi', '']],
+          });
+        }
+      }
+      const perna = geometria ? lerPrimeiraPerna(rota, geometria) : { passos: [], fim: 0 };
       navRota = {
         assinatura,
         em: Date.now(),
         totalM: Number.isFinite(Number(rota.distance)) ? Number(rota.distance) : null,
         totalS: Number.isFinite(Number(rota.duration)) ? Number(rota.duration) : null,
-        passos: passosDaPrimeiraPerna(rota),
-        // a fita verde do V4 — vem de graça na mesma resposta (§7d)
-        geometria: geometriaDe(rota),
+        passos: perna.passos,
+        geometria,
+        // onde a 1ª perna acaba. A fita é do dia INTEIRO e os passos são só desta
+        // perna: sem o corte, a projeção gruda num pedaço que ainda vem (§ `projetarNaFita`)
+        fimDaPerna: perna.fim,
+        // a catraca do cartão: só ANDA PRA FRENTE, e zera junto com a rota (§ `manobraDaVez`)
+        passoDaVez: 0,
         // as paradas SEM a origem: é o que decide se a rota virou outra
         alvos,
       };
@@ -726,35 +805,129 @@
     }
   }
 
-  /** os passos com instrução da 1ª perna (origem → parada da vez) */
-  function passosDaPrimeiraPerna(rota) {
-    const perna = (rota.legs || [])[0] || {};
-    return (perna.steps || []).map((passo) => {
-      const m = manobraDoPasso(passo);
-      const loc = passo && passo.maneuver && passo.maneuver.location;
-      if (!m || !Array.isArray(loc) || loc.length < 2) return null;
-      const lng = Number(loc[0]); const lat = Number(loc[1]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-      return Object.assign({ lat, lng }, m);
-    }).filter(Boolean);
+  /* 🔴 O ÍNDICE DO VÉRTICE VEM DE GRAÇA, E MESMO ASSIM ELE É CONFERIDO. Cada
+     passo do OSRM traz a própria `geometry` (o proxy devolve o corpo CRU do
+     motor), e somar os vértices dos passos anteriores dá exatamente o ponto da
+     fita em que aquela manobra acontece — o `vi`, que é como `manobraDaVez` sabe
+     o que já ficou pra trás. Motor de outra versão, ou `overview` simplificado,
+     e a soma desanda em SILÊNCIO: aí o cartão apagaria manobra que ainda VEM,
+     que é pior que o defeito que este conserto veio matar. Então o vértice
+     contado é conferido contra o `maneuver.location` e, se não bate, quem decide
+     é a projeção — a mesma conta que o traço já usa. */
+  const VI_TOLERANCIA_M = 2;
+  function viDaManobra(contado, ponto, geo, ateSegmento) {
+    const c = geo && geo.coordinates;
+    if (!c) return null;
+    const v = c[contado];
+    if (v && metrosEntre({ lat: v[1], lng: v[0] }, ponto) <= VI_TOLERANCIA_M) return contado;
+    // o plano B projeta SÓ dentro da perna — a fita é do dia inteiro e se
+    // cruza; sem a janela, a manobra do começo podia ganhar o `vi` de um
+    // pedaço lá da frente e nascer "já passada".
+    const p = projetarNaFita(ponto, geo, ateSegmento);
+    return p ? p.i : null;
   }
 
-  /* Qual manobra mandar agora: a 1ª ainda À FRENTE. "À frente" aqui é a que
-     está a mais de 25 m — passou dela, ela já era, e insistir é o GPS falando
-     de uma curva que ficou pra trás. */
-  const MANOBRA_PASSOU_M = 25;
+  /** quantos segmentos de fita os passos de uma perna somam */
+  const fitaDaPerna = (crus) => crus.reduce((s, passo) => {
+    const g = passo && passo.geometry && passo.geometry.coordinates;
+    return s + (Array.isArray(g) && g.length > 1 ? g.length - 1 : 0);
+  }, 0);
+
+  /** os passos com instrução da 1ª perna (origem → parada da vez), cada um com o
+      `vi` da sua manobra; e `fim`, o vértice em que a 1ª perna acaba */
+  function lerPrimeiraPerna(rota, geo) {
+    const crus = ((rota.legs || [])[0] || {}).steps || [];
+    // o fim vem ANTES dos passos: é ele a janela do plano B de `viDaManobra`
+    const fim = fitaDaPerna(crus);
+    const passos = [];
+    let vi = 0;
+    crus.forEach((passo) => {
+      const m = manobraDoPasso(passo);
+      const loc = (passo && passo.maneuver && passo.maneuver.location) || [];
+      const lng = Number(loc[0]); const lat = Number(loc[1]);
+      if (m && Number.isFinite(lat) && Number.isFinite(lng)) {
+        passos.push(Object.assign({ lat, lng, vi: viDaManobra(vi, { lat, lng }, geo, fim) }, m));
+      }
+      /* 🔴 O CONTADOR ANDA MESMO COM O PASSO DESCARTADO. Quem não tem frase na
+         tabela (Lei 8) some da lista, mas continua gastando fita: pular o
+         incremento jogaria todos os índices seguintes pra trás, e índice
+         atrasado é o fantasma entrando pela porta dos fundos. */
+      const g = passo && passo.geometry && passo.geometry.coordinates;
+      vi += Array.isArray(g) && g.length > 1 ? g.length - 1 : 0;
+    });
+    return { passos, fim };
+  }
+
+  /* 🔴 O FANTASMA DA CURVA JÁ FEITA (12/08 — print do dono: no topo "60 m, vire
+     à esquerda", embaixo "Rua 23 · depois, vire à direita", e o traço verde
+     desenhando a DIREITA. *"a voz acompanha o q está errado"*).
+
+     Isto varria os passos do zero e devolvia o primeiro a mais de 25 m. A
+     comparação não tinha SINAL — `metrosEntre` é módulo —, então "a menos de
+     25 m" era o único jeito de um passo contar como passado. Duas metades, as
+     duas ruins:
+
+       · 26 m DEPOIS da curva ela voltava a ser "à frente" e RESSUSCITAVA no
+         cartão, com a distância crescendo. Até a rota se recalcular, o que exige
+         120 m de LINHA RETA (`NAV_ANDOU_M`, e num trajeto em L 130 m de asfalto
+         medem ~98). Parado, nunca: congela na tela, que é o print;
+       · nos 25 m ANTES da curva ela era pulada e o cartão já mostrava a
+         SEGUINTE — a três segundos de virar, e com a voz junto, porque
+         `VOZ_AGORA_M` é 60 e é maior que 25.
+
+     E as duas se somam numa terceira: com um fantasma na vaga, a curva certa
+     nunca chega em `vozDaManobra`, então a chave dela fica POR ANUNCIAR — e
+     quando o recálculo mata o fantasma velho, quem fala é a curva já feita, do
+     outro lado da esquina. Não é o GPS que emudece: é ele anunciando cada curva
+     uma curva atrasada.
+
+     🔴 "JÁ PASSOU" É PERGUNTA DE ORDEM, NÃO DE METROS — e quem responde é a
+     FITA, que já respondia: `tracoDaVez` apara o traço em `preso.i + 1` desde
+     08/08. Era o mesmo índice, calculado do lado de lá e jogado fora aqui. Agora
+     o passo carrega o `vi` dele e a conta é um inteiro contra um inteiro.
+
+     🔴 E É CATRACA, NÃO GATILHO. O passo da vez mora no `navRota` e só ANDA PRA
+     FRENTE. Sem isso, o fix que sai 60 m da fita (`presoNaRota` devolve null, de
+     propósito) desligaria o freio justo quando o GPS está pior, e o tremor de ±1
+     no `preso.i` derrubaria a camada INTEIRA na esquina — `manobraIcone`,
+     `manobraRua` e `manobraDepois` estão fora do `CROMO_VIVO`. O app que já
+     rodava tinha esta peça (`voice.stepIndex += 1`, um cursor) e a fusão de
+     07/08 a perdeu: o cursor virou varredura. É a mesma classe de
+     [[peca-copiada-perde-tudo-que-a-original-ganha]]. */
   function manobraDaVez() {
     if (!navRota || !ultimoFix) return null;
+    const passos = navRota.passos || [];
+    const preso = presoNaRota(ultimoFix);
+    // a fita passou do ponto da manobra ⇒ ela já era, por mais longe que esteja
+    if (preso) {
+      while (navRota.passoDaVez < passos.length) {
+        const vi = passos[navRota.passoDaVez].vi;
+        if (vi == null || vi > preso.i) break;
+        navRota.passoDaVez += 1;
+      }
+    }
+    const passo = passos[navRota.passoDaVez];
+    if (!passo) return null;
     // 🔴 a distância até a curva se mede da posição PRESA NA RUA: do fix cru,
     // ela oscilava metros pra cima e pra baixo com o carro parado, e era isso
     // que fazia a manobra trocar de "91 m" pra "161 m" e voltar.
-    const eu = posicaoDaTela();
-    const passos = navRota.passos || [];
-    for (let i = 0; i < passos.length; i += 1) {
-      const d = metrosEntre(eu, passos[i]);
-      if (d > MANOBRA_PASSOU_M) return { passo: passos[i], distancia: d, depois: passos[i + 1] || null };
-    }
-    return null;
+    return {
+      passo,
+      distancia: metrosEntre(posicaoDaTela(), passo),
+      depois: depoisDe(passos, navRota.passoDaVez),
+    };
+  }
+
+  /* 🔴 O "DEPOIS" TEM TETO, E ELE TAMBÉM SE PERDEU NA FUSÃO. 420 m é o número do
+     app que já rodava (*"quem dirige precisa saber que vêm DUAS curvas seguidas
+     antes de entrar na primeira"*): passada essa distância, a curva seguinte não
+     é do agora, e anunciá-la no meio de uma reta é a linha de baixo discordando
+     do traço. */
+  const DEPOIS_TETO_M = 420;
+  function depoisDe(passos, i) {
+    const daVez = passos[i]; const proximo = passos[i + 1];
+    if (!daVez || !proximo) return null;
+    return metrosEntre(daVez, proximo) <= DEPOIS_TETO_M ? proximo : null;
   }
 
   /* ---- O QUE MUDA A CADA SEGUNDO NÃO DERRUBA A TELA ----------------------
