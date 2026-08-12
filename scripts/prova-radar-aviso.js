@@ -189,7 +189,7 @@ const LER_TELA = () => {
   return {
     chipExiste: !!chip,
     chipOn: !!(chip && chip.classList.contains('on')),
-    chipLim: chip ? t('.gps-radar .lim') : '',
+    limiteVia: vel ? t('.gps-vel .limite-via') : '',
     chipTxt: chip ? t('.gps-radar .txt') : '',
     velExiste: !!vel,
     velTexto: t('[data-vivo="velocidade"]'),
@@ -259,7 +259,7 @@ async function dirigir(navegador, pele, porta, radares, roteiro) {
     await fix(q.n, q.o || 0, q.v, q.rumo != null ? q.rumo : 0, q.espera);
     const c = await p.evaluate(LER_TELA);
     fita.push({ ...q, ...c });
-    const chip = c.chipOn ? `chip ON [${c.chipLim || '—'}] "${c.chipTxt}"` : 'chip off';
+    const chip = c.chipOn ? `chip ON "${c.chipTxt}"` : 'chip off';
     console.log(`  ${String(q.rotulo).padEnd(46)} → ${chip} · vel ${c.velTexto || '—'}${c.velAcima ? ' ACIMA' : ''}`);
   }
 
@@ -352,9 +352,9 @@ async function dirigir(navegador, pele, porta, radares, roteiro) {
     !f[0].chipOn && !f[1].chipOn && !f[2].chipOn,
     [f[0].chipOn, f[1].chipOn, f[2].chipOn].join(','));
 
-  eh('A2. na janela o chip acende com o limite do radar',
-    f[4].chipOn && f[4].chipLim === '60',
-    `on=${f[4].chipOn} lim="${f[4].chipLim}" txt="${f[4].chipTxt}"`);
+  eh('A2. na janela o chip acende e o limite fica na placa do velocímetro',
+    f[4].chipOn && f[4].limiteVia === '60',
+    `on=${f[4].chipOn} limite="${f[4].limiteVia}" txt="${f[4].chipTxt}"`);
 
   eh('A3. radar que ficou pra trás apaga o chip (ordem, não distância)',
     !f[7].chipOn && !f[12].chipOn,
@@ -375,7 +375,8 @@ async function dirigir(navegador, pele, porta, radares, roteiro) {
     final.falas.filter(ehFalaRadar).join(' | ') || 'nenhuma');
 
   eh('D. F3 liga com vel > limite na janela de 600 m…',
-    f[2].velAcima, `72 km/h contra 60: acima=${f[2].velAcima}`);
+    f[2].velAcima && f[2].limiteVia === '60',
+    `72 km/h contra ${f[2].limiteVia || '—'}: acima=${f[2].velAcima}`);
   eh('D1. …e desliga quando a velocidade cai',
     !f[3].velAcima, `43 km/h contra 60: acima=${f[3].velAcima}`);
   eh('D2. radar sem limite NUNCA avermelha o velocímetro',
@@ -383,8 +384,8 @@ async function dirigir(navegador, pele, porta, radares, roteiro) {
     [f[7].velAcima, f[8].velAcima, f[9].velAcima].join(','));
 
   eh('E. radar sem limite: chip sem número e voz sem número inventado',
-    f[8].chipOn && f[8].chipLim === '' && falasRadar.some((x) => x === 'Radar a 300 metros'),
-    `lim="${f[8].chipLim}" · falas: ${falasRadar.join(' | ')}`);
+    f[8].chipOn && f[8].limiteVia === '' && falasRadar.some((x) => x === 'Radar a 300 metros'),
+    `limite="${f[8].limiteVia}" · falas: ${falasRadar.join(' | ')}`);
 
   /* prioridade: aos 880/900 m a manobra estava falando (ou a segundos de
      falar) — o radar só pode ter falado DEPOIS do "Em 300 metros". */

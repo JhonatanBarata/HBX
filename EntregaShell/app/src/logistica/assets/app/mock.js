@@ -1708,8 +1708,8 @@ function telaGps(chegou){
      lugar e a tela não é derrubada. Só ganha marca o que é texto puro num nó
      só: o que muda a ESTRUTURA da tela (a manobra que nasce, o pedaço que
      some) continua repintando, que é o certo. */
-  const num=(v,rot,destaque,campo)=>v
-    ?`<span class="n${destaque?' destaque':''}"><b${campo?` data-vivo="${campo}"`:''}>${v}</b>${rot?`<small>${rot}</small>`:''}</span>`:'';
+  const num=(v,rot,destaque,campo,icone)=>v
+    ?`<span class="n${destaque?' destaque':''}">${icone?`<i class="gps-kpi-ico">${ic(icone,22)}</i>`:''}<span><b${campo?` data-vivo="${campo}"`:''}>${v}</b>${rot?`<small>${rot}</small>`:''}</span></span>`:'';
 
   if(chegou){
     const rodape=trilha([paradaDeM,g.chegouFaltam?`${g.chegouFaltamVerbo||''} <b>${g.chegouFaltam}</b>`:'',
@@ -1758,10 +1758,10 @@ function telaGps(chegou){
   const manobra=(g.manobraIcone||g.manobraDist||g.manobraVerbo||manobraBaixo)
     ?`<div class="gps-manobra">
       <div class="cima">
-        ${g.manobraIcone?`<span class="seta">${ic(g.manobraIcone,30)}</span>`:''}
-        <span>${g.manobraDist?`<b class="dist" data-vivo="manobraDist">${g.manobraDist}</b>`:''}${g.manobraVerbo?`<span class="verbo" data-vivo="manobraVerbo">${g.manobraVerbo}</span>`:''}</span>
+        ${g.manobraIcone?`<span class="seta">${ic(g.manobraIcone,36)}</span>`:''}
+        <span>${g.manobraDist?`<b class="dist"><i>Em</i> <span data-vivo="manobraDist">${g.manobraDist}</span></b>`:''}${g.manobraVerbo?`<span class="verbo" data-vivo="manobraVerbo">${g.manobraVerbo}</span>`:''}</span>
       </div>
-      ${manobraBaixo?`<div class="baixo">${manobraBaixo}</div>`:''}
+      ${manobraBaixo?`<div class="baixo">${g.manobraRua?`<b>${g.manobraRua}</b>`:''}${g.manobraDepois?`<small>${g.manobraDepois}</small>`:''}</div>`:''}
     </div>`:'';
   const rodape=trilha([paradaDeM,g.paradaNome?`<b>${g.paradaNome}</b>`:'']);
 
@@ -1792,7 +1792,7 @@ function telaGps(chegou){
          passa pelo seam: aviso que muda a cada fix repintaria a camada do mapa
          uma vez por segundo. (Sem CRASE aqui dentro: este comentario mora num
          template literal e a crase o fecharia.) -->
-    <div class="gps-radar"><b class="lim"></b><span class="txt">Radar</span></div>
+    <div class="gps-radar"><span class="txt">Radar</span></div>
 
     <!-- eu: no centro da largura, com a cauda pousada no --gps-piso (o mesmo
          chão do velocímetro e dos botões). A tela é a rua À FRENTE. -->
@@ -1802,7 +1802,7 @@ function telaGps(chegou){
       ${empresasDoMapa().length?'<span class="emp-radar"><i></i><i></i></span>':''}
       <span class="gps-facho"></span>
       <svg class="gps-seta" viewBox="0 0 34 38">
-        <path d="M17 1.5 L31.5 35 L17 27 L2.5 35 Z" fill="#3d8bff" stroke="#eaf1ff" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M17 1.5 L31.5 35 L17 27 L2.5 35 Z" fill="var(--puck-seta)" stroke="var(--puck-seta-fio)" stroke-width="2" stroke-linejoin="round"/>
       </svg>
     </div>
 
@@ -1814,7 +1814,7 @@ function telaGps(chegou){
     ${g.rumo?`<div class="gps-bussola">
       <svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 3.5 L16 13 L12 10.6 L8 13 Z" fill="#ff8b85"/></svg><span data-vivo="rumo">${g.rumo}</span>
     </div>`:''}
-    ${g.velocidade?`<div class="gps-vel"><b data-vivo="velocidade">${g.velocidade}</b>${g.velocidadeUnidade?`<small>${g.velocidadeUnidade}</small>`:''}</div>`:''}
+    ${g.velocidade?`<div class="gps-vel"><em class="limite-via"></em><b data-vivo="velocidade">${g.velocidade}</b>${g.velocidadeUnidade?`<small>${g.velocidadeUnidade}</small>`:''}</div>`:''}
     <!-- Os botões da beirada: até 08/08 eles não tinham GANCHO nenhum e o
          toque morria no vidro. A voz é a do APARELHO (a chave voz do
          soundPrefs), então o estado "mudo" chega pelo seam como qualquer outro
@@ -1846,10 +1846,10 @@ function telaGps(chegou){
          mora num template literal.) -->
     <div class="gps-rodape">
       ${rodape?`<div class="parada">${ic('route',14)} <span class="txt">${rodape}</span></div>`:''}
-      <div class="linha">
-        ${num(g.chegada,g.chegadaRotulo,1,'chegada')}
-        ${num(g.restante,g.restanteRotulo,0,'restante')}
-        ${num(g.distancia,g.distanciaRotulo,0,'distancia')}
+      <div class="linha indicadores">
+        ${num(g.restante,g.restanteRotulo,0,'restante','clock')}
+        ${num(g.distancia,g.distanciaRotulo,0,'distancia','route')}
+        ${num(g.chegada,g.chegadaRotulo,1,'chegada','flag')}
       </div>
       <!-- 🔴 OS NUMEROS SUBIRAM E A LINHA DE BAIXO VIROU DAS ACOES (10/08,
            ordem do dono: "abaixo de chegada, restante e distancia crie os
@@ -1860,10 +1860,14 @@ function telaGps(chegou){
            cima o CONTRATO da viagem, embaixo o que da pra FAZER.
            O Sair fica na DIREITA, no mesmo canto do polegar de sempre — a
            tela mudou, o gesto que ele ja tem na memoria nao. -->
-      <div class="linha acoes">
-        <button class="atalho" data-acao="registrar-local">${ic('gps',16)}<b>${g.registrar||''}</b></button>
-        <button class="atalho" data-ir="fechamento">${ic('note',16)}<b>${g.fechar||''}</b></button>
-        <button class="sair" data-ir="rota">${g.encerrar||''}</button>
+      <div class="gps-encerrar">
+        <button class="gps-encerrar-main" data-ir="fechamento">Encerrar rota</button>
+        <details><summary aria-label="Mais ações da rota">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true"><path d="m7 14 5-5 5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </summary><div class="gps-acoes-extra">
+          ${g.registrar?`<button data-acao="registrar-local">${ic('gps',16)}<b>${g.registrar}</b></button>`:''}
+          <button class="sair" data-ir="rota">${g.encerrar||'Sair'}</button>
+        </div></details>
       </div>
     </div>
   </div>

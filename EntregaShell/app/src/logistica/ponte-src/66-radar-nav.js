@@ -285,20 +285,28 @@
     if (!chip && !vel) return;
     const achado = radarAdiante();
     const primeiro = achado && achado.primeiro;
+    const alvo = achado && achado.comLimite;
     const naJanela = !!(primeiro && primeiro.distancia <= janelaDoAviso() + RADAR_MARGEM_M);
 
     if (chip) {
       chip.classList.toggle('on', naJanela);
-      const lim = chip.querySelector('.lim');
-      const texto = naJanela && Number.isFinite(primeiro.radar.limite)
-        ? String(Math.round(primeiro.radar.limite)) : '';
-      if (lim && lim.textContent !== texto) lim.textContent = texto;
+      const txt = chip.querySelector('.txt');
+      const metros = naJanela ? Math.max(0, Math.round(primeiro.distancia / 10) * 10) : 0;
+      const distancia = metros >= 1000
+        ? `${(metros / 1000).toFixed(1).replace('.', ',')} km`
+        : `${metros} m`;
+      const aviso = naJanela ? `Radar · ${distancia}` : 'Radar';
+      if (txt && txt.textContent !== aviso) txt.textContent = aviso;
     }
+
+    const lim = vel && vel.querySelector('.limite-via');
+    const limite = alvo && alvo.distancia <= RADAR_F3_M + RADAR_MARGEM_M
+      ? String(Math.round(alvo.radar.limite)) : '';
+    if (lim && lim.textContent !== limite) lim.textContent = limite;
 
     /* F3 — o velocímetro avermelha contra o limite DO RADAR À FRENTE, que é o
        limite que custa dinheiro. Radar sem limite nunca acende nada. */
     if (vel) {
-      const alvo = achado && achado.comLimite;
       const acima = !!(alvo && alvo.distancia <= RADAR_F3_M + RADAR_MARGEM_M
         && radarVelKmh() > alvo.radar.limite);
       vel.classList.toggle('acima', acima);
