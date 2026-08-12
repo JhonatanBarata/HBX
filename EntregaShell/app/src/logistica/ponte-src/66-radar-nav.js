@@ -55,9 +55,18 @@
   /** silêncio por radar: cobre o tremor do corredor sem calar a volta pela
      mesma avenida meia hora depois (dedup eterno é radar que some do dia) */
   const RADAR_MUDO_MS = 10 * 60 * 1000;
-  /** o disjuntor do pacote: repouso entre tentativas e TETO de tentativas/dia */
-  const RADAR_REPOUSO_MS = 3 * 60 * 1000;
-  const RADAR_TENTATIVAS_DIA = 3;
+  /* 🔴 O DISJUNTOR DAQUI NÃO É O DA REDE — e confundir os dois deixava o dia
+     inteiro sem radar. Este pedido é LOCAL (a ponte nativa responde de
+     `filesDir`); quem fala com o R2 é o `RadaresOffline`, e é lá que mora o
+     freio de rede de verdade (30 min de pausa, 3 tentativas no dia, e tentativa
+     nenhuma é gasta sem sinal validado). Se este lado desistisse em 3 vezes,
+     bastava o turno começar numa zona morta pra o nativo nunca mais ser
+     cutucado — pacote pronto às 10h e ninguém pra pedir. Então: uma batida a
+     cada 5 min, teto de 40 no dia (≈3,3 h de cobertura, 40 requisições locais
+     que não tocam na rede). Isso não é tempestade: o GPS entrega 3.600 fixes na
+     mesma hora em que isto bate 12 vezes numa porta que já está na casa. */
+  const RADAR_REPOUSO_MS = 5 * 60 * 1000;
+  const RADAR_TENTATIVAS_DIA = 40;
   /** teto de sanidade do pacote (o Sudeste inteiro tem ~5 mil pontos) */
   const RADAR_MAX_PONTOS = 100000;
 
@@ -243,6 +252,9 @@
   }
 
   function dizerRadar(alvo) {
+    // a chave de som é a do APARELHO, e ela é conferida NA HORA DE FALAR: quem
+    // silenciou durante a espera da manobra não pode levar a fala adiada na cara
+    if (!vozLigada()) return;
     const chave = chaveDoRadar(alvo.radar);
     const dito = radarDitos.get(chave);
     if (dito && Date.now() - dito < RADAR_MUDO_MS) return;
