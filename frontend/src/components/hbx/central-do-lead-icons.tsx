@@ -25,6 +25,8 @@ const FILLED: Record<string, string> = {
 
 // Traçados: stroke 1.9 é a espessura da referência (não 1.7 do shell).
 const STROKED: Record<string, string[]> = {
+  "chevron-left": ["m15 18-6-6 6-6"],
+  "chevron-right": ["m9 18 6-6-6-6"],
   mail: ["M3.5 5.5h17a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-17a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1Zm.5 1.5 8 6.3L20 7"],
   instagram: ["M7 2.8h10A4.2 4.2 0 0 1 21.2 7v10a4.2 4.2 0 0 1-4.2 4.2H7A4.2 4.2 0 0 1 2.8 17V7A4.2 4.2 0 0 1 7 2.8Z", "M12 8.2a3.8 3.8 0 1 1 0 7.6 3.8 3.8 0 0 1 0-7.6Z", "M17.4 6.6h.01"],
   globe: ["M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18Z", "M3.5 9h17M3.5 15h17", "M12 3c2.2 2.4 3.4 5.4 3.4 9s-1.2 6.6-3.4 9c-2.2-2.4-3.4-5.4-3.4-9S9.8 5.4 12 3Z"],

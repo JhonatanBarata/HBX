@@ -1299,6 +1299,17 @@ export function VendasClient() {
   for (const c of flatLeads) stageCounts[normalizeStage(c.status)]++;
   const listLeads: VendasLead[] = stageFilter ? flatLeads.filter(c => normalizeStage(c.status) === stageFilter) : flatLeads;
 
+  // A Central percorre a MESMA ordem que está na tela: na lista, respeita
+  // busca + guia de etapa + ordenação; no quadro, respeita a ordem dos blocos.
+  // Os limites retornam null de propósito — nunca circula do último pro
+  // primeiro nem do primeiro pro último.
+  const cockpitSequence = view === "list" ? listLeads : flatLeads;
+  const cockpitIndex = sel ? cockpitSequence.findIndex(c => c.id === sel.id) : -1;
+  const previousCockpitLead = cockpitIndex > 0 ? cockpitSequence[cockpitIndex - 1] : null;
+  const nextCockpitLead = cockpitIndex >= 0 && cockpitIndex < cockpitSequence.length - 1
+    ? cockpitSequence[cockpitIndex + 1]
+    : null;
+
   const roboAtivo = flatLeads.filter(c => c.automation).length;
   const canViewValues = Boolean(board?.canViewValues);
   // (o total da carteira morreu junto com a faixa de métricas, em 04/08)
@@ -2376,9 +2387,12 @@ export function VendasClient() {
         <CentralDoLead
           key={sel.id}
           lead={sel}
+          previousLead={previousCockpitLead}
+          nextLead={nextCockpitLead}
           canViewValues={Boolean(board?.canViewValues)}
           open={cockpitOpen}
           onClose={() => setCockpitOpen(false)}
+          onNavigate={setSel}
           onConversationChanged={loadBoard}
         />
       )}

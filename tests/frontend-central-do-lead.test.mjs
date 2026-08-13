@@ -130,6 +130,21 @@ test("o desenho da referência está na tela, medida por medida", () => {
   assert.equal((css.match(/--cdl-money-grad\)/g) || []).length, 1, "verde-dinheiro só no Fechar venda");
 });
 
+test("as setas percorrem a lista visível sem reiniciar nos limites", () => {
+  assert.match(central, /\{previousLead && onNavigate && \(/);
+  assert.match(central, /\{nextLead && onNavigate && \(/);
+  assert.match(central, /Lead anterior:/);
+  assert.match(central, /Próximo lead:/);
+  assert.match(css, /\.cdl-nav--previous/);
+  assert.match(css, /\.cdl-nav--next/);
+
+  assert.match(vendas, /const cockpitSequence = view === "list" \? listLeads : flatLeads/);
+  assert.match(vendas, /const previousCockpitLead = cockpitIndex > 0 \? cockpitSequence\[cockpitIndex - 1\] : null/);
+  assert.match(vendas, /cockpitIndex < cockpitSequence\.length - 1[\s\S]*?cockpitSequence\[cockpitIndex \+ 1\][\s\S]*?: null/);
+  assert.match(vendas, /previousLead=\{previousCockpitLead\}/);
+  assert.match(vendas, /nextLead=\{nextCockpitLead\}/);
+});
+
 test("o backend não mudou — as mesmas rotas continuam ligadas", () => {
   const juntos = central + conversa;
   for (const rota of [

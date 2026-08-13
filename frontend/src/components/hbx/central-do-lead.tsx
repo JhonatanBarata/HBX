@@ -299,11 +299,23 @@ function Anel({ valor, tom }: { valor: number; tom: string }) {
   );
 }
 
-export function CentralDoLead({ lead, canViewValues, open, onClose, onConversationChanged }: {
+export function CentralDoLead({
+  lead,
+  previousLead,
+  nextLead,
+  canViewValues,
+  open,
+  onClose,
+  onNavigate,
+  onConversationChanged,
+}: {
   lead: VendasLead;
+  previousLead?: VendasLead | null;
+  nextLead?: VendasLead | null;
   canViewValues: boolean;
   open: boolean;
   onClose: () => void;
+  onNavigate?: (lead: VendasLead) => void;
   onConversationChanged?: () => void | Promise<void>;
 }) {
   const router = useRouter();
@@ -786,7 +798,19 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
 
   return (
     <>
-      <div className="hbx-veil" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <div className="hbx-veil cdl-stage" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+        {previousLead && onNavigate && (
+          <button
+            type="button"
+            className="cdl-nav cdl-nav--previous"
+            aria-label={`Lead anterior: ${previousLead.name || "sem nome"}`}
+            title="Lead anterior"
+            onClick={(event) => { event.stopPropagation(); onNavigate(previousLead); }}
+          >
+            <CdlIcon name="chevron-left" />
+          </button>
+        )}
+
         <section className="cdl" role="dialog" aria-modal="true" aria-label={`Central do lead ${lead.name || ""}`}>
 
           {/* ══════════ TOPO ESCURO: comando ══════════ */}
@@ -1490,6 +1514,18 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
             </div>
           )}
         </section>
+
+        {nextLead && onNavigate && (
+          <button
+            type="button"
+            className="cdl-nav cdl-nav--next"
+            aria-label={`Próximo lead: ${nextLead.name || "sem nome"}`}
+            title="Próximo lead"
+            onClick={(event) => { event.stopPropagation(); onNavigate(nextLead); }}
+          >
+            <CdlIcon name="chevron-right" />
+          </button>
+        )}
       </div>
 
       {waConnectOpen && (

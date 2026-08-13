@@ -31,10 +31,13 @@
    A referência é uma página de 1560px. Aqui é sobreposição: mesma largura
    como TETO, e o miolo rola por coluna — a página de trás nunca rola
    (zero-scroll é lei do FRONTEND.md). */
+.cdl-stage {
+  --cdl-stage-width: min(1560px, calc(100vw - 28px));
+}
 .cdl {
   /* `relative` é o que segura pop-up e gaveta DENTRO da ficha (ver seção 5). */
   position: relative;
-  width: min(1560px, calc(100vw - 28px));
+  width: var(--cdl-stage-width);
   height: min(940px, calc(100vh - 28px));
   display: flex;
   flex-direction: column;
@@ -50,6 +53,50 @@
 }
 .cdl * { box-sizing: border-box; }
 .cdl button { font-family: inherit; }
+
+/* Navegação da carteira: ocupa somente o vão do véu, fora da ficha. Cada
+   lado só é montado quando há um lead adjacente; não existe estado disabled
+   nem retorno circular entre o primeiro e o último card. */
+.cdl-nav {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 46px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 55%, var(--hbx-surface));
+  border-radius: var(--radius-pill);
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong);
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: transform var(--motion-fast), box-shadow var(--motion-fast);
+}
+.cdl-nav--previous {
+  left: max(8px, calc((100vw - var(--cdl-stage-width)) / 2 - 58px));
+}
+.cdl-nav--next {
+  right: max(8px, calc((100vw - var(--cdl-stage-width)) / 2 - 58px));
+}
+.cdl-nav svg {
+  width: 24px;
+  aspect-ratio: 1;
+}
+.cdl-nav:hover {
+  transform: translateY(-50%) scale(1.06);
+  box-shadow: var(--shadow-lg);
+}
+.cdl-nav:active { transform: translateY(-50%) scale(0.97); }
+.cdl-nav:focus-visible {
+  outline: 3px solid var(--hbx-brand);
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cdl-nav { transition: none; }
+}
 
 /* ══════════════════ 1. TOPO ESCURO — comando ══════════════════ */
 .cdl-cockpit {
