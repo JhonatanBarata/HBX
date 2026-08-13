@@ -1050,7 +1050,11 @@ const SO_MEDIR = process.argv.includes('--antes');
      morfando pra "Navegar" e esperando um 2º toque — morreu; o toque entra
      DIRETO na navegação. */
   eh('D4 · o toque entra DIRETO na navegação (tela mapa)', tD2.tela === 'mapa', `tela=${tD2.tela}`);
-  eh('D6 · sem tela remontando tela (só a troca rota→mapa)', pinturas <= 3, `camadas=${pinturas}`);
+  /* O véu pedido soma duas pinturas controladas: entrar e sair. A régua
+     continua pegando repinte livre — qualquer sexta camada volta a gritar. */
+  eh('D6 · só as 2 pinturas do véu além da troca rota→mapa',
+    pinturas <= 5,
+    `camadas=${pinturas}`);
 
   /* ===================================================================
      CENA D2 — INICIAR pelo pé da MONTAGEM (o caminho que o dono fez).
@@ -1939,12 +1943,31 @@ const SO_MEDIR = process.argv.includes('--antes');
   await abrirDiaDeHoje(2600);
   await p.waitForSelector('.pe-montagem [data-acao="iniciar-rota"]', { timeout: 8000 });
   const yIniciar = await p.evaluate(() => {
+    const postReal = window.API.post.bind(window.API);
+    window.__veuAntesDoPrimeiroPost = null;
+    window.API.post = (...args) => {
+      if (window.__veuAntesDoPrimeiroPost === null) {
+        window.__veuAntesDoPrimeiroPost = !!document.querySelector('.veu-montar');
+      }
+      return postReal(...args);
+    };
     const botao = document.querySelector('.pe-montagem [data-acao="iniciar-rota"]');
     botao.click();
     return botao.classList.contains('aguarde');
   });
   await p.waitForTimeout(2600);
+  const yIniciarVeu = await p.evaluate(() => ({
+    antesDoPrimeiroPost: window.__veuAntesDoPrimeiroPost,
+    presoNoEstado: !!(DADOS.rota && DADOS.rota.montando),
+    aindaNaTela: !!document.querySelector('.veu-montar'),
+  }));
   eh('Y5 · o "Iniciar rota" do mesmo dock responde no toque igual (padronizar = igualar)', yIniciar);
+  eh('Y6 · o veu de carregamento nasce ANTES do primeiro pedido do Iniciar',
+    yIniciarVeu.antesDoPrimeiroPost === true,
+    `antesDoPrimeiroPost=${yIniciarVeu.antesDoPrimeiroPost}`);
+  eh('Y7 · ao concluir, o Iniciar nao deixa o veu nem o estado presos',
+    !yIniciarVeu.presoNoEstado && !yIniciarVeu.aindaNaTela,
+    `estado=${yIniciarVeu.presoNoEstado} tela=${yIniciarVeu.aindaNaTela}`);
 
   await b.close();
   console.log('\n=== MEDIDAS ===');

@@ -3345,6 +3345,39 @@
   async function iniciarRota(intencao) {
     const escopo = String((intencao && intencao.escopo) || 'dia');
     await comTrava(async () => {
+      /* 🔴 O VÉU NASCE ANTES DO PRIMEIRO PEDIDO (13/08). Rota grande pode
+         materializar, planejar, consultar custo, iniciar e reler antes de
+         abrir o mapa. O botão já acusava o toque, mas a tela inteira parecia
+         congelada. Reutilizamos o mesmo véu da montagem e só mudamos a etapa
+         REAL; nenhuma regra de rota, ordem ou cobrança mora aqui. */
+      let esperaInicioAtiva = true;
+      const fecharEsperaInicio = () => {
+        if (!esperaInicioAtiva) return;
+        esperaInicioAtiva = false;
+        try { window.usarDados('rota', { montando: 0 }); } catch (_) { /* sem seam */ }
+      };
+      const etapaInicio = (pct, texto) => {
+        if (!esperaInicioAtiva) return;
+        try {
+          if (typeof DADOS !== 'undefined' && DADOS.rota) Object.assign(DADOS.rota, { etapaMontar: texto, etapaMontarPct: pct });
+          const rotulo = naCamada('[data-etapa-montar]');
+          if (rotulo && rotulo.textContent !== texto) rotulo.textContent = texto;
+          const barra = naCamada('[data-barra-montar]');
+          if (barra) barra.style.width = pct + '%';
+        } catch (_) { /* o véu é enfeite; iniciar não depende dele */ }
+      };
+      const falharInicio = (e, contexto) => {
+        fecharEsperaInicio();
+        return avisoErro(e, contexto);
+      };
+      try {
+        window.usarDados('rota', {
+          montando: 1,
+          etapaMontar: 'Preparando a rota…',
+          etapaMontarPct: 8,
+        });
+      } catch (_) { /* sem seam: a rota continua funcionando */ }
+      try {
       // Mesma memória limpa do montar: avisos de uma tentativa anterior não
       // podem vazar pro portão de erro desta (ver `avisoErro`).
       ultimosAvisosMaterialize = [];
@@ -3360,6 +3393,7 @@
       if (outroDia) previaViraRascunho();
       // O rascunho vira parada ANTES de tudo: é o dedo mandando gravar, e é
       // daqui que sai o conjunto que o planejar vai ordenar e o servidor cobrar.
+      etapaInicio(22, 'Organizando as paradas…');
       const mat = await materializarRascunho();
       /* 🔴 A ROTA SAI SÓ COM O QUE ESTÁ NA TELA (dono, 10/08: o chip do dia
          desligado É a rota avulsa; e o chip de OUTRO dia é a gente daquele dia
@@ -3374,7 +3408,7 @@
       const recortada = avulsa || outroDia;
       const idsAvulsa = recortada ? idsDaPrevia() : null;
       if (avulsa && (!idsAvulsa || !idsAvulsa.length)) {
-        return avisoErro(new Error('A rota avulsa está vazia. Adicione uma parada antes de iniciar.'));
+        return falharInicio(new Error('A rota avulsa está vazia. Adicione uma parada antes de iniciar.'));
       }
       const recorte = idsAvulsa && idsAvulsa.length ? { deliveryIds: idsAvulsa } : {};
       if (estadoRota === 'montar' || !ENTREGAS.size || recortada) {
@@ -3384,9 +3418,10 @@
           // Na avulsa e no dia de outra data NÃO: materializar traria a agenda
           // de hoje de volta pra tela que mostra outra gente.
           if (!recortada) await materializarDia();
+          etapaInicio(42, 'Calculando o melhor trajeto…');
           await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...recorte, ...origemGps() });
-        } catch (e) { return avisoErro(e, { repetir: () => iniciarRota(intencao) }); }
-        if (!(await carregarRota())) return avisoErro(new Error('Não consegui montar agora. Tente de novo.'));
+        } catch (e) { return falharInicio(e, { repetir: () => iniciarRota(intencao) }); }
+        if (!(await carregarRota())) return falharInicio(new Error('Não consegui montar agora. Tente de novo.'));
         if (ordemDeGente()) await cravarOrdemDaTela();
       }
       let custo = null;
@@ -3394,9 +3429,10 @@
       // nota no `carregarRota`): das 21h em diante o portão nem abria. E na
       // avulsa o recorte viaja aqui também: o preço tem que ser DESSA rota.
       try {
+        etapaInicio(62, 'Conferindo a saída…');
         const qIds = idsAvulsa && idsAvulsa.length ? `&deliveryIds=${encodeURIComponent(idsAvulsa.join(','))}` : '';
         custo = await window.API.get(`/logistica/rota/custo-preview?date=${encodeURIComponent(hojeISO())}${qIds}`);
-      } catch (e) { return avisoErro(e, { repetir: () => iniciarRota(intencao) }); }
+      } catch (e) { return falharInicio(e, { repetir: () => iniciarRota(intencao) }); }
       // 🔴 NOME DE CAMPO DE DINHEIRO NÃO SE CHUTA. A 1ª versão adivinhou
       // (`custo`/`total`/`creditos`) e a tela mostrou "Debita 0" com o servidor
       // dizendo 4,8 — mentira com cara de app pronto. Estes são os nomes
@@ -3420,6 +3456,7 @@
          `avisar` no fim). E o custo-preview continua sendo consultado, porque é
          ele quem diz se cobre: quem decide se pode sair é o servidor. */
       if (!temSaldo) {
+        fecharEsperaInicio();
         return window.portao({
           tom: 'trava', ico: 'card', titulo: 'Créditos insuficientes',
           sub: isFinite(saldo)
@@ -3441,6 +3478,7 @@
                sequência viaja junto, senão o toque de sair desfaria a decisão
                dele — que foi o defeito que este trecho já teve. */
         const minha = ordemDeGente() ? idsNaOrdemDaTela() : null;
+        etapaInicio(82, 'Iniciando a rota…');
         aplicarProspector(await window.API.post('/logistica/rota/iniciar', {
           date: hojeISO(), ...recorte, ...(minha ? { ordemManual: minha } : {}), ...origemGps(),
         }));
@@ -3452,11 +3490,13 @@
         if (estadoRota === 'rodando' || estadoRota === 'pausada') {
           // Já está em andamento? Cai direto NELA — a navegação, não uma tela
           // intermediária com mais um botão (a mesma lei do sucesso, abaixo).
+          fecharEsperaInicio();
           if (typeof window.ir === 'function') window.ir('mapa');
           return;
         }
-        return avisoErro(e, { repetir: () => iniciarRota(intencao) });
+        return falharInicio(e, { repetir: () => iniciarRota(intencao) });
       }
+      etapaInicio(94, 'Abrindo a navegação…');
       await carregarRota();
       // A escolha de dia morre no Iniciar: a rota (avulsa ou com a gente de
       // outra data) virou A rota em andamento, e a Montagem seguinte volta a
@@ -3480,6 +3520,7 @@
          botão Navegar: `ir('mapa')` cobra GPS na hora certa e toca a descida
          2D→3D). O "Sair" do 3D continua devolvendo pra Rota com o dock
          Navegar·Cancelar·Finalizar — sair de propósito é outro verbo. */
+      fecharEsperaInicio();
       if (typeof window.ir === 'function') window.ir('mapa');
       /* 🔴 O RECIBO FALA DEPOIS QUE A TELA PAROU DE SE PINTAR (mesma armadilha
          que o portão da parada avulsa já pagou, 09/08). `avisar` monta na camada
@@ -3499,6 +3540,9 @@
         } else if (isFinite(debita) && debita > 0) {
           window.avisar({ ico: 'card', cls: 'ok', titulo: 'Rota iniciada', sub: `Debitou ${num(debita)}` });
         }
+      }
+      } finally {
+        fecharEsperaInicio();
       }
     });
   }
