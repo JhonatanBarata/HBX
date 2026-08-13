@@ -198,6 +198,42 @@ function buildVendasEmailJob(overrides?: Record<string, any>) {
   };
 }
 
+test('VACINA: despacho fisico cancela envio humano do Vendas quando o destinatario nao possui WhatsApp', async () => {
+  const { service } = createService({
+    conversations: {
+      confirmWhatsappRecipient: async () => ({ status: 'unavailable', checkedAt: new Date() }),
+    },
+  });
+
+  const reason = await (service as any).resolveDispatchBotSuppression({
+    companyId: 7,
+    conversationId: 42,
+    to: '+55 11 99999-0000',
+    sourceModule: 'vendas_human',
+    senderType: 'human',
+  });
+
+  assert.equal(reason, 'whatsapp_destinatario_sem_whatsapp');
+});
+
+test('despacho fisico mantem envio humano do Vendas quando o destinatario foi confirmado', async () => {
+  const { service } = createService({
+    conversations: {
+      confirmWhatsappRecipient: async () => ({ status: 'confirmed', checkedAt: new Date() }),
+    },
+  });
+
+  const reason = await (service as any).resolveDispatchBotSuppression({
+    companyId: 7,
+    conversationId: 42,
+    to: '+55 11 99999-0000',
+    sourceModule: 'vendas_human',
+    senderType: 'human',
+  });
+
+  assert.equal(reason, null);
+});
+
 function buildHbxDelivery(overrides?: Record<string, any>) {
   return {
     ok: true,

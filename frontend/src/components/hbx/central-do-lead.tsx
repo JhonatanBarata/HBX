@@ -766,6 +766,11 @@ export function CentralDoLead({
 
   const inteligencia = lead.leadIntelligence;
   const templateText = typeof inteligencia?.messageTemplate === "string" ? inteligencia.messageTemplate : "";
+  const whatsappRecipientStatus = inteligencia?.whatsappStatus === "confirmed"
+    ? "confirmed"
+    : ["missing", "invalid"].includes(String(inteligencia?.whatsappStatus || "").toLowerCase())
+      ? "unavailable"
+      : "unconfirmed";
   const canalSugerido = String(inteligencia?.recommendedChannel || "").toLowerCase().includes("mail")
     ? "email"
     : "whatsapp";
@@ -1108,6 +1113,7 @@ export function CentralDoLead({
                 conversationId={lead.conversation?.id}
                 timeline={lead.timeline}
                 whatsappOk={waOk}
+                whatsappRecipientStatus={whatsappRecipientStatus}
                 emailReady={emailReady}
                 copilotoEnabled={copilotoEnabled}
                 copilotoFicha={{

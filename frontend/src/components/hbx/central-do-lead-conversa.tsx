@@ -213,6 +213,7 @@ export function CentralDoLeadConversa({
   conversationId: conversationIdInicial,
   timeline,
   whatsappOk,
+  whatsappRecipientStatus,
   emailReady,
   copilotoEnabled,
   copilotoFicha,
@@ -230,6 +231,7 @@ export function CentralDoLeadConversa({
   conversationId?: string | number | null;
   timeline?: CdlTimelineEvent[] | null;
   whatsappOk: boolean | null;
+  whatsappRecipientStatus: "confirmed" | "unavailable" | "unconfirmed";
   emailReady: boolean | null;
   copilotoEnabled: boolean;
   copilotoFicha: CdlCopilotFicha;
@@ -420,7 +422,7 @@ export function CentralDoLeadConversa({
 
   async function enviarWhatsapp() {
     const texto = rascunho.trim();
-    if (!texto || enviando || !phone) return;
+    if (!texto || enviando || !phone || whatsappRecipientStatus !== "confirmed") return;
     setEnviando(true);
     setErroEnvio(null);
     const idOtimista = `queued-${Date.now()}`;
@@ -809,6 +811,10 @@ export function CentralDoLeadConversa({
           {modo === "whatsapp" && (
             !phone ? (
               <div className="cdl-composer__note">Este lead não tem telefone cadastrado.</div>
+            ) : whatsappRecipientStatus === "unavailable" ? (
+              <div className="cdl-composer__note">Este telefone não possui WhatsApp confirmado.</div>
+            ) : whatsappRecipientStatus !== "confirmed" ? (
+              <div className="cdl-composer__note">Não foi possível confirmar o WhatsApp deste contato.</div>
             ) : whatsappOk === false ? (
               <div className="cdl-composer__note">
                 <span>WhatsApp da empresa não está conectado.</span>

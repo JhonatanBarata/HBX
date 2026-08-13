@@ -448,6 +448,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     sourceModule?: string | null;
     senderType?: string | null;
   }) {
+    const sourceModule = String(input.sourceModule || '').trim().toLowerCase();
+
+    // Portão físico do Vendas: protege também uma mensagem humana que tenha
+    // sido criada antes do gate de enqueue ou por outro cliente desatualizado.
+    if (['vendas_prospeccao_bot', 'prospeccao_bot', 'vendas_human'].includes(sourceModule)) {
+      const checker = (this.conversations as any)?.confirmWhatsappRecipient;
+      if (typeof checker === 'function') {
+        const confirmation = await checker.call(this.conversations, input.to);
+        if (confirmation?.status === 'unavailable') return 'whatsapp_destinatario_sem_whatsapp';
+        if (confirmation?.status !== 'confirmed') return 'whatsapp_destinatario_nao_confirmado';
+      }
+    }
+
     if (!this.isBotManagedOutbound(input.sourceModule, input.senderType)) return null;
     if (this.isInsideStartupBotGuard()) return 'backend_reiniciado_guard_publicacao';
     const conversationId = Number(input.conversationId || 0);
@@ -484,19 +497,6 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
       });
       if (profile?.botOff === true) return 'bot_off_no_perfil';
-    }
-
-    // Segunda trava, no instante físico do envio: cancela também mensagens que
-    // já estavam na outbox antes do gate de enqueue existir (como a tentativa
-    // que originou este incidente). Humano e bots reativos não entram aqui.
-    const sourceModule = String(input.sourceModule || '').trim().toLowerCase();
-    if (['vendas_prospeccao_bot', 'prospeccao_bot'].includes(sourceModule)) {
-      const checker = (this.conversations as any)?.confirmWhatsappRecipient;
-      if (typeof checker === 'function') {
-        const confirmation = await checker.call(this.conversations, input.to);
-        if (confirmation?.status === 'unavailable') return 'whatsapp_destinatario_sem_whatsapp';
-        if (confirmation?.status !== 'confirmed') return 'whatsapp_destinatario_nao_confirmado';
-      }
     }
 
     if (String(input.sourceModule || '').trim().toLowerCase() === 'atendimento_bot') {

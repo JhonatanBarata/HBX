@@ -231,8 +231,30 @@ test('VACINA: falha do verificador bloqueia prospeccao automatica em vez de libe
   assert.equal(outboundCreateCalls.length, 0);
 });
 
-test('envio humano nao e bloqueado pelo gate exclusivo do robo de prospeccao', async () => {
+test('VACINA: envio humano do Vendas tambem e bloqueado quando o telefone nao possui WhatsApp', async () => {
   const { service, outboundCreateCalls } = createService({ whatsappExists: false });
+
+  await assert.rejects(
+    () => service.queueOutboundForCompany(7, {
+      conversationId: 10,
+      to: '+55 11 99999-0000',
+      body: 'Mensagem manual do vendedor',
+      sourceModule: 'vendas_human',
+      senderType: 'human',
+      messageType: 'text',
+    }),
+    (error: any) => {
+      assert.ok(error instanceof BadRequestException);
+      assert.equal((error.getResponse() as any)?.code, 'WHATSAPP_RECIPIENT_UNAVAILABLE');
+      return true;
+    },
+  );
+
+  assert.equal(outboundCreateCalls.length, 0);
+});
+
+test('envio humano do Vendas continua entrando na fila quando o WhatsApp foi confirmado', async () => {
+  const { service, outboundCreateCalls } = createService({ whatsappExists: true });
 
   const result = await service.queueOutboundForCompany(7, {
     conversationId: 10,

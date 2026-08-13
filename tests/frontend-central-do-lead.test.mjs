@@ -179,3 +179,11 @@ test("o backend não mudou — as mesmas rotas continuam ligadas", () => {
   assert.match(conversa, /setRascunho\(res\.rascunho\)/);
   assert.doesNotMatch(conversa, /copiloto[\s\S]{0,400}enviarWhatsapp\(\)/);
 });
+
+test("VACINA: o chat do Vendas some quando o telefone não tem WhatsApp confirmado", () => {
+  assert.match(central, /whatsappRecipientStatus=\{whatsappRecipientStatus\}/);
+  assert.match(conversa, /whatsappRecipientStatus === "unavailable"/);
+  assert.match(conversa, /Este telefone não possui WhatsApp confirmado\./);
+  assert.match(conversa, /whatsappRecipientStatus !== "confirmed"/);
+  assert.match(conversa, /Não foi possível confirmar o WhatsApp deste contato\./);
+});

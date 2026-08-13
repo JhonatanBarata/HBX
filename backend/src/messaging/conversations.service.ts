@@ -27,6 +27,10 @@ const COMMERCIAL_PROSPECTION_SOURCES = new Set([
   'vendas_prospeccao_bot',
   'prospeccao_bot',
 ]);
+const COMMERCIAL_WHATSAPP_RECIPIENT_CONFIRMATION_SOURCES = new Set([
+  ...COMMERCIAL_PROSPECTION_SOURCES,
+  'vendas_human',
+]);
 
 export type WhatsappRecipientConfirmation = {
   status: 'confirmed' | 'unavailable' | 'unknown';
@@ -533,7 +537,7 @@ export class ConversationsService {
   /**
    * Confirma o DESTINATÁRIO na porta oficial do zap-gate. O cache persistente,
    * teto e disjuntor continuam pertencendo ao WebwhatsBridgeService; este método
-   * só traduz o resultado para a regra comercial "robô só fala com WhatsApp
+   * só traduz o resultado para a regra comercial "Vendas só fala com WhatsApp
    * confirmado". Falha de infraestrutura é `unknown` e nunca vira permissão.
    */
   async confirmWhatsappRecipient(toRaw: unknown): Promise<WhatsappRecipientConfirmation> {
@@ -569,13 +573,11 @@ export class ConversationsService {
     }
   }
 
-  private async assertAutomaticCommercialWhatsappRecipientConfirmed(input: {
+  private async assertCommercialWhatsappRecipientConfirmed(input: {
     to: string;
     sourceModule: string;
-    senderType: string;
   }) {
-    if (!COMMERCIAL_PROSPECTION_SOURCES.has(normalizeModuleName(input.sourceModule))) return;
-    if (normalizeModuleName(input.senderType) !== 'bot') return;
+    if (!COMMERCIAL_WHATSAPP_RECIPIENT_CONFIRMATION_SOURCES.has(normalizeModuleName(input.sourceModule))) return;
 
     const confirmation = await this.confirmWhatsappRecipient(input.to);
     if (confirmation.status === 'confirmed') return;
@@ -585,8 +587,8 @@ export class ConversationsService {
     throw new BadRequestException({
       code,
       message: confirmation.status === 'unavailable'
-        ? 'Contato sem WhatsApp confirmado. Envio automático bloqueado.'
-        : 'Não foi possível confirmar o WhatsApp do contato. Envio automático bloqueado.',
+        ? 'Este telefone não possui WhatsApp confirmado. Envio bloqueado.'
+        : 'Não foi possível confirmar o WhatsApp deste contato. Envio bloqueado.',
     });
   }
 
@@ -753,12 +755,11 @@ export class ConversationsService {
     if (!companyId) throw new ForbiddenException('Company context required');
     if (!to) throw new BadRequestException('to is required');
 
-    // Portão positivo: prospecção automática só entra na outbox depois que o
-    // motor confirma o destinatário. Humano e fluxos reativos ficam intactos.
-    await this.assertAutomaticCommercialWhatsappRecipientConfirmed({
+    // Portão positivo do Vendas: robô e humano só entram na outbox depois que
+    // o motor confirma o destinatário. Outros módulos reativos ficam intactos.
+    await this.assertCommercialWhatsappRecipientConfirmed({
       to,
       sourceModule,
-      senderType,
     });
 
     const companyRow = (await this.supportsWhatsAppEndpointTable())
