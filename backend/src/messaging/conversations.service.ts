@@ -14,6 +14,7 @@ import {
 } from '../inbox/atendimento-config';
 import { WebwhatsBridgeService } from './webwhats-bridge.service';
 import { CommercialAutomationStateService } from '../automation/commercial-automation-state.service';
+import { MASTER_WHATSAPP_ENGINE_COMPANY_SLUG } from '../companies/master-whatsapp-company.constants';
 
 function requireCompanyIdFromUser(user: any): number {
   const companyId = Number(user?.companyId);
@@ -26,6 +27,11 @@ const COMMERCIAL_PROSPECTION_SOURCES = new Set([
   'vendas_prospeccao_bot',
   'prospeccao_bot',
 ]);
+
+export type WhatsappRecipientConfirmation = {
+  status: 'confirmed' | 'unavailable' | 'unknown';
+  checkedAt: Date | null;
+};
 
 function normalizeWhatsAppContact(raw: string): string {
   const normalized = normalizeWhatsAppPhone(raw);
@@ -524,6 +530,66 @@ export class ConversationsService {
     return String(variables?.leadId || '').trim() || null;
   }
 
+  /**
+   * Confirma o DESTINATÁRIO na porta oficial do zap-gate. O cache persistente,
+   * teto e disjuntor continuam pertencendo ao WebwhatsBridgeService; este método
+   * só traduz o resultado para a regra comercial "robô só fala com WhatsApp
+   * confirmado". Falha de infraestrutura é `unknown` e nunca vira permissão.
+   */
+  async confirmWhatsappRecipient(toRaw: unknown): Promise<WhatsappRecipientConfirmation> {
+    const to = normalizeWhatsAppContact(String(toRaw || ''));
+    if (!to) return { status: 'unavailable', checkedAt: null };
+
+    const engineCompany = await this.prisma.company.findUnique({
+      where: { slug: MASTER_WHATSAPP_ENGINE_COMPANY_SLUG },
+      select: { id: true },
+    }).catch(() => null);
+    if (!engineCompany?.id) {
+      this.logger.warn('[whatsapp-recipient-gate] empresa tecnica de verificacao nao encontrada; envio automatico bloqueado');
+      return { status: 'unknown', checkedAt: null };
+    }
+
+    try {
+      const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(
+        Number(engineCompany.id),
+        [to],
+        undefined,
+        { maxWaitMs: 5_000 },
+      );
+      if (!lookup) return { status: 'unknown', checkedAt: null };
+      return {
+        status: lookup.exists === true ? 'confirmed' : 'unavailable',
+        checkedAt: new Date(),
+      };
+    } catch (error: unknown) {
+      this.logger.warn(
+        `[whatsapp-recipient-gate] nao foi possivel confirmar destinatario; envio automatico bloqueado: ${String((error as any)?.message || error)}`,
+      );
+      return { status: 'unknown', checkedAt: null };
+    }
+  }
+
+  private async assertAutomaticCommercialWhatsappRecipientConfirmed(input: {
+    to: string;
+    sourceModule: string;
+    senderType: string;
+  }) {
+    if (!COMMERCIAL_PROSPECTION_SOURCES.has(normalizeModuleName(input.sourceModule))) return;
+    if (normalizeModuleName(input.senderType) !== 'bot') return;
+
+    const confirmation = await this.confirmWhatsappRecipient(input.to);
+    if (confirmation.status === 'confirmed') return;
+    const code = confirmation.status === 'unavailable'
+      ? 'WHATSAPP_RECIPIENT_UNAVAILABLE'
+      : 'WHATSAPP_RECIPIENT_UNCONFIRMED';
+    throw new BadRequestException({
+      code,
+      message: confirmation.status === 'unavailable'
+        ? 'Contato sem WhatsApp confirmado. Envio automático bloqueado.'
+        : 'Não foi possível confirmar o WhatsApp do contato. Envio automático bloqueado.',
+    });
+  }
+
   private async hasAnyInboundMessage(companyId: number, conversationId: number): Promise<boolean> {
     const inbound = await this.prisma.companyMessage.findFirst({
       where: { companyId, conversationId, direction: 'INBOUND' },
@@ -686,6 +752,14 @@ export class ConversationsService {
 
     if (!companyId) throw new ForbiddenException('Company context required');
     if (!to) throw new BadRequestException('to is required');
+
+    // Portão positivo: prospecção automática só entra na outbox depois que o
+    // motor confirma o destinatário. Humano e fluxos reativos ficam intactos.
+    await this.assertAutomaticCommercialWhatsappRecipientConfirmed({
+      to,
+      sourceModule,
+      senderType,
+    });
 
     const companyRow = (await this.supportsWhatsAppEndpointTable())
       ? await this.prisma.company.findUnique({

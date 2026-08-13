@@ -18,6 +18,8 @@ function createService(opts?: {
   // AO VIVO. `motorInstances` undefined = motor sem leitura (default dos testes antigos).
   hasLiveSession?: boolean;
   motorInstances?: any[] | null;
+  whatsappExists?: boolean;
+  whatsappCheckThrows?: boolean;
 }) {
   const outboundCreateCalls: Array<Record<string, unknown>> = [];
   const messageCreateCalls: Array<Record<string, unknown>> = [];
@@ -65,14 +67,17 @@ function createService(opts?: {
     hasTable: async () => false,
     hasColumn: async () => false,
     company: {
-      findUnique: async () => ({
-        id: 7,
-        name: 'Empresa Teste',
-        whatsappConnectionMode: 'TEMPORARY',
-        whatsappModalStatus: 'CONNECTED',
-        useMasterWhatsAppToken: false,
-        whatsappAttendanceMode: opts?.whatsappAttendanceMode ?? 'individual',
-      }),
+      findUnique: async ({ where }: any = {}) => {
+        if (where?.slug) return { id: 99 };
+        return {
+          id: 7,
+          name: 'Empresa Teste',
+          whatsappConnectionMode: 'TEMPORARY',
+          whatsappModalStatus: 'CONNECTED',
+          useMasterWhatsAppToken: false,
+          whatsappAttendanceMode: opts?.whatsappAttendanceMode ?? 'individual',
+        };
+      },
     },
     whatsAppConnectionSession: {
       findFirst: async () => (opts?.senderSession === undefined ? null : opts.senderSession),
@@ -109,6 +114,10 @@ function createService(opts?: {
 
   const webwhatsBridge = {
     hasOperationalSession: async () => opts?.hasLiveSession ?? true,
+    checkWhatsappNumbers: async (_companyId: number, numbers: string[]) => {
+      if (opts?.whatsappCheckThrows) throw new Error('motor indisponivel');
+      return numbers.map((number) => ({ input: number, normalizedNumber: number, exists: opts?.whatsappExists !== false }));
+    },
     // 30/07: `/instance/fetchInstances` (SÓ LEITURA) usado pelo gate do chip morto.
     // null = sem leitura → o gate não recusa por falta de informação.
     listMotorInstances: async () => opts?.motorInstances ?? null,
@@ -172,6 +181,65 @@ test('queueOutboundForCompany reserves conversation start for explicit prospecti
     body: 'Mensagem de prospeccao autorizada',
     sourceModule: 'prospeccao_bot',
     senderType: 'bot',
+    messageType: 'text',
+  });
+
+  assert.equal(result.status, 'PENDING');
+  assert.equal(outboundCreateCalls.length, 1);
+});
+
+test('VACINA: prospeccao automatica nao entra na outbox quando o motor confirma que nao existe WhatsApp', async () => {
+  const { service, outboundCreateCalls } = createService({ whatsappExists: false });
+
+  await assert.rejects(
+    () => service.queueOutboundForCompany(7, {
+      conversationId: 10,
+      to: '+55 11 99999-0000',
+      body: 'Mensagem que nao pode sair',
+      sourceModule: 'vendas_prospeccao_bot',
+      senderType: 'bot',
+      messageType: 'text',
+      variables: { leadId: 'lead-1' },
+    }),
+    (error: any) => {
+      assert.ok(error instanceof BadRequestException);
+      assert.equal((error.getResponse() as any)?.code, 'WHATSAPP_RECIPIENT_UNAVAILABLE');
+      return true;
+    },
+  );
+  assert.equal(outboundCreateCalls.length, 0);
+});
+
+test('VACINA: falha do verificador bloqueia prospeccao automatica em vez de liberar no escuro', async () => {
+  const { service, outboundCreateCalls } = createService({ whatsappCheckThrows: true });
+
+  await assert.rejects(
+    () => service.queueOutboundForCompany(7, {
+      conversationId: 10,
+      to: '+55 11 99999-0000',
+      body: 'Mensagem que nao pode sair sem confirmacao',
+      sourceModule: 'prospeccao_bot',
+      senderType: 'bot',
+      messageType: 'text',
+    }),
+    (error: any) => {
+      assert.ok(error instanceof BadRequestException);
+      assert.equal((error.getResponse() as any)?.code, 'WHATSAPP_RECIPIENT_UNCONFIRMED');
+      return true;
+    },
+  );
+  assert.equal(outboundCreateCalls.length, 0);
+});
+
+test('envio humano nao e bloqueado pelo gate exclusivo do robo de prospeccao', async () => {
+  const { service, outboundCreateCalls } = createService({ whatsappExists: false });
+
+  const result = await service.queueOutboundForCompany(7, {
+    conversationId: 10,
+    to: '+55 11 99999-0000',
+    body: 'Mensagem manual do vendedor',
+    sourceModule: 'vendas_human',
+    senderType: 'human',
     messageType: 'text',
   });
 

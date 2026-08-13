@@ -47,6 +47,7 @@ function makeService(opts: {
   // O ROBÔ ENXERGA O HUMANO (30/07) — telefones em que um humano JÁ mandou a
   // abertura na mão. Default: ninguém falou ainda (comportamento de sempre).
   humanOpeningPhones?: string[];
+  whatsappConfirmation?: 'confirmed' | 'unavailable' | 'unknown';
 }) {
   const svc = Object.create(CadenciaService.prototype) as any;
   const queueCalls: any[] = [];
@@ -128,6 +129,7 @@ function makeService(opts: {
       : {}),
   };
   svc.conversations = {
+    confirmWhatsappRecipient: async () => ({ status: opts.whatsappConfirmation || 'confirmed', checkedAt: new Date() }),
     queueOutboundForCompany: async (companyId: number, payload: any) => {
       queueCalls.push({ companyId, payload });
       return { conversationId: 1, outboundMessageId: 1, messageId: 1, status: 'PENDING' };
@@ -283,6 +285,27 @@ test('passo WhatsApp usa o caminho do bot de prospeccao (queueOutboundForCompany
   assert.equal(call.payload.senderType, 'bot');
   assert.equal(call.payload.variables.botType, 'prospeccao');
   assert.equal(call.payload.messageType, 'text');
+});
+
+test('VACINA: cadencia pula WhatsApp ausente sem criar outbox e segue para o proximo canal', async () => {
+  const { svc, queueCalls, timelineCalls, inscricoes } = makeService({
+    runnerEnabled: true,
+    whatsappConfirmation: 'unavailable',
+    cadencia: cadenciaConservador,
+    inscricoes: [
+      {
+        id: 'i-sem-zap', cadenciaId: 'cad1', companyId: 7, leadId: 'lead1', responsavelId: null,
+        status: 'ativa', currentStep: 0, nextStepAt: new Date(Date.now() - 1000),
+      },
+    ],
+  });
+
+  const result = await svc.runDueSteps(new Date());
+
+  assert.equal((result as any).whatsSent, 0);
+  assert.equal(queueCalls.length, 0, 'numero sem WhatsApp nunca pode criar outbox');
+  assert.equal(inscricoes[0].currentStep, 1, 'cadencia segue para o e-mail sem repetir o WhatsApp');
+  assert.ok(timelineCalls.some((event) => String(event.description || '').includes('não possui WhatsApp')));
 });
 
 // PLACEHOLDER NUNCA VAZA (31/07/2026) — cena real do turno dos 5 disparos: o

@@ -778,6 +778,27 @@ export class CadenciaService {
       this.logger.log(`[cadencia-runner] whats sem telefone lead=${insc.leadId} — passo pulado`);
       return { sent: false, skipReason: 'whats_sem_telefone' };
     }
+
+    // A existência de telefone não prova WhatsApp. O mesmo zap-gate usado na
+    // porta final confirma o número antes de montar texto ou criar outbox.
+    const confirmation = await this.conversations.confirmWhatsappRecipient(contact);
+    if (confirmation.status === 'unavailable') {
+      this.logger.log(`[cadencia-runner] whatsapp nao confirmado lead=${insc.leadId} — passo pulado`);
+      await this.writeCadenciaTimeline(
+        insc.leadId,
+        'cadencia_whats',
+        cadencia,
+        passo,
+        'WhatsApp não enviado: o motor confirmou que este contato não possui WhatsApp.',
+      );
+      return { sent: false, skipReason: 'whatsapp_destinatario_sem_whatsapp' };
+    }
+    if (confirmation.status !== 'confirmed') {
+      // Indisponibilidade técnica não vira falso negativo permanente: o runner
+      // cai no catch externo e agenda nova verificação, sempre sem enviar.
+      throw new Error('whatsapp_destinatario_nao_confirmado');
+    }
+
     // Nada sai para quem pediu para sair — consulta ANTES de montar a mensagem.
     if (await this.blockedBySuppression(insc, { phone: contact })) {
       return { sent: false, skipReason: 'contato_suprimido' };

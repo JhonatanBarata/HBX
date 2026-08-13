@@ -486,6 +486,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       if (profile?.botOff === true) return 'bot_off_no_perfil';
     }
 
+    // Segunda trava, no instante físico do envio: cancela também mensagens que
+    // já estavam na outbox antes do gate de enqueue existir (como a tentativa
+    // que originou este incidente). Humano e bots reativos não entram aqui.
+    const sourceModule = String(input.sourceModule || '').trim().toLowerCase();
+    if (['vendas_prospeccao_bot', 'prospeccao_bot'].includes(sourceModule)) {
+      const checker = (this.conversations as any)?.confirmWhatsappRecipient;
+      if (typeof checker === 'function') {
+        const confirmation = await checker.call(this.conversations, input.to);
+        if (confirmation?.status === 'unavailable') return 'whatsapp_destinatario_sem_whatsapp';
+        if (confirmation?.status !== 'confirmed') return 'whatsapp_destinatario_nao_confirmado';
+      }
+    }
+
     if (String(input.sourceModule || '').trim().toLowerCase() === 'atendimento_bot') {
       const tenantContext = await this.resolveAtendimentoBotSanitizationContext(input.companyId);
       const configuredBot = await this.getAtendimentoBotConfig(input.companyId, tenantContext);
