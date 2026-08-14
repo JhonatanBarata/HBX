@@ -532,6 +532,35 @@ class OperationalStore(context: Context) : SQLiteOpenHelper(
             .toString()
     }
 
+    /**
+     * 🔴 RECUSADO PRECISA TER SAÍDA (14/08 — o beco que prendeu 4 rotas do dono).
+     * REJECTED nascia pra ficar "de evidência" e nada neste app o apagava; o
+     * portão da continuidade passou a exigir zero recusados pra mover ou cancelar
+     * rota, e o cancelar era justamente a saída da rota encerrada que gerava a
+     * recusa. Recusa permanente é fato MORTO: o VPS já disse que não aceita, e
+     * repetir não muda. Descartar é a única leitura honesta — e ela é do dono,
+     * por gesto, nunca automática.
+     */
+    @Synchronized
+    fun discardRejected(deleteProofFiles: Boolean = true): Int {
+        if (deleteProofFiles) {
+            readableDatabase.query(
+                "proof_outbox",
+                arrayOf("file_path"),
+                "state = 'REJECTED'",
+                null,
+                null,
+                null,
+                null,
+            ).use { cursor ->
+                while (cursor.moveToNext()) runCatching { File(cursor.getString(0)).delete() }
+            }
+        }
+        val commands = writableDatabase.delete("operation_outbox", "state = 'REJECTED'", null)
+        val proofs = writableDatabase.delete("proof_outbox", "state = 'REJECTED'", null)
+        return commands + proofs
+    }
+
     @Synchronized
     fun clearAll(deleteProofFiles: Boolean = true) {
         if (deleteProofFiles) {

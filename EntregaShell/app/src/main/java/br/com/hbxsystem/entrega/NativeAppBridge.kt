@@ -353,6 +353,17 @@ class NativeAppBridge(
         if (BuildConfig.APP_MODE == "logistica") OperationalSync.requestFlush(activity)
     }
 
+    /**
+     * Descarta os itens que o VPS recusou em definitivo e devolve o status novo.
+     * É a saída do beco: sem ela, `rejected` só zerava desconectando o aparelho.
+     */
+    @JavascriptInterface
+    fun discardRejectedOffline(): String {
+        if (BuildConfig.APP_MODE != "logistica") return offlineStatus()
+        operational.discardRejected()
+        return operational.statusJson()
+    }
+
     @JavascriptInterface
     fun openCall(phone: String) {
         val normalized = phone.filter { it.isDigit() || it == '+' }.take(24)

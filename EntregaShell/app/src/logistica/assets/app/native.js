@@ -486,6 +486,17 @@
         }
       },
       flush() { bridge && bridge.flushOffline && bridge.flushOffline(); },
+      // Feature-detect de propósito: APK velho não tem o método, e nesse caso o
+      // chamador precisa saber que o descarte NÃO aconteceu (devolve null) em vez
+      // de seguir achando que a fila limpou.
+      descartarRecusados() {
+        try {
+          if (!bridge || typeof bridge.discardRejectedOffline !== "function") return null;
+          return parseBody(bridge.discardRejectedOffline());
+        } catch (_) {
+          return null;
+        }
+      },
     },
     logout() {
       // A ponte nativa só limpa WebStorage e vínculo depois de confirmar que não há

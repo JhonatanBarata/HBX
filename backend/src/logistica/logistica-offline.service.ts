@@ -226,10 +226,16 @@ export class LogisticaOfflineService {
           where: { companyId: context.device.companyId, id: command.deliveryId },
           select: { cancelIdempotencyKey: true },
         });
-        if (
-          String(cancelled?.cancelIdempotencyKey || '') === String(command.idempotencyKey || '')
-          && !!command.idempotencyKey
-        ) {
+        const chaveGravada = String(cancelled?.cancelIdempotencyKey || '');
+        // 🔴 CHAVE AUSENTE É LEGADO, NÃO DIVERGÊNCIA (14/08). `cancelIdempotencyKey`
+        // nasceu na migration de 13/08: TODA entrega cancelada antes disso tem a
+        // coluna nula, e o comando guardado no aparelho antes da atualização não
+        // carrega chave nenhuma. Chamar isso de CONFLICT marcava a fila do
+        // aparelho como REJECTED pra sempre — e REJECTED trancava o cancelar, que
+        // era a única saída. Sem chave dos dois lados o fato pedido JÁ ESTÁ no
+        // servidor (cancelada): isso é repetição, não briga. Só há divergência
+        // quando as duas chaves existem e são diferentes.
+        if (!chaveGravada || !command.idempotencyKey || chaveGravada === String(command.idempotencyKey)) {
           return { commandId: command.commandId, status: 'DUPLICATE' };
         }
         return {
