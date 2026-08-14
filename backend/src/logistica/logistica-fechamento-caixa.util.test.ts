@@ -57,15 +57,9 @@ function buildHarness(routes: RouteRow[], entregas: EntregaRow[]) {
     // saiu junto com a cláusula real: entrega nascida fora da agenda (avulsa,
     // painel, importação) também se fecha. O espelho tem que espelhar.
     if (!(row.cobrancaStatus === 'pendente' || row.cobrancaStatus == null)) return false;
-    if (row.stop) {
-      const rt = row.stop.route;
-      const morta =
-        !rt ||
-        rt.operationalEndedAt != null ||
-        ['COMPLETED', 'FAILED', 'REFUNDING'].includes(rt.status) ||
-        (rt.routeDate != null && rt.routeDate < HOJE);
-      if (!morta) return false;
-    }
+    // Continuidade: qualquer RouteStop preserva a entrega. A rota pode ser
+    // encerrada operacionalmente, mas a parada só sai por Continuar/Cancelar.
+    if (row.stop) return false;
     return true;
   }
 
@@ -181,6 +175,33 @@ test('encerrarDiasAnteriores: entrega já iniciada (saiu pra rua) NÃO é cancel
 
   assert.equal(resumo.entregasCanceladas, 0);
   assert.equal(h.entregaStore.get('entrega-em-rua')!.status, 'agendada', 'já começada — intocada');
+  assert.equal(h.eventos.length, 0);
+});
+
+test('encerrarDiasAnteriores: rota montada de ontem fica visível para continuidade', async () => {
+  const h = buildHarness(
+    [{ id: 'rota-sexta', companyId: 7, routeDate: SEXTA_ANTERIOR, status: 'PLANNED', operationalEndedAt: null }],
+    [{
+      id: 'entrega-com-stop',
+      companyId: 7,
+      customerProfileId: 'cliente-stop',
+      status: 'agendada',
+      scheduledAt: new Date(`${SEXTA_ANTERIOR}T09:00:00-03:00`),
+      startedAt: null,
+      comprovanteConfirmadoAt: null,
+      comprovantesCount: 0,
+      agendaOcorrenciaKey: `agenda:plano-stop:${SEXTA_ANTERIOR}`,
+      rotaModeloId: null,
+      cobrancaStatus: 'pendente',
+      stop: { route: { status: 'PLANNED', operationalEndedAt: null, routeDate: SEXTA_ANTERIOR } },
+    }],
+  );
+
+  const resumo = await encerrarDiasAnteriores(h.prisma, 7, HOJE);
+
+  assert.equal(resumo.rotasEncerradas, 1);
+  assert.equal(resumo.entregasCanceladas, 0);
+  assert.equal(h.entregaStore.get('entrega-com-stop')!.status, 'agendada');
   assert.equal(h.eventos.length, 0);
 });
 

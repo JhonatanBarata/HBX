@@ -291,6 +291,9 @@ const ROTA_ESTADOS={
   pronta:   {main:{acao:'iniciar', glifo:'play', rotulo:'Iniciar'},
              esq:{tipo:'perigo', glifo:'close', rotulo:'Cancelar', acao:'cancelar-rota'},
              dir:{tipo:'info', glifo:'route', rotulo:'Montagem', acao:'montar'}},
+  /* Ver uma pendência é consulta. As mutações ficam no cartão nomeado; o dock
+     não oferece Iniciar/Cancelar e o mapa não reordena uma rota alheia/velha. */
+  consulta:{main:{glifo:'route', rotulo:'Somente consulta'}},
   /* Com a rota RODANDO o que o motorista faz é ANDAR: o botão do meio abre a
      navegação. "Pausar"/"Continuar" saíram — pausa não existe no servidor
      (o estado da rota é PLANNED|ACTIVE|COMPLETED|ENCERRADA), então eram dois
@@ -458,6 +461,9 @@ const DADOS={
     filtroFila:'8', filtroEntregue:'6',
     creditos:'240', creditosDebita:'12',
     somaProdutos:'20', somaMarcado:'R$ 336,00',
+    /* Rotas abertas fora do dia atual ou montadas por outra pessoa. A ponte
+       escreve esta lista; vazia = o cartão inteiro não existe. */
+    pendencias:[], pendenciasSemConexao:false,
     vazioTitulo:'Sem paradas hoje',
     /* A segunda linha do dia por montar (ver `T.rota`). Ela explica o mapa
        vazio e NOMEIA a ação que já está no dock — não é um segundo botão.
@@ -1238,6 +1244,31 @@ function dockDaRota(e){
   if(e==='montar'&&!paradasAbertasNaTela()) return transmux('semparada');
   return transmux(e);
 }
+
+function cartoesDeContinuidade(){
+  const itens=Array.isArray(DADOS.rota.pendencias)?DADOS.rota.pendencias:[];
+  if(!itens.length) return '';
+  const rotas=itens.filter(p=>!p.more).slice(0,2), mais=itens.find(p=>p&&p.more);
+  return `<div class="rota-continuidades" aria-label="Rotas pendentes">${rotas.map(p=>{
+    const frase=p.canPull
+      ? `${p.owner} está com esta rota`
+      : `Rota de ${p.dateLabel} · ${p.remaining} ${p.remaining===1?'parada':'paradas'} restante${p.remaining===1?'':'s'}`;
+    const principal=p.canContinue
+      ? ['Continuar','rota-pendente-continuar']
+      : p.canPull
+        ? ['Puxar','rota-pendente-puxar']
+        : ['Abrir','rota-pendente-abrir'];
+    return `<section class="rota-continuidade${p.active?' ativa':''}">
+      <span>${ic(p.state==='started'?'nav':'route',17)}<b>${frase}</b><small>${p.dateLabel}</small></span>
+      <span class="acoes">
+        ${!p.active&&p.canOpen?`<button class="ghost" data-acao="rota-pendente-abrir" data-ref="${p.ref}" data-owner="${p.ownerId||''}">Ver</button>`:''}
+        <button class="act go" data-acao="${principal[1]}" data-ref="${p.ref}" data-owner="${p.ownerId||''}"><b>${principal[0]}</b></button>
+        ${p.canCancel?`<button class="ghost perigo" data-acao="rota-pendente-cancelar" data-ref="${p.ref}" data-owner="${p.ownerId||''}" aria-label="Cancelar esta rota">${ic('close',15)}</button>`:''}
+      </span>
+    </section>`;
+  }).join('')}${mais?`<span class="rota-continuidade-mais">+${mais.more} outras rotas</span>`:''}
+    ${DADOS.rota.pendenciasSemConexao?`<span class="rota-continuidade-mais">Sem conexão · última atualização</span>`:''}</div>`;
+}
 /* A SEMANA DA AGENDA — uma linha por dia, com quantas pessoas esperam nele.
    Sem fonte não existe bloco: ver `DADOS.rota.semana`.
    🔴 QUEM CHAMA É A MONTAGEM, e só com a lista vazia (dono, 09/08). Ela nasceu
@@ -1336,7 +1367,7 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
      quatro telas (lista, foto, fechamento, semana), onde ele é o total do DIA e
      tem que continuar aparecendo. Esvaziar o campo apagaria o número lá também
      — a régua é desta barra, então o dono dela é esta linha. */
-  const temRota=e==='pronta'||emCurso;
+  const temRota=e==='pronta'||e==='consulta'||emCurso;
   const entregues=emCurso?d.kpiEntregues:d.kpiEntreguesParado;
   const conta=[aviso?`<b>${aviso[1]}</b>`:'',
                (temRota&&d.kpiParadas)?`<b>${d.kpiParadas}</b> paradas`:'',
@@ -1381,6 +1412,7 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
 <div class="body flush" style="overflow:hidden;padding:0">
   <div class="plano${dock?' com-dock':''}">
     ${mapa()}
+    ${cartoesDeContinuidade()}
     <div class="plano-bar${aviso&&aviso[2]?' '+aviso[2]:''}${(vazioNoMapa||diaPorMontar)?' estado':''}">
       ${aviso&&aviso[3]
         ? `<button class="f" data-acao="${aviso[3]}">${ic(aviso[0],16)}${fato}</button>`
@@ -3293,6 +3325,11 @@ T.ficha={nome:'Ficha do cliente',grupo:'Cadastro',render(){
   const f=DADOS.ficha;
   const ROT=['SEG','TER','QUA','QUI','SEX','SÁB','DOM'];
   const dia=(l,n,on,i)=>`<button class="${on?'on':''}" data-acao="dia-cliente" data-dia="${i}"><b>${l}</b><small>${n}</small></button>`;
+  /* Histórico é visita, não Financeiro: fica logo abaixo do saldo para ser
+     achado na porta, mas continua acessível mesmo quando o módulo financeiro
+     estiver desligado. A ponte abre a mesma folha já usada pela casca. */
+  const historico=`<div class="grupo">Histórico</div>
+  <button class="act full" style="margin-top:7px;justify-content:center" data-acao="abrir-historico-cliente">${ic('clock',17)}<b>Histórico</b></button>`;
   return `${status}
 ${hdr({voltar:f.volta||'clientes',semChat:1})}
 <div class="body">
@@ -3379,6 +3416,7 @@ ${hdr({voltar:f.volta||'clientes',semChat:1})}
   ${f.saldo?`<div class="box"><div class="rowline" style="padding-top:2px"><span>Em aberto</span>
     <b style="color:var(--amber)">${f.saldo}</b></div>
     ${f.limiteLido?`<div class="rowline"><span>Limite de fiado</span><b>${f.limiteLido}</b></div>`:''}</div>`:''}
+  ${historico}
   ${!f.financeiroEdita?'':`
   ${(f.formas||[]).length?`<div class="modos${(f.formas||[]).length>3?' fino':''}">
     ${f.formas.map(m=>`<button class="modo${f.forma===m[0]?' on':''}" data-acao="forma-cliente" data-forma="${m[0]}"><b>${m[1]}</b></button>`).join('')}</div>`:''}
@@ -3402,7 +3440,7 @@ ${hdr({voltar:f.volta||'clientes',semChat:1})}
     <button class="linha-cfg" data-acao="chave-avisar-cobranca"><span class="ico">${ic('chat',16)}</span>
       <span><strong>Avisar cobrança</strong><span>mensagem quando fica em aberto</span></span>
       <span class="chave ${f.avisarCobranca?'on':''}"><i></i></span></button>
-  </div>`}`:''}
+  </div>`}`:historico}
 
   <!-- 🔴 O EXCLUIR PROMETIA E NÃO CUMPRIA (medido no aparelho em 08/08): ele era
        data-superficie="confirmar", a confirmação DECORATIVA da maquete — na

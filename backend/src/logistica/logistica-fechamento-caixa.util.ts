@@ -1,5 +1,4 @@
 import type { PrismaService } from '../prisma/prisma.service';
-import { stopLivreWhere } from './logistica-rota-viva.util';
 import { saoPauloDateKey } from './logistica-dia.util';
 import { saoPauloMidnight } from './logistica-agenda-cursor.util';
 import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
@@ -23,9 +22,9 @@ import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.uti
  *     que a montagem trouxe (agendaOcorrenciaKey OU rotaModeloId) e que NINGUÉM
  *     tocou ainda — MESMO critério de segurança do `descartarMontagem`: sem
  *     startedAt, sem comprovanteConfirmadoAt, sem comprovante, cobrança
- *     pendente/nula, e a parada congelada (se houver) é de rota MORTA
- *     (`stopLivreWhere`, a MESMA régua, direto no WHERE — nada de reimplementar
- *     o critério de "rota viva" pela terceira vez).
+ *     pendente/nula e SEM parada congelada. A parada de uma rota antiga é a
+ *     prova da continuidade: a execução morre no passo 1, mas o trabalho fica
+ *     visível até alguém escolher Continuar ou Cancelar.
  *
  * NÃO mexe em `LogisticaPlanoEntrega.proximaData` — sob o novo contrato (F0,
  * ver generateDay) o cursor SÓ avança no desfecho (confirmar/cancelar). Uma
@@ -100,8 +99,7 @@ export async function encerrarDiasAnteriores(
              A cláusula saiu porque ela não era o que protegia. Quem protege são
              as OUTRAS quatro linhas, e cada uma continua aqui: sem `startedAt`
              (ninguém saiu pra rua), sem comprovante, cobrança 'pendente' (nada
-             de dinheiro no meio) e `stopLivreWhere` (nenhuma rota viva a
-             reivindica). Dia passado + nada disso = ninguém vai entregar isso
+             de dinheiro no meio) e ausência de RouteStop. Dia passado + nada disso = ninguém vai entregar isso
              nunca. Fechar é o desfecho honesto; deixar 'agendada' é um cliente
              que o banco jura que ainda espera. */
           // 27/07 — `cobrancaStatus` é `String @default("pendente")`, NÃO é nullable:
@@ -110,7 +108,11 @@ export async function encerrarDiasAnteriores(
           // de TODO prepare/start. Efeito na cara do dono: montar rota parava de
           // funcionar (400 INVALID_INPUT). Linha legada não existe: o default cobre.
           { cobrancaStatus: 'pendente' },
-          stopLivreWhere(hojeISO),
+          // Rota antiga com snapshot aberto NÃO é lixo: é exatamente a
+          // continuidade que o motorista precisa ver no dia seguinte. O
+          // fechamento encerra a execução acima, mas só cancela aqui a entrega
+          // realmente órfã, sem RouteStop que prove uma rota montada.
+          { logisticaRouteStop: { is: null } },
         ],
       },
       select: { id: true, customerProfileId: true, scheduledAt: true, agendaOcorrenciaKey: true },

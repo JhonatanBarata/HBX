@@ -203,18 +203,22 @@
     const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;
     botao.addEventListener('click', () => depoisDaTrava(async () => {
-      try { await window.API.post('/logistica/rota/limpar-dia', { date: hojeISO() }); } catch (e) { avisoErro(e); return false; }
+      if (!rotaRefAtual) {
+        avisoErro(new Error('Atualize a rota antes de cancelar.'));
+        return false;
+      }
+      if (!(await filaOfflinePronta())) return false;
+      try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref: rotaRefAtual }); }
+      catch (e) { avisoErro(e); return false; }
       esquecerRotaCarregada();
       await carregarRota();
       return true;
     }, depois), { once: true });
   }
 
-  /* 🔴 409 ROTA_DE_OUTRO_MOTORISTA — o portão fala QUEM já montou a rota do
-     dia. Sem `podeForcar` é só recado (o dedo não pode nada aqui, e nasce
-     sem 2ª ação). Com `podeForcar`, "Forçar cancelamento e puxar" faz
-     exatamente o que o dono descreveu: confirma, limpa o dia, MONTA de novo
-     — sozinho, sem pedir o toque duas vezes. */
+  /* 409 ROTA_DE_OUTRO_MOTORISTA — fala quem montou e oferece o handoff exato.
+     Nada é apagado: só as paradas abertas do dono/data informados no conflito
+     podem mudar de mãos. */
   function portaoOutroMotorista(body) {
     if (typeof window.portao !== 'function') return;
     const podeForcar = !!(body && body.podeForcar);
@@ -225,11 +229,21 @@
     }
     window.portao({
       tom: 'trava', ico: 'alert', titulo: 'Rota já montada', sub,
-      acoes: [['Fechar', ''], ['Forçar cancelamento e puxar', 'principal']], classe: 'duas',
+      acoes: [['Fechar', ''], ['Puxar rota', 'principal']], classe: 'duas',
     });
     const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;
-    botao.addEventListener('click', () => confirmarLimparDia(() => montarRota()), { once: true });
+    botao.addEventListener('click', async () => {
+      let resp;
+      try { resp = await window.API.get('/logistica/rota/continuidade'); } catch (e) { return avisoErro(e); }
+      const ids = new Set((Array.isArray(body && body.montadores) ? body.montadores : [])
+        .map((m) => Number(m && m.userId)).filter((id) => id > 0));
+      const data = String((body && body.date) || hojeISO());
+      const alvo = (resp && Array.isArray(resp.items) ? resp.items : []).find((p) => p && p.canPull
+        && ids.has(Number(p.owner && p.owner.id)) && String(p.date || '') === data);
+      if (!alvo) return avisoErro(new Error('Não há paradas abertas e transferíveis nesta rota.'));
+      puxarRotaPendente({ dataset: { ref: String(alvo.ref), owner: String(alvo.owner && alvo.owner.id || '') } });
+    }, { once: true });
   }
 
   /* 🔴 402 ASSENTOS_ESGOTADOS — mesma língua: o corpo é a frase do servidor,

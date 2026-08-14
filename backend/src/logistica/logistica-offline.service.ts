@@ -58,6 +58,7 @@ export class LogisticaOfflineService {
         id: routeId,
         entregadorId: device.userId,
         status: 'ACTIVE',
+        operationalEndedAt: null,
       },
       include: {
         trackingSession: true,
@@ -135,7 +136,19 @@ export class LogisticaOfflineService {
       }
       try {
         this.assertCapturedWithinGrant(command.capturedAt, grant);
+        const replayAfterEnd = route.operationalEndedAt
+          ? await this.recognizeReplayAfterEnd(context, grant, command)
+          : null;
+        // Primeiro reconhece o fato já aplicado. Cancelar/encerrar pode tirar o
+        // stop operacional, mas não pode transformar um ACK perdido em rejeição.
+        if (replayAfterEnd) {
+          results.push(replayAfterEnd);
+          continue;
+        }
         if (command.type !== 'FINALIZE_ROUTE') await this.assertDeliveryInRoute(grant, command.deliveryId);
+        if (route.operationalEndedAt && !replayAfterEnd) {
+          throw new ConflictException('Esta execução foi encerrada. Atualize a rota antes de registrar novas ações.');
+        }
         const result = await this.applyCommand(context, grant, command);
         results.push(result);
         if (result.status !== 'ACK' && result.status !== 'DUPLICATE') earlierCommandBlockedFinalization = true;
@@ -157,6 +170,9 @@ export class LogisticaOfflineService {
   async uploadProof(dto: UploadLogisticaOfflineProofDto, file: any) {
     const context = await this.authenticate(dto);
     const grant = await this.verifyGrant(context.device, dto.grant, true);
+    // Prova é anexo tardio, não mutação operacional. O grant continua amarrado
+    // a tenant+usuário+device e o stop entregue permanece no snapshot; permitir
+    // upload após END evita perder foto guardada para enviar só no Wi‑Fi.
     await this.assertCurrentRoute(grant, context.device, true);
     await this.assertDeliveryInRoute(grant, dto.deliveryId);
     if (!file?.buffer?.length) throw new BadRequestException('Envie o arquivo do comprovante.');
@@ -205,7 +221,23 @@ export class LogisticaOfflineService {
     if (!current) throw new NotFoundException('Entrega não encontrada para este motorista.');
 
     if (command.type === 'CANCEL_DELIVERY') {
-      if (current.status === 'cancelada') return { commandId: command.commandId, status: 'DUPLICATE' };
+      if (current.status === 'cancelada') {
+        const cancelled = await (this.prisma as any).entrega.findFirst({
+          where: { companyId: context.device.companyId, id: command.deliveryId },
+          select: { cancelIdempotencyKey: true },
+        });
+        if (
+          String(cancelled?.cancelIdempotencyKey || '') === String(command.idempotencyKey || '')
+          && !!command.idempotencyKey
+        ) {
+          return { commandId: command.commandId, status: 'DUPLICATE' };
+        }
+        return {
+          commandId: command.commandId,
+          status: 'CONFLICT',
+          message: 'A entrega foi cancelada por outra operação.',
+        };
+      }
       if (current.status === 'entregue') {
         return { commandId: command.commandId, status: 'CONFLICT', message: 'A entrega já foi concluída.' };
       }
@@ -219,6 +251,7 @@ export class LogisticaOfflineService {
         // é citado aqui some calado. E é justamente aqui que a chegada mais
         // importa, porque a fila offline é o caminho de quem trabalhou sem rede.
         optionalText((command.payload as any)?.arrivedAt, 40),
+        command.idempotencyKey,
       );
       return { commandId: command.commandId, status: 'ACK' };
     }
@@ -310,9 +343,19 @@ export class LogisticaOfflineService {
         entregadorId: device.userId,
         status: allowCompleted ? { in: ['ACTIVE', 'COMPLETED'] } : 'ACTIVE',
       },
-      select: { id: true, routeDate: true, mode: true, status: true, billingRevision: true },
+      select: {
+        id: true,
+        routeDate: true,
+        mode: true,
+        status: true,
+        operationalEndedAt: true,
+        billingRevision: true,
+      },
     });
     if (!route) throw new NotFoundException('A rota desta autorização não existe mais.');
+    if (route.operationalEndedAt && !allowCompleted) {
+      throw new ConflictException('Esta execução foi encerrada. Atualize a rota antes de sincronizar novas ações.');
+    }
     if (
       String(route.routeDate) !== grant.routeDate ||
       route.mode !== grant.routeMode ||
@@ -321,6 +364,48 @@ export class LogisticaOfflineService {
       throw new ConflictException('A rota mudou depois de ser preparada. Conecte o aplicativo e atualize a rota.');
     }
     return route;
+  }
+
+  /**
+   * Resposta perdida não pode transformar uma operação já aplicada em erro.
+   * Depois de encerrar, reconhece somente o mesmo fato persistido; qualquer
+   * comando novo recebe CONFLICT por comando e não reabre a execução.
+   */
+  private async recognizeReplayAfterEnd(
+    context: AuthenticatedOfflineContext,
+    grant: OfflineRouteGrantPayload,
+    command: LogisticaOfflineCommandDto,
+  ): Promise<OfflineCommandResult | null> {
+    if (command.type === 'FINALIZE_ROUTE') return null;
+    const stop = await (this.prisma as any).logisticaRouteStop.findFirst({
+      where: {
+        companyId: context.device.companyId,
+        routeId: grant.routeId,
+        deliveryId: command.deliveryId,
+      },
+      select: { id: true },
+    });
+    if (!stop) return null;
+    const row = await (this.prisma as any).entrega.findFirst({
+      where: { companyId: context.device.companyId, id: command.deliveryId },
+      select: { status: true, idempotencyKey: true, cancelIdempotencyKey: true },
+    });
+    if (!row) return null;
+    if (
+      command.type === 'CANCEL_DELIVERY' &&
+      row.status === 'cancelada' &&
+      String(row.cancelIdempotencyKey || '') === String(command.idempotencyKey || '')
+    ) {
+      return { commandId: command.commandId, status: 'DUPLICATE' };
+    }
+    if (
+      command.type === 'CONFIRM_DELIVERY' &&
+      row.status === 'entregue' &&
+      String(row.idempotencyKey || '') === String(command.idempotencyKey || '')
+    ) {
+      return { commandId: command.commandId, status: 'DUPLICATE' };
+    }
+    return null;
   }
 
   private async assertDeliveryInRoute(grant: OfflineRouteGrantPayload, deliveryIdInput: string) {

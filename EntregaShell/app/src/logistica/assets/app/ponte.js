@@ -552,7 +552,9 @@
      justamente a parada que ele precisa reencontrar. */
   const rotaMontada = () => {
     const e = (typeof estadoRota !== 'undefined' ? String(estadoRota) : '');
-    return e === 'pronta' || e === 'rodando' || e === 'pausada';
+    // `consulta` desenha a fotografia exata da pendência (pinos/fita), mas os
+    // eventos de mutação continuam bloqueados nas portas de ordem e entrega.
+    return e === 'pronta' || e === 'rodando' || e === 'pausada' || e === 'consulta';
   };
 
   /* 🔴 O TEMPLATE DO MOCK INTERPOLA CRU (`${…}`), como toda maquete. Enquanto o
@@ -731,6 +733,8 @@
          qualquer outra coisa desmontaria a lista sem um erro sequer. A pílula
          TRADUZ este campo; ela não é a fonte dele. */
       st: status,
+      mapStatus: String(item.mapStatus || ''),
+      chegou: !!item.arrivedAt || !!(window.HBX && window.HBX.cache && window.HBX.cache.get(`chegada:${item.id}`, null)),
       // 🔴 O NÚMERO DA TELA É A ORDEM DA VISITA, e gente conta do 1. O servidor
       // grava `rotaOrdem` começando em ZERO — usar o campo cru punha "0, 1, 2"
       // na frente do motorista (visto no g15). A ordem do servidor decide a
@@ -913,7 +917,84 @@
      virada da meia-noite: sem guardar isto, ninguém tem como perceber que a
      tela envelheceu. Ver `viradaDoDia`. */
   let diaNaTela = null;
+  let continuidadeAtiva = '';
+  let rotaRefAtual = '';
+  let refsDoAtor = [];
+  let pendenciasDaRota = [];
+  let pendenciasSemConexao = false;
 
+  const escopoLocalDaSessao = () => {
+    try {
+      const info = window.HBX && window.HBX.info ? window.HBX.info() : {};
+      return String((info && info.sessionScope) || '').trim();
+    } catch (_) { return ''; }
+  };
+  const chavePendencias = (scope) => `rota-pendencias:${String(scope || '').trim()}`;
+  function recuperarPendencias() {
+    const scope = escopoLocalDaSessao();
+    if (!scope || !window.HBX || !window.HBX.cache) return;
+    const cached = window.HBX.cache.get(chavePendencias(scope), null);
+    if (cached && cached.scopeKey && Array.isArray(cached.items)) {
+      vestirPendencias(cached, { persistir: false, semConexao: true });
+    }
+  }
+
+  const dataDaRotaNaTela = () => diaNaTela || diaOperacional();
+  function refDaResposta(r, itens) {
+    if (r && r.continuityRef) return String(r.continuityRef);
+    if (r && r.routeId) return `route:${String(r.routeId)}`;
+    const comDono = (itens || []).find((it) => it && it.entregador && it.entregador.id
+      && it.rotaOrdem !== null && it.rotaOrdem !== undefined);
+    return comDono ? `draft:${Number(comDono.entregador.id)}:${String((r && r.date) || dataDaRotaNaTela())}` : '';
+  }
+
+  function vestirPendencias(resp, opcoes = {}) {
+    if (!resp || !Array.isArray(resp.items)) return false;
+    const localScope = escopoLocalDaSessao();
+    const serverScope = String(resp.scopeKey || '').trim();
+    if (!localScope || !serverScope) return false;
+    const cacheKey = chavePendencias(localScope);
+    const anterior = window.HBX && window.HBX.cache ? window.HBX.cache.get(cacheKey, null) : null;
+    if (anterior && anterior.scopeKey && String(anterior.scopeKey) !== serverScope) {
+      try { window.HBX.cache.remove(cacheKey); } catch (_) {}
+    }
+    refsDoAtor = Array.isArray(resp && resp.ownedRefs) ? resp.ownedRefs.map(String) : [];
+    pendenciasDaRota = (Array.isArray(resp && resp.items) ? resp.items : []).map((p) => ({
+      ref: String(p.ref || ''),
+      date: String(p.date || ''),
+      dateLabel: diaCurto(p.date) || String(p.date || ''),
+      owner: esc(p.owner && p.owner.name ? p.owner.name : 'Funcionário'),
+      ownerId: Number(p.owner && p.owner.id) || 0,
+      remaining: Number(p.remaining) || 0,
+      state: String(p.state || 'planned'),
+      canOpen: p.canOpen !== false,
+      canContinue: !!p.canContinue,
+      canPull: !!p.canPull,
+      canCancel: !!p.canCancel,
+      active: String(p.ref || '') === continuidadeAtiva,
+    })).filter((p) => p.ref && p.remaining > 0);
+    // A pele mostra no máximo dois cartões para não cobrir o mapa. O servidor
+    // conta apenas o que ficou fora do lote dele; some também o que chegou no
+    // lote mas ficou sob esse teto visual, senão 5 pendências viravam 2 sem voz.
+    const ocultasNoServidor = Number(resp.hiddenCount) || 0;
+    const ocultas = Math.max(0, pendenciasDaRota.length - 2) + ocultasNoServidor;
+    if (ocultas > 0) pendenciasDaRota.push({ more: ocultas });
+    pendenciasSemConexao = !!opcoes.semConexao;
+    if (opcoes.persistir !== false && window.HBX && window.HBX.cache) {
+      try {
+        window.HBX.cache.set(cacheKey, {
+          scopeKey: serverScope,
+          ownedRefs: refsDoAtor,
+          items: Array.isArray(resp.items) ? resp.items : [],
+          // Guarda o contrato cru. Na restauração, a conta visual é refeita e
+          // não dobra as que já estavam dentro de `items`.
+          hiddenCount: ocultasNoServidor,
+        });
+      } catch (_) {}
+    }
+    return true;
+  }
+  recuperarPendencias();
   /* ---- O GEOFENCE NATIVO: quem arma é a rota que está NA RUA ---------------
      🔴 O MOTOR SEMPRE ESTEVE INTEIRO; O QUE MORREU FOI O CHAMADOR (10/08).
      `RotaService` (GPS em segundo plano), `ChegadaActivity` (o alarme na tela
@@ -1017,21 +1098,47 @@
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     const dia = diaOperacional();
     let r;
+    const continuidadePedido = window.API.get('/logistica/rota/continuidade').catch(() => null);
     // 🔴 A DATA VIAJA SEMPRE. Sem ela o servidor usa o dia DELE — e ele roda em
     // UTC (medido: nem o container local nem o da VPS têm TZ). Das 21h à
     // meia-noite de Brasília o UTC já é amanhã, então a rota do motorista
     // aparecia VAZIA justo no fim do turno. Achado no g15 às 23:28 (defeito meu
     // da L1: o app velho sempre mandou `?date=`).
-    try { r = await window.API.get(`/logistica/rota?date=${encodeURIComponent(dia)}`); } catch (_) {
+    const rotaNormal = () => window.API.get(`/logistica/rota?date=${encodeURIComponent(dia)}`);
+    try {
+      r = continuidadeAtiva
+        ? await window.API.get(`/logistica/rota/continuidade/abrir?ref=${encodeURIComponent(continuidadeAtiva)}`)
+        : await rotaNormal();
+    } catch (erroRota) {
+      // A pendência pode ter sido concluída noutro aparelho entre dois polls.
+      // Só 404/409 prova que o ref morreu. Falha de rede preserva a fotografia
+      // já aberta/cartão — nunca troca silenciosamente para outra rota.
+      const statusErro = Number(erroRota && (erroRota.status || erroRota.statusCode
+        || (erroRota.body && erroRota.body.statusCode))) || 0;
+      if (continuidadeAtiva && (statusErro === 404 || statusErro === 409)) {
+        continuidadeAtiva = '';
+        try { r = await rotaNormal(); } catch (_) { r = null; }
+      }
+      if (continuidadeAtiva && !r) {
+        pendenciasSemConexao = true;
+        if (typeof window.usarDados === 'function') {
+          window.usarDados('rota', { pendencias: pendenciasDaRota, pendenciasSemConexao });
+        }
+        return;
+      }
+      if (!r) {
       // A rota tem estado próprio e o desenho já previa os dois: o esqueleto
       // (`carregando`) e o aviso com "Tentar de novo" (`vazia`). Só na PRIMEIRA
       // carga — com a rota do dia já na tela, rede ruim não apaga o dia.
       try { if (estadoRota === 'carregando') { estadoRota = 'vazia'; pintar(false); } } catch (_) { /* sem seam */ }
       return;
+      }
     }
     // Só depois que o servidor RESPONDEU: rede caída não pode carimbar o dia,
     // senão o vigia da virada acharia que já cuidou de um dia que nunca chegou.
-    diaNaTela = dia;
+    diaNaTela = String(r.date || dia);
+    const continuidadeResp = await continuidadePedido;
+    if (continuidadeResp) vestirPendencias(continuidadeResp);
 
     // Crédito e caixa do dia vêm de OUTRAS portas — pedidos em paralelo, e
     // cada um que falhar deixa o SEU campo vazio, sem derrubar a tela.
@@ -1075,6 +1182,7 @@
       if (!it || String(it.status || '') !== 'cancelada') return true;
       return it.rotaOrdem !== null && it.rotaOrdem !== undefined;
     });
+    rotaRefAtual = refDaResposta(r, itens);
     const paradas = itens.map((it, i) => traduzirParada(it, i, i > 0));
     // L4 — a folha de chegada precisa da entrega INTEIRA (itens, débito,
     // método padrão), não da linha resumida da lista. Guardada por id, que é o
@@ -1105,12 +1213,15 @@
 
     if (typeof window.PARADAS !== 'undefined') window.PARADAS = paradas;
     else try { PARADAS = paradas; } catch (_) { /* seam ausente: nada a fazer */ }
-    try { estadoRota = estadoDaRota(r); } catch (_) { /* idem */ }
+    try { estadoRota = continuidadeAtiva ? 'consulta' : estadoDaRota(r); } catch (_) { /* idem */ }
     /* O geofence anda JUNTO com a rota que acabou de chegar — depois do
        `estadoRota` (é ele quem diz se está na rua) e antes de pintar, porque
        armar o serviço não depende de tela nenhuma. Best-effort de verdade:
        tudo lá dentro é try/catch, e falha aqui nunca segura a rota do dia. */
-    sincronizarGeofence(r, itens);
+    sincronizarGeofence(
+      continuidadeAtiva ? { ...r, routeStatus: 'ENCERRADA', trackingRequired: false } : r,
+      itens,
+    );
 
     window.usarDados('rota', {
       /* 🔴 A LISTA PRECISA CABER NO FREIO. `usarDados` só repinta quando um
@@ -1123,7 +1234,9 @@
          que também não mexe em KPI nenhum.
          Esta digital não é desenhada em lugar nenhum: ela existe só pra o
          freio enxergar que a lista é OUTRA. */
-      digitalDaLista: `${gestoSujouATela}|${itens.map((it) => `${it.id}:${it.status || ''}`).join('|')}`,
+      digitalDaLista: `${gestoSujouATela}|${itens.map((it) => `${it.id}:${it.status || ''}:${it.mapStatus || ''}:${it.arrivedAt || ''}`).join('|')}`,
+      pendencias: pendenciasDaRota,
+      pendenciasSemConexao,
       /* O subtítulo do nome da tela. Escrito a cada carga da rota (e não uma vez
          no boot) porque o app do motorista ATRAVESSA a meia-noite ligado — quem
          vira o dia é a `viradaDoDia`, e ela recarrega por aqui. */
@@ -1596,7 +1709,11 @@
      leva inteira de "checagem só no boot frio"), então eles entram como
      ATALHO — quem garante é o tique. Custa uma comparação de string por minuto
      e só vai à rede quando a data VIROU de verdade. */
-  const viradaDoDia = () => { if (diaNaTela && diaNaTela !== diaOperacional()) carregarRota(); };
+  const viradaDoDia = () => {
+    // Uma rota antiga aberta para conferência continua na tela até o motorista
+    // escolher Continuar ou Cancelar. A meia-noite nunca a apaga por trás.
+    if (!continuidadeAtiva && diaNaTela && diaNaTela !== diaOperacional()) carregarRota();
+  };
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') viradaDoDia();
   });
@@ -1604,6 +1721,34 @@
   // Mesma espera do tique acima: a virada de um minuto atrasada não custa nada,
   // o tour arrancado da tela custa o passo inteiro.
   setInterval(() => { if (!tourRodando()) viradaDoDia(); }, 60000);
+
+  async function atualizarContinuidades() {
+    if (!temPonte()) return;
+    let resp;
+    try { resp = await window.API.get('/logistica/rota/continuidade'); } catch (_) {
+      // Rede ruim preserva o último retrato, mas ele precisa dizer que é um
+      // retrato — silêncio aqui fazia cartão velho parecer informação ao vivo.
+      pendenciasSemConexao = true;
+      if (typeof window.usarDados === 'function') {
+        window.usarDados('rota', { pendencias: pendenciasDaRota, pendenciasSemConexao });
+      }
+      return;
+    }
+    vestirPendencias(resp);
+    if (typeof window.usarDados === 'function') window.usarDados('rota', { pendencias: pendenciasDaRota, pendenciasSemConexao });
+    // Se outra pessoa puxou esta rota, o aparelho antigo perde a posse no
+    // próximo tique/foco e desarma o geofence. Offline de verdade não permite
+    // revogação instantânea; ao reconectar esta é a primeira ação.
+    if (!continuidadeAtiva && rotaRefAtual && paradasAbertasNaTela() > 0 && !refsDoAtor.includes(rotaRefAtual)) {
+      try { if (window.HBX && typeof window.HBX.stopRoute === 'function') window.HBX.stopRoute(); } catch (_) {}
+      await carregarRota();
+    }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') atualizarContinuidades();
+  });
+  window.addEventListener('focus', atualizarContinuidades);
+  setInterval(() => { if (!tourRodando()) atualizarContinuidades(); }, 60000);
 
   const cargaInicial = () => {
     apagarDemonstracao(); carregarBarra(); carregarRecados(); checkAppUpdate();
@@ -1848,7 +1993,6 @@
      (escrita pelo `carregarRota`) e o botão do pé vira "Iniciar rota". */
   let previaSeq = 0;
   const PREVIA = [];                  // as paradas da prévia, pro Salvar rota
-
   /* ------------------------------------------------------------------------
      🔴 A LISTA JÁ CHEGA NA ORDEM DE QUEM VAI DIRIGIR (dono, 08/08: "montar
      rota — carregar em ordem de distância, já carregar montado pelo GPS").
@@ -2652,6 +2796,132 @@
   }
 
   /* ------------------------------------------------------------------------
+     CONTINUIDADE DA ROTA — dono, virada do dia e handoff exato.
+
+     Esta frente nunca chama a limpeza ampla do dia. Toda ação leva o `ref`
+     validado pelo servidor e só depois recarrega a fonte. A fila offline fecha
+     o portão: rota não troca de mãos nem é cancelada enquanto este aparelho
+     ainda guarda entrega/comprovante sem ACK.
+     ------------------------------------------------------------------------ */
+  const refDoAlvo = (alvo) => String((alvo && alvo.dataset && alvo.dataset.ref) || '');
+  const ownerDoAlvo = (alvo) => Number(alvo && alvo.dataset && alvo.dataset.owner) || undefined;
+
+  async function filaOfflinePronta() {
+    try {
+      const ler = () => (window.HBX && window.HBX.offline && window.HBX.offline.status
+        ? window.HBX.offline.status() : { pendingOperations: 0, pendingProofs: 0 });
+      let st = ler() || {};
+      if ((Number(st.rejected) || 0) > 0) {
+        window.portao({
+          tom: 'alerta', ico: 'alert', titulo: 'Há itens que precisam de revisão',
+          sub: 'Uma entrega ou comprovante foi recusado na sincronização. Atualize a rota e resolva esse item antes de mover ou cancelar.',
+          acoes: [['Fechar', '']],
+        });
+        return false;
+      }
+      if ((Number(st.pendingOperations) || 0) + (Number(st.pendingProofs) || 0) <= 0) return true;
+      if (window.HBX.offline && window.HBX.offline.flush) window.HBX.offline.flush();
+      await new Promise((resolve) => setTimeout(resolve, 1600));
+      st = ler() || {};
+      if ((Number(st.rejected) || 0) > 0) {
+        window.portao({
+          tom: 'alerta', ico: 'alert', titulo: 'Há itens que precisam de revisão',
+          sub: 'A sincronização terminou com item recusado. Atualize a rota antes de mover ou cancelar.',
+          acoes: [['Fechar', '']],
+        });
+        return false;
+      }
+      if ((Number(st.pendingOperations) || 0) + (Number(st.pendingProofs) || 0) <= 0) return true;
+      window.portao({
+        tom: 'alerta', ico: 'alert', titulo: 'Sincronize antes de mover',
+        sub: 'Este aparelho ainda guarda entregas ou comprovantes. Conecte à internet e toque em Sincronizar.',
+        acoes: [['Fechar', '']],
+      });
+      return false;
+    } catch (_) {
+      window.portao({
+        tom: 'alerta', ico: 'alert', titulo: 'Não consegui conferir a fila',
+        sub: 'Por segurança, conecte à internet e toque em Sincronizar antes de mover ou cancelar esta rota.',
+        acoes: [['Fechar', '']],
+      });
+      return false;
+    }
+  }
+
+  async function abrirRotaPendente(alvo) {
+    const ref = refDoAlvo(alvo);
+    if (!ref) return;
+    continuidadeAtiva = ref;
+    await carregarRota();
+    if (typeof window.ir === 'function') window.ir('rota');
+  }
+
+  async function continuarRotaPendente(alvo) {
+    const ref = refDoAlvo(alvo);
+    const expectedOwnerId = ownerDoAlvo(alvo);
+    if (!ref) return;
+    await comTravaFila(async () => {
+      if (!(await filaOfflinePronta())) return false;
+      let resposta;
+      try { resposta = await window.API.post('/logistica/rota/continuidade/retomar', { ref, expectedOwnerId }); }
+      catch (e) { avisoErro(e); return false; }
+      continuidadeAtiva = '';
+      esquecerRotaCarregada();
+      await carregarRota();
+      if (resposta && resposta.planningPending) avisoErro(new Error(resposta.message));
+      if (typeof window.ir === 'function') window.ir('rota');
+      return true;
+    });
+  }
+
+  function puxarRotaPendente(alvo) {
+    const ref = refDoAlvo(alvo);
+    const expectedOwnerId = ownerDoAlvo(alvo);
+    if (!ref || typeof window.portao !== 'function') return;
+    window.portao({
+      tom: 'alerta', ico: 'route', titulo: 'Puxar esta rota?',
+      sub: 'As paradas ainda não iniciadas passam para você. A rota da outra pessoa não é apagada.',
+      acoes: [['Não', ''], ['Puxar', 'principal']], classe: 'duas',
+    });
+    const botao = naCamada('.portao-wrap .principal');
+    if (!botao) return;
+    botao.addEventListener('click', () => comTravaFila(async () => {
+      if (!(await filaOfflinePronta())) return false;
+      let resposta;
+      try { resposta = await window.API.post('/logistica/rota/continuidade/puxar', { ref, expectedOwnerId }); }
+      catch (e) { avisoErro(e); return false; }
+      continuidadeAtiva = '';
+      esquecerRotaCarregada();
+      await carregarRota();
+      if (resposta && resposta.planningPending) avisoErro(new Error(resposta.message));
+      if (typeof window.ir === 'function') window.ir('rota');
+      return true;
+    }), { once: true });
+  }
+
+  function cancelarRotaPendente(alvo) {
+    const ref = refDoAlvo(alvo);
+    const expectedOwnerId = ownerDoAlvo(alvo);
+    if (!ref || typeof window.portao !== 'function') return;
+    window.portao({
+      tom: 'alerta', ico: 'close', titulo: 'Cancelar esta rota?',
+      sub: 'Só as paradas abertas desta rota serão canceladas.',
+      acoes: [['Não', ''], ['Sim, cancelar', 'principal']], classe: 'duas', perigo: true,
+    });
+    const botao = naCamada('.portao-wrap .principal');
+    if (!botao) return;
+    botao.addEventListener('click', () => comTravaFila(async () => {
+      if (!(await filaOfflinePronta())) return false;
+      try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref, expectedOwnerId }); }
+      catch (e) { avisoErro(e); return false; }
+      if (continuidadeAtiva === ref) continuidadeAtiva = '';
+      esquecerRotaCarregada();
+      await carregarRota();
+      if (typeof window.ir === 'function') window.ir('rota');
+      return true;
+    }), { once: true });
+  }
+  /* ------------------------------------------------------------------------
      A ROTA MONTADA VISTA PELA LISTA DA MONTAGEM.
 
      O elo é cliente+porta — o mesmo par que o espaço usa. `ENTREGAS` guarda as
@@ -2856,18 +3126,22 @@
     const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;
     botao.addEventListener('click', () => depoisDaTrava(async () => {
-      try { await window.API.post('/logistica/rota/limpar-dia', { date: hojeISO() }); } catch (e) { avisoErro(e); return false; }
+      if (!rotaRefAtual) {
+        avisoErro(new Error('Atualize a rota antes de cancelar.'));
+        return false;
+      }
+      if (!(await filaOfflinePronta())) return false;
+      try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref: rotaRefAtual }); }
+      catch (e) { avisoErro(e); return false; }
       esquecerRotaCarregada();
       await carregarRota();
       return true;
     }, depois), { once: true });
   }
 
-  /* 🔴 409 ROTA_DE_OUTRO_MOTORISTA — o portão fala QUEM já montou a rota do
-     dia. Sem `podeForcar` é só recado (o dedo não pode nada aqui, e nasce
-     sem 2ª ação). Com `podeForcar`, "Forçar cancelamento e puxar" faz
-     exatamente o que o dono descreveu: confirma, limpa o dia, MONTA de novo
-     — sozinho, sem pedir o toque duas vezes. */
+  /* 409 ROTA_DE_OUTRO_MOTORISTA — fala quem montou e oferece o handoff exato.
+     Nada é apagado: só as paradas abertas do dono/data informados no conflito
+     podem mudar de mãos. */
   function portaoOutroMotorista(body) {
     if (typeof window.portao !== 'function') return;
     const podeForcar = !!(body && body.podeForcar);
@@ -2878,11 +3152,21 @@
     }
     window.portao({
       tom: 'trava', ico: 'alert', titulo: 'Rota já montada', sub,
-      acoes: [['Fechar', ''], ['Forçar cancelamento e puxar', 'principal']], classe: 'duas',
+      acoes: [['Fechar', ''], ['Puxar rota', 'principal']], classe: 'duas',
     });
     const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;
-    botao.addEventListener('click', () => confirmarLimparDia(() => montarRota()), { once: true });
+    botao.addEventListener('click', async () => {
+      let resp;
+      try { resp = await window.API.get('/logistica/rota/continuidade'); } catch (e) { return avisoErro(e); }
+      const ids = new Set((Array.isArray(body && body.montadores) ? body.montadores : [])
+        .map((m) => Number(m && m.userId)).filter((id) => id > 0));
+      const data = String((body && body.date) || hojeISO());
+      const alvo = (resp && Array.isArray(resp.items) ? resp.items : []).find((p) => p && p.canPull
+        && ids.has(Number(p.owner && p.owner.id)) && String(p.date || '') === data);
+      if (!alvo) return avisoErro(new Error('Não há paradas abertas e transferíveis nesta rota.'));
+      puxarRotaPendente({ dataset: { ref: String(alvo.ref), owner: String(alvo.owner && alvo.owner.id || '') } });
+    }, { once: true });
   }
 
   /* 🔴 402 ASSENTOS_ESGOTADOS — mesma língua: o corpo é a frase do servidor,
@@ -3691,6 +3975,10 @@
      a rota ACTIVE, que é justamente quando o motorista arrasta. */
   document.addEventListener('hbx:ordem', (ev) => {
     if (!temPonte()) return;
+    if (continuidadeAtiva) {
+      ev.preventDefault();
+      return avisoErro(new Error('Esta rota está em modo de consulta. Continue ou puxe antes de alterar a ordem.'));
+    }
     // A MONTAGEM fala por POSIÇÃO: lá a entrega ainda não existe, então não há
     // id pra mandar ao servidor — e não há servidor pra chamar. Sai antes.
     if (ev.detail && Array.isArray(ev.detail.previa)) {
@@ -3706,7 +3994,12 @@
         // A origem entra aqui também: `planRouteManual` não reordena nada (a
         // ordem é a do dedo), mas é ela que dá a PERNA real da 1ª parada — sem
         // origem o trecho até o primeiro cliente sai zerado na tela.
-        await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ordemManual: ids, ...origemGps() });
+        // A lista inteira vai como conjunto E sequência: escolher o cliente 3
+        // não puxa para este planejamento uma parada alheia que entrou no dia
+        // por outro aparelho enquanto o motorista tocava no mapa.
+        await window.API.post('/logistica/rota/planejar', {
+          date: dataDaRotaNaTela(), deliveryIds: ids, ordemManual: ids, ...origemGps(),
+        });
       } catch (e) {
         // A tela está mostrando a ordem NOVA e o servidor ficou com a velha.
         // Repintar primeiro DESFAZ a mentira; o aviso vem depois, senão o
@@ -3747,7 +4040,6 @@
       await carregarRota();
     });
   });
-
   /* ------------------------------------------------------------------------
      7. L3a — O MAPA DE VERDADE DENTRO DA CASCA DO MOCK.
      O mock ILUSTRA o mapa em SVG: serve pra decidir a casca, não pra guiar
@@ -3948,33 +4240,65 @@
   const PINOS_NUMERADOS_ATE = 12;
   const PINOS_ZOOM_CORTE = 13.6;
 
+  function vestirPino(el, p, proximoId) {
+    const estado = String(p.mapStatus || '');
+    el.classList.remove('is-next', 'is-arrived', 'is-delivered', 'is-failed', 'is-cancelled');
+    if (String(p.id) === String(proximoId)) el.classList.add('is-next');
+    if (estado === 'delivered' || p.st === 'entregue') el.classList.add('is-delivered');
+    else if (estado === 'failed') el.classList.add('is-failed');
+    else if (estado === 'cancelled' || p.st === 'cancelada') el.classList.add('is-cancelled');
+    else if (estado === 'arrived' || p.chegou) el.classList.add('is-arrived');
+    const sinal = el.classList.contains('is-delivered') ? '✓'
+      : el.classList.contains('is-failed') ? '!'
+        : el.classList.contains('is-cancelled') ? '×' : String(p.n);
+    el.textContent = sinal;
+    el.dataset.parada = String(p.id || '');
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('aria-label', `${p.nome || 'Parada'} · ${sinal === '✓' ? 'entregue' : sinal === '!' ? 'não entregue' : `parada ${p.n}`}`);
+    if (!el.__hbxClique) {
+      el.__hbxClique = true;
+      const abrir = (ev) => {
+        ev.stopPropagation();
+        const id = String(el.dataset.parada || '');
+        if (id) document.dispatchEvent(new CustomEvent('hbx:mapa-parada', { detail: { id } }));
+      };
+      el.addEventListener('click', abrir);
+      el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') abrir(ev); });
+    }
+  }
+
   /** os pinos numerados: só se refaz quando a LISTA muda, não a cada repinte */
   function sincronizarPinos(casa) {
     const paradas = paradasDoMapa();
-    const chave = paradas.map((p) => `${p.n}:${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join('|');
+    const proximo = paradas.find((p) => p.st !== 'entregue' && p.st !== 'cancelada');
+    const chave = paradas.map((p) => `${p.id}:${p.n}:${p.mapStatus || ''}:${p.chegou ? 1 : 0}:${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join('|');
     if (chave === casa.chave) return;
     casa.chave = chave;
-    /* 🔴 O PINO É REAPROVEITADO POR NÚMERO (item 9, 09/08). Derrubar os N e
+    /* O pino é reaproveitado pela IDENTIDADE da entrega. O número muda quando
+       o motorista escolhe "Ir agora"; casar pelo número trocaria dois clientes
+       de marcador e deixaria o ✓ no lugar errado. Derrubar os N e
        recriar os N a cada mudança de lista era pagar N remoções + N nós novos
        + N marcadores re-registrados no maplibre pra trocar, às vezes, UMA
        coordenada. Agora: quem continua, `setLngLat`; quem entrou, nasce; quem
        saiu, sai. */
     const vivos = new Set();
     paradas.forEach((p) => {
-      const k = String(p.n);
+      const k = String(p.id);
       vivos.add(k);
       const ja = casa.pinos.get(k);
       if (ja) {
         try { ja.setLngLat([p.lng, p.lat]); } catch (_) { /* mapa saindo de cena */ }
+        try { vestirPino(ja.getElement(), p, proximo && proximo.id); } catch (_) {}
         return;
       }
       const pino = document.createElement('div');
-      pino.textContent = k;
       /* A PELE SAIU DO INLINE (Lei 1: nada de cor solta em tela). Era um
          `cssText` com as cores escritas aqui dentro, invisível pro fiscal e
          impossível de trocar junto com o resto da casca. Agora é a classe
          `.map-pino` do mock, que é onde toda peça deste app veste. */
       pino.className = 'map-pino';
+      vestirPino(pino, p, proximo && proximo.id);
       casa.pinos.set(k, new casa.gl.Marker({ element: pino })
         .setLngLat([p.lng, p.lat]).addTo(casa.mapa));
     });
@@ -4603,7 +4927,6 @@
     try { casa.alvo.appendChild(cartao); } catch (_) { return null; }
     return cartao;
   }
-
   /* ---- a cena ---------------------------------------------------------------- */
 
   /* 🔴 "NA TELA" NÃO É `isConnected`. O mapa que sai de cena não é destruído: ele
@@ -10548,6 +10871,7 @@
      (07/08): "não tem terça nem domingo nas rotas, e ainda está aparecendo". */
   let diasComGente = null;
   let ficha = null;          // { id, item, detalhe, local, telefone, dias }
+  let historicoCliente = null; // { clienteId, items, nextCursor, carregando, erro }
   let clientesEmVoo = false;
 
   const iniciais = (nome) => String(nome || '')
@@ -10631,6 +10955,7 @@
     // A ficha abre JÁ com o que a lista sabe; o detalhe entra quando chegar.
     // Tela de cadastro que fica em branco esperando rede é tela quebrada.
     // rascunho ZERADO: cliente novo mostra o cadastro DELE, nunca sobra do anterior.
+    historicoCliente = null;
     ficha = {
       id: String(id),
       item,
@@ -11460,7 +11785,116 @@
     r.duplicado = achada || null;
     publicarRapida();
   }
+  /* ------------------------------------------------------------------------
+     HISTÓRICO OPERACIONAL DO CLIENTE
 
+     O financeiro é só uma parte da ficha. Esta folha é o registro da VISITA:
+     entregue, pago ou sem atendimento, com data e hora de São Paulo, itens e
+     motivo. A API já existia e já está na allowlist do APK; a fusão só havia
+     deixado o chamador de fora da pele nova.
+     ------------------------------------------------------------------------ */
+  function quandoDoHistorico(iso) {
+    const ymd = diaEmSp(iso);
+    if (!ymd) return '';
+    const hm = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit',
+    }).format(new Date(iso));
+    return `${ymd.slice(8, 10)}/${ymd.slice(5, 7)} · ${hm}`;
+  }
+
+  function leituraDoHistorico(linha) {
+    const tipo = String(linha && linha.tipo || '');
+    if (tipo === 'pago') return { titulo: 'Entregue e pago', icone: 'check', tom: 'lime' };
+    if (tipo === 'sem_atendimento') return { titulo: 'Sem atendimento', icone: 'alert', tom: '' };
+    return { titulo: 'Entregue, a receber', icone: 'route', tom: '' };
+  }
+
+  function linhaDoHistorico(linha) {
+    const leitura = leituraDoHistorico(linha);
+    const metodo = { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão' }[
+      String(linha && linha.receiptMethod || '').toLowerCase()
+    ] || '';
+    const detalhes = [
+      quandoDoHistorico(linha && linha.createdAt), linha && linha.itensResumo,
+      metodo, linha && linha.motivo,
+    ].filter(Boolean).map(esc).join(' · ');
+    return `<div class="item-linha"><span class="ava${leitura.tom ? ` ${leitura.tom}` : ''}" style="width:32px;height:32px">${ic(leitura.icone,16)}</span>
+      <span><strong>${esc(linha && linha.titulo || leitura.titulo)}</strong>${detalhes ? `<span>${detalhes}</span>` : ''}</span></div>`;
+  }
+
+  function corpoDoHistorico() {
+    const h = historicoCliente;
+    if (!h || h.carregando && !h.items.length) {
+      return '<div class="box"><div class="box-t">Carregando histórico…</div></div>';
+    }
+    if (!h.items.length && h.erro) {
+      return `<div class="box"><div class="box-t">Não consegui carregar o histórico</div><div class="box-s">${esc(h.erro)}</div>
+        <button class="act full" style="margin-top:10px;justify-content:center" data-acao="abrir-historico-cliente">Tentar de novo</button></div>`;
+    }
+    if (!h.items.length) {
+      return '<div class="box"><div class="box-t">Sem visitas registradas</div><div class="box-s">As próximas entregas e atendimentos aparecem aqui.</div></div>';
+    }
+    const aviso = h.erro
+      ? `<div class="banner alerta" style="margin-top:8px">${ic('alert',15)}<span>${esc(h.erro)}</span></div>`
+      : '';
+    const mais = h.nextCursor
+      ? `<button class="act full" style="margin-top:9px;justify-content:center" data-acao="historico-cliente-mais"${h.carregando ? ' disabled aria-busy="true"' : ''}>${h.carregando ? 'Carregando…' : 'Ver mais'}</button>`
+      : '';
+    return `<div class="cartao-lista" style="padding:0 11px">${h.items.map(linhaDoHistorico).join('')}</div>${aviso}${mais}`;
+  }
+
+  function mostrarHistoricoCliente() {
+    if (!historicoCliente || typeof window.portao !== 'function') return;
+    const nome = ficha && (ficha.detalhe?.name || ficha.item?.name) || 'Cliente';
+    window.portao({
+      tom: 'info', ico: 'clock', titulo: 'Histórico',
+      sub: `${esc(nome)} · entregas e atendimentos`,
+      corpo: corpoDoHistorico(),
+      acoes: [['Fechar', '', true]],
+    });
+  }
+
+  async function abrirHistoricoCliente() {
+    if (!ficha || !ficha.id || !temPonte()) return;
+    const h = { clienteId: String(ficha.id), items: [], nextCursor: '', carregando: true, erro: '' };
+    historicoCliente = h;
+    mostrarHistoricoCliente();
+    try {
+      const r = await window.API.get(`/logistica/clientes/${encodeURIComponent(h.clienteId)}/historico?limit=30`);
+      if (historicoCliente !== h || !ficha || ficha.id !== h.clienteId) return;
+      h.items = Array.isArray(r && r.items) ? r.items : [];
+      h.nextCursor = String(r && r.nextCursor || '');
+    } catch (_) {
+      if (historicoCliente !== h || !ficha || ficha.id !== h.clienteId) return;
+      h.erro = 'Confira a conexão e tente novamente.';
+    } finally {
+      if (historicoCliente !== h || !ficha || ficha.id !== h.clienteId) return;
+      h.carregando = false;
+      mostrarHistoricoCliente();
+    }
+  }
+
+  async function carregarMaisHistoricoCliente() {
+    const h = historicoCliente;
+    if (!h || h.carregando || !h.nextCursor || !temPonte()) return;
+    h.carregando = true;
+    h.erro = '';
+    mostrarHistoricoCliente();
+    try {
+      const r = await window.API.get(`/logistica/clientes/${encodeURIComponent(h.clienteId)}/historico?limit=30&cursor=${encodeURIComponent(h.nextCursor)}`);
+      if (historicoCliente !== h || !ficha || ficha.id !== h.clienteId) return;
+      const novos = Array.isArray(r && r.items) ? r.items : [];
+      h.items.push(...novos);
+      h.nextCursor = String(r && r.nextCursor || '');
+    } catch (_) {
+      if (historicoCliente !== h || !ficha || ficha.id !== h.clienteId) return;
+      h.erro = 'Não consegui trazer mais visitas agora.';
+    } finally {
+      if (historicoCliente !== h || !ficha || ficha.id !== h.clienteId) return;
+      h.carregando = false;
+      mostrarHistoricoCliente();
+    }
+  }
   /* ========================================================================
      L6c — O VÍNCULO CLIENTE × PRODUTO (12/08, ordem do dono: *"não quero
      somente visualizar produtos… a ficha precisa voltar a permitir administrar
@@ -13156,8 +13590,54 @@
     // inventada, ver `aparaChegada`).
     const agora = new Date().toISOString();
     window.HBX.cache.set(chave, agora);
+    // A chegada muda o pino no mesmo quadro, sem depender da rede nem do
+    // navegador externo. O desfecho posterior virá do servidor.
+    try {
+      const lista = (typeof PARADAS !== 'undefined' ? PARADAS : []) || [];
+      const parada = lista.find((p) => String(p && p.id) === String(id));
+      if (parada) { parada.chegou = true; parada.mapStatus = 'arrived'; }
+      if (typeof pintar === 'function') pintar(false);
+    } catch (_) {}
     return agora;
   }
+
+  document.addEventListener('hbx:mapa-parada', (ev) => {
+    const id = String((ev && ev.detail && ev.detail.id) || '');
+    if (!id) return;
+    const reg = ENTREGAS.get(id);
+    if (!reg) return;
+    if (continuidadeAtiva) {
+      return window.portao({
+        tom: 'info', ico: 'route', titulo: 'Somente consulta',
+        sub: 'Use Continuar, Puxar ou Cancelar no cartão desta rota antes de alterar a ordem.',
+        acoes: [['Fechar', '']],
+      });
+    }
+    const st = String((reg.item && reg.item.status) || '');
+    if (st === 'entregue' || st === 'cancelada') {
+      return window.portao({
+        tom: 'info', ico: st === 'entregue' ? 'check' : 'close',
+        titulo: reg.item.cliente && reg.item.cliente.nome ? reg.item.cliente.nome : 'Parada finalizada',
+        sub: st === 'entregue' ? 'Esta entrega já foi concluída.' : 'Esta parada foi encerrada sem entrega.',
+        acoes: [['Fechar', '']],
+      });
+    }
+    const fila = paradasPendentes().map((p) => String(p && p.item && p.item.id || '')).filter(Boolean);
+    const jaPrimeiro = fila[0] === id;
+    window.portao({
+      tom: 'info', ico: 'route',
+      titulo: reg.item.cliente && reg.item.cliente.nome ? reg.item.cliente.nome : `Parada ${reg.n}`,
+      sub: jaPrimeiro ? 'Este já é o próximo cliente.' : 'Colocar este cliente como a próxima parada? O restante mantém a ordem atual.',
+      acoes: [['Fechar', ''], [jaPrimeiro ? 'Abrir parada' : 'Ir agora', 'principal']], classe: 'duas',
+    });
+    const botao = naCamada('.portao-wrap .principal');
+    if (!botao) return;
+    botao.addEventListener('click', () => {
+      if (jaPrimeiro) return abrirParada(id);
+      const ordem = [id, ...fila.filter((outro) => outro !== id)];
+      document.dispatchEvent(new CustomEvent('hbx:ordem', { detail: { ids: ordem } }));
+    }, { once: true });
+  });
 
   const somaItens = (item) => (Array.isArray(item.itens) ? item.itens : []);
 
@@ -13503,6 +13983,10 @@
     }))),
     iniciar: () => comOrdemSalva(() => iniciarRota({ escopo: 'dia' })),
     'cancelar-rota': cancelarRota,
+    'rota-pendente-abrir': abrirRotaPendente,
+    'rota-pendente-continuar': continuarRotaPendente,
+    'rota-pendente-puxar': puxarRotaPendente,
+    'rota-pendente-cancelar': cancelarRotaPendente,
     'entregue-pagou': () => confirmarEntrega(''),
     'entregue-marcou': () => confirmarEntrega('fiado'),
     'confirmar-venda': () => confirmarEntrega(''),
@@ -13735,6 +14219,8 @@
     // Os dois chips do Financeiro da ficha: mexem na memória, o Salvar grava.
     if (chave === 'forma-cliente') return mexerFinanceiro({ forma: String(alvo.dataset.forma || 'na_hora') });
     if (chave === 'metodo-cliente') return mexerFinanceiro({ metodo: String(alvo.dataset.metodo || '') });
+    if (chave === 'abrir-historico-cliente') return abrirHistoricoCliente();
+    if (chave === 'historico-cliente-mais') return carregarMaisHistoricoCliente();
     if (chave === 'abrir-salva') return abrirSalva(alvo.dataset.salva);
     /* AS TRÊS DO ANEXO DO RECADO (12/08, L8d). O argumento é o id do RECADO —
        nunca o do cliente/rota: quem guarda o estado da decisão é o recado, e

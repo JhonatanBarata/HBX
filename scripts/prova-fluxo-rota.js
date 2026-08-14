@@ -176,6 +176,7 @@ const PONTE = ({
       },
       remove(key) { try { localStorage.removeItem(`hbx:${key}`); } catch (_) {} },
     },
+    info() { return { sessionScope: 'prova-fluxo:7:9' }; },
     uuid() { window.__uuidSeq = (window.__uuidSeq || 0) + 1; return `prova-${window.__uuidSeq}`; },
     api(caminho, opcoes) {
       const metodo = (opcoes && opcoes.method) || 'GET';
@@ -281,6 +282,8 @@ const PONTE = ({
             message: `Essa rota já foi montada por: ${S.outroMotorista.motorista}.`,
             montadaPor: S.outroMotorista.motorista,
             podeForcar: !!S.outroMotorista.podeForcar,
+            montadores: [{ userId: Number(S.outroMotorista.userId) || 77, nome: S.outroMotorista.motorista }],
+            date: S.hoje,
           });
         }
         const manual = corpo && Array.isArray(corpo.ordemManual) ? corpo.ordemManual.map(String) : null;
@@ -306,6 +309,39 @@ const PONTE = ({
       }
       if (caminho.indexOf('/logistica/rota/conferir') === 0) return R({ items: [] });
       if (caminho.indexOf('/logistica/rota/checar-enderecos') === 0) return R({ problemas: [] });
+      if (caminho.indexOf('/logistica/rota/continuidade/puxar') === 0 && metodo === 'POST') {
+        S.routeStatus = 'PLANNED';
+        S.outroMotorista = null;
+        return R({ ok: true, date: S.hoje, moved: abertas().length, planningPending: false });
+      }
+      if (caminho.indexOf('/logistica/rota/continuidade/cancelar') === 0 && metodo === 'POST') {
+        S.entregas = []; S.routeStatus = '';
+        return R({ ok: true, resumo: { canceladas: 1 } });
+      }
+      if (caminho.indexOf('/logistica/rota/continuidade') === 0 && metodo === 'GET') {
+        const refAtual = `draft:9:${S.hoje}`;
+        const outro = S.outroMotorista && S.outroMotorista.usado ? {
+          ref: `draft:${Number(S.outroMotorista.userId) || 77}:${S.hoje}`,
+          date: S.hoje,
+          dateLabel: 'Hoje',
+          owner: { id: Number(S.outroMotorista.userId) || 77, name: S.outroMotorista.motorista },
+          remaining: abertas().length,
+          state: 'planned',
+          canOpen: true,
+          canContinue: false,
+          canPull: true,
+          canCancel: true,
+        } : null;
+        return R({
+          today: S.hoje,
+          scopeKey: '7:9',
+          ownedRefs: abertas().length && S.routeStatus ? [refAtual] : [],
+          items: outro ? [outro] : [],
+          primary: outro,
+          hiddenCount: 0,
+          hasMore: false,
+        });
+      }
       if (caminho.indexOf('/logistica/rota/iniciar') === 0 && metodo === 'POST') {
         /* cena S: a 1ª tentativa de iniciar bate no 402 — assentos esgotados
            hoje. `usado` garante que é SÓ a primeira; comprar o passe zera
@@ -409,10 +445,12 @@ const PONTE = ({
       if (caminho.indexOf('/logistica/rota-modelos') === 0) return R([]);
       if (caminho.indexOf('/logistica/rota') === 0 && metodo === 'GET') {
         return R({
+          date: S.hoje,
           routeStatus: S.routeStatus,
           items: S.entregas.map((e) => ({
             id: e.id, status: e.status, rotaOrdem: e.rotaOrdem, origem: e.origem,
             cliente: e.cliente, quantidade: 1,
+            entregador: { id: 9, nome: 'Motorista Prova' },
           })),
           moduloFinanceiroAtivo: false, avisoChegandoAtivo: false,
         });
@@ -695,8 +733,8 @@ const SO_MEDIR = process.argv.includes('--antes');
      aqui é AVULSO, crie uma parte avulsa"). A 1ª versão desta prova cobrava o
      contrário — o chip de HOJE nascendo de parada/rascunho — e foi exatamente
      o "Dom" fantasma que ele reprovou na tela. */
-  eh('A6 · chip de dia so nasce da AGENDA (nenhum "Dom" fantasma de avulsa)',
-    !tA0.chips.some((c) => c[0] === 'Dom' || c[0] === 'Hoje'), tA0.chips.map((c) => c[0]).join(' '));
+  eh('A6 · chip de dia só nasce da AGENDA (a avulsa de hoje não cria outro chip)',
+    tA0.chips.length === 2 && !tA0.chips.some((c) => c[0] === 'Hoje'), tA0.chips.map((c) => c[0]).join(' '));
   /* As duas HERANÇAS da faxina: o que o dono mandou tirar continua fora. O
      avulso segue no TOPO sem precisar de rótulo — quem ordena é a partição da
      ponte (`clientesOrdenados`), nunca o cabeçalho. */
@@ -1487,19 +1525,19 @@ const SO_MEDIR = process.argv.includes('--antes');
   nota(`[R] 409 outro motorista: portao="${tR0.portao}" · sub="${tR0.portaoSub}" · botoes=${JSON.stringify(tR0.portaoBotoes)}`);
   eh('R1 · o portao fala QUEM montou a rota, com titulo proprio',
     tR0.portao === 'Rota já montada' && /Carlos Motorista/.test(tR0.portaoSub), `${tR0.portao} | ${tR0.portaoSub}`);
-  eh('R2 · com podeForcar, o botao "Forcar cancelamento e puxar" existe',
-    tR0.portaoBotoes.some((b) => /Forçar cancelamento e puxar/.test(b)), JSON.stringify(tR0.portaoBotoes));
+  eh('R2 · com podeForcar, o botao "Puxar rota" existe',
+    tR0.portaoBotoes.some((b) => /Puxar rota/.test(b)), JSON.stringify(tR0.portaoBotoes));
 
   await p.evaluate(() => {
-    const alvo = [...document.querySelectorAll('.portao-wrap button')].find((b) => /Forçar cancelamento/.test(b.textContent));
-    if (!alvo) throw new Error('sem o botao "Forcar cancelamento e puxar"');
+    const alvo = [...document.querySelectorAll('.portao-wrap button')].find((b) => /Puxar rota/.test(b.textContent));
+    if (!alvo) throw new Error('sem o botao "Puxar rota"');
     alvo.click();
   });
   await p.waitForTimeout(500);
   const tR1 = await espiar();
   nota(`[R] apos forcar: portao="${tR1.portao}"`);
-  eh('R3 · o forcar abre a confirmacao PADRAO da casa (a mesma do Cancelar)',
-    /Tem certeza que deseja cancelar/i.test(tR1.portao), tR1.portao);
+  eh('R3 · puxar abre confirmação explícita sem prometer apagar a rota antiga',
+    /Puxar esta rota/i.test(tR1.portao), tR1.portao);
 
   await zerar();
   await p.evaluate(() => {
@@ -1510,10 +1548,11 @@ const SO_MEDIR = process.argv.includes('--antes');
   const tR2 = await espiar();
   const postsR = await posts();
   nota(`[R] apos confirmar "Sim": POSTs=${postsR.join(' , ')} · stops=${tR2.nStops} · entregas=${tR2.entregasNoServidor}`);
-  eh('R4 · confirmar chama o limpar-dia', postsR.indexOf('/logistica/rota/limpar-dia') >= 0, postsR.join(','));
-  eh('R5 · e REMONTA sozinho, sem novo toque do dedo (planejar saiu de novo)',
-    postsR.indexOf('/logistica/rota/planejar') >= 0, postsR.join(','));
-  eh('R6 · a 2a tentativa entrou: a rota nao ficou vazia',
+  eh('R4 · confirmar chama a transferência exata',
+    postsR.indexOf('/logistica/rota/continuidade/puxar') >= 0, postsR.join(','));
+  eh('R5 · puxar nunca chama a limpeza ampla do dia',
+    postsR.indexOf('/logistica/rota/limpar-dia') < 0, postsR.join(','));
+  eh('R6 · a rota transferida não ficou vazia',
     tR2.entregasNoServidor === AGENDA_HOJE.length, `entregas=${tR2.entregasNoServidor}`);
 
   /* ===================================================================
@@ -1612,7 +1651,9 @@ const SO_MEDIR = process.argv.includes('--antes');
   const pendenteU1 = await p.evaluate(() => !!(window.HBXCena && window.HBXCena.pendente()));
   nota(`[U] cancelar: POSTs=${postsU.join(' , ')} · tela=${tU1.tela} · dock="${tU1.dock}"`);
   nota(`    pedido de cena: apos montar=${pendenteU} · apos cancelar=${pendenteU1}`);
-  eh('U2 · confirmar chama o limpar-dia', postsU.indexOf('/logistica/rota/limpar-dia') >= 0, postsU.join(','));
+  eh('U2 · confirmar chama o cancelamento exato da continuidade',
+    postsU.indexOf('/logistica/rota/continuidade/cancelar') >= 0
+      && postsU.indexOf('/logistica/rota/limpar-dia') < 0, postsU.join(','));
   eh('U3 · a tela termina na ROTA, limpa, no estado de montar',
     tU1.tela === 'rota' && /Montar rota/i.test(tU1.dock), `tela=${tU1.tela} dock="${tU1.dock}"`);
   eh('U4 · o pedido de cena NAO sobrevive ao cancelar', pendenteU1 === false,

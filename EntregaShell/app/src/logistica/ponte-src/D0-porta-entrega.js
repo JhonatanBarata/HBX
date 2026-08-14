@@ -44,8 +44,54 @@
     // inventada, ver `aparaChegada`).
     const agora = new Date().toISOString();
     window.HBX.cache.set(chave, agora);
+    // A chegada muda o pino no mesmo quadro, sem depender da rede nem do
+    // navegador externo. O desfecho posterior virá do servidor.
+    try {
+      const lista = (typeof PARADAS !== 'undefined' ? PARADAS : []) || [];
+      const parada = lista.find((p) => String(p && p.id) === String(id));
+      if (parada) { parada.chegou = true; parada.mapStatus = 'arrived'; }
+      if (typeof pintar === 'function') pintar(false);
+    } catch (_) {}
     return agora;
   }
+
+  document.addEventListener('hbx:mapa-parada', (ev) => {
+    const id = String((ev && ev.detail && ev.detail.id) || '');
+    if (!id) return;
+    const reg = ENTREGAS.get(id);
+    if (!reg) return;
+    if (continuidadeAtiva) {
+      return window.portao({
+        tom: 'info', ico: 'route', titulo: 'Somente consulta',
+        sub: 'Use Continuar, Puxar ou Cancelar no cartão desta rota antes de alterar a ordem.',
+        acoes: [['Fechar', '']],
+      });
+    }
+    const st = String((reg.item && reg.item.status) || '');
+    if (st === 'entregue' || st === 'cancelada') {
+      return window.portao({
+        tom: 'info', ico: st === 'entregue' ? 'check' : 'close',
+        titulo: reg.item.cliente && reg.item.cliente.nome ? reg.item.cliente.nome : 'Parada finalizada',
+        sub: st === 'entregue' ? 'Esta entrega já foi concluída.' : 'Esta parada foi encerrada sem entrega.',
+        acoes: [['Fechar', '']],
+      });
+    }
+    const fila = paradasPendentes().map((p) => String(p && p.item && p.item.id || '')).filter(Boolean);
+    const jaPrimeiro = fila[0] === id;
+    window.portao({
+      tom: 'info', ico: 'route',
+      titulo: reg.item.cliente && reg.item.cliente.nome ? reg.item.cliente.nome : `Parada ${reg.n}`,
+      sub: jaPrimeiro ? 'Este já é o próximo cliente.' : 'Colocar este cliente como a próxima parada? O restante mantém a ordem atual.',
+      acoes: [['Fechar', ''], [jaPrimeiro ? 'Abrir parada' : 'Ir agora', 'principal']], classe: 'duas',
+    });
+    const botao = naCamada('.portao-wrap .principal');
+    if (!botao) return;
+    botao.addEventListener('click', () => {
+      if (jaPrimeiro) return abrirParada(id);
+      const ordem = [id, ...fila.filter((outro) => outro !== id)];
+      document.dispatchEvent(new CustomEvent('hbx:ordem', { detail: { ids: ordem } }));
+    }, { once: true });
+  });
 
   const somaItens = (item) => (Array.isArray(item.itens) ? item.itens : []);
 
@@ -391,6 +437,10 @@
     }))),
     iniciar: () => comOrdemSalva(() => iniciarRota({ escopo: 'dia' })),
     'cancelar-rota': cancelarRota,
+    'rota-pendente-abrir': abrirRotaPendente,
+    'rota-pendente-continuar': continuarRotaPendente,
+    'rota-pendente-puxar': puxarRotaPendente,
+    'rota-pendente-cancelar': cancelarRotaPendente,
     'entregue-pagou': () => confirmarEntrega(''),
     'entregue-marcou': () => confirmarEntrega('fiado'),
     'confirmar-venda': () => confirmarEntrega(''),
@@ -623,6 +673,8 @@
     // Os dois chips do Financeiro da ficha: mexem na memória, o Salvar grava.
     if (chave === 'forma-cliente') return mexerFinanceiro({ forma: String(alvo.dataset.forma || 'na_hora') });
     if (chave === 'metodo-cliente') return mexerFinanceiro({ metodo: String(alvo.dataset.metodo || '') });
+    if (chave === 'abrir-historico-cliente') return abrirHistoricoCliente();
+    if (chave === 'historico-cliente-mais') return carregarMaisHistoricoCliente();
     if (chave === 'abrir-salva') return abrirSalva(alvo.dataset.salva);
     /* AS TRÊS DO ANEXO DO RECADO (12/08, L8d). O argumento é o id do RECADO —
        nunca o do cliente/rota: quem guarda o estado da decisão é o recado, e

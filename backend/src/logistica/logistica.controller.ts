@@ -1121,7 +1121,12 @@ export class LogisticaController {
   async limparDia(@Req() req: any, @Body() dto: LimparDiaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const actorWhere = await this.operacao.whereForActor(req.user);
-    const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
+    // Fail-safe para APKs antigos: admin sem escopo explícito nunca mais limpa
+    // o dia inteiro da empresa. No celular, "Cancelar" é sempre a rota de quem
+    // está autenticado; ações sobre outra pessoa usam a porta exata de continuidade.
+    const entregadorId = typeof actorWhere.entregadorId === 'number'
+      ? actorWhere.entregadorId
+      : this.ensureUserId(req.user);
     // O ATOR viaja junto (F2.2, 10/08): sem ele o extrato responde "alguém
     // cancelou", que é o mesmo que não responder — foi a pergunta que o dono fez
     // às 3h e o banco não soube responder.

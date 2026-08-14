@@ -134,7 +134,13 @@ test('preço do plano → generateDay (gerador real) → EntregaItem.valorUnit �
         if (args.data?.cobrancaStatus) entregaGerada.cobrancaStatus = args.data.cobrancaStatus;
         return { id: entregaGerada.id, ...args.data };
       },
-      updateMany: async () => ({ count: 0 }),
+      updateMany: async ({ where, data }: any) => {
+        if (data?.status === 'entregue' && where?.status?.in?.includes(entregaGerada.status)) {
+          Object.assign(entregaGerada, data);
+          return { count: 1 };
+        }
+        return { count: 0 };
+      },
     },
     entregaItem: {
       updateMany: async () => ({ count: 0 }),

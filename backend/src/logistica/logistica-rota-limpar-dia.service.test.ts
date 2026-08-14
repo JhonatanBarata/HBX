@@ -102,6 +102,7 @@ function matchesOrBranch(row: EntregaRow, branch: any): boolean {
 
 function matchesWhere(row: EntregaRow, where: any): boolean {
   if (!matchesBase(row, where)) return false;
+  if (typeof where.id === 'string' && row.id !== where.id) return false;
   if (where.id?.in && !where.id.in.includes(row.id)) return false;
   if (Array.isArray(where.OR)) return where.OR.some((branch: any) => matchesOrBranch(row, branch));
   return true;
@@ -271,6 +272,7 @@ function buildHarness(
           let count = 0;
           for (const [id, row] of [...workingStops]) {
             if (where.companyId != null && row.companyId !== where.companyId) continue;
+            if (where.deliveryId?.in && !where.deliveryId.in.includes(row.deliveryId)) continue;
             if (!matchesRouteFilter(workingRoutes.get(row.routeId), where.route)) continue;
             if (where.delivery?.status?.not !== undefined) {
               const entrega = working.get(row.deliveryId);

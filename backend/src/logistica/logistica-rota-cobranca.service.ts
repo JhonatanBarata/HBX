@@ -6,6 +6,8 @@ import { CREDIT_ACTION_KEYS } from '../credits/credit-action-catalog';
 import { storedNivel } from './logistica-config.service';
 import { getLogisticaNivelDefinition } from './logistica-nivel-catalog';
 import { lockLogisticaRouteTransaction } from './logistica-route-lock';
+import { saoPauloMidnight } from './logistica-agenda-cursor.util';
+import { addCivilDays } from './logistica-dia.util';
 
 /**
  * ROTA v2 (10/08, "PICAR A PONTE" — refundação da cobrança) — o CORAÇÃO
@@ -169,6 +171,11 @@ export class LogisticaRotaCobrancaService {
        botão de compra. Default `false` = fail-closed: caminho que não sabe
        quem é o ator não oferece compra. */
     podeComprar = false,
+    // Transferência de uma rota ainda não iniciada pode SUBSTITUIR o único
+    // ocupante do dia. Nesse caso o motorista de origem sai da contagem; se ele
+    // já concluiu outra parada, o chamador não passa este parâmetro e os dois
+    // assentos continuam sendo cobrados corretamente.
+    ignoreDriverUserId?: number,
   ): Promise<void> {
     if (!companyId || !driverUserId || !dateISO) return; // sem motorista definido — nada a gatear aqui
     const [cfg, ocupantesRows] = await Promise.all([
@@ -176,7 +183,7 @@ export class LogisticaRotaCobrancaService {
         where: { companyId },
         select: { logisticaNivel: true, logisticaAssentos: true },
       }),
-      this.ocupantesDoDia(companyId, dateISO),
+      this.ocupantesDoDia(companyId, dateISO, ignoreDriverUserId),
     ]);
     if (ocupantesRows.includes(driverUserId)) return; // já é ocupante — nunca barra quem já estava dentro
 
@@ -213,14 +220,14 @@ export class LogisticaRotaCobrancaService {
   }
 
   /** Motoristas distintos com entrega NÃO-cancelada no dia — mesma régua de `quemMontouODia`. */
-  private async ocupantesDoDia(companyId: number, dateISO: string): Promise<number[]> {
+  private async ocupantesDoDia(companyId: number, dateISO: string, ignoreDriverUserId?: number): Promise<number[]> {
     const { start, end } = dayRange(dateISO);
     const rows = await this.prisma.entrega.findMany({
       where: {
         companyId,
         status: { not: 'cancelada' },
         entregadorId: { not: null },
-        OR: [{ scheduledAt: { gte: start, lte: end } }, { scheduledAt: null }],
+        OR: [{ scheduledAt: { gte: start, lt: end } }, { scheduledAt: null }],
       },
       select: { entregadorId: true },
       distinct: ['entregadorId'],
@@ -229,7 +236,7 @@ export class LogisticaRotaCobrancaService {
       ...new Set(
         (rows as Array<{ entregadorId: number | null }>)
           .map((r) => Number(r.entregadorId))
-          .filter((id) => Number.isInteger(id) && id > 0),
+          .filter((id) => Number.isInteger(id) && id > 0 && id !== ignoreDriverUserId),
       ),
     ];
   }
@@ -241,9 +248,8 @@ export class LogisticaRotaCobrancaService {
 // aqui já chega CANÔNICO ("YYYY-MM-DD", produzido por `canonicalRouteDate`),
 // então não precisa da tolerância a lixo que `resolveDayRange` tem.
 function dayRange(dateISO: string): { start: Date; end: Date } {
-  const [y, m, d] = dateISO.split('-').map(Number);
-  const start = new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0);
-  const end = new Date(y, (m || 1) - 1, d || 1, 23, 59, 59, 999);
+  const start = saoPauloMidnight(dateISO);
+  const end = saoPauloMidnight(addCivilDays(dateISO, 1));
   return { start, end };
 }
 

@@ -217,7 +217,9 @@ export class LogisticaCustoPreviewService {
       // trabalho fora do recorte ABERTO.
       if (diagnostico.motivo === 'dia_vazio') {
         const montadores = await quemMontouODia(this.prisma, companyId, start, end);
-        if (montadores.length > 0) throw rotaDeOutroMotoristaError(montadores, isLogisticaAdmin(actor));
+        if (montadores.length > 0) {
+          throw rotaDeOutroMotoristaError(montadores, isLogisticaAdmin(actor), canonicalRouteDate(date));
+        }
       }
       throw new BadRequestException(diagnostico.mensagem);
     }

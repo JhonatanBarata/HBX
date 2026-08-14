@@ -1456,6 +1456,20 @@ button,input{font:inherit;color:inherit}
    estreito em vez de sumir com reticências no meio da frase. */
 .plano-bar .f .txt{display:flex;flex-direction:column;gap:2px;overflow:visible;white-space:normal}
 .plano-bar .f .txt em{font-style:normal;font-size:11.5px;line-height:1.32;color:var(--ink-2)}
+.rota-continuidades{position:absolute;left:9px;right:9px;top:68px;z-index:31;display:grid;gap:6px}
+.rota-continuidade{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:9px 10px;border:.7px solid var(--amber-line);border-radius:12px;background:var(--glass);
+  box-shadow:0 4px 14px rgba(0,0,0,.24)}
+.rota-continuidade.ativa{border-color:var(--lime-line)}
+.rota-continuidade>span:first-child{min-width:0;display:grid;grid-template-columns:auto 1fr;column-gap:7px;align-items:center}
+.rota-continuidade>span:first-child svg{grid-row:1/3;color:var(--amber)}
+.rota-continuidade b{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rota-continuidade small{font-size:10.5px;color:var(--ink-2)}
+.rota-continuidade .acoes{display:flex;gap:5px;flex:0 0 auto}
+.rota-continuidade .acoes button{min-height:34px;padding:6px 9px}
+.rota-continuidade .acoes .perigo{color:var(--red)}
+.rota-continuidade-mais{justify-self:start;padding:5px 9px;border-radius:999px;
+  background:var(--glass);border:1px solid var(--line);font-size:10.5px;color:var(--ink-2)}
 /* 🔴 UM BOTÃO SÓ NA BEIRADA, e ele tem trabalho: devolver o enquadramento da
    rota depois de o dedo levar o mapa embora. Zoom não entra — pinça é o gesto
    nativo do mapa, e dois botões redondos por cima do dia seriam cromo.
@@ -1547,10 +1561,15 @@ button,input{font:inherit;color:inherit}
    têm toque nenhum na ponte, então um arrasto que começasse em cima de um pino
    simplesmente não arrastava o mapa. `pointer-events:none` devolve o gesto pro
    mapa, que é de quem ele é. */
-.map-pino{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+.map-pino{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;
   font:500 12px Inter,sans-serif;background:var(--map-pino);color:var(--map-pino-tinta);
   border:1.5px solid var(--map-pino-anel);box-shadow:0 1px 4px rgba(0,0,0,.34);
-  pointer-events:none}
+  pointer-events:auto;cursor:pointer;transition:transform .16s ease,background .16s ease}
+.map-pino.is-next{transform:scale(1.14);box-shadow:0 0 0 4px var(--lime-line),0 2px 6px rgba(0,0,0,.34)}
+.map-pino.is-arrived{background:var(--amber);color:var(--go-ink);border-radius:9px}
+.map-pino.is-delivered{background:var(--lime);color:var(--go-ink);border-radius:8px}
+.map-pino.is-failed{background:var(--red);color:var(--white);border-radius:8px}
+.map-pino.is-cancelled{background:var(--card);color:var(--ink-2);border-style:dashed}
 /* O REBAIXADO — e ele só existe em dia CHEIO (acima de 12 paradas, ver
    `acertarPinos` na ponte). Não é o pino encolhido: é outra peça, com o anel
    mais GROSSO em proporção, porque o que sobra de um ponto de 14px é a borda.
@@ -1558,6 +1577,8 @@ button,input{font:inherit;color:inherit}
    fica. Some o número, não some a parada. */
 .map-pino.min{width:14px;height:14px;border-width:2.5px;font-size:0;
   box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.map-pino.min.is-delivered,.map-pino.min.is-failed,.map-pino.min.is-cancelled{
+  font-size:9px;font-weight:700;border-width:1.5px}
 
 /* ==========================================================================
    🔴 ONDE EU ESTOU — três peças, e cada uma responde uma pergunta diferente

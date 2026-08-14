@@ -125,16 +125,16 @@ test('encerrar e limpar-dia: admin que dirige também vira recado', async () => 
 });
 
 // ── 2. O QUE O FIX NÃO PODE TER QUEBRADO ─────────────────────────────────────
-test('o escopo de escrita do admin continua sendo a empresa inteira', async () => {
+test('o cancelamento legado do admin fica preso ao próprio usuário', async () => {
   const { controller, chamadas } = montarControllerComEspioes();
 
   await controller.descartarMontagem({ user: admin }, { date: DIA } as any);
   await controller.encerrarRota({ user: admin }, { date: DIA } as any);
   await controller.limparDia({ user: admin }, { date: DIA } as any);
 
-  assert.deepEqual(chamadas.descartarMontagem, [undefined], 'admin descarta a montagem da empresa toda');
+  assert.deepEqual(chamadas.descartarMontagem, [undefined]);
   assert.deepEqual(chamadas.encerrarRota, [undefined]);
-  assert.deepEqual(chamadas.limparDia, [undefined]);
+  assert.deepEqual(chamadas.limparDia, [DONO]);
 });
 
 test('motorista comum: identidade continua vindo do recorte do ator', async () => {

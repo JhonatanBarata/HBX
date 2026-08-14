@@ -19,6 +19,7 @@
      (07/08): "não tem terça nem domingo nas rotas, e ainda está aparecendo". */
   let diasComGente = null;
   let ficha = null;          // { id, item, detalhe, local, telefone, dias }
+  let historicoCliente = null; // { clienteId, items, nextCursor, carregando, erro }
   let clientesEmVoo = false;
 
   const iniciais = (nome) => String(nome || '')
@@ -102,6 +103,7 @@
     // A ficha abre JÁ com o que a lista sabe; o detalhe entra quando chegar.
     // Tela de cadastro que fica em branco esperando rede é tela quebrada.
     // rascunho ZERADO: cliente novo mostra o cadastro DELE, nunca sobra do anterior.
+    historicoCliente = null;
     ficha = {
       id: String(id),
       item,
@@ -931,4 +933,3 @@
     r.duplicado = achada || null;
     publicarRapida();
   }
-

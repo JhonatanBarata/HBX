@@ -203,11 +203,13 @@ class OperationalStore(context: Context) : SQLiteOpenHelper(
 
         val payload = runCatching { JSONObject(body ?: "{}") }.getOrElse { JSONObject() }
         val idempotencyKey = payload.optString("idempotencyKey").trim().ifBlank { UUID.randomUUID().toString() }
-        if (type == "CONFIRM_DELIVERY" && !payload.has("idempotencyKey")) {
+        // CANCEL também precisa da mesma chave persistida: status cancelada
+        // sozinho não distingue ACK perdido de decisão feita noutro aparelho.
+        if ((type == "CONFIRM_DELIVERY" || type == "CANCEL_DELIVERY") && !payload.has("idempotencyKey")) {
             payload.put("idempotencyKey", idempotencyKey)
         }
         val capturedAtMs = now
-        val commandId = if (type == "CONFIRM_DELIVERY") idempotencyKey else UUID.randomUUID().toString()
+        val commandId = if (type == "CONFIRM_DELIVERY" || type == "CANCEL_DELIVERY") idempotencyKey else UUID.randomUUID().toString()
         val inserted = writableDatabase.insertWithOnConflict(
             "operation_outbox",
             null,
@@ -681,7 +683,15 @@ class OperationalStore(context: Context) : SQLiteOpenHelper(
     }
 
     private fun cleanupOldRoutes(currentRouteId: String) {
-        writableDatabase.delete("route_snapshot", "route_id <> ?", arrayOf(currentRouteId))
+        // Cada outbox sincroniza com o grant da SUA rota. Trocar para a rota B
+        // não pode apagar a cápsula de A enquanto A ainda tem comando/foto;
+        // o dreno já agrupa por route_id e envia cada lote com o grant correto.
+        writableDatabase.execSQL(
+            "DELETE FROM route_snapshot WHERE route_id <> ? " +
+                "AND route_id NOT IN (SELECT route_id FROM operation_outbox WHERE state = 'PENDING') " +
+                "AND route_id NOT IN (SELECT route_id FROM proof_outbox WHERE state = 'PENDING')",
+            arrayOf(currentRouteId),
+        )
     }
 
     /**

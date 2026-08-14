@@ -489,8 +489,8 @@
       bridge && bridge.logout && bridge.logout();
     },
     info() {
-      try { return bridge && bridge.appInfo ? JSON.parse(bridge.appInfo()) : { mode: "preview" }; }
-      catch (_) { return { mode: "preview" }; }
+      try { return bridge && bridge.appInfo ? JSON.parse(bridge.appInfo()) : { mode: "preview", sessionScope: "preview" }; }
+      catch (_) { return { mode: "preview", sessionScope: "" }; }
     },
     cache: {
       get(key, fallback) {

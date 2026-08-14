@@ -131,6 +131,22 @@ function buildPrismaMock(
           entrega.avisoChegandoAt = data.avisoChegandoAt;
           return { count: 1 };
         }
+        // Núcleo confirmar/cancelar: CAS por status+dono. O dublê precisa
+        // refletir a mesma linha viva; devolver 0 genérico transforma todo
+        // teste financeiro em falsa corrida de transferência.
+        if (data.status && Array.isArray(where.status?.in)) {
+          const statusOk = where.status.in.includes(entrega.status);
+          const ownerOk = where.entregadorId === undefined || where.entregadorId === entrega.entregadorId;
+          if (!statusOk || !ownerOk) return { count: 0 };
+          if (data.idempotencyKey && entrega.idempotencyKey && entrega.idempotencyKey !== data.idempotencyKey) {
+            const err: any = new Error('Unique constraint failed');
+            err.code = 'P2002';
+            throw err;
+          }
+          entregaUpdates.push(data);
+          Object.assign(entrega, data);
+          return { count: 1 };
+        }
         return { count: 0 };
       },
     },
@@ -2403,7 +2419,7 @@ function buildRotaPrivacyMock(moduloFinanceiroAtivo: boolean) {
     operacao,
     tracking,
   );
-  return { service, queries };
+  return { service, queries, row };
 }
 
 test('listRota: vendedor, motorista e gerente não recebem nem consultam dados comerciais', async () => {
@@ -2460,6 +2476,26 @@ test('listRota: vendedor, motorista e gerente não recebem nem consultam dados c
     assert.equal('pixNome' in configSelect, false);
     assert.equal('pixCidade' in configSelect, false);
   }
+});
+
+test('listRota: serializa os cinco estados persistentes dos pinos', async () => {
+  const { service, queries, row } = buildRotaPrivacyMock(true);
+  const actor = { id: 42, companyId: 7, role: 'USER', canViewBilling: false };
+  const casos = [
+    { status: 'agendada', arrivedAt: null, esperado: 'pending' },
+    { status: 'em_rota', arrivedAt: new Date('2026-07-13T12:20:00Z'), esperado: 'arrived' },
+    { status: 'entregue', arrivedAt: new Date('2026-07-13T12:20:00Z'), esperado: 'delivered' },
+    { status: 'cancelada', arrivedAt: new Date('2026-07-13T12:20:00Z'), esperado: 'failed' },
+    { status: 'cancelada', arrivedAt: null, esperado: 'cancelled' },
+  ];
+  for (const caso of casos) {
+    row.status = caso.status;
+    (row as any).arrivedAt = caso.arrivedAt;
+    const result = await service.listRota(7, '2026-07-13', actor);
+    assert.equal(result.items[0].mapStatus, caso.esperado);
+    assert.equal(result.items[0].arrivedAt, caso.arrivedAt ? caso.arrivedAt.toISOString() : null);
+  }
+  assert.equal(queries.entrega.select.arrivedAt, true, 'a consulta precisa carregar a chegada para o mapa sobreviver ao reload');
 });
 
 test('listRota: dono mantém a visão comercial necessária à administração', async () => {
@@ -2851,6 +2887,15 @@ function buildCancelarPrisma(entrega: any, charge: any | null) {
         entregaUpdates.push(args.data);
         Object.assign(entrega, args.data);
         return { id: entrega.id, ...args.data };
+      },
+      updateMany: async (args: any) => {
+        const where = args?.where || {};
+        const statusOk = !Array.isArray(where.status?.in) || where.status.in.includes(entrega.status);
+        const ownerOk = where.entregadorId === undefined || where.entregadorId === entrega.entregadorId;
+        if (where.id !== entrega.id || !statusOk || !ownerOk) return { count: 0 };
+        entregaUpdates.push(args.data);
+        Object.assign(entrega, args.data);
+        return { count: 1 };
       },
     },
     financeiroCharge: {

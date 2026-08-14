@@ -38,6 +38,7 @@ type PointRejectionCode =
   | 'POINT_IN_FUTURE'
   | 'BEFORE_SESSION'
   | 'AFTER_SESSION'
+  | 'SESSION_ENDED'
   | 'DELIVERY_REQUIRED'
   | 'DELIVERY_OUTSIDE_ROUTE'
   | 'IMPOSSIBLE_JUMP';
@@ -260,6 +261,8 @@ export class LogisticaTrackingService {
     session: any,
     pointsInput: LogisticaTrackingPointDto[],
     now: Date,
+    db: any = this.prisma,
+    routeAlreadyLocked = false,
   ) {
     const accepted: string[] = [];
     const duplicates: string[] = [];
@@ -269,7 +272,7 @@ export class LogisticaTrackingService {
     const pointIds = Array.from(new Set(points.map((point) => point.clientPointId)));
     const sequences = Array.from(new Set(points.map((point) => point.sequence)));
 
-    const persistedConflicts = await (this.prisma as any).logisticaTrackingPoint.findMany({
+    const persistedConflicts = await db.logisticaTrackingPoint.findMany({
       where: {
         companyId: device.companyId,
         sessionId: session.id,
@@ -293,10 +296,11 @@ export class LogisticaTrackingService {
     });
     const existingById = new Map(persistedConflicts.map((row: any) => [row.clientPointId, row]));
     const existingBySequence = new Map(persistedConflicts.map((row: any) => [row.sequence, row]));
+    const executionEnded = session.status !== 'ACTIVE' || session.route?.operationalEndedAt != null;
 
     const deliveryIds = Array.from(new Set(points.map((point) => point.deliveryId).filter(Boolean))) as string[];
     const routeDeliveries = deliveryIds.length
-      ? await (this.prisma as any).logisticaRouteStop.findMany({
+      ? await db.logisticaRouteStop.findMany({
           where: {
             companyId: device.companyId,
             routeId: session.routeId,
@@ -309,7 +313,7 @@ export class LogisticaTrackingService {
       routeDeliveries.map((row: any) => String(row.deliveryId)),
     );
 
-    const timeline: TimelinePoint[] = (await (this.prisma as any).logisticaTrackingPoint.findMany({
+    const timeline: TimelinePoint[] = (await db.logisticaTrackingPoint.findMany({
       where: {
         companyId: device.companyId,
         sessionId: session.id,
@@ -341,6 +345,10 @@ export class LogisticaTrackingService {
         else rejected.push({ clientPointId: point.clientPointId, code: 'DUPLICATE_CONFLICT' });
         continue;
       }
+      if (executionEnded) {
+        rejected.push({ clientPointId: point.clientPointId, code: 'SESSION_ENDED' });
+        continue;
+      }
       const seen = seenById.get(point.clientPointId) || seenBySequence.get(point.sequence);
       if (seen) {
         if (sameNormalizedPoint(seen, point)) duplicates.push(point.clientPointId);
@@ -364,24 +372,46 @@ export class LogisticaTrackingService {
     }
 
     if (candidates.length > 0) {
-      await (this.prisma as any).logisticaTrackingPoint.createMany({
-        data: candidates.map((point) => ({
-          companyId: device.companyId,
-          sessionId: session.id,
-          deliveryId: point.deliveryId,
-          clientPointId: point.clientPointId,
-          sequence: point.sequence,
-          capturedAt: point.capturedAt,
-          receivedAt: now,
-          latitude: point.latitude,
-          longitude: point.longitude,
-          accuracyM: point.accuracyM,
-          speedMps: point.speedMps,
-          bearingDeg: point.bearingDeg,
-          eventType: point.eventType,
-        })),
-        skipDuplicates: true,
-      });
+      const persistCandidates = async (tx: any) => {
+        if (!routeAlreadyLocked) await lockLogisticaRouteTransaction(tx, device.companyId, session.routeId);
+        const route = await tx.logisticaRoute.findFirst({
+          where: {
+            companyId: device.companyId,
+            id: session.routeId,
+            status: 'ACTIVE',
+            mode: 'TRACKED',
+            operationalEndedAt: null,
+          },
+          select: { id: true },
+        });
+        const activeSession = await tx.logisticaTrackingSession.findFirst({
+          where: { companyId: device.companyId, id: session.id, deviceId: device.id, status: 'ACTIVE' },
+          select: { id: true },
+        });
+        if (!route || !activeSession) {
+          throw new ConflictException('Esta execução de rastreamento já foi encerrada.');
+        }
+        await tx.logisticaTrackingPoint.createMany({
+          data: candidates.map((point) => ({
+            companyId: device.companyId,
+            sessionId: session.id,
+            deliveryId: point.deliveryId,
+            clientPointId: point.clientPointId,
+            sequence: point.sequence,
+            capturedAt: point.capturedAt,
+            receivedAt: now,
+            latitude: point.latitude,
+            longitude: point.longitude,
+            accuracyM: point.accuracyM,
+            speedMps: point.speedMps,
+            bearingDeg: point.bearingDeg,
+            eventType: point.eventType,
+          })),
+          skipDuplicates: true,
+        });
+      };
+      if (routeAlreadyLocked) await persistCandidates(db);
+      else await db.$transaction(persistCandidates);
     }
 
     // createMany(skipDuplicates) é a última trava de corrida no banco. Releia o
@@ -389,7 +419,7 @@ export class LogisticaTrackingService {
     // payload, este request recebe conflito em vez de afirmar que persistiu.
     let verifiedCandidates: NormalizedPoint[] = [];
     if (candidates.length > 0) {
-      const candidateRows = await (this.prisma as any).logisticaTrackingPoint.findMany({
+      const candidateRows = await db.logisticaTrackingPoint.findMany({
         where: {
           companyId: device.companyId,
           sessionId: session.id,
@@ -430,7 +460,7 @@ export class LogisticaTrackingService {
       .sort(compareNormalizedPoints)
       .at(-1);
     if (newest) {
-      await (this.prisma as any).logisticaTrackingSession.updateMany({
+      await db.logisticaTrackingSession.updateMany({
         where: {
           companyId: device.companyId,
           id: session.id,
@@ -491,6 +521,9 @@ export class LogisticaTrackingService {
         ...authority,
       };
     }
+    if (session.route?.operationalEndedAt != null) {
+      throw new ConflictException('Esta execução de rastreamento já foi encerrada.');
+    }
     if (session.status !== 'ACTIVE') throw new ConflictException('A sessão de rastreamento já foi encerrada.');
 
     const capturedAt = parseCapturedAt(dto.capturedAt);
@@ -533,12 +566,6 @@ export class LogisticaTrackingService {
       if (pointLagMs < 0 || pointLagMs > MAX_FUTURE_SKEW_MS) {
         throw new BadRequestException('O ponto do evento deve ser um fix recente anterior ao marco.');
       }
-      const pointResult = await this.ingestBoundPositions(device, session, [dto.point], new Date());
-      if (pointResult.rejected.length > 0) {
-        // O marco não fica preso para sempre por um fix expirado/impreciso. O
-        // ponto é descartado e o ACK explicita a rejeição para diagnóstico.
-        pointRejected = pointResult.rejected[0];
-      }
     }
     let outcome: { replayed: boolean; status: string; endedAt: string | null };
     try {
@@ -574,7 +601,7 @@ export class LogisticaTrackingService {
         const lockedRoute = await tx.logisticaRoute.findFirst({
           where: { companyId: device.companyId, id: session.routeId },
         });
-        if (!lockedRoute || lockedRoute.mode !== 'TRACKED' || lockedRoute.status !== 'ACTIVE') {
+        if (!lockedRoute || lockedRoute.mode !== 'TRACKED' || lockedRoute.status !== 'ACTIVE' || lockedRoute.operationalEndedAt) {
           throw new ConflictException('A rota de rastreamento não está mais ativa.');
         }
         if (dto.type === 'END') {
@@ -590,6 +617,24 @@ export class LogisticaTrackingService {
           });
           if (openStops > 0) {
             throw new ConflictException('Ainda existem entregas abertas nesta rota.');
+          }
+        }
+
+        if (dto.point) {
+          // Ponto e marco compartilham a MESMA trava/transação. Encerramento
+          // concorrente não pode deixar o fix gravado e o ARRIVAL/END rejeitado.
+          const pointResult = await this.ingestBoundPositions(
+            device,
+            { ...session, status: lockedSession.status, route: lockedRoute },
+            [dto.point],
+            new Date(),
+            tx,
+            true,
+          );
+          if (pointResult.rejected.length > 0) {
+            // O marco não fica preso por fix expirado/impreciso: o ponto é
+            // descartado e o ACK explicita a rejeição.
+            pointRejected = pointResult.rejected[0];
           }
         }
 
@@ -857,14 +902,15 @@ export class LogisticaTrackingService {
   ): Promise<TrackingSessionAuthority> {
     const current = await client.logisticaTrackingSession.findFirst({
       where: { companyId, id: sessionId, deviceId },
-      include: { route: { select: { mode: true, status: true } } },
+      include: { route: { select: { mode: true, status: true, operationalEndedAt: true } } },
     });
     if (!current) return missingSessionAuthority();
     const sessionStatus = current.status === 'ACTIVE' ? 'ACTIVE' : 'ENDED';
     const routeActive =
       sessionStatus === 'ACTIVE' &&
       current.route?.mode === 'TRACKED' &&
-      current.route?.status === 'ACTIVE';
+      current.route?.status === 'ACTIVE' &&
+      current.route?.operationalEndedAt == null;
     return { sessionStatus, routeActive, captureAllowed: routeActive };
   }
 
@@ -934,7 +980,7 @@ export class LogisticaTrackingService {
         deviceId: device.id,
         ...(options.allowEnded ? { status: { in: ['ACTIVE', 'ENDED'] } } : { status: 'ACTIVE' }),
       },
-      include: { route: { select: { id: true, mode: true, status: true } } },
+      include: { route: { select: { id: true, mode: true, status: true, operationalEndedAt: true } } },
     });
     if (!session || session.route?.mode !== 'TRACKED') {
       throw new NotFoundException('Sessão de rastreamento não encontrada para este aparelho.');

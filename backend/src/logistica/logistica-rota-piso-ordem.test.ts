@@ -81,7 +81,17 @@ function bancada(cenario: Cenario = {}) {
   let routeSeq = 0;
   let stopSeq = 0;
   prisma.logisticaRoute = {
-    updateMany: async () => ({ count: 0 }),
+    updateMany: async ({ where, data }: any) => {
+      const row = routes.find((r) => r.id === where.id && r.companyId === where.companyId);
+      if (!row) return { count: 0 };
+      const statusOk = where.status?.in
+        ? where.status.in.includes(row.status)
+        : where.status === undefined || where.status === row.status;
+      const endedOk = where.operationalEndedAt === undefined || where.operationalEndedAt === row.operationalEndedAt;
+      if (!statusOk || !endedOk) return { count: 0 };
+      Object.assign(row, data);
+      return { count: 1 };
+    },
     findFirst: async ({ where }: any) => routes.find((r) => {
       if (r.companyId !== where.companyId) return false;
       if (where.id !== undefined) return r.id === where.id;

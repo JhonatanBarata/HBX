@@ -73,13 +73,19 @@ export function nomesMontadores(montadores: MontadorDoDia[]): string {
  * logistica-operacao.service.ts) — este util fica neutro de ator de propósito
  * (evita import cruzado só pra ler um `role`).
  */
-export function rotaDeOutroMotoristaError(montadores: MontadorDoDia[], podeForcar: boolean): ConflictException {
+export function rotaDeOutroMotoristaError(
+  montadores: MontadorDoDia[],
+  podeForcar: boolean,
+  date?: string,
+): ConflictException {
   const nomes = nomesMontadores(montadores);
   return new ConflictException({
     statusCode: 409,
     code: 'ROTA_DE_OUTRO_MOTORISTA',
     message: `Essa rota já foi montada por: ${nomes}.`,
     montadaPor: nomes,
+    montadores,
+    ...(date ? { date } : {}),
     podeForcar,
   });
 }

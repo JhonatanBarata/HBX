@@ -776,11 +776,24 @@ class NativeAppBridge(
         .put("versionName", BuildConfig.VERSION_NAME)
         .put("versionCode", BuildConfig.VERSION_CODE)
         .put("platform", "android")
+        // Escopo opaco da credencial pareada. Serve SOMENTE para separar caches
+        // locais entre dois vínculos no mesmo aparelho; o token nunca sai da
+        // ponte e nem o hash completo é exposto ao JavaScript.
+        .put("sessionScope", localSessionScope())
         .put("offlineRouteSupported", BuildConfig.APP_MODE == "logistica")
         // Recarga (L4-F): o app abre o checkout no painel web via link externo —
         // o JS precisa saber a origem do painel sem hardcode de domínio.
         .put("webBaseUrl", BuildConfig.WEB_BASE_URL)
         .toString()
+
+    private fun localSessionScope(): String {
+        val token = DeviceCredentialStore(activity).readDeviceToken()?.trim().orEmpty()
+        if (token.isEmpty()) return ""
+        return MessageDigest.getInstance("SHA-256")
+            .digest(token.toByteArray(Charsets.UTF_8))
+            .take(12)
+            .joinToString("") { "%02x".format(it) }
+    }
 
     // ---- Auto-update (F4) ----------------------------------------------------
 

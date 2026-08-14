@@ -79,6 +79,8 @@ import { LogisticaTutorialService } from './logistica-tutorial.service';
 // 27/07) — zero edição em logistica.service.ts/logistica.controller.ts.
 import { LogisticaBuscaController } from './logistica-busca.controller';
 import { LogisticaBuscaService } from './logistica-busca.service';
+import { LogisticaRotaContinuidadeController } from './logistica-rota-continuidade.controller';
+import { LogisticaRotaContinuidadeService } from './logistica-rota-continuidade.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (app de entrega, cliente água).
@@ -229,6 +231,7 @@ import { LogisticaBuscaService } from './logistica-busca.service';
     LogisticaNivelMasterController,
     LogisticaPlanosPublicoController,
     LogisticaBuscaController,
+    LogisticaRotaContinuidadeController,
   ],
   providers: [
     LogisticaService,
@@ -269,6 +272,7 @@ import { LogisticaBuscaService } from './logistica-busca.service';
     LogisticaEstoqueService,
     LogisticaTutorialService,
     LogisticaBuscaService,
+    LogisticaRotaContinuidadeService,
   ],
   exports: [
     LogisticaService,

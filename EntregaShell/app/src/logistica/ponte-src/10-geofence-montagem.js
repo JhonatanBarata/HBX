@@ -101,21 +101,47 @@
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     const dia = diaOperacional();
     let r;
+    const continuidadePedido = window.API.get('/logistica/rota/continuidade').catch(() => null);
     // 🔴 A DATA VIAJA SEMPRE. Sem ela o servidor usa o dia DELE — e ele roda em
     // UTC (medido: nem o container local nem o da VPS têm TZ). Das 21h à
     // meia-noite de Brasília o UTC já é amanhã, então a rota do motorista
     // aparecia VAZIA justo no fim do turno. Achado no g15 às 23:28 (defeito meu
     // da L1: o app velho sempre mandou `?date=`).
-    try { r = await window.API.get(`/logistica/rota?date=${encodeURIComponent(dia)}`); } catch (_) {
+    const rotaNormal = () => window.API.get(`/logistica/rota?date=${encodeURIComponent(dia)}`);
+    try {
+      r = continuidadeAtiva
+        ? await window.API.get(`/logistica/rota/continuidade/abrir?ref=${encodeURIComponent(continuidadeAtiva)}`)
+        : await rotaNormal();
+    } catch (erroRota) {
+      // A pendência pode ter sido concluída noutro aparelho entre dois polls.
+      // Só 404/409 prova que o ref morreu. Falha de rede preserva a fotografia
+      // já aberta/cartão — nunca troca silenciosamente para outra rota.
+      const statusErro = Number(erroRota && (erroRota.status || erroRota.statusCode
+        || (erroRota.body && erroRota.body.statusCode))) || 0;
+      if (continuidadeAtiva && (statusErro === 404 || statusErro === 409)) {
+        continuidadeAtiva = '';
+        try { r = await rotaNormal(); } catch (_) { r = null; }
+      }
+      if (continuidadeAtiva && !r) {
+        pendenciasSemConexao = true;
+        if (typeof window.usarDados === 'function') {
+          window.usarDados('rota', { pendencias: pendenciasDaRota, pendenciasSemConexao });
+        }
+        return;
+      }
+      if (!r) {
       // A rota tem estado próprio e o desenho já previa os dois: o esqueleto
       // (`carregando`) e o aviso com "Tentar de novo" (`vazia`). Só na PRIMEIRA
       // carga — com a rota do dia já na tela, rede ruim não apaga o dia.
       try { if (estadoRota === 'carregando') { estadoRota = 'vazia'; pintar(false); } } catch (_) { /* sem seam */ }
       return;
+      }
     }
     // Só depois que o servidor RESPONDEU: rede caída não pode carimbar o dia,
     // senão o vigia da virada acharia que já cuidou de um dia que nunca chegou.
-    diaNaTela = dia;
+    diaNaTela = String(r.date || dia);
+    const continuidadeResp = await continuidadePedido;
+    if (continuidadeResp) vestirPendencias(continuidadeResp);
 
     // Crédito e caixa do dia vêm de OUTRAS portas — pedidos em paralelo, e
     // cada um que falhar deixa o SEU campo vazio, sem derrubar a tela.
@@ -159,6 +185,7 @@
       if (!it || String(it.status || '') !== 'cancelada') return true;
       return it.rotaOrdem !== null && it.rotaOrdem !== undefined;
     });
+    rotaRefAtual = refDaResposta(r, itens);
     const paradas = itens.map((it, i) => traduzirParada(it, i, i > 0));
     // L4 — a folha de chegada precisa da entrega INTEIRA (itens, débito,
     // método padrão), não da linha resumida da lista. Guardada por id, que é o
@@ -189,12 +216,15 @@
 
     if (typeof window.PARADAS !== 'undefined') window.PARADAS = paradas;
     else try { PARADAS = paradas; } catch (_) { /* seam ausente: nada a fazer */ }
-    try { estadoRota = estadoDaRota(r); } catch (_) { /* idem */ }
+    try { estadoRota = continuidadeAtiva ? 'consulta' : estadoDaRota(r); } catch (_) { /* idem */ }
     /* O geofence anda JUNTO com a rota que acabou de chegar — depois do
        `estadoRota` (é ele quem diz se está na rua) e antes de pintar, porque
        armar o serviço não depende de tela nenhuma. Best-effort de verdade:
        tudo lá dentro é try/catch, e falha aqui nunca segura a rota do dia. */
-    sincronizarGeofence(r, itens);
+    sincronizarGeofence(
+      continuidadeAtiva ? { ...r, routeStatus: 'ENCERRADA', trackingRequired: false } : r,
+      itens,
+    );
 
     window.usarDados('rota', {
       /* 🔴 A LISTA PRECISA CABER NO FREIO. `usarDados` só repinta quando um
@@ -207,7 +237,9 @@
          que também não mexe em KPI nenhum.
          Esta digital não é desenhada em lugar nenhum: ela existe só pra o
          freio enxergar que a lista é OUTRA. */
-      digitalDaLista: `${gestoSujouATela}|${itens.map((it) => `${it.id}:${it.status || ''}`).join('|')}`,
+      digitalDaLista: `${gestoSujouATela}|${itens.map((it) => `${it.id}:${it.status || ''}:${it.mapStatus || ''}:${it.arrivedAt || ''}`).join('|')}`,
+      pendencias: pendenciasDaRota,
+      pendenciasSemConexao,
       /* O subtítulo do nome da tela. Escrito a cada carga da rota (e não uma vez
          no boot) porque o app do motorista ATRAVESSA a meia-noite ligado — quem
          vira o dia é a `viradaDoDia`, e ela recarrega por aqui. */
@@ -680,7 +712,11 @@
      leva inteira de "checagem só no boot frio"), então eles entram como
      ATALHO — quem garante é o tique. Custa uma comparação de string por minuto
      e só vai à rede quando a data VIROU de verdade. */
-  const viradaDoDia = () => { if (diaNaTela && diaNaTela !== diaOperacional()) carregarRota(); };
+  const viradaDoDia = () => {
+    // Uma rota antiga aberta para conferência continua na tela até o motorista
+    // escolher Continuar ou Cancelar. A meia-noite nunca a apaga por trás.
+    if (!continuidadeAtiva && diaNaTela && diaNaTela !== diaOperacional()) carregarRota();
+  };
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') viradaDoDia();
   });
@@ -688,6 +724,34 @@
   // Mesma espera do tique acima: a virada de um minuto atrasada não custa nada,
   // o tour arrancado da tela custa o passo inteiro.
   setInterval(() => { if (!tourRodando()) viradaDoDia(); }, 60000);
+
+  async function atualizarContinuidades() {
+    if (!temPonte()) return;
+    let resp;
+    try { resp = await window.API.get('/logistica/rota/continuidade'); } catch (_) {
+      // Rede ruim preserva o último retrato, mas ele precisa dizer que é um
+      // retrato — silêncio aqui fazia cartão velho parecer informação ao vivo.
+      pendenciasSemConexao = true;
+      if (typeof window.usarDados === 'function') {
+        window.usarDados('rota', { pendencias: pendenciasDaRota, pendenciasSemConexao });
+      }
+      return;
+    }
+    vestirPendencias(resp);
+    if (typeof window.usarDados === 'function') window.usarDados('rota', { pendencias: pendenciasDaRota, pendenciasSemConexao });
+    // Se outra pessoa puxou esta rota, o aparelho antigo perde a posse no
+    // próximo tique/foco e desarma o geofence. Offline de verdade não permite
+    // revogação instantânea; ao reconectar esta é a primeira ação.
+    if (!continuidadeAtiva && rotaRefAtual && paradasAbertasNaTela() > 0 && !refsDoAtor.includes(rotaRefAtual)) {
+      try { if (window.HBX && typeof window.HBX.stopRoute === 'function') window.HBX.stopRoute(); } catch (_) {}
+      await carregarRota();
+    }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') atualizarContinuidades();
+  });
+  window.addEventListener('focus', atualizarContinuidades);
+  setInterval(() => { if (!tourRodando()) atualizarContinuidades(); }, 60000);
 
   const cargaInicial = () => {
     apagarDemonstracao(); carregarBarra(); carregarRecados(); checkAppUpdate();
@@ -932,4 +996,3 @@
      (escrita pelo `carregarRota`) e o botão do pé vira "Iniciar rota". */
   let previaSeq = 0;
   const PREVIA = [];                  // as paradas da prévia, pro Salvar rota
-

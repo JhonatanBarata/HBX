@@ -402,14 +402,17 @@ test('POST rota/iniciar cria a sessão TRACKED antes de ativar a rota e expõe s
       },
       // ROTA v2 (10/08) — iniciarRota gerencia LogisticaRoute/Stop direto.
       logisticaRoute: {
-        // PR17072026 — iniciarRota zera operationalEndedAt (marca de rota
-        // encerrada) ao (re)iniciar. Mock no-op: sem rota encerrada aqui.
+        // Claim INITIALIZING e ativação final reproduzem o CAS do serviço.
         updateMany: async ({ where, data }: any) => {
-          if (where.status === 'PLANNED') {
-            const row = routes.find((r) => r.id === where.id);
-            if (row) Object.assign(row, data);
-          }
-          return { count: 0 };
+          const row = routes.find((r) => r.id === where.id && r.companyId === where.companyId);
+          if (!row) return { count: 0 };
+          const statusOk = where.status?.in
+            ? where.status.in.includes(row.status)
+            : where.status === undefined || where.status === row.status;
+          const endedOk = where.operationalEndedAt === undefined || where.operationalEndedAt === row.operationalEndedAt;
+          if (!statusOk || !endedOk) return { count: 0 };
+          Object.assign(row, data);
+          return { count: 1 };
         },
         findFirst: async ({ where }: any) => routes.find((r) => {
           if (r.companyId !== where.companyId) return false;

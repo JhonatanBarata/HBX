@@ -1483,6 +1483,20 @@ button,input{font:inherit;color:inherit}
    estreito em vez de sumir com reticências no meio da frase. */
 .plano-bar .f .txt{display:flex;flex-direction:column;gap:2px;overflow:visible;white-space:normal}
 .plano-bar .f .txt em{font-style:normal;font-size:11.5px;line-height:1.32;color:var(--ink-2)}
+.rota-continuidades{position:absolute;left:9px;right:9px;top:68px;z-index:31;display:grid;gap:6px}
+.rota-continuidade{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:9px 10px;border:.7px solid var(--amber-line);border-radius:12px;background:var(--glass);
+  box-shadow:0 4px 14px rgba(0,0,0,.24)}
+.rota-continuidade.ativa{border-color:var(--lime-line)}
+.rota-continuidade>span:first-child{min-width:0;display:grid;grid-template-columns:auto 1fr;column-gap:7px;align-items:center}
+.rota-continuidade>span:first-child svg{grid-row:1/3;color:var(--amber)}
+.rota-continuidade b{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rota-continuidade small{font-size:10.5px;color:var(--ink-2)}
+.rota-continuidade .acoes{display:flex;gap:5px;flex:0 0 auto}
+.rota-continuidade .acoes button{min-height:34px;padding:6px 9px}
+.rota-continuidade .acoes .perigo{color:var(--red)}
+.rota-continuidade-mais{justify-self:start;padding:5px 9px;border-radius:999px;
+  background:var(--glass);border:1px solid var(--line);font-size:10.5px;color:var(--ink-2)}
 /* 🔴 UM BOTÃO SÓ NA BEIRADA, e ele tem trabalho: devolver o enquadramento da
    rota depois de o dedo levar o mapa embora. Zoom não entra — pinça é o gesto
    nativo do mapa, e dois botões redondos por cima do dia seriam cromo.
@@ -1574,10 +1588,15 @@ button,input{font:inherit;color:inherit}
    têm toque nenhum na ponte, então um arrasto que começasse em cima de um pino
    simplesmente não arrastava o mapa. `pointer-events:none` devolve o gesto pro
    mapa, que é de quem ele é. */
-.map-pino{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+.map-pino{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;
   font:500 12px Inter,sans-serif;background:var(--map-pino);color:var(--map-pino-tinta);
   border:1.5px solid var(--map-pino-anel);box-shadow:0 1px 4px rgba(0,0,0,.34);
-  pointer-events:none}
+  pointer-events:auto;cursor:pointer;transition:transform .16s ease,background .16s ease}
+.map-pino.is-next{transform:scale(1.14);box-shadow:0 0 0 4px var(--lime-line),0 2px 6px rgba(0,0,0,.34)}
+.map-pino.is-arrived{background:var(--amber);color:var(--go-ink);border-radius:9px}
+.map-pino.is-delivered{background:var(--lime);color:var(--go-ink);border-radius:8px}
+.map-pino.is-failed{background:var(--red);color:var(--white);border-radius:8px}
+.map-pino.is-cancelled{background:var(--card);color:var(--ink-2);border-style:dashed}
 /* O REBAIXADO — e ele só existe em dia CHEIO (acima de 12 paradas, ver
    `acertarPinos` na ponte). Não é o pino encolhido: é outra peça, com o anel
    mais GROSSO em proporção, porque o que sobra de um ponto de 14px é a borda.
@@ -1585,6 +1604,8 @@ button,input{font:inherit;color:inherit}
    fica. Some o número, não some a parada. */
 .map-pino.min{width:14px;height:14px;border-width:2.5px;font-size:0;
   box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.map-pino.min.is-delivered,.map-pino.min.is-failed,.map-pino.min.is-cancelled{
+  font-size:9px;font-weight:700;border-width:1.5px}
 
 /* ==========================================================================
    🔴 ONDE EU ESTOU — três peças, e cada uma responde uma pergunta diferente
@@ -3463,6 +3484,9 @@ const ROTA_ESTADOS={
   pronta:   {main:{acao:'iniciar', glifo:'play', rotulo:'Iniciar'},
              esq:{tipo:'perigo', glifo:'close', rotulo:'Cancelar', acao:'cancelar-rota'},
              dir:{tipo:'info', glifo:'route', rotulo:'Montagem', acao:'montar'}},
+  /* Ver uma pendência é consulta. As mutações ficam no cartão nomeado; o dock
+     não oferece Iniciar/Cancelar e o mapa não reordena uma rota alheia/velha. */
+  consulta:{main:{glifo:'route', rotulo:'Somente consulta'}},
   /* Com a rota RODANDO o que o motorista faz é ANDAR: o botão do meio abre a
      navegação. "Pausar"/"Continuar" saíram — pausa não existe no servidor
      (o estado da rota é PLANNED|ACTIVE|COMPLETED|ENCERRADA), então eram dois
@@ -3630,6 +3654,9 @@ const DADOS={
     filtroFila:'8', filtroEntregue:'6',
     creditos:'240', creditosDebita:'12',
     somaProdutos:'20', somaMarcado:'R$ 336,00',
+    /* Rotas abertas fora do dia atual ou montadas por outra pessoa. A ponte
+       escreve esta lista; vazia = o cartão inteiro não existe. */
+    pendencias:[], pendenciasSemConexao:false,
     vazioTitulo:'Sem paradas hoje',
     /* A segunda linha do dia por montar (ver `T.rota`). Ela explica o mapa
        vazio e NOMEIA a ação que já está no dock — não é um segundo botão.
@@ -4410,6 +4437,31 @@ function dockDaRota(e){
   if(e==='montar'&&!paradasAbertasNaTela()) return transmux('semparada');
   return transmux(e);
 }
+
+function cartoesDeContinuidade(){
+  const itens=Array.isArray(DADOS.rota.pendencias)?DADOS.rota.pendencias:[];
+  if(!itens.length) return '';
+  const rotas=itens.filter(p=>!p.more).slice(0,2), mais=itens.find(p=>p&&p.more);
+  return `<div class="rota-continuidades" aria-label="Rotas pendentes">${rotas.map(p=>{
+    const frase=p.canPull
+      ? `${p.owner} está com esta rota`
+      : `Rota de ${p.dateLabel} · ${p.remaining} ${p.remaining===1?'parada':'paradas'} restante${p.remaining===1?'':'s'}`;
+    const principal=p.canContinue
+      ? ['Continuar','rota-pendente-continuar']
+      : p.canPull
+        ? ['Puxar','rota-pendente-puxar']
+        : ['Abrir','rota-pendente-abrir'];
+    return `<section class="rota-continuidade${p.active?' ativa':''}">
+      <span>${ic(p.state==='started'?'nav':'route',17)}<b>${frase}</b><small>${p.dateLabel}</small></span>
+      <span class="acoes">
+        ${!p.active&&p.canOpen?`<button class="ghost" data-acao="rota-pendente-abrir" data-ref="${p.ref}" data-owner="${p.ownerId||''}">Ver</button>`:''}
+        <button class="act go" data-acao="${principal[1]}" data-ref="${p.ref}" data-owner="${p.ownerId||''}"><b>${principal[0]}</b></button>
+        ${p.canCancel?`<button class="ghost perigo" data-acao="rota-pendente-cancelar" data-ref="${p.ref}" data-owner="${p.ownerId||''}" aria-label="Cancelar esta rota">${ic('close',15)}</button>`:''}
+      </span>
+    </section>`;
+  }).join('')}${mais?`<span class="rota-continuidade-mais">+${mais.more} outras rotas</span>`:''}
+    ${DADOS.rota.pendenciasSemConexao?`<span class="rota-continuidade-mais">Sem conexão · última atualização</span>`:''}</div>`;
+}
 /* A SEMANA DA AGENDA — uma linha por dia, com quantas pessoas esperam nele.
    Sem fonte não existe bloco: ver `DADOS.rota.semana`.
    🔴 QUEM CHAMA É A MONTAGEM, e só com a lista vazia (dono, 09/08). Ela nasceu
@@ -4508,7 +4560,7 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
      quatro telas (lista, foto, fechamento, semana), onde ele é o total do DIA e
      tem que continuar aparecendo. Esvaziar o campo apagaria o número lá também
      — a régua é desta barra, então o dono dela é esta linha. */
-  const temRota=e==='pronta'||emCurso;
+  const temRota=e==='pronta'||e==='consulta'||emCurso;
   const entregues=emCurso?d.kpiEntregues:d.kpiEntreguesParado;
   const conta=[aviso?`<b>${aviso[1]}</b>`:'',
                (temRota&&d.kpiParadas)?`<b>${d.kpiParadas}</b> paradas`:'',
@@ -4553,6 +4605,7 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
 <div class="body flush" style="overflow:hidden;padding:0">
   <div class="plano${dock?' com-dock':''}">
     ${mapa()}
+    ${cartoesDeContinuidade()}
     <div class="plano-bar${aviso&&aviso[2]?' '+aviso[2]:''}${(vazioNoMapa||diaPorMontar)?' estado':''}">
       ${aviso&&aviso[3]
         ? `<button class="f" data-acao="${aviso[3]}">${ic(aviso[0],16)}${fato}</button>`
@@ -6465,6 +6518,11 @@ T.ficha={nome:'Ficha do cliente',grupo:'Cadastro',render(){
   const f=DADOS.ficha;
   const ROT=['SEG','TER','QUA','QUI','SEX','SÁB','DOM'];
   const dia=(l,n,on,i)=>`<button class="${on?'on':''}" data-acao="dia-cliente" data-dia="${i}"><b>${l}</b><small>${n}</small></button>`;
+  /* Histórico é visita, não Financeiro: fica logo abaixo do saldo para ser
+     achado na porta, mas continua acessível mesmo quando o módulo financeiro
+     estiver desligado. A ponte abre a mesma folha já usada pela casca. */
+  const historico=`<div class="grupo">Histórico</div>
+  <button class="act full" style="margin-top:7px;justify-content:center" data-acao="abrir-historico-cliente">${ic('clock',17)}<b>Histórico</b></button>`;
   return `${status}
 ${hdr({voltar:f.volta||'clientes',semChat:1})}
 <div class="body">
@@ -6551,6 +6609,7 @@ ${hdr({voltar:f.volta||'clientes',semChat:1})}
   ${f.saldo?`<div class="box"><div class="rowline" style="padding-top:2px"><span>Em aberto</span>
     <b style="color:var(--amber)">${f.saldo}</b></div>
     ${f.limiteLido?`<div class="rowline"><span>Limite de fiado</span><b>${f.limiteLido}</b></div>`:''}</div>`:''}
+  ${historico}
   ${!f.financeiroEdita?'':`
   ${(f.formas||[]).length?`<div class="modos${(f.formas||[]).length>3?' fino':''}">
     ${f.formas.map(m=>`<button class="modo${f.forma===m[0]?' on':''}" data-acao="forma-cliente" data-forma="${m[0]}"><b>${m[1]}</b></button>`).join('')}</div>`:''}
@@ -6574,7 +6633,7 @@ ${hdr({voltar:f.volta||'clientes',semChat:1})}
     <button class="linha-cfg" data-acao="chave-avisar-cobranca"><span class="ico">${ic('chat',16)}</span>
       <span><strong>Avisar cobrança</strong><span>mensagem quando fica em aberto</span></span>
       <span class="chave ${f.avisarCobranca?'on':''}"><i></i></span></button>
-  </div>`}`:''}
+  </div>`}`:historico}
 
   <!-- 🔴 O EXCLUIR PROMETIA E NÃO CUMPRIA (medido no aparelho em 08/08): ele era
        data-superficie="confirmar", a confirmação DECORATIVA da maquete — na

@@ -198,33 +198,65 @@
   const PINOS_NUMERADOS_ATE = 12;
   const PINOS_ZOOM_CORTE = 13.6;
 
+  function vestirPino(el, p, proximoId) {
+    const estado = String(p.mapStatus || '');
+    el.classList.remove('is-next', 'is-arrived', 'is-delivered', 'is-failed', 'is-cancelled');
+    if (String(p.id) === String(proximoId)) el.classList.add('is-next');
+    if (estado === 'delivered' || p.st === 'entregue') el.classList.add('is-delivered');
+    else if (estado === 'failed') el.classList.add('is-failed');
+    else if (estado === 'cancelled' || p.st === 'cancelada') el.classList.add('is-cancelled');
+    else if (estado === 'arrived' || p.chegou) el.classList.add('is-arrived');
+    const sinal = el.classList.contains('is-delivered') ? '✓'
+      : el.classList.contains('is-failed') ? '!'
+        : el.classList.contains('is-cancelled') ? '×' : String(p.n);
+    el.textContent = sinal;
+    el.dataset.parada = String(p.id || '');
+    el.setAttribute('role', 'button');
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('aria-label', `${p.nome || 'Parada'} · ${sinal === '✓' ? 'entregue' : sinal === '!' ? 'não entregue' : `parada ${p.n}`}`);
+    if (!el.__hbxClique) {
+      el.__hbxClique = true;
+      const abrir = (ev) => {
+        ev.stopPropagation();
+        const id = String(el.dataset.parada || '');
+        if (id) document.dispatchEvent(new CustomEvent('hbx:mapa-parada', { detail: { id } }));
+      };
+      el.addEventListener('click', abrir);
+      el.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') abrir(ev); });
+    }
+  }
+
   /** os pinos numerados: só se refaz quando a LISTA muda, não a cada repinte */
   function sincronizarPinos(casa) {
     const paradas = paradasDoMapa();
-    const chave = paradas.map((p) => `${p.n}:${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join('|');
+    const proximo = paradas.find((p) => p.st !== 'entregue' && p.st !== 'cancelada');
+    const chave = paradas.map((p) => `${p.id}:${p.n}:${p.mapStatus || ''}:${p.chegou ? 1 : 0}:${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join('|');
     if (chave === casa.chave) return;
     casa.chave = chave;
-    /* 🔴 O PINO É REAPROVEITADO POR NÚMERO (item 9, 09/08). Derrubar os N e
+    /* O pino é reaproveitado pela IDENTIDADE da entrega. O número muda quando
+       o motorista escolhe "Ir agora"; casar pelo número trocaria dois clientes
+       de marcador e deixaria o ✓ no lugar errado. Derrubar os N e
        recriar os N a cada mudança de lista era pagar N remoções + N nós novos
        + N marcadores re-registrados no maplibre pra trocar, às vezes, UMA
        coordenada. Agora: quem continua, `setLngLat`; quem entrou, nasce; quem
        saiu, sai. */
     const vivos = new Set();
     paradas.forEach((p) => {
-      const k = String(p.n);
+      const k = String(p.id);
       vivos.add(k);
       const ja = casa.pinos.get(k);
       if (ja) {
         try { ja.setLngLat([p.lng, p.lat]); } catch (_) { /* mapa saindo de cena */ }
+        try { vestirPino(ja.getElement(), p, proximo && proximo.id); } catch (_) {}
         return;
       }
       const pino = document.createElement('div');
-      pino.textContent = k;
       /* A PELE SAIU DO INLINE (Lei 1: nada de cor solta em tela). Era um
          `cssText` com as cores escritas aqui dentro, invisível pro fiscal e
          impossível de trocar junto com o resto da casca. Agora é a classe
          `.map-pino` do mock, que é onde toda peça deste app veste. */
       pino.className = 'map-pino';
+      vestirPino(pino, p, proximo && proximo.id);
       casa.pinos.set(k, new casa.gl.Marker({ element: pino })
         .setLngLat([p.lng, p.lat]).addTo(casa.mapa));
     });
@@ -853,4 +885,3 @@
     try { casa.alvo.appendChild(cartao); } catch (_) { return null; }
     return cartao;
   }
-

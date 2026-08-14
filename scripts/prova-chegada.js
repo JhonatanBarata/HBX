@@ -369,20 +369,19 @@ const SO_MEDIR = process.argv.includes('--antes');
     numerosForaDasAcoes: document.querySelectorAll('.gps-rodape .linha:not(.acoes) .n').length,
     numerosDentroDasAcoes: document.querySelectorAll('.gps-encerrar .n').length,
     sairNaDireita: (() => {
-      const detalhes = document.querySelector('.gps-encerrar > details:last-child');
-      return !!(detalhes && detalhes.querySelector('.gps-acoes-extra .sair[data-ir="rota"]'));
+      return !!document.querySelector('.gps-encerrar .gps-sair[data-ir="rota"]');
     })(),
     mortos: [...document.querySelectorAll('.gps-encerrar button')]
       .filter((e) => !e.dataset.acao && !e.dataset.ir).length,
   }));
   nota(`[F4] barra: ${JSON.stringify(barra.atalhos)} - numeros fora das acoes=${barra.numerosForaDasAcoes}`);
-  eh('F4.1 . o cartao tem as TRES opcoes (encerrar + Registrar/Sair no menu)',
-    barra.atalhos.length === 3 && barra.principal === 1 && barra.extras === 2,
+  eh('F4.1 . o cartao tem as TRES opcoes expostas (encerrar + Registrar + Sair)',
+    barra.atalhos.length === 3 && barra.principal === 1 && barra.extras === 0,
     JSON.stringify(barra.atalhos));
   eh('F4.2 . os numeros ficam na linha de CIMA (numero se le, botao se aperta)',
     barra.numerosForaDasAcoes === 3 && barra.numerosDentroDasAcoes === 0,
     `fora=${barra.numerosForaDasAcoes} dentro=${barra.numerosDentroDasAcoes}`);
-  eh('F4.3 . o Sair continua no menu do canto direito', barra.sairNaDireita);
+  eh('F4.3 . o Sair continua no canto direito', barra.sairNaDireita);
   // A LEI DO ARQUIVO: botao desenhado sem gancho e pior que botao ausente.
   eh('F4.4 . nenhum dos tres e botao MORTO', barra.mortos === 0, `mortos=${barra.mortos}`);
 

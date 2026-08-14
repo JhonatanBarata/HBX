@@ -478,14 +478,25 @@ export class LogisticaRotaService {
     // com quem o dia já fechou. Manhã limpa = piso 0 = nada muda.
     const pisoOrdem = await this.maiorOrdemFechadaDoDia(companyId, start, end, entregadorId);
 
-    // Persiste rotaOrdem/etaAt de cada parada (sequencial: são poucas paradas/dia).
-    for (const p of plan.paradas) {
-      const changed = await this.prisma.entrega.updateMany({
-        where: { companyId, id: p.id },
-        data: { rotaOrdem: p.rotaOrdem + pisoOrdem, etaAt: p.etaAt },
-      });
-      if (changed.count !== 1) throw new ConflictException('Entrega saiu da rota durante o planejamento.');
-    }
+    // Persiste a ordem como UM lote atômico. Conclusão, cancelamento ou
+    // transferência concorrente fazem o CAS falhar e a transação inteira volta;
+    // nunca sobra metade da rota na ordem antiga e metade na nova.
+    const expectedOwnerById = new Map(rows.map((row) => [row.id, row.entregadorId]));
+    await this.prisma.$transaction(async (tx: any) => {
+      await lockLogisticaRouteTransaction(tx, companyId, `plan:${entregadorId || 0}:date:${routeDate}`);
+      for (const p of plan.paradas) {
+        const changed = await tx.entrega.updateMany({
+          where: {
+            companyId,
+            id: p.id,
+            entregadorId: expectedOwnerById.get(p.id) ?? null,
+            status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
+          },
+          data: { rotaOrdem: p.rotaOrdem + pisoOrdem, etaAt: p.etaAt },
+        });
+        if (changed.count !== 1) throw new ConflictException('Entrega saiu da rota durante o planejamento.');
+      }
+    });
 
     const semCoordenada = plan.paradas.filter((p) => p.semCoordenada).length;
     this.logger.log(
@@ -546,16 +557,27 @@ export class LogisticaRotaService {
   ): Promise<PlanejarRotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const effectiveDriverId = entregadorId ?? (await this.resolveSingleDriver(companyId, input.date, input.deliveryIds, actor));
-    // Re-planeja a partir da origem atual (mesmo caminho do planejar).
-    const plan = await this.planejarRota(companyId, {
-      date: input.date,
-      origemLat: input.origemLat,
-      origemLng: input.origemLng,
-      deliveryIds: input.deliveryIds,
-      ordemManual: input.ordemManual,
-    }, effectiveDriverId, actorUserId, true);
+    const routeDate = canonicalRouteDate(input.date);
+    // Reserva a execução ANTES de calcular a rota. Puxar/Retomar usam a mesma
+    // trava driver+dia e enxergam INITIALIZING, portanto não conseguem anexar
+    // paradas depois que este Iniciar já fotografou a fila.
+    const route = await this.claimLogisticaRoute(companyId, effectiveDriverId, routeDate);
+    let plan: PlanejarRotaResult;
+    try {
+      plan = await this.planejarRota(companyId, {
+        date: input.date,
+        origemLat: input.origemLat,
+        origemLng: input.origemLng,
+        deliveryIds: input.deliveryIds,
+        ordemManual: input.ordemManual,
+      }, effectiveDriverId, actorUserId, true);
+    } catch (error) {
+      await this.releaseInitialization(companyId, route.id);
+      throw error;
+    }
 
     if (plan.paradas.length === 0) {
+      await this.releaseInitialization(companyId, route.id);
       // "JÁ MONTADA POR X" (10/08, ROTA v2 F1b) — antes desta checagem, um dia
       // com zero paradas ABERTAS pra ESTE motorista (porque a rota inteira já
       // é de outro) caía direto na mensagem genérica de dia vazio, como se
@@ -566,7 +588,9 @@ export class LogisticaRotaService {
       const montadores = (await quemMontouODia(this.prisma, companyId, start, end)).filter(
         (m) => m.userId !== effectiveDriverId,
       );
-      if (montadores.length > 0) throw rotaDeOutroMotoristaError(montadores, isLogisticaAdmin(actor));
+      if (montadores.length > 0) {
+        throw rotaDeOutroMotoristaError(montadores, isLogisticaAdmin(actor), routeDate);
+      }
       throw new BadRequestException('Não há entregas abertas para iniciar.');
     }
 
@@ -579,11 +603,9 @@ export class LogisticaRotaService {
     // acima) já garantiu o assento e o dia pago; o gate aqui de novo é
     // barato e idempotente (cobre quem chega direto no Iniciar sem
     // replanejar por um caminho alternativo).
-    const routeDate = canonicalRouteDate(input.date);
     // `podeComprar` = dono/master (LEI DO VENDEDOR): só quem pode gastar o
     // crédito da empresa vê o botão de comprar o passe no 402.
     await this.cobranca.assertAssentoDoDia(companyId, effectiveDriverId, routeDate, isBillingOwnerActor(actor as any));
-    const route = await this.ensureLogisticaRoute(companyId, effectiveDriverId, routeDate);
     await this.congelarStops(companyId, route.id, routeDate, plan.paradas.map((p) => p.id));
 
     // 1ª parada roteável vira 'em_rota' com startedAt — só se ainda estiver
@@ -617,10 +639,11 @@ export class LogisticaRotaService {
       if (route.status !== 'ACTIVE') {
         // count 0 = outra requisição concorrente já ativou (retomar/duplo-clique)
         // — idempotente, segue o fluxo normal sem erro.
-        await this.prisma.logisticaRoute.updateMany({
-          where: { companyId, id: route.id, status: 'PLANNED' },
+        const activated = await this.prisma.logisticaRoute.updateMany({
+          where: { companyId, id: route.id, status: { in: ['PLANNED', 'INITIALIZING'] }, operationalEndedAt: null },
           data: { status: 'ACTIVE', startedAt },
         });
+        if (activated.count !== 1) throw new ConflictException('A rota mudou enquanto era iniciada. Atualize a tela.');
       }
     } catch (error) {
       if (changedFirst) {
@@ -632,6 +655,7 @@ export class LogisticaRotaService {
       if (trackingSessionEnsured && this.tracking) {
         await this.tracking.discardUnboundSessionAfterRouteFailure(companyId, route.id).catch(() => undefined);
       }
+      await this.releaseInitialization(companyId, route.id);
       throw error;
     }
     // PR17072026 — (re)iniciar REATIVA a rota operacional: zera a marca de
@@ -692,7 +716,7 @@ export class LogisticaRotaService {
    * (ESSENTIAL|TRACKED) só é decidido na CRIAÇÃO e congela ali — mudar a
    * config depois não move rota em andamento, mesma lei de sempre.
    */
-  private async ensureLogisticaRoute(
+  private async claimLogisticaRoute(
     companyId: number,
     entregadorId: number,
     routeDate: string,
@@ -702,17 +726,42 @@ export class LogisticaRotaService {
       // concorrentes criando duas linhas novas pro mesmo motorista+dia.
       await lockLogisticaRouteTransaction(tx, companyId, `driver:${entregadorId}:date:${routeDate}`);
       const existing = await tx.logisticaRoute.findFirst({
-        where: { companyId, entregadorId, routeDate },
+        // Uma execução encerrada nunca volta à vida. TRACKED congela sessão,
+        // aparelho e trilha no routeId; reaproveitar a linha encerrada faria a
+        // próxima saída herdar uma sessão ENDED (ou a autoria da saída anterior).
+        where: {
+          companyId,
+          entregadorId,
+          routeDate,
+          status: { in: ['PLANNED', 'INITIALIZING', 'ACTIVE'] },
+          operationalEndedAt: null,
+        },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       });
-      if (existing && (existing.status === 'PLANNED' || existing.status === 'ACTIVE')) {
-        return existing as any;
+      if (existing?.status === 'INITIALIZING') {
+        throw new ConflictException('Esta rota já está sendo iniciada. Aguarde e atualize a tela.');
+      }
+      if (existing?.status === 'ACTIVE') return existing as any;
+      if (existing) {
+        const claimed = await tx.logisticaRoute.updateMany({
+          where: { companyId, id: existing.id, status: 'PLANNED', operationalEndedAt: null },
+          data: { status: 'INITIALIZING' },
+        });
+        if (claimed.count !== 1) throw new ConflictException('A rota mudou enquanto era iniciada. Atualize a tela.');
+        return { ...existing, status: 'INITIALIZING' } as any;
       }
       const mode = await this.resolveRouteModeForCompany(companyId);
       return tx.logisticaRoute.create({
-        data: { companyId, entregadorId, routeDate, mode, status: 'PLANNED' },
+        data: { companyId, entregadorId, routeDate, mode, status: 'INITIALIZING' },
       }) as any;
     });
+  }
+
+  private async releaseInitialization(companyId: number, routeId: string): Promise<void> {
+    await this.prisma.logisticaRoute.updateMany({
+      where: { companyId, id: routeId, status: 'INITIALIZING', operationalEndedAt: null },
+      data: { status: 'PLANNED' },
+    }).catch(() => undefined);
   }
 
   /**
@@ -896,6 +945,28 @@ export class LogisticaRotaService {
     const routeDate = canonicalRouteDate(input.date);
 
     const resumo = await this.prisma.$transaction(async (tx: any) => {
+      let lockedRouteIds: string[] = [];
+      // A mesma trava usada por tracking, confirmação e cancelamento. Quem
+      // encerra primeiro fecha a porta antes de qualquer ponto/evento novo;
+      // quem já estava gravando termina antes do carimbo de encerramento.
+      if (
+        typeof tx.logisticaRoute?.findMany === 'function' &&
+        typeof tx.$executeRawUnsafe === 'function'
+      ) {
+        const routes = await tx.logisticaRoute.findMany({
+          where: {
+            companyId,
+            routeDate,
+            ...(entregadorId ? { entregadorId } : {}),
+            status: { in: ['ACTIVE', 'INITIALIZING'] },
+            operationalEndedAt: null,
+          },
+          select: { id: true },
+          orderBy: { id: 'asc' },
+        });
+        lockedRouteIds = routes.map((route: any) => String(route.id));
+        for (const route of routes) await lockLogisticaRouteTransaction(tx, companyId, route.id);
+      }
       // Mesmo escopo de "entregas do dia" que a lista principal usa (listRota,
       // logistica.service.ts): agendadas pro range do dia + as sem data mas
       // ainda abertas (perpétuas até serem tratadas). TODOS os status entram
@@ -962,6 +1033,12 @@ export class LogisticaRotaService {
         },
         data: { operationalEndedAt: new Date() },
       });
+      if (lockedRouteIds.length && typeof tx.logisticaTrackingSession?.updateMany === 'function') {
+        await tx.logisticaTrackingSession.updateMany({
+          where: { companyId, routeId: { in: lockedRouteIds }, status: 'ACTIVE' },
+          data: { status: 'ENDED', endedAt: new Date() },
+        });
+      }
 
       return { total, entregues, naoEntregues, pendentes };
     });
@@ -1244,8 +1321,50 @@ export class LogisticaRotaService {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const { start, end, dayISO } = resolveDayRange(input.date);
     const routeDate = canonicalRouteDate(input.date);
+    const exactDeliveryIds = input.deliveryIds?.length ? normalizeDeliveryIds(input.deliveryIds) : undefined;
 
     const resumoBruto = await this.prisma.$transaction(async (tx: any) => {
+      if (exactDeliveryIds && entregadorId && typeof tx.$executeRawUnsafe === 'function') {
+        // Draft/parked também disputa com Puxar. A trava por motorista+dia
+        // impede o cancelamento de ler A e apagar a mesma entrega já movida a B.
+        await lockLogisticaRouteTransaction(tx, companyId, `driver:${entregadorId}:date:${routeDate}`);
+      }
+      // Serializa cancelamento com tracking/transferência/conclusão da mesma
+      // execução. Sem isso um lote de GPS pode passar pelo gate enquanto a
+      // rota recebe operationalEndedAt na transação vizinha.
+      if (
+        !input.skipRoute &&
+        typeof tx.logisticaRoute?.findMany === 'function' &&
+        typeof tx.$executeRawUnsafe === 'function'
+      ) {
+        const lockRoutes = await tx.logisticaRoute.findMany({
+          where: {
+            companyId,
+            routeDate,
+            ...(entregadorId ? { entregadorId } : {}),
+            ...(input.routeId ? { id: input.routeId } : {}),
+            status: { in: ['PLANNED', 'INITIALIZING', 'ACTIVE'] },
+          },
+          select: { id: true },
+          orderBy: { id: 'asc' },
+        });
+        for (const route of lockRoutes) await lockLogisticaRouteTransaction(tx, companyId, route.id);
+      }
+      if (exactDeliveryIds && input.routeId && typeof tx.logisticaRouteStop?.findMany === 'function') {
+        const currentStops = await tx.logisticaRouteStop.findMany({
+          where: {
+            companyId,
+            routeId: input.routeId,
+            delivery: { status: { in: [...LogisticaRotaService.STATUS_ABERTO] } },
+          },
+          select: { deliveryId: true },
+        });
+        const actual = currentStops.map((stop: any) => String(stop.deliveryId)).sort();
+        const expected = [...exactDeliveryIds].sort();
+        if (actual.length !== expected.length || actual.some((id: string, index: number) => id !== expected[index])) {
+          throw new ConflictException('As paradas desta rota mudaram. Atualize a tela antes de cancelar.');
+        }
+      }
       // Mesmo escopo "abertas do dia" do encerrarRota (range do dia + sem-data
       // abertas), já restrito por status — aqui CANCELA direto (sem o meio-termo
       // "estava mesmo na rota?" do encerrar: Limpar Dia descarta tudo que está
@@ -1253,6 +1372,7 @@ export class LogisticaRotaService {
       const escopoAberto = {
         companyId,
         ...(entregadorId ? { entregadorId } : {}),
+        ...(exactDeliveryIds ? { id: { in: exactDeliveryIds } } : {}),
         status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
         OR: [
           { scheduledAt: { gte: start, lte: end } },
@@ -1286,6 +1406,7 @@ export class LogisticaRotaService {
         companyId,
         routeDate,
         ...(entregadorId ? { entregadorId } : {}),
+        ...(input.routeId ? { id: input.routeId } : {}),
         status: { in: ['PLANNED', 'INITIALIZING', 'ACTIVE'] },
       };
 
@@ -1296,13 +1417,19 @@ export class LogisticaRotaService {
          palavra; só subiu de lugar. O filtro `status != 'entregue'` continua valendo
          igual: aqui as alvo ainda estão 'agendada'/'em_rota', e a entregue segue
          guardando o stop dela — é o comprovante do que a rota cobrou de verdade. */
-      const paradas = await tx.logisticaRouteStop.deleteMany({
-        where: {
-          companyId,
-          route: rotaCarregada,
-          delivery: { status: { not: 'entregue' } },
-        },
-      });
+      const paradas = input.skipRoute
+        ? { count: 0 }
+        : await tx.logisticaRouteStop.deleteMany({
+            where: {
+              companyId,
+              route: rotaCarregada,
+              // Só os alvos ainda ABERTOS desta própria decisão. Um stop de
+              // cancelamento offline já aplicado fica como prova de vínculo e
+              // permite reconhecer o retry cujo ACK se perdeu.
+              deliveryId: { in: alvoIds },
+              delivery: { status: { not: 'entregue' } },
+            },
+          });
 
       /* 🔴 CANCELAR APAGA — ESSA É A ORDEM (10/08, dono: *"o cancelar q não deleta,
          essa patifaria"*). A entrega que nunca virou trabalho SOME do banco; ela não
@@ -1318,6 +1445,7 @@ export class LogisticaRotaService {
          `FinanceiroCharge` nem nos claims (o teste guarda isso). */
       const apagadas = await apagarNaoProcessadas(tx, companyId, {
         id: { in: alvoIds },
+        ...(entregadorId ? { entregadorId } : {}),
         status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
       });
       const sumiram = new Set<string>(apagadas);
@@ -1329,17 +1457,26 @@ export class LogisticaRotaService {
       // senão o dia seguinte nasce dividido entre motoristas e o
       // `resolveSingleDriver` trava tudo — foi o bug que o dono viveu hoje.
       // Só chega aqui quem NÃO pôde ser apagada (tem sinal de vida).
-      let canceladas = { count: 0 };
+      const canceladasIds: string[] = [];
       if (sobreviventes.length) {
-        canceladas = await tx.entrega.updateMany({
-          where: {
-            companyId,
-            id: { in: sobreviventes.map((row: any) => row.id) },
-            status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
-          },
-          data: { status: 'cancelada', rotaOrdem: null, etaAt: null, startedAt: null, entregadorId: null },
-        });
+        // Um CAS por linha devolve a identidade exata de quem esta transação
+        // realmente cancelou. Snapshot lido antes não pode liberar plano/chave
+        // de uma entrega que outra requisição acabou de concluir.
+        for (const row of sobreviventes as any[]) {
+          const changed = await tx.entrega.updateMany({
+            where: {
+              companyId,
+              id: row.id,
+              status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
+            },
+            data: { status: 'cancelada', rotaOrdem: null, etaAt: null, startedAt: null, entregadorId: null },
+          });
+          if (changed.count === 1) canceladasIds.push(row.id);
+        }
       }
+      const efetivos = new Set<string>([...apagadas, ...canceladasIds]);
+      const alvosEfetivos = alvos.filter((row: any) => efetivos.has(row.id));
+      const sobreviventesCancelados = sobreviventes.filter((row: any) => canceladasIds.includes(row.id));
 
       // A chave da ocorrência é ÚNICA por empresa. Presa na entrega cancelada,
       // `generateDay` acha "já existe" e pula o cliente PARA SEMPRE. Soltar a
@@ -1352,10 +1489,10 @@ export class LogisticaRotaService {
          (updateMany não copia coluna em coluna) e são poucas por dia.
          Quem foi APAGADA não precisa disto (linha inteira sumiu, chave junto) — a
          prova de "isto foi cancelado por gente" dela é o EVENTO, ver o fim do método. */
-      const comChave = sobreviventes.filter((row: any) => row.agendaOcorrenciaKey);
+      const comChave = sobreviventesCancelados.filter((row: any) => row.agendaOcorrenciaKey);
       for (const row of comChave) {
         await tx.entrega.updateMany({
-          where: { companyId, id: row.id },
+          where: { companyId, id: row.id, status: 'cancelada' },
           data: { agendaOcorrenciaKey: null, agendaOcorrenciaKeyOrigem: row.agendaOcorrenciaKey },
         });
       }
@@ -1381,7 +1518,7 @@ export class LogisticaRotaService {
       // intocada de propósito — devolver um plano pra um dia arbitrário é
       // exatamente o defeito que este bloco corrige.
       const planosPorOrigem = new Map<string, Set<string>>();
-      for (const row of alvos as any[]) {
+      for (const row of alvosEfetivos as any[]) {
         if (!row.planoEntregaId) continue;
         const origem = sourceDateFromOccurrenceKey(row.agendaOcorrenciaKey);
         if (!origem) continue;
@@ -1436,17 +1573,19 @@ export class LogisticaRotaService {
       // Encerra a rota OPERACIONALMENTE (campo decoupled — mesmo comentário do
       // encerrarRota): NÃO altera `status` de cobrança. Zerado sozinho quando o
       // dia for (re)iniciado.
-      const rotas = await tx.logisticaRoute.updateMany({
-        where: rotaCarregada,
-        data: { operationalEndedAt: new Date() },
-      });
+      const rotas = input.skipRoute || (exactDeliveryIds && alvosEfetivos.length === 0)
+        ? { count: 0 }
+        : await tx.logisticaRoute.updateMany({
+            where: rotaCarregada,
+            data: { operationalEndedAt: new Date() },
+          });
 
       return {
         /* CONTRATO DO APP: `canceladas` continua sendo QUANTAS PARADAS SAÍRAM DO
            DIA — apagadas + carimbadas. O aparelho mostra este número desde 18/07;
            trocar o significado dele por "só as que sobraram" faria a tela dizer 0
            num dia inteiro cancelado. `apagadas` é o detalhe novo, aditivo. */
-        canceladas: apagadas.length + canceladas.count,
+        canceladas: apagadas.length + canceladasIds.length,
         apagadas: apagadas.length,
         planosLiberados,
         rotasEncerradas: rotas.count,
@@ -1454,7 +1593,7 @@ export class LogisticaRotaService {
         // o que gravar no extrato DEPOIS do commit — ver abaixo. Sai do `resumo`
         // logo na desestruturação: isto é matéria-prima do evento, NUNCA resposta
         // da API (o app lê este objeto, e teste guarda o formato dele).
-        alvosDoEvento: alvos as Array<{ id: string; customerProfileId: string; planoEntregaId: string | null; scheduledAt: Date | null; agendaOcorrenciaKey: string | null }>,
+        alvosDoEvento: alvosEfetivos as Array<{ id: string; customerProfileId: string; planoEntregaId: string | null; scheduledAt: Date | null; agendaOcorrenciaKey: string | null }>,
       };
     });
     const { alvosDoEvento, ...resumo } = resumoBruto;
@@ -1528,7 +1667,9 @@ export class LogisticaRotaService {
       // continuam dizendo exatamente o que já diziam.
       if (diagnostico.motivo === 'dia_vazio') {
         const montadores = await quemMontouODia(this.prisma, companyId, start, end);
-        if (montadores.length > 0) throw rotaDeOutroMotoristaError(montadores, isLogisticaAdmin(actor));
+        if (montadores.length > 0) {
+          throw rotaDeOutroMotoristaError(montadores, isLogisticaAdmin(actor), canonicalRouteDate(date));
+        }
       }
       throw new BadRequestException(diagnostico.mensagem);
     }
@@ -2704,6 +2845,10 @@ export interface IniciarRotaInput {
 export interface EncerrarRotaInput {
   date?: string;
   motivo?: string;
+  /** Escopo exato usado pela continuidade; não faz parte do contrato legado. */
+  deliveryIds?: string[];
+  routeId?: string;
+  skipRoute?: boolean;
 }
 
 export interface EncerrarRotaResumo {

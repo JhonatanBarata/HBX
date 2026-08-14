@@ -102,11 +102,20 @@ const paradaFalsa = (i) => ({
 
 const PONTE = (itens) => {
   window.__chamadas = [];
+  window.__itens = itens;
   window.__pediuPermissao = 0;
   window.HBX = {
     api(caminho, opcoes) {
       const metodo = (opcoes && opcoes.method) || 'GET';
-      window.__chamadas.push([metodo, caminho]);
+      const corpo = (opcoes && opcoes.body) || null;
+      window.__chamadas.push([metodo, caminho, corpo]);
+      if (caminho.indexOf('/logistica/rota/planejar') === 0 && metodo === 'POST') {
+        const ordem = corpo && Array.isArray(corpo.ordemManual) ? corpo.ordemManual.map(String) : [];
+        const pos = new Map(ordem.map((id, i) => [id, i]));
+        itens.sort((a, b) => (pos.get(String(a.id)) ?? 999) - (pos.get(String(b.id)) ?? 999));
+        itens.forEach((item, i) => { item.rotaOrdem = i; });
+        return Promise.resolve({ stops: ordem.map((id) => ({ id })) });
+      }
       if (caminho.indexOf('/logistica/rota?') === 0) {
         return Promise.resolve({ items: itens, routeStatus: itens.length ? 'PLANNED' : 'NONE', moduloFinanceiroAtivo: false });
       }
@@ -164,7 +173,8 @@ const LER = () => {
       const r = el.getBoundingClientRect();
       const s = getComputedStyle(el);
       return {
-        txt: el.textContent, min: el.classList.contains('min'),
+        id: el.dataset.parada, txt: el.textContent, min: el.classList.contains('min'),
+        classes: [...el.classList],
         w: Math.round(r.width), h: Math.round(r.height),
         y: Math.round(r.y), dentro: cai(r),
         pos: getComputedStyle(el.closest('.maplibregl-marker')).position,
@@ -369,6 +379,62 @@ const RESOLVER = (valor) => {
       ordem.antes, ordem.antes ? 'vendor primeiro' : 'vendor por ultimo');
     eh('2.10 o alvo do mapa e absoluto e tem altura de tela',
       ordem.pos === 'absolute' && ordem.altura > 300, `${ordem.pos} ${ordem.altura}px`);
+    await ctx.close();
+  }
+
+  /* ======================================================================
+     CASO 2b — ESTADO VISUAL + "IR AGORA".
+     O pino é identificado pela entrega (não pelo número), repinta no mesmo
+     nó e o toque no cliente 3 envia [3, ...restante] sem apagar ninguém.
+     ====================================================================== */
+  {
+    const estados = [
+      { ...paradaFalsa(0), status: 'agendada', mapStatus: 'pending' },
+      { ...paradaFalsa(1), status: 'agendada', mapStatus: 'arrived', arrivedAt: new Date().toISOString() },
+      { ...paradaFalsa(2), status: 'entregue', mapStatus: 'delivered' },
+      { ...paradaFalsa(3), status: 'cancelada', mapStatus: 'failed', arrivedAt: new Date().toISOString() },
+      { ...paradaFalsa(4), status: 'cancelada', mapStatus: 'cancelled' },
+    ];
+    const { ctx, p } = await abrir(navegador, pele, porta, { itens: estados, permissao: true });
+    const a = await p.evaluate(LER);
+    const porId = new Map(a.pinos.map((x) => [x.id, x]));
+    eh('2b.1 próximo fica destacado', porId.get('e0')?.classes.includes('is-next'));
+    eh('2b.2 chegou muda forma sem depender do navegador', porId.get('e1')?.classes.includes('is-arrived'));
+    eh('2b.3 entregue vira V', porId.get('e2')?.classes.includes('is-delivered') && porId.get('e2')?.txt === '✓');
+    eh('2b.4 visita sem entrega vira !', porId.get('e3')?.classes.includes('is-failed') && porId.get('e3')?.txt === '!');
+    eh('2b.5 cancelamento administrativo vira ×', porId.get('e4')?.classes.includes('is-cancelled') && porId.get('e4')?.txt === '×');
+    const reaproveitou = await p.evaluate(async () => {
+      const el = document.querySelector('.map-pino[data-parada="e1"]');
+      if (!el) return false;
+      el.__provaMesmoNo = true;
+      const item = window.__itens.find((x) => x.id === 'e1');
+      item.status = 'entregue'; item.mapStatus = 'delivered';
+      await window.HBXRota.carregar();
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      const depois = document.querySelector('.map-pino[data-parada="e1"]');
+      return !!(depois && depois.__provaMesmoNo && depois.textContent === '✓');
+    });
+    eh('2b.6 mudança de estado repinta o mesmo pino por id', reaproveitou);
+    await ctx.close();
+  }
+  {
+    const itens = [0, 1, 2].map((i) => ({ ...paradaFalsa(i), status: 'agendada', mapStatus: 'pending' }));
+    const { ctx, p } = await abrir(navegador, pele, porta, { itens, permissao: true });
+    await p.click('.map-pino[data-parada="e2"]');
+    await p.waitForTimeout(250);
+    const portao = await p.evaluate(() => ({
+      titulo: (document.querySelector('.portao h3') || {}).textContent || '',
+      acao: (document.querySelector('.portao-wrap .principal') || {}).textContent || '',
+    }));
+    eh('2b.7 tocar no cliente 3 oferece Ir agora', /Cliente 3/.test(portao.titulo) && /Ir agora/.test(portao.acao));
+    await p.click('.portao-wrap .principal');
+    await p.waitForTimeout(1600);
+    const ordem = await p.evaluate(() => {
+      const chamada = window.__chamadas.filter((x) => x[0] === 'POST' && x[1].indexOf('/logistica/rota/planejar') === 0).pop();
+      return chamada && chamada[2] && chamada[2].ordemManual;
+    });
+    eh('2b.8 Ir agora envia o clicado + todo o restante na ordem atual',
+      Array.isArray(ordem) && ordem.join(',') === 'e2,e0,e1', JSON.stringify(ordem));
     await ctx.close();
   }
 

@@ -62,6 +62,11 @@ class NativeApiClientPathPolicyTest {
     fun pr18072026EndpointsFollowTheExactMethodPolicy() {
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/products"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota/limpar-dia"))
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/rota/continuidade"))
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/rota/continuidade/abrir"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota/continuidade/retomar"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota/continuidade/puxar"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota/continuidade/cancelar"))
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/rota-modelos"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota-modelos"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota-modelos/modelo-1/gerar"))

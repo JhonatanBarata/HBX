@@ -552,7 +552,9 @@
      justamente a parada que ele precisa reencontrar. */
   const rotaMontada = () => {
     const e = (typeof estadoRota !== 'undefined' ? String(estadoRota) : '');
-    return e === 'pronta' || e === 'rodando' || e === 'pausada';
+    // `consulta` desenha a fotografia exata da pendência (pinos/fita), mas os
+    // eventos de mutação continuam bloqueados nas portas de ordem e entrega.
+    return e === 'pronta' || e === 'rodando' || e === 'pausada' || e === 'consulta';
   };
 
   /* 🔴 O TEMPLATE DO MOCK INTERPOLA CRU (`${…}`), como toda maquete. Enquanto o
@@ -731,6 +733,8 @@
          qualquer outra coisa desmontaria a lista sem um erro sequer. A pílula
          TRADUZ este campo; ela não é a fonte dele. */
       st: status,
+      mapStatus: String(item.mapStatus || ''),
+      chegou: !!item.arrivedAt || !!(window.HBX && window.HBX.cache && window.HBX.cache.get(`chegada:${item.id}`, null)),
       // 🔴 O NÚMERO DA TELA É A ORDEM DA VISITA, e gente conta do 1. O servidor
       // grava `rotaOrdem` começando em ZERO — usar o campo cru punha "0, 1, 2"
       // na frente do motorista (visto no g15). A ordem do servidor decide a
@@ -913,4 +917,81 @@
      virada da meia-noite: sem guardar isto, ninguém tem como perceber que a
      tela envelheceu. Ver `viradaDoDia`. */
   let diaNaTela = null;
+  let continuidadeAtiva = '';
+  let rotaRefAtual = '';
+  let refsDoAtor = [];
+  let pendenciasDaRota = [];
+  let pendenciasSemConexao = false;
 
+  const escopoLocalDaSessao = () => {
+    try {
+      const info = window.HBX && window.HBX.info ? window.HBX.info() : {};
+      return String((info && info.sessionScope) || '').trim();
+    } catch (_) { return ''; }
+  };
+  const chavePendencias = (scope) => `rota-pendencias:${String(scope || '').trim()}`;
+  function recuperarPendencias() {
+    const scope = escopoLocalDaSessao();
+    if (!scope || !window.HBX || !window.HBX.cache) return;
+    const cached = window.HBX.cache.get(chavePendencias(scope), null);
+    if (cached && cached.scopeKey && Array.isArray(cached.items)) {
+      vestirPendencias(cached, { persistir: false, semConexao: true });
+    }
+  }
+
+  const dataDaRotaNaTela = () => diaNaTela || diaOperacional();
+  function refDaResposta(r, itens) {
+    if (r && r.continuityRef) return String(r.continuityRef);
+    if (r && r.routeId) return `route:${String(r.routeId)}`;
+    const comDono = (itens || []).find((it) => it && it.entregador && it.entregador.id
+      && it.rotaOrdem !== null && it.rotaOrdem !== undefined);
+    return comDono ? `draft:${Number(comDono.entregador.id)}:${String((r && r.date) || dataDaRotaNaTela())}` : '';
+  }
+
+  function vestirPendencias(resp, opcoes = {}) {
+    if (!resp || !Array.isArray(resp.items)) return false;
+    const localScope = escopoLocalDaSessao();
+    const serverScope = String(resp.scopeKey || '').trim();
+    if (!localScope || !serverScope) return false;
+    const cacheKey = chavePendencias(localScope);
+    const anterior = window.HBX && window.HBX.cache ? window.HBX.cache.get(cacheKey, null) : null;
+    if (anterior && anterior.scopeKey && String(anterior.scopeKey) !== serverScope) {
+      try { window.HBX.cache.remove(cacheKey); } catch (_) {}
+    }
+    refsDoAtor = Array.isArray(resp && resp.ownedRefs) ? resp.ownedRefs.map(String) : [];
+    pendenciasDaRota = (Array.isArray(resp && resp.items) ? resp.items : []).map((p) => ({
+      ref: String(p.ref || ''),
+      date: String(p.date || ''),
+      dateLabel: diaCurto(p.date) || String(p.date || ''),
+      owner: esc(p.owner && p.owner.name ? p.owner.name : 'Funcionário'),
+      ownerId: Number(p.owner && p.owner.id) || 0,
+      remaining: Number(p.remaining) || 0,
+      state: String(p.state || 'planned'),
+      canOpen: p.canOpen !== false,
+      canContinue: !!p.canContinue,
+      canPull: !!p.canPull,
+      canCancel: !!p.canCancel,
+      active: String(p.ref || '') === continuidadeAtiva,
+    })).filter((p) => p.ref && p.remaining > 0);
+    // A pele mostra no máximo dois cartões para não cobrir o mapa. O servidor
+    // conta apenas o que ficou fora do lote dele; some também o que chegou no
+    // lote mas ficou sob esse teto visual, senão 5 pendências viravam 2 sem voz.
+    const ocultasNoServidor = Number(resp.hiddenCount) || 0;
+    const ocultas = Math.max(0, pendenciasDaRota.length - 2) + ocultasNoServidor;
+    if (ocultas > 0) pendenciasDaRota.push({ more: ocultas });
+    pendenciasSemConexao = !!opcoes.semConexao;
+    if (opcoes.persistir !== false && window.HBX && window.HBX.cache) {
+      try {
+        window.HBX.cache.set(cacheKey, {
+          scopeKey: serverScope,
+          ownedRefs: refsDoAtor,
+          items: Array.isArray(resp.items) ? resp.items : [],
+          // Guarda o contrato cru. Na restauração, a conta visual é refeita e
+          // não dobra as que já estavam dentro de `items`.
+          hiddenCount: ocultasNoServidor,
+        });
+      } catch (_) {}
+    }
+    return true;
+  }
+  recuperarPendencias();

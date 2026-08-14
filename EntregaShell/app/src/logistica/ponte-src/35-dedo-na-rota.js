@@ -58,6 +58,10 @@
      a rota ACTIVE, que é justamente quando o motorista arrasta. */
   document.addEventListener('hbx:ordem', (ev) => {
     if (!temPonte()) return;
+    if (continuidadeAtiva) {
+      ev.preventDefault();
+      return avisoErro(new Error('Esta rota está em modo de consulta. Continue ou puxe antes de alterar a ordem.'));
+    }
     // A MONTAGEM fala por POSIÇÃO: lá a entrega ainda não existe, então não há
     // id pra mandar ao servidor — e não há servidor pra chamar. Sai antes.
     if (ev.detail && Array.isArray(ev.detail.previa)) {
@@ -73,7 +77,12 @@
         // A origem entra aqui também: `planRouteManual` não reordena nada (a
         // ordem é a do dedo), mas é ela que dá a PERNA real da 1ª parada — sem
         // origem o trecho até o primeiro cliente sai zerado na tela.
-        await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ordemManual: ids, ...origemGps() });
+        // A lista inteira vai como conjunto E sequência: escolher o cliente 3
+        // não puxa para este planejamento uma parada alheia que entrou no dia
+        // por outro aparelho enquanto o motorista tocava no mapa.
+        await window.API.post('/logistica/rota/planejar', {
+          date: dataDaRotaNaTela(), deliveryIds: ids, ordemManual: ids, ...origemGps(),
+        });
       } catch (e) {
         // A tela está mostrando a ordem NOVA e o servidor ficou com a velha.
         // Repintar primeiro DESFAZ a mentira; o aviso vem depois, senão o
@@ -114,4 +123,3 @@
       await carregarRota();
     });
   });
-

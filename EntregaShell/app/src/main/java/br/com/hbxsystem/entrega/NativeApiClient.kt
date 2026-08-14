@@ -270,6 +270,8 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "rota", "custo-preview"),
             // HISTÓRICO DA MONTAGEM (09/08) — reutilizar rota dos últimos 14 dias.
             listOf("logistica", "rota", "historico"),
+            listOf("logistica", "rota", "continuidade"),
+            listOf("logistica", "rota", "continuidade", "abrir"),
             listOf("logistica", "mobile", "route"),
             listOf("logistica", "produtos"),
             listOf("logistica", "config"),
@@ -361,6 +363,9 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "rota", "iniciar"),
             listOf("logistica", "rota", "encerrar"),
             listOf("logistica", "rota", "limpar-dia"),
+            listOf("logistica", "rota", "continuidade", "retomar"),
+            listOf("logistica", "rota", "continuidade", "puxar"),
+            listOf("logistica", "rota", "continuidade", "cancelar"),
             // 27/07 — a saída de quem NÃO ACEITOU a montagem (fechar o
             // Gerenciador, "Cancelar rota"): desfaz a ocorrência e devolve o dia
             // pro cliente. Sem esta linha o app barra a chamada AQUI, antes de

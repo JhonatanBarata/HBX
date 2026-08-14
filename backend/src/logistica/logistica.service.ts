@@ -40,6 +40,7 @@ import { isoDaUltimaEntrega, ultimaEntregaPorCliente } from './logistica-ultima-
 import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
 // F3 (27/07) — {eta} no aviso de chegada (minutos até chegar, do etaAt).
 import { formatEtaMinutos } from './logistica-tracking-public.util';
+import { lockLogisticaRouteTransaction } from './logistica-route-lock';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -156,11 +157,19 @@ export class LogisticaService {
     dateInput?: string,
     actor?: LogisticaActor | null,
     updatedSinceInput?: string,
+    exactScope?: { entregadorId: number; deliveryIds: string[] },
   ): Promise<RotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const { start, end, dayISO } = resolveDayRange(dateInput);
     const billingAudience = isBillingOwnerActor(actor);
-    const actorWhere = actor ? await this.requireOperacao().whereForActor(actor) : {};
+    const actorWhere = exactScope
+      ? { entregadorId: exactScope.entregadorId }
+      : actor
+        ? await this.requireOperacao().whereForActor(actor)
+        : {};
+    const exactDeliveryIds = exactScope
+      ? [...new Set(exactScope.deliveryIds.map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 300)
+      : [];
     const updatedSince = parseUpdatedSince(updatedSinceInput);
     const comprovanteActorWhere =
       actor && !isLogisticaAdmin(actor) ? { enviadoPorUserId: actorIdOrNull(actor) } : {};
@@ -169,6 +178,7 @@ export class LogisticaService {
       where: {
         companyId,
         ...actorWhere,
+        ...(exactScope ? { id: { in: exactDeliveryIds } } : {}),
         ...(updatedSince ? { updatedAt: { gt: updatedSince } } : {}),
         // Entregas AGENDADAS pro dia + as que ficaram sem data mas ainda abertas.
         OR: [
@@ -195,6 +205,7 @@ export class LogisticaService {
         // (campo `valor` cru) continua gateada abaixo — só o SELECT abriu.
         valor: true,
         scheduledAt: true,
+        arrivedAt: true,
         deliveredAt: true,
         deliveredLat: true,
         deliveredLng: true,
@@ -562,6 +573,17 @@ export class LogisticaService {
         ...(valorHoje !== undefined ? { valorHoje } : {}),
         scheduledAt: r.scheduledAt ? r.scheduledAt.toISOString() : null,
         deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
+        arrivedAt: r.arrivedAt ? r.arrivedAt.toISOString() : null,
+        // Estado visual normalizado do mapa. Cancelamento depois de uma chegada
+        // é uma visita sem entrega; cancelamento sem chegada é administrativo.
+        mapStatus:
+          r.status === 'entregue'
+            ? 'delivered'
+            : r.status === 'cancelada'
+              ? (r.arrivedAt ? 'failed' : 'cancelled')
+              : r.arrivedAt
+                ? 'arrived'
+                : 'pending',
         deliveredLat: r.deliveredLat ?? null,
         deliveredLng: r.deliveredLng ?? null,
         // FECHAMENTO DO DIA (05/08) — 'dinheiro'|'pix'|'cartao'|'fiado'|null. Mesmo
@@ -869,7 +891,7 @@ export class LogisticaService {
     const entrega = await this.prisma.entrega.findFirst({
       where: { id: String(id).trim(), companyId, ...actorWhere },
       select: {
-        id: true, status: true, customerProfileId: true, contatoId: true, valor: true,
+        id: true, status: true, entregadorId: true, customerProfileId: true, contatoId: true, valor: true,
         // MULTILOCAL (10/07) — o local da entrega decide ONDE o GPS de ouro converge.
         localId: true,
         cobrancaStatus: true, idempotencyKey: true, whatsappStatus: true, cobrancaOutcome: true, deliveredAt: true,
@@ -879,9 +901,16 @@ export class LogisticaService {
         comprovanteCodigoHash: true, comprovanteCodigoSalt: true,
         // F0 (27/07) — precisa pra avançar o cursor da Agenda no desfecho.
         agendaOcorrenciaKey: true, planoEntregaId: true,
+        logisticaRouteStop: {
+          select: { routeId: true, route: { select: { entregadorId: true, operationalEndedAt: true } } },
+        },
       },
     });
     if (!entrega) return null;
+    const parkedStop = (entrega as any).logisticaRouteStop;
+    if (parkedStop?.route && Number(parkedStop.route.entregadorId) !== Number(entrega.entregadorId)) {
+      throw new ConflictException('Esta parada foi transferida. Inicie a nova rota antes de concluir.');
+    }
 
     // M8 (offline-first) — REPLAY idempotente por key: se esta entrega JÁ tem a MESMA
     // idempotencyKey gravada, esta é uma reentrega da fila offline (drenou depois de
@@ -994,8 +1023,13 @@ export class LogisticaService {
     // F0 (27/07) — avanço do cursor acontece NA tx; o evento de extrato só grava
     // DEPOIS do commit (ver contrato em logistica-agenda-evento.util.ts).
     let avancoAgenda: { origemKey: string; proximaKey: string | null } | null = null;
+    let replayConcorrente = false;
     try {
       await this.prisma.$transaction(async (tx) => {
+        const routeId = (entrega as any).logisticaRouteStop?.routeId;
+        if (routeId && typeof (tx as any).$executeRawUnsafe === 'function') {
+          await lockLogisticaRouteTransaction(tx, companyId, routeId);
+        }
         const validacao = this.operacao
           ? await this.operacao.validarParaConfirmacao(tx, companyId, entrega, gps, actor)
           : { ids: [] as string[], exigiuComprovante: false };
@@ -1006,8 +1040,13 @@ export class LogisticaService {
         const chegouAt = entrega.arrivedAt
           ? undefined
           : aparaChegada(gps.arrivedAt, confirmadoAt, entrega.createdAt) ?? undefined;
-        await tx.entrega.update({
-          where: { id: entrega.id },
+        const confirmed = await tx.entrega.updateMany({
+          where: {
+            id: entrega.id,
+            companyId,
+            entregadorId: entrega.entregadorId,
+            status: { in: ['agendada', 'em_rota'] },
+          },
           data: {
             status: 'entregue',
             arrivedAt: chegouAt,
@@ -1022,6 +1061,22 @@ export class LogisticaService {
             comprovanteConfirmadoAt: validacao.exigiuComprovante ? confirmadoAt : undefined,
           },
         });
+        if (confirmed.count !== 1) {
+          const winner = key && typeof (tx as any).entrega?.findFirst === 'function'
+            ? await (tx as any).entrega.findFirst({
+                where: { id: entrega.id, companyId },
+                select: { status: true, idempotencyKey: true },
+              })
+            : null;
+          if (
+            winner?.status === 'entregue' &&
+            String(winner.idempotencyKey || '') === String(key || '')
+          ) {
+            replayConcorrente = true;
+            return;
+          }
+          throw new ConflictException('A entrega mudou de rota ou motorista. Atualize a tela antes de concluir.');
+        }
         // F0 (27/07) — CURSOR NO DESFECHO: entregou uma ocorrência da Agenda?
         // O plano anda. Dentro da MESMA transação núcleo (ver avancarPlanoNoDesfecho);
         // o evento do extrato fica pra depois do commit.
@@ -1149,6 +1204,21 @@ export class LogisticaService {
         };
       }
       throw e;
+    }
+
+    if (replayConcorrente) {
+      const atual = await this.prisma.entrega.findFirst({
+        where: { id: entrega.id, companyId },
+        select: { whatsappStatus: true, cobrancaOutcome: true },
+      });
+      return {
+        id: entrega.id,
+        status: 'entregue',
+        effectsEnabled: this.effectsEnabled,
+        whatsappSent: atual?.whatsappStatus === 'enviado',
+        cobrancaLancada: atual?.cobrancaOutcome === 'lancada',
+        replayed: true,
+      };
     }
 
     // B1 — realimenta a coordenada da porta real com o GPS de ouro (best-effort,
@@ -1732,21 +1802,34 @@ export class LogisticaService {
     // método é chamado de vários lugares (fila offline do APK, encerrar rota,
     // limpar dia) e nenhum deles precisa saber de chegada. Quem não passa, não muda.
     arrivedAtBruto?: string | null,
+    cancelIdempotencyKeyBruta?: string | null,
   ): Promise<{ id: string; cobrancaCancelada?: boolean } | null> {
     if (!companyId || !id) return null;
     const actorWhere = actor ? await this.requireOperacao().whereForActor(actor) : {};
     const entrega = await this.prisma.entrega.findFirst({
       where: { id: String(id).trim(), companyId, ...actorWhere },
       select: {
-        id: true, status: true, notes: true, customerProfileId: true,
+        id: true, status: true, entregadorId: true, notes: true, customerProfileId: true,
         // CARIMBO DE CHEGADA — mesma dupla do confirmar: 1ª gravação vence,
         // createdAt é o chão de sanidade.
         arrivedAt: true, createdAt: true,
         // F0 (27/07) — precisa pra avançar o cursor da Agenda no desfecho.
         agendaOcorrenciaKey: true, planoEntregaId: true,
+        logisticaRouteStop: {
+          select: { routeId: true, route: { select: { entregadorId: true, operationalEndedAt: true } } },
+        },
+        cancelIdempotencyKey: true,
       },
     });
     if (!entrega) return null;
+    const parkedStop = (entrega as any).logisticaRouteStop;
+    if (parkedStop?.route && Number(parkedStop.route.entregadorId) !== Number(entrega.entregadorId)) {
+      throw new ConflictException('Esta parada foi transferida. Inicie a nova rota antes de registrar o desfecho.');
+    }
+    const cancelKey = normalizeIdempotencyKey(cancelIdempotencyKeyBruta);
+    if (cancelKey && entrega.status === 'cancelada' && entrega.cancelIdempotencyKey === cancelKey) {
+      return { id: entrega.id, cobrancaCancelada: false };
+    }
     if (entrega.status === 'entregue') {
       throw new BadRequestException('Entrega já concluída não pode ser cancelada.');
     }
@@ -1771,6 +1854,10 @@ export class LogisticaService {
     // mesmo caminho da fila offline do APK (logistica-offline.service.ts), e um
     // throw aqui quebraria o replay do motorista.
     const desfecho = await this.prisma.$transaction(async (tx) => {
+      const routeId = (entrega as any).logisticaRouteStop?.routeId;
+      if (routeId && typeof (tx as any).$executeRawUnsafe === 'function') {
+        await lockLogisticaRouteTransaction(tx, companyId, routeId);
+      }
       const cobranca = await tx.financeiroCharge.updateMany({
         where: { companyId, entregaId: entrega.id, status: 'pending', paidAt: null },
         data: { status: 'cancelled', lifecycle: 'cancelled' },
@@ -1782,17 +1869,26 @@ export class LogisticaService {
       const chegouAt = entrega.arrivedAt
         ? undefined
         : aparaChegada(arrivedAtBruto, new Date(), entrega.createdAt) ?? undefined;
-      await tx.entrega.update({
-        where: { id: entrega.id },
+      const cancelled = await tx.entrega.updateMany({
+        where: {
+          id: entrega.id,
+          companyId,
+          entregadorId: entrega.entregadorId,
+          status: { in: ['agendada', 'em_rota'] },
+        },
         data: {
           status: 'cancelada',
           notes,
           arrivedAt: chegouAt,
+          cancelIdempotencyKey: cancelKey ?? undefined,
           // Sem charge viva, o status da cobrança volta pro neutro — deixar
           // 'lancada' numa entrega cancelada é a mentira que gerou o caso.
           ...(cobrancaCancelada ? { cobrancaStatus: 'pendente' } : {}),
         },
       });
+      if (cancelled.count !== 1) {
+        throw new ConflictException('A entrega mudou de rota ou motorista. Atualize a tela antes de cancelar.');
+      }
       const avanco = entrega.agendaOcorrenciaKey && entrega.planoEntregaId
         ? await this.avancarPlanoNoDesfecho(tx, companyId, {
           planoEntregaId: entrega.planoEntregaId,
@@ -3826,7 +3922,9 @@ export interface RotaItem {
   // sem expor valorUnit por item nem o catálogo inteiro (isso é billingAudience-only).
   valorHoje?: number;
   scheduledAt: string | null;
+  arrivedAt: string | null;
   deliveredAt: string | null;
+  mapStatus: 'pending' | 'arrived' | 'delivered' | 'failed' | 'cancelled';
   deliveredLat: number | null;
   deliveredLng: number | null;
   cobrancaStatus?: string;

@@ -413,6 +413,7 @@ export class PlanejarRotaDto {
   // cálculo. As demais continuam agendadas para uma próxima montagem.
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(300)
   @IsString({ each: true })
   @MaxLength(80, { each: true })
   deliveryIds?: string[];
@@ -421,6 +422,7 @@ export class PlanejarRotaDto {
   // tela. Presentes = ordem dada; ausentes = apêndice no fim. Pula NN+2-opt.
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(300)
   @IsString({ each: true })
   @MaxLength(80, { each: true })
   ordemManual?: string[];
@@ -447,6 +449,7 @@ export class IniciarRotaDto {
 
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(300)
   @IsString({ each: true })
   @MaxLength(80, { each: true })
   deliveryIds?: string[];
@@ -454,6 +457,7 @@ export class IniciarRotaDto {
   // PR18072026 — mesmo contrato do PlanejarRotaDto acima.
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(300)
   @IsString({ each: true })
   @MaxLength(80, { each: true })
   ordemManual?: string[];
