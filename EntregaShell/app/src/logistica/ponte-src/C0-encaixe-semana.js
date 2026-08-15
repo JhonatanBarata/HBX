@@ -596,6 +596,12 @@
       ? new Set(pagina.vendas.map((v) => String(v.clienteId || ''))).size
       : null;
     window.usarDados('fechamento', {
+      // O esqueleto/aviso saem no MESMO repinte do dado — mesmo par que
+      // TODA seção com `carregando`/`semFonte` usa quando a resposta chega
+      // (ver `fonteVoltou` em 10-geofence-montagem.js). Sem isto, a Fechamento
+      // ficaria PRESA no esqueleto pra sempre depois da 1ª carga: nada mais
+      // neste método zerava `carregando`.
+      ...fonteVoltou,
       entregues: String(entregues),
       // O selo do canto diz um FATO (quantas vendas), nunca um veredito: o app
       // não tem como saber que está "tudo certo". Sem venda, sem selo.

@@ -47,7 +47,11 @@ button,input{font:inherit;color:inherit}
   --go-1:#8fd626;
   --go-2:#68b019;
   --go-ink:#12200a;
-  --btn-blue-1:#3d8bff;
+  /* 🔴 O AZUL DO "ATUALIZAR" REPROVAVA CONTRA BRANCO (15/08, MEDIDO: 3,31:1).
+     Decisão fechada do dono: escurecer o tom 1 do par — 2563eb com branco em
+     cima mede 5,17:1 (medido). O tom 2 (`--btn-blue-2`) já passava e fica
+     como está; só a ponta clara do gradiente raspava o piso de 4,5:1. */
+  --btn-blue-1:#2563eb;
   --btn-blue-2:#1f66e0;
   --lime-bg:#151f0d;
   --lime-bg-2:#17230e;
@@ -57,6 +61,12 @@ button,input{font:inherit;color:inherit}
   --blue-line:#2b5490;
   --amber-bg:#2a1e0b;
   --amber-line:#7a5411;
+  /* 🔴 O CARTÃO DO RECADO TINHA HEX SOLTO (15/08) — mesma família âmbar do par
+     de cima, só um tom mais fechado (o `.recado` é card, não pílula). O claro
+     não precisa dele: `[data-luz="claro"] .recado` já troca o fundo inteiro
+     por um tom próprio (~2968), então esta var só serve o escuro — como
+     `--amber-bg`/`--amber-line`. */
+  --amber-bg-2:#1a1408;
   --red-line:#5b2626;
   --red-line-2:#6d2b2b;
   --red-bg:#1a1114;
@@ -2587,7 +2597,7 @@ button,input{font:inherit;color:inherit}
 .aula-cx.com-x b{padding-right:30px}
 
 /* ---------- chat da Central ---------- */
-.recado{border:.7px solid var(--amber-line);background:#1a1408;border-radius:14px;padding:11px;margin-top:6px}
+.recado{border:.7px solid var(--amber-line);background:var(--amber-bg-2);border-radius:14px;padding:11px;margin-top:6px}
 .recado .topo{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center}
 .recado .ico{width:34px;height:34px;border-radius:11px;background:var(--amber-bg);color:var(--amber);display:grid;place-items:center}
 .recado strong{display:block;font-size:13.5px;font-weight:500}
@@ -2741,6 +2751,13 @@ button,input{font:inherit;color:inherit}
   /* o verde que ESCREVE é escuro; o vivo sobrou pra preencher (--lima-viva) */
   --lime:#3f7a00; --lima-viva:#8fd626;
   --blue:#1257c8; --blue-l:#1257c8; --amber:#8a5200; --purple:#6d28d9; --red:#c0201b;
+  /* 🔴 O VERMELHO DE PERIGO NÃO TINHA PAR CLARO (15/08, MEDIDO). `--danger-btn`
+     só existia no bloco de cima (`#8f2d2d`, pensado pro fundo escuro): sem
+     redefinição aqui, o "Sim" do portão perigo no claro herdava esse tom
+     escurecido — e a regra de baixo (~2921) ainda rouba a tinta pro
+     `#16260a` (pensado pro lima), medindo 1,96:1. Mesmo par já homologado do
+     `.erro` claro (~3009): #b3211c com branco por cima dá 6,66:1. */
+  --danger-btn:#b3211c;
   --lime-bg:#f0f8e4; /* F1 leva 3: cobertura 5/5 medida */
   --splash-bg-1:#f7f9fc; --splash-bg-2:#e9eef6;
   --splash-marca:#5a9c10; --splash-marca-2:#7bc020;
@@ -2891,10 +2908,18 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .act.go,[data-luz="claro"] .act.go b,[data-luz="claro"] .act.go small,
 [data-luz="claro"] .tmx-main button,[data-luz="claro"] .conf .acoes .principal,
 [data-luz="claro"] .portao .acoes .principal,[data-luz="claro"] .recado .acoes .principal{color:#16260a}
+/* 🔴 O PERIGO NÃO ESCREVE COM TINTA DE LIMA (15/08, MEDIDO: 1,96:1). A regra
+   de cima serve o CASO COMUM do principal (fundo lima, tinta escura) — mas
+   `.portao.perigo .acoes .principal` tem fundo `--danger-btn` (vermelho), não
+   lima, e com a MESMA especificidade da regra de cima (ver `.portao.perigo
+   .acoes .principal` no bloco compartilhado, ~873) quem vence é quem vem
+   DEPOIS no arquivo. Esta entra depois de propósito e devolve o branco — o
+   par já homologado do `.erro` claro (#b3211c/#fff = 6,66:1, ~3009). */
+[data-luz="claro"] .portao.perigo .acoes .principal{color:var(--white)}
 [data-luz="claro"] .tmx-main button{background:linear-gradient(180deg,#9ce02f,#6fb31c);
   box-shadow:0 8px 20px rgba(111,179,28,.3)}
 [data-luz="claro"] .tmx-main button[data-estado="pausar"]{background:linear-gradient(180deg,#ffc153,#e08a00);color:#2b1a00}
-[data-luz="claro"] .tmx-main button[data-estado="montar"]{background:linear-gradient(180deg,#3d8bff,#1f66e0);color:#fff}
+[data-luz="claro"] .tmx-main button[data-estado="montar"]{background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));color:#fff}
 [data-luz="claro"] .btn-blue,[data-luz="claro"] .conf .acoes .azul,
 [data-luz="claro"] .portao .acoes .azul{color:#fff}
 [data-luz="claro"] .enviar{background:var(--lima-viva);color:#16260a}

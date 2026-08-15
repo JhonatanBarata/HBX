@@ -288,7 +288,9 @@
     // L5 — o fechamento e a semana bebem do MESMO resumo que já veio acima.
     // Só quando ele REALMENTE respondeu: resumo que falhou não pode zerar o
     // caixa do dia (mesma lei do fio de recados, ver L8).
+    // 🔴 SEM RESPOSTA, A TELA FALA (15/08) — sem este `else` T.fechamento ficava em BRANCO, nem esqueleto nem aviso.
     if (caixaR.status === 'fulfilled') encherFechamento(caixa, itens, entregues);
+    else fonteCaiu('fechamento');
 
     // 🔴 A MONTAGEM SE ENCHE AQUI, não só no toque de "Montar rota". Quem chega
     // nela por outro caminho via a lista do MOCK — João da Silva, R$ 336,00 —
@@ -514,7 +516,7 @@
          Cartão R$ 84,00 · Marcado R$ 68,00, total R$ 336,00 — e o selo
          "Tudo certo!", um veredito que o app não tem como emitir. A Semana
          mostrava 6 dias inventados e R$ 2.648,00. */
-      fechamento: { entregues: '', selo: '', formas: [], formaTotal: '', clientes: '', produtos: '' },
+      fechamento: { carregando: true, entregues: '', selo: '', formas: [], formaTotal: '', clientes: '', produtos: '' }, // 🔴 carregando (15/08): sem ele fonteCaiu(abaixo) era NO-OP
       semana: { dias: [], marcado: '', recebido: '', pendencia: '' },
       /* O recibo do fim do dia (12/08). Zera DADO e só dado: `quando` e `sobra`
          são o retrato do momento em que ESTE aparelho fechou o dia — nascer com

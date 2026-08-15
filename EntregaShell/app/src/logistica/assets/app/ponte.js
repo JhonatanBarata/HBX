@@ -1288,7 +1288,9 @@
     // L5 — o fechamento e a semana bebem do MESMO resumo que já veio acima.
     // Só quando ele REALMENTE respondeu: resumo que falhou não pode zerar o
     // caixa do dia (mesma lei do fio de recados, ver L8).
+    // 🔴 SEM RESPOSTA, A TELA FALA (15/08) — sem este `else` T.fechamento ficava em BRANCO, nem esqueleto nem aviso.
     if (caixaR.status === 'fulfilled') encherFechamento(caixa, itens, entregues);
+    else fonteCaiu('fechamento');
 
     // 🔴 A MONTAGEM SE ENCHE AQUI, não só no toque de "Montar rota". Quem chega
     // nela por outro caminho via a lista do MOCK — João da Silva, R$ 336,00 —
@@ -1514,7 +1516,7 @@
          Cartão R$ 84,00 · Marcado R$ 68,00, total R$ 336,00 — e o selo
          "Tudo certo!", um veredito que o app não tem como emitir. A Semana
          mostrava 6 dias inventados e R$ 2.648,00. */
-      fechamento: { entregues: '', selo: '', formas: [], formaTotal: '', clientes: '', produtos: '' },
+      fechamento: { carregando: true, entregues: '', selo: '', formas: [], formaTotal: '', clientes: '', produtos: '' }, // 🔴 carregando (15/08): sem ele fonteCaiu(abaixo) era NO-OP
       semana: { dias: [], marcado: '', recebido: '', pendencia: '' },
       /* O recibo do fim do dia (12/08). Zera DADO e só dado: `quando` e `sobra`
          são o retrato do momento em que ESTE aparelho fechou o dia — nascer com
@@ -3098,8 +3100,17 @@
   }
 
   let ocupado = false;
-  const comTrava = async (fn) => {
-    if (ocupado) return undefined;
+  /* 🔴 TOQUE DESCARTADO TAMBÉM MERECE RECIBO (15/08): `comTrava` jogava o 2º
+     toque fora CALADO. `alvo` é opcional (maioria dos chamadores segue igual,
+     sem pulso); quem passa ganha o pulso curto na MESMA classe `aguarde` do
+     toque em voo (`aguardeNoToque`, abaixo) — sem prometer que o verbo rodou. */
+  function pulsarAguarde(alvo) {
+    if (!alvo || !alvo.classList) return;
+    alvo.classList.add('aguarde');
+    setTimeout(() => { try { alvo.classList.remove('aguarde'); } catch (_) { /* nó já foi embora */ } }, 600);
+  }
+  const comTrava = async (fn, alvo) => {
+    if (ocupado) { pulsarAguarde(alvo); return undefined; }
     ocupado = true;
     /* 🔴 O RESULTADO DE `fn` VIAJA DE VOLTA (10/08) — sem ele, `depoisDaTrava`
        (mais abaixo, o "refaz a ação original" do 409/402 novos) não tem como
@@ -3560,8 +3571,30 @@
     return novos;
   }
 
-  async function montarRota() {
+  /* ------------------------------------------------------------------------
+     MONTAR + INICIAR — separado de 30-verbos-rota.js em 15/08 (teto de 1000
+     linhas/fonte, ordem do dono 10/08). Fatia contigua do MESMO IIFE — a
+     costura (scripts/ponte-costurar.js) e concatenacao pura, entao `comTrava`,
+     `ocupado`, `avisoErro`, `origemGps`, `ordemDeGente`, `idsDaPrevia`,
+     `materializarRascunho`/`materializarDia`/`previaViraRascunho` e todo o
+     resto de 30-verbos-rota.js continuam no MESMO escopo lexico — nada aqui
+     precisa de import/export, so a ORDEM DO NOME (32 depois de 30) importa.
+     ------------------------------------------------------------------------ */
+  async function montarRota(alvo) {
     await comTrava(async () => {
+      /* 🔴 O VÉU NASCE ANTES DO 1º PEDIDO (15/08 — espelho do `iniciarRota`,
+         13/08, nota lá embaixo): o 1º recibo visual só saía DEPOIS do
+         `materializarRascunho` (rede), rota grande parecia travada. Acende
+         SÍNCRONO. `montando`/`etapa` abaixo continuam sendo quem AVANÇA o véu
+         (8→38→66→88%); a 1ª chamada deles vira NO-OP pelo freio de
+         dado-igual do `usarDados`. */
+      try {
+        window.usarDados('rota', {
+          montando: 1,
+          etapaMontar: 'Organizando as paradas…',
+          etapaMontarPct: 8,
+        });
+      } catch (_) { /* sem seam: a rota continua funcionando */ }
       // Cada tentativa começa com a memória limpa: avisos de uma volta
       // anterior não podem vazar pro portão de erro desta (ver `avisoErro`).
       ultimosAvisosMaterialize = [];
@@ -3693,7 +3726,7 @@
           sub: 'Dá pra sair assim, mas confira antes.', acoes: [['Entendi', 'principal']],
         });
       }
-    });
+    }, alvo);
   }
 
   /* ------------------------------------------------------------------------
@@ -3719,7 +3752,7 @@
      é impossível de escrever.
      ------------------------------------------------------------------------ */
   /** iniciar: mostra o custo REAL e só então cobra. */
-  async function iniciarRota(intencao) {
+  async function iniciarRota(intencao, alvo) {
     const escopo = String((intencao && intencao.escopo) || 'dia');
     await comTrava(async () => {
       /* 🔴 O VÉU NASCE ANTES DO PRIMEIRO PEDIDO (13/08). Rota grande pode
@@ -3921,7 +3954,7 @@
       } finally {
         fecharEsperaInicio();
       }
-    });
+    }, alvo);
   }
 
   /* ------------------------------------------------------------------------
@@ -3979,6 +4012,29 @@
     // a cena dela morre junto (senão o próximo repinte a tocava por cima do
     // dia limpo — parente do pisca do cancelar)
     esquecerCenaPedida();
+    /* 🔴 O CACHE TAMBÉM É "ROTA CARREGADA" (15/08). `chegada:<id>` sobrevive no
+       APARELHO (`HBX.cache`) por parada, e remontar o dia com o MESMO id de
+       entrega (servidor reusa) reabriria a folha achando que já chegou ali.
+       Varre ANTES do `ENTREGAS.clear()` de baixo, que é quem sabe os ids.
+       `fim-visto` some junto — mesmo carimbo que o Iniciar apaga (ver "ROTA
+       NOVA, RECIBO NOVO"): cancelar também abre espaço pra uma 2ª leva do
+       mesmo dia.
+       🔴 `entrega-confirmar:<id>` NÃO ENTRA (correção 15/08, revisão
+       adversarial): é a idempotencyKey do POST de confirmar — dinheiro — e só
+       pode morrer no desfecho bem-sucedido (`confirmarEntrega`, D0). Apagá-la
+       aqui deixaria um retry gerar uuid novo: risco de confirmação/cobrança em
+       dobro. E este esquecer roda em TODO resync 409/404 de continuidade
+       (lote 1), inclusive erro inofensivo da rota VIVA — não só cancelamento
+       de verdade. */
+    if (window.HBX && window.HBX.cache) {
+      ENTREGAS.forEach((_, id) => {
+        try { window.HBX.cache.remove(`chegada:${id}`); } catch (_) { /* sem cache: nada a limpar */ }
+      });
+      try { window.HBX.cache.remove(`fim-visto:${hojeISO()}`); } catch (_) { /* sem cache: nada a limpar */ }
+    }
+    // 2º toque no Cancelar não posta ref morta (mesma var que
+    // 10-geofence-montagem.js grava direto ao ler /logistica/rota).
+    rotaRefAtual = '';
     previaSeq += 1;
     previaCrua = null;
     previaDoDedo = false;
@@ -12857,6 +12913,12 @@
       ? new Set(pagina.vendas.map((v) => String(v.clienteId || ''))).size
       : null;
     window.usarDados('fechamento', {
+      // O esqueleto/aviso saem no MESMO repinte do dado — mesmo par que
+      // TODA seção com `carregando`/`semFonte` usa quando a resposta chega
+      // (ver `fonteVoltou` em 10-geofence-montagem.js). Sem isto, a Fechamento
+      // ficaria PRESA no esqueleto pra sempre depois da 1ª carga: nada mais
+      // neste método zerava `carregando`.
+      ...fonteVoltou,
       entregues: String(entregues),
       // O selo do canto diz um FATO (quantas vendas), nunca um veredito: o app
       // não tem como saber que está "tudo certo". Sem venda, sem selo.
@@ -13929,6 +13991,22 @@
      pra quem começou.
      ------------------------------------------------------------------------ */
   const chaveDoFim = () => `fim-visto:${hojeISO()}`;
+  /* 🔴 SÓ QUEIMA A PORTA COM ALGO PRA MOSTRAR (15/08). Mesma conta de
+     `temDado` em `fechamentoCorpo()` do mock (formas OU soma — o par de
+     blocos que decide entre o caixa de verdade e "Nada registrado hoje
+     ainda"). Sem esta checagem, a última parada carimbava `fim-visto` mesmo
+     quando o `/logistica/fechamento/resumo` ainda não tinha respondido (ou
+     respondia vazio): "abriu vazio" virava "já mostrei", e a PRÓXIMA vez que
+     o dia terminasse de verdade (2ª leva do mesmo dia, rota reaberta) a porta
+     automática já estava queimada — o motorista saía do mapa pra Rota, sem o
+     Fechamento nunca abrir sozinho. */
+  const fechamentoTemConteudo = () => {
+    try {
+      const f = DADOS.fechamento;
+      return !!(f && ((Array.isArray(f.formas) && f.formas.length) || f.formaTotal
+        || f.entregues || f.clientes || f.produtos));
+    } catch (_) { return false; }
+  };
   function irDepoisDoDesfecho() {
     if (typeof window.ir !== 'function') return;
     let acabou = false;
@@ -13939,7 +14017,7 @@
     if (!acabou) return window.ir('rota');
     const chave = chaveDoFim();
     if (window.HBX.cache.get(chave, '')) return window.ir('rota');
-    window.HBX.cache.set(chave, '1');
+    if (fechamentoTemConteudo()) window.HBX.cache.set(chave, '1');
     window.ir('fechamento');
   }
 
@@ -14033,9 +14111,14 @@
 
   const ACOES = {
     /* 🔴 DOIS PASSOS, NÃO TRÊS (dono, 08/08: "MONTAR ROTA → MONTAGEM DE ROTA
-       (BOTÃO INICIAR)"). Este botão abre a Montagem — e abrir a Montagem JÁ
-       roda o otimizador (ver o guarda do `ir`), então o motorista chega com a
-       lista do dia na frente dos olhos e o pé já dizendo "Iniciar rota".
+       (BOTÃO INICIAR)"). Este botão abre a Montagem — e abrir a Montagem só
+       CARREGA (chips do dia, prévia/lista, histórico e espaços — o guarda de
+       `tela === 'montagem'` em 80-gps-rotas-salvas.js), nunca grava: "ENTRAR
+       NÃO MONTA MAIS NADA" (dono, 10/08) matou o auto-montar que rodava o
+       otimizador só de a tela abrir. Quem grava é o DEDO — o toque em "Montar
+       rota"/"Iniciar" — e é por isso que o motorista chega com a lista do dia
+       na frente dos olhos e o pé já dizendo "Iniciar rota": a lista é do
+       carregamento, a ordem gravada é do toque seguinte.
        O `montar-agora` (o 2º "Montar rota", no pé da própria tela) morreu com
        ele: era o toque a mais que só trocava a fonte da mesma lista. */
     montar: abrirMontagem,
@@ -14052,7 +14135,7 @@
        pergunta não teria a quem falar. */
     /* 🔴 …e responde NO TOQUE (12/08): `aguardeNoToque` põe o estado de espera
        no próprio botão no mesmo quadro do dedo — ver a nota no 30-verbos. */
-    'montar-agora': (alvo) => aguardeNoToque(alvo, () => comOrdemSalva(montarRota)),
+    'montar-agora': (alvo) => aguardeNoToque(alvo, () => comOrdemSalva(() => montarRota(alvo))),
     // rota rodando: o botão do meio leva pra navegação (é o que se faz andando)
     navegar: () => window.ir('mapa'),
     'salvar-rota': salvarRota,
@@ -14073,8 +14156,8 @@
     // o irmão do mesmo pé, mesma doença, mesma cura: responde no toque.
     'iniciar-rota': (alvo) => aguardeNoToque(alvo, () => comOrdemSalva(() => iniciarRota({
       escopo: montarDia === -1 ? 'avulsa' : (diaDeOutroDia() ? 'outroDia' : 'dia'),
-    }))),
-    iniciar: () => comOrdemSalva(() => iniciarRota({ escopo: 'dia' })),
+    }, alvo))),
+    iniciar: (alvo) => comOrdemSalva(() => iniciarRota({ escopo: 'dia' }, alvo)),
     'cancelar-rota': cancelarRota,
     'rota-pendente-abrir': abrirRotaPendente,
     'rota-pendente-continuar': continuarRotaPendente,
@@ -14145,6 +14228,12 @@
     'recarregar-salvas': () => retentar('salvas', carregarSalvas),
     'recarregar-chat': () => retentar('chat', carregarRecados),
     'recarregar-ajustes': () => retentar('ajustes', carregarAjustes),
+    /* Fechamento não tem carregador próprio — os campos dele chegam JUNTO da
+       carga da rota (`/logistica/fechamento/resumo`, dentro de `carregarRota`,
+       ver `encherFechamento`/`fonteCaiu('fechamento')`). "Tentar de novo"
+       aqui é tentar a rota inteira de novo; ela devolve o esqueleto certo
+       sozinha, mesmo padrão do `retentar` das outras telas. */
+    'recarregar-fechamento': () => retentar('fechamento', carregarRota),
     /* Os dois blocos da tela de Créditos tentam de novo SEPARADO — cada um pede
        só a sua porta. Um "Tentar de novo" que rebuscasse as duas devolveria ao
        esqueleto o bloco que já estava certo na tela. */
@@ -14168,13 +14257,18 @@
     // saiu do produto inteiro — a tela é o FECHAMENTO DO DIA.
     /* 🔴 TRÊS CAMPOS DO SERVIDOR DISPUTAVAM O RÓTULO "AVISAR CHEGADA". Medido,
        e a diferença é de FUNÇÃO, não de nome:
-       · `raioChegadaM` (60 m) — no app que já roda é o raio do geofence NATIVO
-         (`activateRoute({raioM})`): é ele que dispara o `hbx:arrival` e ABRE a
-         folha sozinho. O app novo NÃO tem esse geofence — aqui a folha abre
-         quando o motorista TOCA na parada. Logo, no celular novo esse número
-         não muda nada do que ele vê (o que sobra dele é o vigia da Central, que
-         é tela de PC). Não entra: número que não faz nada é o mesmo defeito da
-         chave que não faz nada.
+       · `raioChegadaM` (60 m) — o raio do geofence NATIVO de verdade
+         (`activateRoute({raioM})`, lido por `raioDaChegada()` em
+         10-geofence-montagem.js/`sincronizarGeofence`): é ele que dispara o
+         `hbx:arrival` — o ouvinte MORA NESTE MESMO ARQUIVO, religado em 10/08
+         junto com o `activateRoute` (ver a nota grande ali em cima) — e abre a
+         folha SOZINHA quando o motorista se aproxima, sem toque nenhum.
+         (Comentário antigo dizia "o app novo não tem esse geofence" — mentira
+         desde a religação: hoje as duas portas abrem a MESMA folha, geofence
+         OU toque, ver `abrirParada`.) Ainda assim não entra em Ajustes: é raio
+         de DETECÇÃO do servidor (o Kotlin clampa 20-1000), não preferência do
+         motorista — expor um número aqui seria outra funcionalidade, não a que
+         este bloco resolve.
        · `avisoChegandoEnabled` — liga/desliga o WhatsApp "estou chegando" PRO
          CLIENTE. É literalmente o "chegou no cliente" do dono. É esta a chave.
        · `avisoChegandoDistanciaM` (500 m) — a que distância esse aviso sai. É o

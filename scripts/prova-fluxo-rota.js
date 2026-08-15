@@ -1641,6 +1641,18 @@ const SO_MEDIR = process.argv.includes('--antes');
   eh('U1 · o Cancelar abre a confirmacao da casa',
     achouCancelarU && /Tem certeza que deseja cancelar/i.test(tU0.portao),
     `achou=${achouCancelarU} portao="${tU0.portao}" tela=${tU0.tela}`);
+  /* 🔴 U5/U6 (correção 15/08, revisão adversarial ao 1º fix deste bloco). O
+     cache do APARELHO tem DUAS chaves por parada, e só UMA pode morrer no
+     cancelar: `chegada:<id>` é carimbo de UI (a hora que a folha abriu) e some
+     com a rota; `entrega-confirmar:<id>` é a idempotencyKey do POST de
+     confirmar — DINHEIRO — e só morre no desfecho BEM-SUCEDIDO (senão um
+     retry gera uuid novo: risco de confirmar/cobrar em dobro). Semeia as duas
+     ANTES do "Sim" — simula uma parada que chegou a abrir a folha e tinha um
+     confirmar em voo no instante do cancelar. */
+  await p.evaluate(() => {
+    window.HBX.cache.set('chegada:ag1', new Date().toISOString());
+    window.HBX.cache.set('entrega-confirmar:ag1', 'idem-ag1-em-voo');
+  });
   await p.evaluate(() => {
     const x = document.querySelector('.portao-wrap .principal');
     if (x) x.click();
@@ -1649,8 +1661,13 @@ const SO_MEDIR = process.argv.includes('--antes');
   const tU1 = await espiar();
   const postsU = await posts();
   const pendenteU1 = await p.evaluate(() => !!(window.HBXCena && window.HBXCena.pendente()));
+  const cacheU = await p.evaluate(() => ({
+    chegada: window.HBX.cache.get('chegada:ag1', null),
+    confirmar: window.HBX.cache.get('entrega-confirmar:ag1', null),
+  }));
   nota(`[U] cancelar: POSTs=${postsU.join(' , ')} · tela=${tU1.tela} · dock="${tU1.dock}"`);
   nota(`    pedido de cena: apos montar=${pendenteU} · apos cancelar=${pendenteU1}`);
+  nota(`    cache apos cancelar: chegada:ag1=${JSON.stringify(cacheU.chegada)} · entrega-confirmar:ag1=${JSON.stringify(cacheU.confirmar)}`);
   eh('U2 · confirmar chama o cancelamento exato da continuidade',
     postsU.indexOf('/logistica/rota/continuidade/cancelar') >= 0
       && postsU.indexOf('/logistica/rota/limpar-dia') < 0, postsU.join(','));
@@ -1658,6 +1675,10 @@ const SO_MEDIR = process.argv.includes('--antes');
     tU1.tela === 'rota' && /Montar rota/i.test(tU1.dock), `tela=${tU1.tela} dock="${tU1.dock}"`);
   eh('U4 · o pedido de cena NAO sobrevive ao cancelar', pendenteU1 === false,
     `apos montar=${pendenteU} apos cancelar=${pendenteU1}`);
+  eh('U5 · cancelar apaga o carimbo de CHEGADA da parada esquecida',
+    cacheU.chegada === null, `chegada:ag1=${JSON.stringify(cacheU.chegada)}`);
+  eh('U6 · cancelar NAO apaga a idempotencyKey de CONFIRMAR (dinheiro nao se apaga em limpeza de rota)',
+    cacheU.confirmar === 'idem-ag1-em-voo', `entrega-confirmar:ag1=${JSON.stringify(cacheU.confirmar)}`);
 
   /* ===================================================================
      CENA V — O FIM DO DIA ACONTECE UMA VEZ (12/08).
@@ -2009,6 +2030,37 @@ const SO_MEDIR = process.argv.includes('--antes');
   eh('Y7 · ao concluir, o Iniciar nao deixa o veu nem o estado presos',
     !yIniciarVeu.presoNoEstado && !yIniciarVeu.aindaNaTela,
     `estado=${yIniciarVeu.presoNoEstado} tela=${yIniciarVeu.aindaNaTela}`);
+
+  /* Y8/Y9 — A VACINA DO BLOCO 1 DO LOTE 2 (15/08): o `montar-agora` em si,
+     não só o irmão `iniciar-rota` medido acima. Até este lote o véu do
+     `montarRota` só acendia DEPOIS do `materializarRascunho` (rede) — a rota
+     grande do dono parecia travada por segundos. Mesma régua do Y6/Y7. */
+  await Y_CENA();
+  await Y_ABRIR();
+  await p.evaluate(() => {
+    const postReal = window.API.post.bind(window.API);
+    window.__veuAntesDoPrimeiroPostMontar = null;
+    window.API.post = (...args) => {
+      if (window.__veuAntesDoPrimeiroPostMontar === null) {
+        window.__veuAntesDoPrimeiroPostMontar = !!document.querySelector('.veu-montar');
+      }
+      return postReal(...args);
+    };
+  });
+  await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="montar-agora"]').click());
+  await p.waitForTimeout(2800);
+  const yMontarVeu = await p.evaluate(() => ({
+    antesDoPrimeiroPost: window.__veuAntesDoPrimeiroPostMontar,
+    presoNoEstado: !!(DADOS.rota && DADOS.rota.montando),
+    aindaNaTela: !!document.querySelector('.veu-montar'),
+  }));
+  nota(`[Y8] veu do Montar antes do 1o POST=${yMontarVeu.antesDoPrimeiroPost}`);
+  eh('Y8 · o veu de carregamento nasce ANTES do primeiro pedido do MONTAR (a vacina deste lote)',
+    yMontarVeu.antesDoPrimeiroPost === true,
+    `antesDoPrimeiroPost=${yMontarVeu.antesDoPrimeiroPost}`);
+  eh('Y9 · ao concluir, o Montar nao deixa o veu nem o estado presos',
+    !yMontarVeu.presoNoEstado && !yMontarVeu.aindaNaTela,
+    `estado=${yMontarVeu.presoNoEstado} tela=${yMontarVeu.aindaNaTela}`);
 
   await b.close();
   console.log('\n=== MEDIDAS ===');

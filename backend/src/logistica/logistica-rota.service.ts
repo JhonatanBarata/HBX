@@ -1332,6 +1332,9 @@ export class LogisticaRotaService {
       // Serializa cancelamento com tracking/transferência/conclusão da mesma
       // execução. Sem isso um lote de GPS pode passar pelo gate enquanto a
       // rota recebe operationalEndedAt na transação vizinha.
+      // `lockedRouteIds` sobrevive pro carimbo da LogisticaTrackingSession lá
+      // embaixo (mesmo padrão do `encerrarRota` acima).
+      let lockedRouteIds: string[] = [];
       if (
         !input.skipRoute &&
         typeof tx.logisticaRoute?.findMany === 'function' &&
@@ -1348,6 +1351,7 @@ export class LogisticaRotaService {
           select: { id: true },
           orderBy: { id: 'asc' },
         });
+        lockedRouteIds = lockRoutes.map((route: any) => String(route.id));
         for (const route of lockRoutes) await lockLogisticaRouteTransaction(tx, companyId, route.id);
       }
       if (exactDeliveryIds && input.routeId && typeof tx.logisticaRouteStop?.findMany === 'function') {
@@ -1573,12 +1577,29 @@ export class LogisticaRotaService {
       // Encerra a rota OPERACIONALMENTE (campo decoupled — mesmo comentário do
       // encerrarRota): NÃO altera `status` de cobrança. Zerado sozinho quando o
       // dia for (re)iniciado.
-      const rotas = input.skipRoute || (exactDeliveryIds && alvosEfetivos.length === 0)
-        ? { count: 0 }
-        : await tx.logisticaRoute.updateMany({
+      const encerrouRota = !(input.skipRoute || (exactDeliveryIds && alvosEfetivos.length === 0));
+      const rotas = encerrouRota
+        ? await tx.logisticaRoute.updateMany({
             where: rotaCarregada,
             data: { operationalEndedAt: new Date() },
-          });
+          })
+        : { count: 0 };
+      /* 🔴 A JANELA DE 24h DO TRACKING TAMBÉM FECHA AQUI (15/08). Sem isto, uma
+         `LogisticaTrackingSession` ACTIVE sobrevivia ao cancelamento: o
+         comando de tracking em voo (fila do aparelho) batia num routeId que
+         o app já esqueceu, o servidor respondia CONFLICT e o comando virava
+         REJECTED — preso até o teto de 24h do processamento assíncrono, sem
+         ninguém ter cancelado nada de propósito. Mesmo padrão do
+         `encerrarRota` acima: ACTIVE→ENDED pelos ids já trancados nesta
+         transação (`lockedRouteIds`), só quando a rota realmente encerrou
+         (mesma condição do `rotas` acima — `skipRoute`/recorte vazio não
+         mexem na rota, então também não mexem na sessão dela). */
+      if (encerrouRota && lockedRouteIds.length && typeof tx.logisticaTrackingSession?.updateMany === 'function') {
+        await tx.logisticaTrackingSession.updateMany({
+          where: { companyId, routeId: { in: lockedRouteIds }, status: 'ACTIVE' },
+          data: { status: 'ENDED', endedAt: new Date() },
+        });
+      }
 
       return {
         /* CONTRATO DO APP: `canceladas` continua sendo QUANTAS PARADAS SAÍRAM DO

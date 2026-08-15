@@ -2856,7 +2856,11 @@ model MobilePairingCode {
   company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId     Int
   codeHash      String    @unique
-  // Copiado para MobileDevice no consumo do código; não altera o papel da conta web.
+  // 🔴 COMENTÁRIO CORRIGIDO (15/08): descrevia uma cópia pro MobileDevice que
+  // NÃO existe — medido, `accessProfile` não tem NENHUMA leitura/escrita em
+  // backend/src (zero ocorrência fora deste schema). Coluna reservada, ainda
+  // sem motor de cortes (ver G2-P3 do plano de vínculo/admin — "accessProfile
+  // VIVO", geladeira até o dono puxar).
   accessProfile String    @default("ADMIN")
   expiresAt     DateTime
   consumedAt    DateTime?

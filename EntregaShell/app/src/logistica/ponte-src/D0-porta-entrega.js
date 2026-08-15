@@ -290,6 +290,22 @@
      pra quem começou.
      ------------------------------------------------------------------------ */
   const chaveDoFim = () => `fim-visto:${hojeISO()}`;
+  /* 🔴 SÓ QUEIMA A PORTA COM ALGO PRA MOSTRAR (15/08). Mesma conta de
+     `temDado` em `fechamentoCorpo()` do mock (formas OU soma — o par de
+     blocos que decide entre o caixa de verdade e "Nada registrado hoje
+     ainda"). Sem esta checagem, a última parada carimbava `fim-visto` mesmo
+     quando o `/logistica/fechamento/resumo` ainda não tinha respondido (ou
+     respondia vazio): "abriu vazio" virava "já mostrei", e a PRÓXIMA vez que
+     o dia terminasse de verdade (2ª leva do mesmo dia, rota reaberta) a porta
+     automática já estava queimada — o motorista saía do mapa pra Rota, sem o
+     Fechamento nunca abrir sozinho. */
+  const fechamentoTemConteudo = () => {
+    try {
+      const f = DADOS.fechamento;
+      return !!(f && ((Array.isArray(f.formas) && f.formas.length) || f.formaTotal
+        || f.entregues || f.clientes || f.produtos));
+    } catch (_) { return false; }
+  };
   function irDepoisDoDesfecho() {
     if (typeof window.ir !== 'function') return;
     let acabou = false;
@@ -300,7 +316,7 @@
     if (!acabou) return window.ir('rota');
     const chave = chaveDoFim();
     if (window.HBX.cache.get(chave, '')) return window.ir('rota');
-    window.HBX.cache.set(chave, '1');
+    if (fechamentoTemConteudo()) window.HBX.cache.set(chave, '1');
     window.ir('fechamento');
   }
 
@@ -394,9 +410,14 @@
 
   const ACOES = {
     /* 🔴 DOIS PASSOS, NÃO TRÊS (dono, 08/08: "MONTAR ROTA → MONTAGEM DE ROTA
-       (BOTÃO INICIAR)"). Este botão abre a Montagem — e abrir a Montagem JÁ
-       roda o otimizador (ver o guarda do `ir`), então o motorista chega com a
-       lista do dia na frente dos olhos e o pé já dizendo "Iniciar rota".
+       (BOTÃO INICIAR)"). Este botão abre a Montagem — e abrir a Montagem só
+       CARREGA (chips do dia, prévia/lista, histórico e espaços — o guarda de
+       `tela === 'montagem'` em 80-gps-rotas-salvas.js), nunca grava: "ENTRAR
+       NÃO MONTA MAIS NADA" (dono, 10/08) matou o auto-montar que rodava o
+       otimizador só de a tela abrir. Quem grava é o DEDO — o toque em "Montar
+       rota"/"Iniciar" — e é por isso que o motorista chega com a lista do dia
+       na frente dos olhos e o pé já dizendo "Iniciar rota": a lista é do
+       carregamento, a ordem gravada é do toque seguinte.
        O `montar-agora` (o 2º "Montar rota", no pé da própria tela) morreu com
        ele: era o toque a mais que só trocava a fonte da mesma lista. */
     montar: abrirMontagem,
@@ -413,7 +434,7 @@
        pergunta não teria a quem falar. */
     /* 🔴 …e responde NO TOQUE (12/08): `aguardeNoToque` põe o estado de espera
        no próprio botão no mesmo quadro do dedo — ver a nota no 30-verbos. */
-    'montar-agora': (alvo) => aguardeNoToque(alvo, () => comOrdemSalva(montarRota)),
+    'montar-agora': (alvo) => aguardeNoToque(alvo, () => comOrdemSalva(() => montarRota(alvo))),
     // rota rodando: o botão do meio leva pra navegação (é o que se faz andando)
     navegar: () => window.ir('mapa'),
     'salvar-rota': salvarRota,
@@ -434,8 +455,8 @@
     // o irmão do mesmo pé, mesma doença, mesma cura: responde no toque.
     'iniciar-rota': (alvo) => aguardeNoToque(alvo, () => comOrdemSalva(() => iniciarRota({
       escopo: montarDia === -1 ? 'avulsa' : (diaDeOutroDia() ? 'outroDia' : 'dia'),
-    }))),
-    iniciar: () => comOrdemSalva(() => iniciarRota({ escopo: 'dia' })),
+    }, alvo))),
+    iniciar: (alvo) => comOrdemSalva(() => iniciarRota({ escopo: 'dia' }, alvo)),
     'cancelar-rota': cancelarRota,
     'rota-pendente-abrir': abrirRotaPendente,
     'rota-pendente-continuar': continuarRotaPendente,
@@ -506,6 +527,12 @@
     'recarregar-salvas': () => retentar('salvas', carregarSalvas),
     'recarregar-chat': () => retentar('chat', carregarRecados),
     'recarregar-ajustes': () => retentar('ajustes', carregarAjustes),
+    /* Fechamento não tem carregador próprio — os campos dele chegam JUNTO da
+       carga da rota (`/logistica/fechamento/resumo`, dentro de `carregarRota`,
+       ver `encherFechamento`/`fonteCaiu('fechamento')`). "Tentar de novo"
+       aqui é tentar a rota inteira de novo; ela devolve o esqueleto certo
+       sozinha, mesmo padrão do `retentar` das outras telas. */
+    'recarregar-fechamento': () => retentar('fechamento', carregarRota),
     /* Os dois blocos da tela de Créditos tentam de novo SEPARADO — cada um pede
        só a sua porta. Um "Tentar de novo" que rebuscasse as duas devolveria ao
        esqueleto o bloco que já estava certo na tela. */
@@ -529,13 +556,18 @@
     // saiu do produto inteiro — a tela é o FECHAMENTO DO DIA.
     /* 🔴 TRÊS CAMPOS DO SERVIDOR DISPUTAVAM O RÓTULO "AVISAR CHEGADA". Medido,
        e a diferença é de FUNÇÃO, não de nome:
-       · `raioChegadaM` (60 m) — no app que já roda é o raio do geofence NATIVO
-         (`activateRoute({raioM})`): é ele que dispara o `hbx:arrival` e ABRE a
-         folha sozinho. O app novo NÃO tem esse geofence — aqui a folha abre
-         quando o motorista TOCA na parada. Logo, no celular novo esse número
-         não muda nada do que ele vê (o que sobra dele é o vigia da Central, que
-         é tela de PC). Não entra: número que não faz nada é o mesmo defeito da
-         chave que não faz nada.
+       · `raioChegadaM` (60 m) — o raio do geofence NATIVO de verdade
+         (`activateRoute({raioM})`, lido por `raioDaChegada()` em
+         10-geofence-montagem.js/`sincronizarGeofence`): é ele que dispara o
+         `hbx:arrival` — o ouvinte MORA NESTE MESMO ARQUIVO, religado em 10/08
+         junto com o `activateRoute` (ver a nota grande ali em cima) — e abre a
+         folha SOZINHA quando o motorista se aproxima, sem toque nenhum.
+         (Comentário antigo dizia "o app novo não tem esse geofence" — mentira
+         desde a religação: hoje as duas portas abrem a MESMA folha, geofence
+         OU toque, ver `abrirParada`.) Ainda assim não entra em Ajustes: é raio
+         de DETECÇÃO do servidor (o Kotlin clampa 20-1000), não preferência do
+         motorista — expor um número aqui seria outra funcionalidade, não a que
+         este bloco resolve.
        · `avisoChegandoEnabled` — liga/desliga o WhatsApp "estou chegando" PRO
          CLIENTE. É literalmente o "chegou no cliente" do dono. É esta a chave.
        · `avisoChegandoDistanciaM` (500 m) — a que distância esse aviso sai. É o

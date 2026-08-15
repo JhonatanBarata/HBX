@@ -68,6 +68,17 @@ type StopRow = {
   deliveryId: string;
 };
 
+/* 🔴 A SESSÃO DE TRACKING (15/08) — a janela de 24h do CONFLICT→REJECTED que
+   `limparDia` passou a fechar junto com a rota (mesmo padrão do
+   `encerrarRota`, ver logistica-rota.service.ts). */
+type TrackingSessionRow = {
+  id: string;
+  companyId: number;
+  routeId: string;
+  status: string;
+  endedAt: Date | null;
+};
+
 const DATE = '2026-07-18';
 const { start: DAY_START } = resolveDayRange(DATE);
 
@@ -135,11 +146,13 @@ function buildHarness(
   planoSeed: PlanoRow[] = [],
   stopSeed: StopRow[] = [],
   cobrancas: Array<{ entregaId: string }> = [],
+  trackingSeed: TrackingSessionRow[] = [],
 ) {
   const store = new Map<string, EntregaRow>(seed.map((row) => [row.id, { ...row }]));
   const routeStore = new Map<string, RouteRow>(routeSeed.map((row) => [row.id, { ...row }]));
   const planoStore = new Map<string, PlanoRow>(planoSeed.map((row) => [row.id, { ...row }]));
   const stopStore = new Map<string, StopRow>(stopSeed.map((row) => [row.id, { ...row }]));
+  const trackingStore = new Map<string, TrackingSessionRow>(trackingSeed.map((row) => [row.id, { ...row }]));
   const financeiroChargeCalls: string[] = [];
   /** O extrato (F2.2): com o corpo apagado, o EVENTO é a única história que sobra. */
   const eventos: any[] = [];
@@ -169,6 +182,12 @@ function buildHarness(
     return clone;
   }
 
+  function cloneTracking(): Map<string, TrackingSessionRow> {
+    const clone = new Map<string, TrackingSessionRow>();
+    for (const [id, row] of trackingStore) clone.set(id, { ...row });
+    return clone;
+  }
+
   /** `where.route` / `where.delivery` são relações to-one: resolvem na linha viva. */
   function matchesRouteFilter(route: RouteRow | undefined, filtro: any): boolean {
     if (!filtro) return true;
@@ -192,6 +211,7 @@ function buildHarness(
     workingRoutes: Map<string, RouteRow>,
     workingPlanos: Map<string, PlanoRow>,
     workingStops: Map<string, StopRow>,
+    workingTracking: Map<string, TrackingSessionRow>,
   ) {
     return {
       entrega: {
@@ -257,6 +277,18 @@ function buildHarness(
         },
       },
       logisticaRoute: {
+        // 🔴 `findMany` FALTAVA (15/08) — é ele que `limparDia` usa pra achar as
+        // rotas a TRAVAR (`lockLogisticaRouteTransaction`) e agora também pra
+        // saber quais `routeId` carimbar ENDED na TrackingSession
+        // (`lockedRouteIds`). Sem este método o guarda `typeof
+        // tx.logisticaRoute?.findMany === 'function'` era falso e o bloco
+        // inteiro (trava + recorte) era pulado em silêncio — mesmo com
+        // `$executeRawUnsafe` stubado.
+        findMany: async ({ where, orderBy }: any) => {
+          let rows = [...workingRoutes.values()].filter((row) => matchesRouteFilter(row, where));
+          if (orderBy?.id) rows = rows.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+          return rows.map((row) => ({ id: row.id }));
+        },
         updateMany: async ({ where, data }: any) => {
           let count = 0;
           for (const row of workingRoutes.values()) {
@@ -297,6 +329,31 @@ function buildHarness(
         delete: financeiroChargeGuard('delete'),
         deleteMany: financeiroChargeGuard('deleteMany'),
       },
+      logisticaTrackingSession: {
+        updateMany: async ({ where, data }: any) => {
+          let count = 0;
+          for (const row of workingTracking.values()) {
+            if (where.companyId != null && row.companyId !== where.companyId) continue;
+            if (where.routeId?.in && !where.routeId.in.includes(row.routeId)) continue;
+            if (where.status != null && row.status !== where.status) continue;
+            Object.assign(row, data);
+            count++;
+          }
+          return { count };
+        },
+      },
+      /* 🔴 A TRAVA DA ROTA EXIGE `$executeRawUnsafe` (15/08) — `limparDia` só
+         levanta `lockedRouteIds` (o recorte que o carimbo de TrackingSession
+         usa, espelho do `encerrarRota`) quando `typeof tx.$executeRawUnsafe
+         === 'function'` (é o mesmo guarda de `lockLogisticaRouteTransaction`,
+         que RECUSA travar sem ele — "A trava da rota exige uma transação
+         PostgreSQL ativa"). Sem este stub o bloco inteiro era pulado em SILÊNCIO
+         e a vacina U6/TrackingSession nunca rodava de verdade — a mesma
+         omissão que o `logistica-rota-encerrar.service.test.ts` tem hoje (não
+         testa TrackingSession nenhuma). `pg_advisory_xact_lock` é só
+         concorrência entre requisições simultâneas; o dublê roda tudo
+         sequencial, então um no-op basta. */
+      $executeRawUnsafe: async () => undefined,
     };
   }
 
@@ -309,7 +366,8 @@ function buildHarness(
       const workingRoutes = cloneRoutes();
       const workingPlanos = clonePlanos();
       const workingStops = cloneStops();
-      const tx = buildTx(working, workingRoutes, workingPlanos, workingStops);
+      const workingTracking = cloneTracking();
+      const tx = buildTx(working, workingRoutes, workingPlanos, workingStops, workingTracking);
       const result = await callback(tx); // se lançar, propaga SEM tocar os stores (rollback)
       store.clear();
       for (const [id, row] of working) store.set(id, row);
@@ -319,6 +377,8 @@ function buildHarness(
       for (const [id, row] of workingPlanos) planoStore.set(id, row);
       stopStore.clear();
       for (const [id, row] of workingStops) stopStore.set(id, row);
+      trackingStore.clear();
+      for (const [id, row] of workingTracking) trackingStore.set(id, row);
       return result;
     },
   };
@@ -329,6 +389,7 @@ function buildHarness(
     routeStore,
     planoStore,
     stopStore,
+    trackingStore,
     financeiroChargeCalls,
     eventos,
     setFailNextUpdateMany: (value: boolean) => { failNextWrite = value; },
@@ -594,6 +655,75 @@ test('limparDia: 2ª chamada não acha mais parada nem rota viva → zeros, sem 
   // no updateMany de novo — carimbar `operationalEndedAt` numa rota já morta é
   // inofensivo e mantém o método tudo-ou-nada.
   assert.equal(segunda.resumo.canceladas, 0);
+});
+
+// ── 4e. A JANELA DE 24h DO TRACKING FECHA JUNTO (15/08) ──────────────────────
+// Sem isto, uma `LogisticaTrackingSession` ACTIVE sobrevivia ao cancelar: o
+// comando de tracking em voo (fila do aparelho) batia num routeId que o app já
+// esqueceu, o servidor respondia CONFLICT e o comando virava REJECTED — preso
+// até o teto de 24h do processamento assíncrono, sem ninguém ter cancelado
+// nada de propósito. Espelho do `encerrarRota` (ver logistica-rota.service.ts).
+test('limparDia: TrackingSession ACTIVE da rota cancelada vira ENDED (fecha a janela do CONFLICT)', async () => {
+  const routeDate = canonicalRouteDate(DATE);
+  const h = buildHarness(
+    [seedRow({ id: 'd-em-rota', status: 'em_rota', rotaOrdem: 0, startedAt: atHour(9) })],
+    [
+      { id: 'r-42', companyId: 7, entregadorId: 42, routeDate, status: 'ACTIVE', operationalEndedAt: null },
+      { id: 'r-99', companyId: 7, entregadorId: 99, routeDate, status: 'ACTIVE', operationalEndedAt: null },
+    ],
+    [],
+    [],
+    [],
+    [
+      { id: 'ts-42', companyId: 7, routeId: 'r-42', status: 'ACTIVE', endedAt: null },
+      { id: 'ts-99', companyId: 7, routeId: 'r-99', status: 'ACTIVE', endedAt: null },
+    ],
+  );
+
+  await h.service.limparDia(7, { date: DATE }, 42);
+
+  const ts42 = h.trackingStore.get('ts-42')!;
+  assert.equal(ts42.status, 'ENDED', 'a sessão da rota cancelada fecha junto com operationalEndedAt');
+  assert.ok(ts42.endedAt instanceof Date);
+
+  const ts99 = h.trackingStore.get('ts-99')!;
+  assert.equal(ts99.status, 'ACTIVE', 'sessão de outro motorista, fora do escopo — intocada');
+});
+
+test('limparDia: TrackingSession já ENDED não é regravada (idempotente)', async () => {
+  const routeDate = canonicalRouteDate(DATE);
+  const endedAntes = atHour(7);
+  const h = buildHarness(
+    [seedRow({ id: 'd1', status: 'agendada', rotaOrdem: 0 })],
+    [{ id: 'r-42', companyId: 7, entregadorId: 42, routeDate, status: 'ACTIVE', operationalEndedAt: null }],
+    [],
+    [],
+    [],
+    [{ id: 'ts-42', companyId: 7, routeId: 'r-42', status: 'ENDED', endedAt: endedAntes }],
+  );
+
+  await h.service.limparDia(7, { date: DATE }, 42);
+
+  const ts = h.trackingStore.get('ts-42')!;
+  assert.equal(ts.status, 'ENDED');
+  assert.deepEqual(ts.endedAt, endedAntes, 'já estava fechada — o updateMany só mira status ACTIVE');
+});
+
+test('limparDia: skipRoute não encerra a rota nem a TrackingSession dela', async () => {
+  const routeDate = canonicalRouteDate(DATE);
+  const h = buildHarness(
+    [seedRow({ id: 'd-em-rota', status: 'em_rota', rotaOrdem: 0, startedAt: atHour(9) })],
+    [{ id: 'r-42', companyId: 7, entregadorId: 42, routeDate, status: 'ACTIVE', operationalEndedAt: null }],
+    [],
+    [],
+    [],
+    [{ id: 'ts-42', companyId: 7, routeId: 'r-42', status: 'ACTIVE', endedAt: null }],
+  );
+
+  await h.service.limparDia(7, { date: DATE, skipRoute: true } as any, 42);
+
+  assert.equal(h.routeStore.get('r-42')!.operationalEndedAt, null, 'skipRoute não toca a rota');
+  assert.equal(h.trackingStore.get('ts-42')!.status, 'ACTIVE', 'skipRoute também não fecha a sessão de tracking');
 });
 
 // ── 5. Atomicidade ─────────────────────────────────────────────────────────

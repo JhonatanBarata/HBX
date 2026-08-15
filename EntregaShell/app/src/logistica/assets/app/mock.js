@@ -1889,7 +1889,7 @@ function telaGps(chegou){
            depende de abrir menu: quem está dirigindo precisa enxergar a saída,
            o registro na porta e o encerramento antes de tocar. -->
       <div class="gps-encerrar">
-        <button class="gps-encerrar-main" data-ir="fechamento">Encerrar rota</button>
+        <button class="gps-encerrar-main" data-ir="fechamento">Fechamento</button>
         <button class="gps-registrar" data-acao="registrar-local">${g.registrar||'Registrar'}</button>
         <button class="gps-sair" data-ir="rota">${g.encerrar||'Sair'}</button>
       </div>
@@ -2009,13 +2009,18 @@ ${nav('rota')}`;}};
    corpo é um só e a `semana` o desenha desbotado no fundo. O selo só aparece
    com fato ("N vendas"): sem venda, pill com um check sozinho era veredito
    sem fonte. */
-function fechamentoCorpo(){const d=DADOS.fechamento;return `
-  <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 10px">
-    <span style="display:flex;align-items:center;gap:10px">
-      <span class="round" style="border-color:var(--line-2)">${ic('lock',18)}</span>
-      <b style="font-size:16px;font-weight:500;display:block">Fechamento do dia</b></span>
-    ${d.selo?`<span class="pill mute">${d.selo} ${ic('check',14)}</span>`:''}
-  </div>
+function fechamentoCorpo(){const d=DADOS.fechamento;
+  /* 🔴 O MIOLO E O "NADA AINDA" (15/08). Duas mentiras moravam aqui, as duas
+     por AUSÊNCIA: sem `miolo`, uma rede ruim no `/logistica/fechamento/resumo`
+     deixava a tela em BRANCO — nem esqueleto, nem "Tentar de novo" — porque o
+     bloco de baixo só desenha com d.formas/d.formaTotal/d.entregues/etc, e sem
+     eles não desenhava NADA, silêncio idêntico ao "respondeu vazio de
+     verdade". A régua da casa ("dia por montar diz isso com PALAVRA") também
+     vale aqui: dia sem venda nenhuma é FATO, não vazio sem explicação.
+     `temDado` é a MESMA conta das duas condições que já decidiam os blocos —
+     só nomeada, pra decidir também entre elas e o "Nada registrado". */
+  const temDado=(d.formas.length||d.formaTotal)||(d.entregues||d.clientes||d.produtos);
+  const corpoDeVerdade=temDado?`
   ${(d.formas.length||d.formaTotal)?`<div class="forms">
     ${d.formas.map(f=>`<div class="form-c"><span style="color:${f[1]}">${ic(f[0],19)}</span><small>${f[2]}</small><b>${f[3]}</b></div>`).join('')}
     ${d.formaTotal?`<div class="form-c total"><small style="margin-top:0">Total</small><b>${d.formaTotal}</b></div>`:''}
@@ -2024,7 +2029,16 @@ function fechamentoCorpo(){const d=DADOS.fechamento;return `
     ${d.entregues?`<span class="c"><span style="color:var(--lime)">${ic('check',17)}</span><span><b>${d.entregues}</b><small>entregues</small></span></span>`:''}
     ${d.clientes?`<span class="c"><span style="color:var(--ink-2)">${ic('users',17)}</span><span><b>${d.clientes}</b><small>clientes</small></span></span>`:''}
     ${d.produtos?`<span class="c"><span style="color:var(--ink-2)">${ic('box',17)}</span><span><b>${d.produtos}</b><small>produtos</small></span></span>`:''}
-  </div>`:''}`;}
+  </div>`:''}`
+  :`<div class="vazio"><span class="ico">${ic('note',24)}</span><strong>Nada registrado hoje ainda</strong></div>`;
+  return `
+  <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 10px">
+    <span style="display:flex;align-items:center;gap:10px">
+      <span class="round" style="border-color:var(--line-2)">${ic('lock',18)}</span>
+      <b style="font-size:16px;font-weight:500;display:block">Fechamento do dia</b></span>
+    ${d.selo?`<span class="pill mute">${d.selo} ${ic('check',14)}</span>`:''}
+  </div>
+  ${miolo(d,'note','recarregar-fechamento',3,corpoDeVerdade)}`;}
 T.fechamento={nome:'Fechamento do dia',grupo:'Fechamento',render(){return `${status}
 ${hdr({voltar:'rota'})}
 <div class="body">
