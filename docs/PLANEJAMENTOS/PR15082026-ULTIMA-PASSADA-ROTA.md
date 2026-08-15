@@ -303,9 +303,10 @@ com história é apagada.
 ## ORDEM E ESTADO
 | Lote | O quê | Quem | Estado |
 |---|---|---|---|
-| 1 | Rota fantasma + beco cancelar | worker 1 | 🔄 rodando |
-| 2 | Véu + resíduos + fechamento + contraste | worker 2 | ⏳ fila (após 1) |
-| 3 | Chegada interativa 2D | worker | ⬜ |
+| 1 | Rota fantasma + beco cancelar | worker | ✅ `a707a1cd` — fluxo-rota 125/125, specs 51/51 |
+| 1.1 | Cancelar mira o dia certo + lápide + invariante do Iniciar | worker | 🔄 rodando (com fiscal adversarial no fim) |
+| 2 | Véu + resíduos + fechamento + contraste | worker | ✅ `561f234b` — fluxo-rota **129/129**, contraste-diálogos **24/24** (Sim do claro 1,96→**6,66**; azul 3,31→**5,17**), limpar-dia 22/22, casca 68/68 |
+| 3 | Chegada: 1 peça só, igual em 2D e 3D | worker | 🔄 fila da cadeia (após fiscal do 1.1) |
 | 4 | Pós-iniciar elegante | worker | ⬜ |
 | 5 | 2 tipos de avulsa | worker + migration | ⬜ |
 | 6 | Dinheiro da porta | worker | ⬜ |
