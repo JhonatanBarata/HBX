@@ -510,9 +510,6 @@
   function estadoDaRota(r) {
     const s = String(r.routeStatus || '').toUpperCase();
     if (s === 'ACTIVE' || s === 'INITIALIZING') return 'rodando';
-    // Encerrada/concluída NÃO é rodando: o dia fechou. Se ainda sobrou parada
-    // aberta com ordem, o estado é "pronta" (dá pra reiniciar no mesmo dia).
-    if (s === 'PLANNED') return 'pronta';
     /* 🔴 SEM `routeId` A ROTA AINDA PODE ESTAR MONTADA — e foi isto que quebrou
        a sequência inteira (dono, 07/08: "cliquei em iniciar rota → monte a rota
        antes"; e depois "não tem sequência, não tem vida"). O `routeId` é a rota
@@ -526,6 +523,12 @@
       const st = String((it && it.status) || '');
       return st !== 'entregue' && st !== 'cancelada';
     });
+    // Encerrada/concluída NÃO é rodando: o dia fechou. Se ainda sobrou parada
+    // aberta com ordem, o estado é "pronta" (dá pra reiniciar no mesmo dia).
+    // 🔴 A ROTA FANTASMA (14/08): PLANNED sozinho não prova parada viva — só
+    // que a rota foi montada um dia. Zero abertas rebaixa pro dock real
+    // ("Montar rota"); com abertas, intocado — continua 'pronta'.
+    if (s === 'PLANNED') return abertas.length ? 'pronta' : 'montar';
     const montadas = abertas.filter((it) => it.rotaOrdem !== null && it.rotaOrdem !== undefined);
     // TODAS as abertas com ordem = dia planejado. Uma parada nova entrou depois
     // (sem ordem)? Volta pra "montar" — é verdade: falta planejar de novo.

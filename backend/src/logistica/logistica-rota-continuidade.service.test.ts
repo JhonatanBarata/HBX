@@ -151,3 +151,82 @@ test('Cancelar rascunho usa escopo exato e nunca encerra rota formal do dia', as
   assert.equal(input.skipRoute, true);
   assert.deepEqual(input.deliveryIds, ['draft-a']);
 });
+
+// ── A ROTA FANTASMA (14/08, print do dono): "51 paradas · 0 entregues" com
+// dock Cancelar|Iniciar|Montagem, e Cancelar devolvia 409 "Esta rota não tem
+// mais paradas abertas." — o `resolve()` usava a MESMA checagem pra todos os
+// verbos, inclusive cancelar, que é o único verbo de ESCAPE. Estes testes
+// batem no `resolve()` DE VERDADE (sem mock de `resolve`), porque o bug mora
+// justamente aí dentro.
+function routeGhostPrisma(overrides: Record<string, unknown> = {}) {
+  return {
+    logisticaRoute: {
+      findFirst: async () => ({
+        id: 'route-ghost-1',
+        routeDate: '2026-08-12',
+        status: 'PLANNED',
+        startedAt: null,
+        operationalEndedAt: null,
+        entregadorId: 8,
+        entregador: { name: 'André' },
+        stops: [
+          {
+            delivery: {
+              id: 'd1', status: 'cancelada', entregadorId: 8, entregador: null,
+              scheduledAt: new Date(), rotaOrdem: 3, startedAt: null, arrivedAt: null,
+            },
+          },
+          {
+            delivery: {
+              id: 'd2', status: 'entregue', entregadorId: 8, entregador: null,
+              scheduledAt: new Date(), rotaOrdem: 1, startedAt: null, arrivedAt: new Date(),
+            },
+          },
+        ],
+        ...overrides,
+      }),
+    },
+  } as any;
+}
+
+test('Cancelar rota fantasma (route: sem nenhuma parada aberta) alcança a saída graciosa, nunca 409', async () => {
+  const service = new LogisticaRotaContinuidadeService(
+    routeGhostPrisma(), {} as any, {} as any, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+
+  const result = await service.cancelar(actor, 'route:route-ghost-1', 8);
+  assert.deepEqual(result, { ok: true, resumo: { canceladas: 0 } }, 'beco fechado: cancelar sempre sai, mesmo sem abertas');
+});
+
+test('Abrir rota fantasma (route: sem paradas abertas) continua informando/barrando', async () => {
+  const service = new LogisticaRotaContinuidadeService(
+    routeGhostPrisma(), {} as any, {} as any, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+
+  await assert.rejects(
+    () => service.abrir(actor, 'route:route-ghost-1'),
+    /Esta rota não tem mais paradas abertas/,
+  );
+});
+
+test('Retomar rota fantasma (route: sem paradas abertas) continua informando/barrando', async () => {
+  const service = new LogisticaRotaContinuidadeService(
+    routeGhostPrisma(), {} as any, {} as any, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+
+  await assert.rejects(
+    () => service.retomar(actor, 'route:route-ghost-1', 8),
+    /Esta rota não tem mais paradas abertas/,
+  );
+});
+
+test('Puxar rota fantasma (route: sem paradas abertas) continua informando/barrando', async () => {
+  const service = new LogisticaRotaContinuidadeService(
+    routeGhostPrisma(), {} as any, {} as any, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+
+  await assert.rejects(
+    () => service.puxar(actor, 'route:route-ghost-1', 8),
+    /Esta rota não tem mais paradas abertas/,
+  );
+});

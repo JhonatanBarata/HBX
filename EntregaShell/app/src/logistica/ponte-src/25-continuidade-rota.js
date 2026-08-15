@@ -11,6 +11,35 @@
   const refDoAlvo = (alvo) => String((alvo && alvo.dataset && alvo.dataset.ref) || '');
   const ownerDoAlvo = (alvo) => Number(alvo && alvo.dataset && alvo.dataset.owner) || undefined;
 
+  /* 🔴 A ROTA FANTASMA (14/08, print do dono): "51 paradas · 0 entregues" com
+     dock Cancelar|Iniciar|Montagem, e QUALQUER verbo de continuidade batendo
+     409/404 sem NUNCA atualizar a tela — o aparelho ficava preso olhando pra
+     um dia que o servidor já não reconhecia mais (sem abertas, rota sumida,
+     dono trocado). `avisoErro` sozinho só abria o portão com a frase crua
+     ("Não deu certo") e a tela morta continuava desenhada por baixo dele.
+
+     `avisoErroContinuidade` é a MESMA porta, só que pros 4 verbos de
+     continuidade (o Cancelar do dock, em `30-verbos-rota.js`, e os 3 destes
+     cartões): num 409/404 SEM `code` dedicado — ROTA_DE_OUTRO_MOTORISTA e
+     ASSENTOS_ESGOTADOS continuam com o handoff próprio deles, intocado —
+     ela RESSINCRONIZA primeiro (esquece a rota carregada e recarrega) e só
+     DEPOIS abre um portão curto e honesto. Quando ele fechar, a tela por
+     baixo já bate com o servidor — nunca com o fantasma. */
+  const avisoErroContinuidade = async (e) => {
+    const status = Number((e && e.status) || 0);
+    const code = String((e && e.body && e.body.code) || '');
+    if (status !== 409 && status !== 404) return avisoErro(e);
+    if (code) return avisoErro(e);
+    esquecerRotaCarregada();
+    await carregarRota();
+    if (typeof window.portao !== 'function') return;
+    window.portao({
+      tom: 'trava', ico: 'alert', titulo: 'Este dia mudou',
+      sub: humano(e) || 'Este dia não tem mais paradas abertas.',
+      acoes: [['Fechar', '']],
+    });
+  };
+
   /* 🔴 UM PORTÃO QUE PERGUNTA PRECISA DEVOLVER A RESPOSTA — E MORRER JUNTO COM A
      TELA (14/08). O "sim" resolve `true`; QUALQUER outra saída (o escape, o toque
      fora, o repinte que varre a camada) resolve `false` pelo vigia. Sem o vigia,
@@ -126,7 +155,7 @@
       if (!(await filaOfflinePronta())) return false;
       let resposta;
       try { resposta = await window.API.post('/logistica/rota/continuidade/retomar', { ref, expectedOwnerId }); }
-      catch (e) { avisoErro(e); return false; }
+      catch (e) { await avisoErroContinuidade(e); return false; }
       continuidadeAtiva = '';
       esquecerRotaCarregada();
       await carregarRota();
@@ -151,7 +180,7 @@
       if (!(await filaOfflinePronta())) return false;
       let resposta;
       try { resposta = await window.API.post('/logistica/rota/continuidade/puxar', { ref, expectedOwnerId }); }
-      catch (e) { avisoErro(e); return false; }
+      catch (e) { await avisoErroContinuidade(e); return false; }
       continuidadeAtiva = '';
       esquecerRotaCarregada();
       await carregarRota();
@@ -175,7 +204,7 @@
     botao.addEventListener('click', () => comTravaFila(async () => {
       if (!(await filaOfflinePronta())) return false;
       try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref, expectedOwnerId }); }
-      catch (e) { avisoErro(e); return false; }
+      catch (e) { await avisoErroContinuidade(e); return false; }
       if (continuidadeAtiva === ref) continuidadeAtiva = '';
       esquecerRotaCarregada();
       await carregarRota();

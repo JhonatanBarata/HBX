@@ -1181,6 +1181,13 @@ export class LogisticaFechamentoDiaService {
           where: { id: entrega.id },
           data: {
             status: 'cancelada',
+            // A ROTA FANTASMA (14/08): sem isto a entrega apagada aqui ficava
+            // 'cancelada' MAS ainda carimbada como parada da rota — o filtro do
+            // app (10-geofence-montagem.js) só descarta cancelada SEM rotaOrdem.
+            // Mesmo padrão de logistica-rota.service.ts (o cancelar de verdade).
+            rotaOrdem: null,
+            etaAt: null,
+            startedAt: null,
             cobrancaStatus: 'pendente',
             notes: `${entrega.notes ? entrega.notes + ' | ' : ''}Venda apagada no fechamento`.slice(0, 500),
           },

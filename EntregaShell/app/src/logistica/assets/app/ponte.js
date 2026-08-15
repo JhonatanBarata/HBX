@@ -510,9 +510,6 @@
   function estadoDaRota(r) {
     const s = String(r.routeStatus || '').toUpperCase();
     if (s === 'ACTIVE' || s === 'INITIALIZING') return 'rodando';
-    // Encerrada/concluída NÃO é rodando: o dia fechou. Se ainda sobrou parada
-    // aberta com ordem, o estado é "pronta" (dá pra reiniciar no mesmo dia).
-    if (s === 'PLANNED') return 'pronta';
     /* 🔴 SEM `routeId` A ROTA AINDA PODE ESTAR MONTADA — e foi isto que quebrou
        a sequência inteira (dono, 07/08: "cliquei em iniciar rota → monte a rota
        antes"; e depois "não tem sequência, não tem vida"). O `routeId` é a rota
@@ -526,6 +523,12 @@
       const st = String((it && it.status) || '');
       return st !== 'entregue' && st !== 'cancelada';
     });
+    // Encerrada/concluída NÃO é rodando: o dia fechou. Se ainda sobrou parada
+    // aberta com ordem, o estado é "pronta" (dá pra reiniciar no mesmo dia).
+    // 🔴 A ROTA FANTASMA (14/08): PLANNED sozinho não prova parada viva — só
+    // que a rota foi montada um dia. Zero abertas rebaixa pro dock real
+    // ("Montar rota"); com abertas, intocado — continua 'pronta'.
+    if (s === 'PLANNED') return abertas.length ? 'pronta' : 'montar';
     const montadas = abertas.filter((it) => it.rotaOrdem !== null && it.rotaOrdem !== undefined);
     // TODAS as abertas com ordem = dia planejado. Uma parada nova entrou depois
     // (sem ordem)? Volta pra "montar" — é verdade: falta planejar de novo.
@@ -2808,6 +2811,35 @@
   const refDoAlvo = (alvo) => String((alvo && alvo.dataset && alvo.dataset.ref) || '');
   const ownerDoAlvo = (alvo) => Number(alvo && alvo.dataset && alvo.dataset.owner) || undefined;
 
+  /* 🔴 A ROTA FANTASMA (14/08, print do dono): "51 paradas · 0 entregues" com
+     dock Cancelar|Iniciar|Montagem, e QUALQUER verbo de continuidade batendo
+     409/404 sem NUNCA atualizar a tela — o aparelho ficava preso olhando pra
+     um dia que o servidor já não reconhecia mais (sem abertas, rota sumida,
+     dono trocado). `avisoErro` sozinho só abria o portão com a frase crua
+     ("Não deu certo") e a tela morta continuava desenhada por baixo dele.
+
+     `avisoErroContinuidade` é a MESMA porta, só que pros 4 verbos de
+     continuidade (o Cancelar do dock, em `30-verbos-rota.js`, e os 3 destes
+     cartões): num 409/404 SEM `code` dedicado — ROTA_DE_OUTRO_MOTORISTA e
+     ASSENTOS_ESGOTADOS continuam com o handoff próprio deles, intocado —
+     ela RESSINCRONIZA primeiro (esquece a rota carregada e recarrega) e só
+     DEPOIS abre um portão curto e honesto. Quando ele fechar, a tela por
+     baixo já bate com o servidor — nunca com o fantasma. */
+  const avisoErroContinuidade = async (e) => {
+    const status = Number((e && e.status) || 0);
+    const code = String((e && e.body && e.body.code) || '');
+    if (status !== 409 && status !== 404) return avisoErro(e);
+    if (code) return avisoErro(e);
+    esquecerRotaCarregada();
+    await carregarRota();
+    if (typeof window.portao !== 'function') return;
+    window.portao({
+      tom: 'trava', ico: 'alert', titulo: 'Este dia mudou',
+      sub: humano(e) || 'Este dia não tem mais paradas abertas.',
+      acoes: [['Fechar', '']],
+    });
+  };
+
   /* 🔴 UM PORTÃO QUE PERGUNTA PRECISA DEVOLVER A RESPOSTA — E MORRER JUNTO COM A
      TELA (14/08). O "sim" resolve `true`; QUALQUER outra saída (o escape, o toque
      fora, o repinte que varre a camada) resolve `false` pelo vigia. Sem o vigia,
@@ -2923,7 +2955,7 @@
       if (!(await filaOfflinePronta())) return false;
       let resposta;
       try { resposta = await window.API.post('/logistica/rota/continuidade/retomar', { ref, expectedOwnerId }); }
-      catch (e) { avisoErro(e); return false; }
+      catch (e) { await avisoErroContinuidade(e); return false; }
       continuidadeAtiva = '';
       esquecerRotaCarregada();
       await carregarRota();
@@ -2948,7 +2980,7 @@
       if (!(await filaOfflinePronta())) return false;
       let resposta;
       try { resposta = await window.API.post('/logistica/rota/continuidade/puxar', { ref, expectedOwnerId }); }
-      catch (e) { avisoErro(e); return false; }
+      catch (e) { await avisoErroContinuidade(e); return false; }
       continuidadeAtiva = '';
       esquecerRotaCarregada();
       await carregarRota();
@@ -2972,7 +3004,7 @@
     botao.addEventListener('click', () => comTravaFila(async () => {
       if (!(await filaOfflinePronta())) return false;
       try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref, expectedOwnerId }); }
-      catch (e) { avisoErro(e); return false; }
+      catch (e) { await avisoErroContinuidade(e); return false; }
       if (continuidadeAtiva === ref) continuidadeAtiva = '';
       esquecerRotaCarregada();
       await carregarRota();
@@ -3163,6 +3195,8 @@
       window.portao({ tom: 'trava', ico: 'alert', titulo: 'Não deu certo', sub: msg, acoes: [['Fechar', '']] });
     }
   };
+  // A ROTA FANTASMA (14/08) — `avisoErroContinuidade` mora em
+  // `25-continuidade-rota.js`, junto dos verbos que ela ressincroniza.
   const hojeISO = () => diaOperacional();
 
   /* 🔴 A CONFIRMAÇÃO PADRÃO DA CASA, NUM LUGAR SÓ (10/08) — o mesmo "Tem
@@ -3191,7 +3225,7 @@
       }
       if (!(await filaOfflinePronta())) return false;
       try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref: rotaRefAtual }); }
-      catch (e) { avisoErro(e); return false; }
+      catch (e) { await avisoErroContinuidade(e); return false; }
       esquecerRotaCarregada();
       await carregarRota();
       return true;

@@ -568,6 +568,12 @@ export class LogisticaAdminRouteService {
           where: { id: original.id },
           data: {
             status: 'cancelada',
+            // A ROTA FANTASMA (14/08): a ORIGINAL transferida ficava 'cancelada'
+            // com rotaOrdem/etaAt vivos — o filtro do app só descarta cancelada
+            // SEM rotaOrdem, então ela continuava desenhada e contada na rota
+            // velha. Mesmo padrão de logistica-rota.service.ts (cancelar real).
+            rotaOrdem: null,
+            etaAt: null,
             startedAt: null,
             notes: appendNote(original.notes, `Transferida para a rota de ${formatDatePt(operationalDate)}.`),
           },

@@ -181,6 +181,8 @@
       window.portao({ tom: 'trava', ico: 'alert', titulo: 'Não deu certo', sub: msg, acoes: [['Fechar', '']] });
     }
   };
+  // A ROTA FANTASMA (14/08) — `avisoErroContinuidade` mora em
+  // `25-continuidade-rota.js`, junto dos verbos que ela ressincroniza.
   const hojeISO = () => diaOperacional();
 
   /* 🔴 A CONFIRMAÇÃO PADRÃO DA CASA, NUM LUGAR SÓ (10/08) — o mesmo "Tem
@@ -209,7 +211,7 @@
       }
       if (!(await filaOfflinePronta())) return false;
       try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref: rotaRefAtual }); }
-      catch (e) { avisoErro(e); return false; }
+      catch (e) { await avisoErroContinuidade(e); return false; }
       esquecerRotaCarregada();
       await carregarRota();
       return true;

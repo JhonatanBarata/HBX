@@ -424,4 +424,9 @@ test('preparar com pendência: clone do dia novo herda a origem da entrega origi
   assert.ok(createdData, 'a pendência precisa ser clonada pro dia novo');
   assert.equal(createdData.origem, 'avulsa', 'o clone herda a origem da entrega original');
   assert.equal(cancelledUpdate?.data?.status, 'cancelada', 'a original vira cancelada após mover');
+  // 🔴 A ROTA FANTASMA (14/08) — a ORIGINAL transferida ficava 'cancelada' com
+  // rotaOrdem/etaAt vivos; o filtro do app só descarta cancelada SEM rotaOrdem,
+  // então ela continuava desenhada como parada da rota velha.
+  assert.equal(cancelledUpdate?.data?.rotaOrdem, null, 'senão a original transferida sobra na rota velha');
+  assert.equal(cancelledUpdate?.data?.etaAt, null);
 });

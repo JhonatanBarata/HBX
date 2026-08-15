@@ -208,6 +208,7 @@ export class LogisticaRotaContinuidadeService {
 
   async abrir(actor: LogisticaActor, refInput?: string) {
     const target = await this.resolve(actor, refInput);
+    this.assertHasOpenStops(target);
     this.assertCanRead(actor, target);
     this.assertActionableSize(target);
     const result = await this.logistica.listRota(
@@ -228,6 +229,7 @@ export class LogisticaRotaContinuidadeService {
     const companyId = this.companyId(actor);
     const actorId = this.actorId(actor);
     const target = await this.resolve(actor, refInput);
+    this.assertHasOpenStops(target);
     this.assertExpectedOwner(target, expectedOwnerId);
     if (target.ownerId !== actorId) {
       throw new ForbiddenException('Esta rota pertence a outra pessoa. Use Puxar quando ela ainda não tiver sido iniciada.');
@@ -303,6 +305,7 @@ export class LogisticaRotaContinuidadeService {
     const companyId = this.companyId(actor);
     const actorId = this.actorId(actor);
     const target = await this.resolve(actor, refInput);
+    this.assertHasOpenStops(target);
     if (!expectedOwnerId) throw new BadRequestException('A rota mudou ou o cartão está desatualizado. Atualize a tela.');
     this.assertExpectedOwner(target, expectedOwnerId);
     if (target.ownerId === actorId) return this.retomar(actor, refInput, expectedOwnerId);
@@ -502,9 +505,7 @@ export class LogisticaRotaContinuidadeService {
         },
       });
       if (!route) throw new NotFoundException('Rota não encontrada nesta empresa.');
-      const target = this.targetFromRoute(route);
-      if (!this.openIds(target).length) throw new ConflictException('Esta rota não tem mais paradas abertas.');
-      return target;
+      return this.targetFromRoute(route);
     }
 
     const draftMatch = /^draft:(\d+):(\d{4}-\d{2}-\d{2})$/.exec(ref);
@@ -660,6 +661,22 @@ export class LogisticaRotaContinuidadeService {
 
   private isOpen(status: string): status is (typeof OPEN)[number] {
     return status === 'agendada' || status === 'em_rota';
+  }
+
+  /**
+   * Estado permanente nunca gateia verbo de ESCAPE (lei do repo). `resolve()`
+   * usava esta checagem pra TODOS os verbos, inclusive `cancelar` — e por isso
+   * uma rota fantasma (0 abertas, por bug de higiene em outro lugar) virava um
+   * beco: nem Cancelar saía dela, porque `resolve()` já explodia 409 antes de
+   * `cancelar` alcançar a saída graciosa `{ok:true, canceladas:0}`.
+   *
+   * A checagem migrou pra CÁ, chamada só por `abrir`/`retomar`/`puxar` — eles
+   * seguem informando o operador (mesma mensagem, mesma posição na ordem de
+   * validação de antes). `cancelar` nunca chama isto: sem abertas, ele cai
+   * direto no próprio `if (!openIds.length)` dele.
+   */
+  private assertHasOpenStops(target: ContinuityTarget): void {
+    if (!this.openIds(target).length) throw new ConflictException('Esta rota não tem mais paradas abertas.');
   }
 
   private assertActionableSize(target: ContinuityTarget): void {

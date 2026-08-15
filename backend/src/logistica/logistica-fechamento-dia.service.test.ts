@@ -328,6 +328,36 @@ test('apagar-venda: entrega JÁ FATURADA no mês é recusada (fatura fechada nã
   assert.deepEqual(trilha, []);
 });
 
+// 🔴 A ROTA FANTASMA (14/08, print do dono): "51 paradas · 0 entregues" que nem
+// Cancelar tirava da tela. Uma das raízes: apagar-venda carimbava 'cancelada'
+// SEM zerar rotaOrdem/etaAt/startedAt — o filtro do app (10-geofence-montagem.js)
+// só descarta cancelada SEM rotaOrdem, então a entrega apagada aqui continuava
+// desenhada como parada viva. Mesmo padrão que logistica-rota.service.ts já usa
+// no cancelar de verdade (status + rotaOrdem:null + etaAt:null + startedAt:null).
+test('apagar-venda: zera rotaOrdem/etaAt/startedAt junto do cancelar (a rota fantasma não pode sobrar)', async () => {
+  const trilha: any[] = [];
+  const prisma = prismaMock({
+    entrega: {
+      findFirst: async () => ({
+        id: 'ent-9', status: 'entregue', notes: null, valor: 13,
+        rotaOrdem: 4, etaAt: new Date(), startedAt: new Date(),
+      }),
+      update: async (args: any) => { trilha.push(args.data); return {}; },
+      findMany: async () => [],
+    },
+    financeiroCharge: { findMany: async () => [], updateMany: async () => ({ count: 0 }) },
+    clienteHistorico: { deleteMany: async () => ({ count: 0 }) },
+    deletionRecord: { create: async () => ({}) },
+  });
+  const svc = new LogisticaFechamentoDiaService(prisma as any, logisticaMock() as any);
+  await svc.apagarVenda(5, 'ent-9');
+  assert.equal(trilha.length, 1);
+  assert.equal(trilha[0].status, 'cancelada');
+  assert.equal(trilha[0].rotaOrdem, null, 'senão a rota fantasma continua "montada" pro app');
+  assert.equal(trilha[0].etaAt, null);
+  assert.equal(trilha[0].startedAt, null);
+});
+
 test('apagar-venda: 2º toque é idempotente e AINDA limpa o histórico que sobrou', async () => {
   const { prisma, trilha } = prismaApagar({ id: 'ent-9', status: 'cancelada', notes: null, valor: 13 });
   const svc = new LogisticaFechamentoDiaService(prisma as any, logisticaMock() as any);
