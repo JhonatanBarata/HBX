@@ -444,7 +444,30 @@ export class LogisticaRotaContinuidadeService {
   async cancelar(actor: LogisticaActor, refInput?: string, expectedOwnerId?: number) {
     const companyId = this.companyId(actor);
     const actorId = this.actorId(actor);
-    const target = await this.resolve(actor, refInput);
+    const ref = String(refInput || '').trim();
+    let target: ContinuityTarget;
+    try {
+      target = await this.resolve(actor, ref);
+    } catch (error) {
+      // F5 (15/08): `draft:` que não resolve mais (o dia já ficou vazio) deixa
+      // de ser 404 no Cancelar — vira a MESMA saída graciosa de sempre. Mas só
+      // depois de checar posse pelo ownerId codificado na própria ref contra o
+      // ator/admin: sem essa checagem a saída graciosa vira sonda de tenant
+      // (qualquer um descobriria "existe"/"não existe" só pelo formato da
+      // resposta). Ref `route:` desconhecida continua 404 — aquilo é erro de
+      // verdade, não fantasma.
+      if (error instanceof NotFoundException) {
+        const draftMatch = /^draft:(\d+):(\d{4}-\d{2}-\d{2})$/.exec(ref);
+        if (draftMatch) {
+          const refOwnerId = Number(draftMatch[1]);
+          if (refOwnerId !== actorId && !isLogisticaAdmin(actor)) {
+            throw new ForbiddenException('Somente o dono da rota ou um administrador pode cancelá-la.');
+          }
+          return { ok: true, resumo: { canceladas: 0 } };
+        }
+      }
+      throw error;
+    }
     this.assertExpectedOwner(target, expectedOwnerId);
     if (target.ownerId !== actorId && !isLogisticaAdmin(actor)) {
       throw new ForbiddenException('Somente o dono da rota ou um administrador pode cancelá-la.');
@@ -454,7 +477,48 @@ export class LogisticaRotaContinuidadeService {
     }
     const openIds = this.openIds(target);
     this.assertActionableSize(target);
-    if (!openIds.length) return { ok: true, resumo: { canceladas: 0 } };
+    if (!openIds.length) {
+      // 🔴 A ROTA FANTASMA (15/08) — quem fabrica a lápide é o CANCELAR
+      // anterior (ou um Iniciar que falhou): uma `route:` sem nenhuma parada
+      // aberta não prova mais que "não há nada para cancelar" — o DIA pode
+      // continuar de pé, com o `routeId` publicado apontando só pra lápide
+      // (metadata do tracking devolve QUALQUER rota do motorista+dia). Sem
+      // isto o Cancelar vira no-op mudo pra sempre.
+      const diaAlvo = await this.diaDoAlvoMorto(actor, target);
+      if (!diaAlvo) return { ok: true, resumo: { canceladas: 0 } };
+      // Reaplica as MESMAS três guardas, na MESMA ordem, sobre o alvo
+      // derivado — o dia pode ter dono/estado diferente do que a rota morta
+      // registrava.
+      this.assertExpectedOwner(diaAlvo, expectedOwnerId);
+      if (diaAlvo.ownerId !== actorId && !isLogisticaAdmin(actor)) {
+        throw new ForbiddenException('Somente o dono da rota ou um administrador pode cancelá-la.');
+      }
+      if (diaAlvo.ownerId !== actorId && this.started(diaAlvo)) {
+        throw new ConflictException('A rota está em andamento em outro aparelho. Sincronize e encerre lá antes de cancelar.');
+      }
+      this.assertActionableSize(diaAlvo);
+      const resultado = await this.rota.limparDia(
+        companyId,
+        {
+          date: diaAlvo.effectiveDate || diaAlvo.routeDate,
+          motivo: 'Cancelada pela tela de continuidade da rota',
+          deliveryIds: this.openIds(diaAlvo),
+          skipRoute: true,
+        },
+        diaAlvo.ownerId,
+        actorId,
+      );
+      // D2 (fechada): a lápide é encerrada aqui, por conta própria — mandar
+      // `routeId` ao `limparDia` faria o CAS dela ("As paradas desta rota
+      // mudaram") reprovar, porque os stops da lápide já não existem.
+      if (target.routeId) {
+        await (this.prisma as any).logisticaRoute.updateMany({
+          where: { companyId, id: target.routeId, operationalEndedAt: null },
+          data: { operationalEndedAt: new Date() },
+        });
+      }
+      return resultado;
+    }
     return this.rota.limparDia(
       companyId,
       {
@@ -467,6 +531,23 @@ export class LogisticaRotaContinuidadeService {
       target.ownerId,
       actorId,
     );
+  }
+
+  /**
+   * Cancelar mirou `route:` mas a rota já não tem paradas abertas (a lápide).
+   * O DIA pode continuar de pé — `sourceOwnerId` é o dono da LINHA da rota,
+   * nunca o `ownerId` derivado (que já cai pro próprio `sourceOwnerId` quando
+   * não sobra nenhuma aberta pra apontar outro dono, ver `targetFromRoute`).
+   * `null` quando o dia também está vazio: mantém a saída graciosa de sempre.
+   */
+  private async diaDoAlvoMorto(actor: LogisticaActor, target: ContinuityTarget): Promise<ContinuityTarget | null> {
+    if (target.kind !== 'route') return null;
+    try {
+      return await this.resolve(actor, `draft:${target.sourceOwnerId}:${target.routeDate}`);
+    } catch (error) {
+      if (error instanceof NotFoundException) return null;
+      throw error;
+    }
   }
 
   private async resolve(actor: LogisticaActor, refInput?: string): Promise<ContinuityTarget> {

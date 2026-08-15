@@ -435,6 +435,11 @@ test('POST rota/iniciar cria a sessão TRACKED antes de ativar a rota e expõe s
           stops.push(row);
           return row;
         },
+        // INVARIANTE DO INICIAR (15/08) — `congelarStops` lê de volta do banco
+        // quantas linhas ficaram atadas a ESTA rota antes de devolver o
+        // controle pro `iniciarRota`. Sem este método o dublê quebra com TypeError.
+        count: async ({ where }: any) => stops.filter((s) => s.routeId === where.routeId
+          && (!where.deliveryId?.in || where.deliveryId.in.includes(s.deliveryId))).length,
       },
       $executeRawUnsafe: async () => 0,
       $transaction: async (callback: any) => callback(prisma),

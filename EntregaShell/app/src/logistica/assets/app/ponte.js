@@ -943,13 +943,10 @@
   }
 
   const dataDaRotaNaTela = () => diaNaTela || diaOperacional();
-  function refDaResposta(r, itens) {
-    if (r && r.continuityRef) return String(r.continuityRef);
-    if (r && r.routeId) return `route:${String(r.routeId)}`;
-    const comDono = (itens || []).find((it) => it && it.entregador && it.entregador.id
-      && it.rotaOrdem !== null && it.rotaOrdem !== undefined);
-    return comDono ? `draft:${Number(comDono.entregador.id)}:${String((r && r.date) || dataDaRotaNaTela())}` : '';
-  }
+  /* 🔴 A ROTA FANTASMA (15/08) — `refDaResposta` MUDOU DE CASA, pro módulo
+     dela de verdade (`25-continuidade-rota.js`, é lá que ela mora agora):
+     este arquivo está no teto de 1000/1000 linhas do portão da ponte. Ver o
+     comentário completo junto da definição nova. */
 
   function vestirPendencias(resp, opcoes = {}) {
     if (!resp || !Array.isArray(resp.items)) return false;
@@ -2812,6 +2809,37 @@
      ------------------------------------------------------------------------ */
   const refDoAlvo = (alvo) => String((alvo && alvo.dataset && alvo.dataset.ref) || '');
   const ownerDoAlvo = (alvo) => Number(alvo && alvo.dataset && alvo.dataset.owner) || undefined;
+
+  /* 🔴 A ROTA FANTASMA (15/08) — MOVIDA de `00-nucleo.js` pra CÁ (o módulo da
+     ref) porque aquele arquivo está no teto de 1000/1000 do portão da ponte;
+     a costura é um IIFE contíguo e `function` hoista, então a mudança de casa
+     não muda comportamento nenhum.
+
+     🔴 O QUE MUDOU DE VERDADE: a ref `route:` agora EXIGE rota VIVA
+     (`estadoDaRota(r) === 'rodando'`). Até aqui bastava `r.routeId` existir —
+     e ele existe pra QUALQUER rota do motorista+dia, viva ou morta.
+     `claimLogisticaRoute` (backend) cria a `LogisticaRoute` ANTES de
+     `planejarRota`: todo Iniciar que falha (dia vazio, 402 de assento, OSRM
+     fora) deixa uma rota PLANNED com zero stops pra trás — e o Cancelar
+     anterior deixa uma rota ACTIVE/ENCERRADA com zero stops (a lápide, medida
+     no banco de produção). Nos dois casos o `routeId` continua vindo no
+     payload e a ref virava `route:<morta>`: todo verbo (inclusive Cancelar)
+     passava a bater 409/404 contra um alvo que o servidor já esqueceu — o
+     aparelho ficava preso olhando pra uma rota fantasma, rodando
+     `carregarRota()` a cada 60 s pra sempre.
+
+     Qualquer outro estado (PLANNED, ENCERRADA, morta) cai na ref do DIA
+     (`draft:<dono>:<data>`) — é exatamente o que o servidor publica em
+     `/logistica/rota/continuidade` quando a rota não é mais "de hoje e
+     viva". Sem dono nem ordem gravada, `comDono` não acha ninguém e a ref
+     sai vazia — não há o que cancelar, o dock já mostra "Montar rota". */
+  function refDaResposta(r, itens) {
+    if (r && r.continuityRef) return String(r.continuityRef);
+    if (r && r.routeId && estadoDaRota(r) === 'rodando') return `route:${String(r.routeId)}`;
+    const comDono = (itens || []).find((it) => it && it.entregador && it.entregador.id
+      && it.rotaOrdem !== null && it.rotaOrdem !== undefined);
+    return comDono ? `draft:${Number(comDono.entregador.id)}:${String((r && r.date) || dataDaRotaNaTela())}` : '';
+  }
 
   /* 🔴 A ROTA FANTASMA (14/08, print do dono): "51 paradas · 0 entregues" com
      dock Cancelar|Iniciar|Montagem, e QUALQUER verbo de continuidade batendo

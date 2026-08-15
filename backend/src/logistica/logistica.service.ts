@@ -1955,6 +1955,15 @@ export class LogisticaService {
         where: { id: row.id },
         data: {
           status: 'cancelada',
+          // F4 (15/08) — mesma higiene do `limparDia`/`cancelarEntrega`: uma
+          // cancelada não pode carregar rastro de rota (rotaOrdem/etaAt/
+          // startedAt). Sem isto sobrava resíduo que alimentava
+          // `kpiParadas`/`filtroFila` com "paradas" que já nem existem mais.
+          // `entregadorId` fica INTOCADO de propósito — aqui é exclusão
+          // administrativa, apagar a autoria perde trilha sem ganhar nada.
+          rotaOrdem: null,
+          etaAt: null,
+          startedAt: null,
           notes: `${row.notes ? row.notes + ' | ' : ''}Excluída (soft-delete)`.slice(0, 500),
         },
       });

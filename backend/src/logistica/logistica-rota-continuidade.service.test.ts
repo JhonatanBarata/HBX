@@ -186,16 +186,112 @@ function routeGhostPrisma(overrides: Record<string, unknown> = {}) {
         ...overrides,
       }),
     },
+    // 15/08 — `cancelar` agora deriva o DIA quando a rota morta não tem
+    // abertas (`diaDoAlvoMorto`). Default: dia TAMBÉM vazio (nenhuma linha),
+    // que é o caso que os 4 testes abaixo (abrir/retomar/puxar e o próprio
+    // cancelar-sempre-graciosa) sempre mediram.
+    entrega: { findMany: async () => [] },
   } as any;
 }
 
-test('Cancelar rota fantasma (route: sem nenhuma parada aberta) alcança a saída graciosa, nunca 409', async () => {
+test('Cancelar rota fantasma (route: sem nenhuma parada aberta, dia TAMBÉM vazio) alcança a saída graciosa, nunca 409', async () => {
   const service = new LogisticaRotaContinuidadeService(
     routeGhostPrisma(), {} as any, {} as any, {} as any, { assertCapacidade: async () => undefined } as any,
   );
 
   const result = await service.cancelar(actor, 'route:route-ghost-1', 8);
   assert.deepEqual(result, { ok: true, resumo: { canceladas: 0 } }, 'beco fechado: cancelar sempre sai, mesmo sem abertas');
+});
+
+// ── A CENA MEDIDA NO BANCO DE PRODUÇÃO (15/08): rota
+// `cmsusrv6k05otsfjwx1wgdl1j` · company 41 · status ACTIVE (não PLANNED) ·
+// ZERO `LogisticaRouteStop` · criada e `startedAt` no MESMO segundo (16:57) ·
+// `operationalEndedAt` 2 min depois (16:59) — e no mesmo minuto o dia foi
+// REMONTADO: 51 entregas novas `agendada` com `rotaOrdem` 0..50, nenhuma
+// dentro de stop. Bate segundo a segundo com o print do dono.
+test('CENA MEDIDA: rota ACTIVE encerrada com zero stops + 51 abertas no dia — Cancelar chama limparDia com os 51 ids ORDENADOS e o entregadorId do DONO DA LINHA', async () => {
+  const abertas = Array.from({ length: 51 }, (_, i) => ({
+    id: `d${i}`,
+    status: 'agendada',
+    entregadorId: 8,
+    scheduledAt: new Date('2026-08-15T15:00:00.000Z'),
+    // fora de ordem DE PROPÓSITO — prova que quem ordena é o `rotaOrdem`, não
+    // a ordem de leitura do `findMany`.
+    rotaOrdem: 50 - i,
+    startedAt: null,
+    arrivedAt: null,
+    entregador: { name: 'André' },
+  }));
+  const routeUpdateManyCalls: any[] = [];
+  const prisma: any = {
+    logisticaRoute: {
+      findFirst: async () => ({
+        id: 'cmsusrv6k05otsfjwx1wgdl1j',
+        routeDate: '2026-08-15',
+        status: 'ACTIVE',
+        startedAt: new Date('2026-08-15T16:57:00.000Z'),
+        operationalEndedAt: new Date('2026-08-15T16:59:00.000Z'),
+        entregadorId: 8,
+        entregador: { name: 'André' },
+        stops: [], // ZERO LogisticaRouteStop — a lápide, byte a byte como medida
+      }),
+      updateMany: async (args: any) => { routeUpdateManyCalls.push(args); return { count: 1 }; },
+    },
+    entrega: { findMany: async () => abertas },
+  };
+  const calls: any = { limparDia: null };
+  const rota: any = {
+    limparDia: async (companyId: number, input: any, entregadorId: number, actorUserId: number) => {
+      calls.limparDia = { companyId, input, entregadorId, actorUserId };
+      return { ok: true, resumo: { canceladas: input.deliveryIds.length } };
+    },
+  };
+  const service = new LogisticaRotaContinuidadeService(
+    prisma, {} as any, rota, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+  // O ATOR é o PRÓPRIO dono da rota (o André do print, cancelando o dia dele
+  // — não um admin mexendo no aparelho de outra pessoa): com `target.ownerId
+  // === actorId` os dois guardas de "outro dono"/"em andamento em outro
+  // aparelho" nem entram em jogo, exatamente como na cena medida.
+  const dono = { id: 8, companyId: 7, role: 'DRIVER' };
+
+  const result = await service.cancelar(dono, 'route:cmsusrv6k05otsfjwx1wgdl1j', 8);
+
+  assert.ok(calls.limparDia, 'hoje: a execução para no `if (!openIds.length)` e devolve canceladas:0 SEM chamar limparDia');
+  assert.equal(calls.limparDia.companyId, 7);
+  assert.equal(calls.limparDia.entregadorId, 8, 'o dono da LINHA da rota (sourceOwnerId), nunca um derivado');
+  assert.equal(calls.limparDia.input.skipRoute, true, 'D2: a lápide é encerrada por conta própria — routeId pro limparDia faria o CAS dela reprovar');
+  assert.equal(calls.limparDia.input.routeId, undefined, 'nunca aponta a lápide para o limparDia');
+  const esperado = [...abertas].sort((a, b) => a.rotaOrdem - b.rotaOrdem).map((r) => r.id);
+  assert.deepEqual(calls.limparDia.input.deliveryIds, esperado, '51 ids, ordenados por rotaOrdem — não pela ordem de leitura');
+  assert.equal(routeUpdateManyCalls.length, 1, 'a lápide é encerrada (operationalEndedAt) por updateMany PRÓPRIO do cancelar');
+  assert.equal(routeUpdateManyCalls[0].where.id, 'cmsusrv6k05otsfjwx1wgdl1j');
+  assert.ok(routeUpdateManyCalls[0].data.operationalEndedAt instanceof Date);
+  assert.deepEqual(result, { ok: true, resumo: { canceladas: 51 } });
+});
+
+test('F5 · Cancelar draft: cujo dia já ficou vazio (não resolve mais) alcança a saída graciosa — antes era 404 cru', async () => {
+  const prisma: any = { entrega: { findMany: async () => [] } };
+  const service = new LogisticaRotaContinuidadeService(
+    prisma, {} as any, {} as any, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+  const dono = { id: 8, companyId: 7, role: 'DRIVER' };
+
+  const result = await service.cancelar(dono, 'draft:8:2026-08-15');
+  assert.deepEqual(result, { ok: true, resumo: { canceladas: 0 } });
+});
+
+test('F5 · Cancelar draft: de dia vazio de OUTRO dono continua Forbidden — a saída graciosa nunca vira sonda de tenant', async () => {
+  const prisma: any = { entrega: { findMany: async () => [] } };
+  const service = new LogisticaRotaContinuidadeService(
+    prisma, {} as any, {} as any, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+  const outroFuncionario = { id: 5, companyId: 7, role: 'DRIVER' };
+
+  await assert.rejects(
+    () => service.cancelar(outroFuncionario, 'draft:8:2026-08-15'),
+    /Somente o dono da rota ou um administrador pode cancelá-la/,
+  );
 });
 
 test('Abrir rota fantasma (route: sem paradas abertas) continua informando/barrando', async () => {

@@ -45,6 +45,11 @@ const DIA_B = ((DOW + 2) % 7) + 1;
 const PONTE = ({
   hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agendaHoje, hojeDow, custoComoServidor,
   outroMotorista, assentos,
+  // A ROTA FANTASMA (15/08): `routeId` é OPT-IN por cena — sem ele o GET
+  // continua sem publicar `routeId` nenhum (byte a byte o dublê de sempre), e
+  // a ref cai no `draft:` como sempre caiu. Só as cenas que precisam medir a
+  // lápide (`route:` morta) passam este par.
+  routeId, cancelarRejeita,
 }) => {
   window.__chamadas = [];
   /* 🔴 PROMESSA QUE MORRE SOZINHA NÃO ACENDE `pageerror`. Quase tudo da ponte é
@@ -112,6 +117,11 @@ const PONTE = ({
     // quantas vezes o dia foi REGISTRADO (o `fechamento/finalizar`). É por ele
     // que a cena V prova o "1x só": fechar duas vezes não existe mais.
     fechou: 0,
+    // A ROTA FANTASMA (15/08) — o `routeId` de uma rota que NUNCA tem stop
+    // neste dublê (é sempre a lápide); e a rejeição fixa do cancelar pras
+    // cenas de resync (409 sem/com código nomeado).
+    routeId: routeId || null,
+    cancelarRejeita: cancelarRejeita || null,
   };
   window.__S = S;
   /* O DIALETO REAL do /nucleo/clientes (09/08): lat/lng (o map da resposta
@@ -315,6 +325,33 @@ const PONTE = ({
         return R({ ok: true, date: S.hoje, moved: abertas().length, planningPending: false });
       }
       if (caminho.indexOf('/logistica/rota/continuidade/cancelar') === 0 && metodo === 'POST') {
+        /* CENA AA: as cenas W4/W5 medem o RESYNC de 409 — a rejeição é fixa
+           (não `usado`, não flip): o toque que a prova faz é sempre o mesmo. */
+        if (S.cancelarRejeita) {
+          const { status, code, message } = S.cancelarRejeita;
+          return REJ(status, Object.assign({ message: message || 'Conflito.' }, code ? { code } : {}));
+        }
+        const ref = String((corpo && corpo.ref) || '');
+        /* 🔴 A ROTA FANTASMA (15/08) — o dublê passa a RESPEITAR o `ref`, como
+           o servidor de verdade (`diaDoAlvoMorto` do
+           `logistica-rota-continuidade.service`): `route:<id>` da LÁPIDE
+           (neste dublê ela NUNCA tem parada nenhuma dentro — é sempre a rota
+           morta) cai no escopo do DIA, e só cancela o que estiver aberto ali.
+           Sem isto o dublê ficava MAIS GENEROSO que o servidor — esvaziava o
+           dia pra QUALQUER ref — e a fantasma nunca aparecia numa corrida
+           daqui. Ref `draft:` (o caminho de sempre) continua esvaziando o dia
+           inteiro, como sempre esvaziou (CENA U). */
+        if (S.routeId && ref === `route:${S.routeId}`) {
+          const havia = abertas().length;
+          if (!havia) return R({ ok: true, resumo: { canceladas: 0 } });
+          S.entregas = S.entregas.filter((e) => e.status === 'entregue' || e.status === 'cancelada');
+          // A LINHA da rota fica de pé, só ENCERRADA (operationalEndedAt) —
+          // igual ao servidor: `status` comercial não muda por causa do
+          // cancelar. 'PLANNED' aqui é só pra provar a W3 (fix C): zero
+          // aberta com uma rota não-ACTIVE tem que desenhar "Montar rota".
+          S.routeStatus = 'PLANNED';
+          return R({ ok: true, resumo: { canceladas: havia } });
+        }
         S.entregas = []; S.routeStatus = '';
         return R({ ok: true, resumo: { canceladas: 1 } });
       }
@@ -447,6 +484,11 @@ const PONTE = ({
         return R({
           date: S.hoje,
           routeStatus: S.routeStatus,
+          // A ROTA FANTASMA (15/08): o servidor de verdade publica `routeId`
+          // pra QUALQUER rota do motorista+dia, viva ou morta (é exatamente o
+          // que fabricava a ref fantasma) — o dublê passa a fazer o mesmo,
+          // opt-in por cena (ver `routeId` no destructuring da PONTE).
+          routeId: S.routeId,
           items: S.entregas.map((e) => ({
             id: e.id, status: e.status, rotaOrdem: e.rotaOrdem, origem: e.origem,
             cliente: e.cliente, quantidade: 1,
@@ -2061,6 +2103,144 @@ const SO_MEDIR = process.argv.includes('--antes');
   eh('Y9 · ao concluir, o Montar nao deixa o veu nem o estado presos',
     !yMontarVeu.presoNoEstado && !yMontarVeu.aindaNaTela,
     `estado=${yMontarVeu.presoNoEstado} tela=${yMontarVeu.aindaNaTela}`);
+
+  /* ===================================================================
+     CENA AA — A ROTA FANTASMA: O DIA REMONTADO SOBRE A ROTA ENCERRADA
+     (15/08, LOTE 1.1 — a "CENA W" do desenho; renomeada pra AA porque W já
+     existe neste arquivo desde 12/08, "DIA SEM VENDA TAMBÉM ACABA").
+
+     O print do dono: 16:57 Iniciar, 16:59 Cancelar — a rota fica ACTIVE,
+     ZERO `LogisticaRouteStop`, `operationalEndedAt` carimbado; NO MESMO
+     MINUTO o dia é remontado (51 entregas novas, com ordem). O `routeId`
+     que o servidor publica continua apontando pra essa lápide: o Cancelar
+     seguinte batia contra ela e virava no-op mudo — o dono ficava preso
+     olhando "3 entregas de pé" com o pé "Iniciar" (a tela do print).
+
+     Mede as DUAS curas juntas — sem o dublê "respeitar o ref" (ver o POST
+     de cancelar acima) e sem o `routeId` opt-in no GET, esta cena nunca
+     reproduz o defeito (era exatamente por isso que ele ficava invisível):
+       W1 (app, A1)  — a ref POSTADA é a do DIA, nunca a da rota morta
+                        (`route:` só nasce de rota VIVA — `estadoDaRota()`).
+       W2 (backend, C) — depois do "Sim" o dia ZERA e o dock volta pra
+                        "Montar rota" (hoje, sem a cura: 3 entregas de pé
+                        e "Iniciar" — a tela do print).
+       W3 (backend, C) — zero aberta desenha "Montar rota" mesmo com uma
+                        `LogisticaRoute` de pé (não-ACTIVE) — a prova que
+                        faltava pro fix C.
+     =================================================================== */
+  const CLI_AA3 = { id: 'af3', nome: 'Zeca Fantasma', endereco: 'Rua Z, 3', lat: -22.406, lng: -47.556 };
+  await cena({
+    routeId: 'route-fantasma-1',
+    routeStatus: 'ENCERRADA',
+    // as 3 abertas JÁ remontadas (rotaOrdem gravado) — o dia que sobrou por
+    // cima da lápide, exatamente como o banco de produção mediu.
+    entregas: [
+      { id: 'af1', status: 'agendada', rotaOrdem: 0, origem: 'recorrente', cliente: CLI_C1 },
+      { id: 'af2', status: 'agendada', rotaOrdem: 1, origem: 'recorrente', cliente: CLI_C5 },
+      { id: 'af3', status: 'agendada', rotaOrdem: 2, origem: 'recorrente', cliente: CLI_AA3 },
+    ],
+  });
+  // mesma passagem da cena D: o boot correu contra o servidor REAL antes do
+  // dublê existir — passar pela Montagem garante que `estadoRota` releu.
+  await irPara('montagem');
+  await irPara('rota', 1600);
+  const tAApre = await espiar();
+  nota(`[AA] antes do cancelar: tela=${tAApre.tela} · dock="${tAApre.dock}" · entregas=${tAApre.entregasNoServidor} · routeStatus=${tAApre.routeStatus}`);
+  await zerar();
+  const achouCancelarAA = await p.evaluate(() => {
+    const x = document.querySelector('.tmx-sat [data-acao="cancelar-rota"]');
+    if (x) { x.click(); return true; }
+    return false;
+  });
+  await p.waitForTimeout(500);
+  await p.evaluate(() => {
+    const x = document.querySelector('.portao-wrap .principal');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(2800);
+  const tAA1 = await espiar();
+  const cancelarAABodies = await postsDe('/logistica/rota/continuidade/cancelar');
+  nota(`[AA] cancelar: achouBotao=${achouCancelarAA} · refPostada=${JSON.stringify(cancelarAABodies)} · tela=${tAA1.tela} · dock="${tAA1.dock}" · entregas=${tAA1.entregasNoServidor} · routeStatus=${tAA1.routeStatus}`);
+  eh('AA1 (W1) · a ref POSTADA e a do DIA, nunca a da rota morta (route: so nasce de rota VIVA)',
+    achouCancelarAA && cancelarAABodies.length === 1 && /^draft:/.test(String(cancelarAABodies[0] && cancelarAABodies[0].ref)),
+    `ref=${JSON.stringify(cancelarAABodies)}`);
+  eh('AA2 (W2) · depois do Sim o dia ZERA — nao sobram as 3 entregas de pe do print',
+    tAA1.entregasNoServidor === 0, `entregas=${tAA1.entregasNoServidor}`);
+  eh('AA3 (W2) · e o dock volta para "Montar rota" (nao fica "Iniciar" sobre o dia morto)',
+    tAA1.tela === 'rota' && /Montar rota/i.test(tAA1.dock), `tela=${tAA1.tela} dock="${tAA1.dock}"`);
+  eh('AA4 (W3) · zero aberta desenha Montar rota mesmo com uma LogisticaRoute de pe, nao-ACTIVE (fix C — antes sem prova)',
+    tAA1.routeStatus !== 'ACTIVE' && tAA1.routeStatus !== 'INITIALIZING' && /Montar rota/i.test(tAA1.dock),
+    `routeStatus=${tAA1.routeStatus} dock="${tAA1.dock}"`);
+
+  /* ===================================================================
+     CENA AB/AC — O RESYNC DE 409 NO CANCELAR (15/08, W4/W5 do desenho;
+     molde nas cenas U5/U6 do mesmo arquivo).
+
+     AB (W4): 409 SEM código nomeado → o resync BRANDO (`avisoErroContinuidade`)
+     recarrega e abre "Este dia mudou" — e a chave de idempotência do
+     CONFIRMAR (dinheiro) SOBREVIVE, porque `esquecerRotaCarregada` já não a
+     apaga (correção 15/08, U6 é o molde).
+     AC (W5): o MESMO 409, mas COM código nomeado (ROTA_DE_OUTRO_MOTORISTA)
+     — o resync genérico não pode engolir o portão próprio do código.
+     =================================================================== */
+  await cena({
+    entregas: [{ id: 'ab1', status: 'agendada', rotaOrdem: null, origem: 'recorrente', cliente: CLI_C5 }],
+    agendaHoje: AGENDA_HOJE, mesmaBase: true, custoComoServidor: true,
+    cancelarRejeita: { status: 409, message: 'A rota mudou enquanto você decidia.' },
+  });
+  await irPara('montagem', 2200);
+  await tocarChip(DIA_B);
+  await p.waitForSelector('.pe-montagem [data-acao="montar-agora"]', { timeout: 8000 });
+  await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="montar-agora"]').click());
+  await p.waitForTimeout(2800);
+  await p.evaluate(() => { window.HBX.cache.set('entrega-confirmar:ab1', 'idem-ab1-em-voo'); });
+  await zerar();
+  await p.evaluate(() => {
+    const x = document.querySelector('.tmx-sat [data-acao="cancelar-rota"]');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(500);
+  await p.evaluate(() => {
+    const x = document.querySelector('.portao-wrap .principal');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(2800);
+  const tAB = await espiar();
+  const cacheAB = await p.evaluate(() => window.HBX.cache.get('entrega-confirmar:ab1', null));
+  nota(`[AB] 409 sem codigo: portao="${tAB.portao}" sub="${tAB.portaoSub}" · entrega-confirmar sobrevive=${JSON.stringify(cacheAB)}`);
+  eh('AB1 (W4) · 409 SEM codigo nomeado abre o portao "Este dia mudou" (resync brando)',
+    tAB.portao === 'Este dia mudou', `portao="${tAB.portao}"`);
+  eh('AB2 (W4, LEI 15/08) · a chave de idempotencia do CONFIRMAR sobrevive ao resync (dinheiro nao se apaga em limpeza de tela)',
+    cacheAB === 'idem-ab1-em-voo', `entrega-confirmar:ab1=${JSON.stringify(cacheAB)}`);
+
+  await cena({
+    entregas: [{ id: 'ac1', status: 'agendada', rotaOrdem: null, origem: 'recorrente', cliente: CLI_C5 }],
+    agendaHoje: AGENDA_HOJE, mesmaBase: true, custoComoServidor: true,
+    cancelarRejeita: {
+      status: 409, code: 'ROTA_DE_OUTRO_MOTORISTA',
+      message: 'Essa rota já foi montada por: Outro Motorista.',
+    },
+  });
+  await irPara('montagem', 2200);
+  await tocarChip(DIA_B);
+  await p.waitForSelector('.pe-montagem [data-acao="montar-agora"]', { timeout: 8000 });
+  await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="montar-agora"]').click());
+  await p.waitForTimeout(2800);
+  await zerar();
+  await p.evaluate(() => {
+    const x = document.querySelector('.tmx-sat [data-acao="cancelar-rota"]');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(500);
+  await p.evaluate(() => {
+    const x = document.querySelector('.portao-wrap .principal');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(2800);
+  const tAC = await espiar();
+  nota(`[AC] 409 com codigo nomeado: portao="${tAC.portao}"`);
+  eh('AC1 (W5) · 409 COM codigo nomeado segue o portao proprio dele ("Rota já montada") — o resync generico nao o engole',
+    tAC.portao === 'Rota já montada', `portao="${tAC.portao}"`);
 
   await b.close();
   console.log('\n=== MEDIDAS ===');

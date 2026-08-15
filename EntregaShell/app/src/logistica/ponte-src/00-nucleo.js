@@ -943,13 +943,10 @@
   }
 
   const dataDaRotaNaTela = () => diaNaTela || diaOperacional();
-  function refDaResposta(r, itens) {
-    if (r && r.continuityRef) return String(r.continuityRef);
-    if (r && r.routeId) return `route:${String(r.routeId)}`;
-    const comDono = (itens || []).find((it) => it && it.entregador && it.entregador.id
-      && it.rotaOrdem !== null && it.rotaOrdem !== undefined);
-    return comDono ? `draft:${Number(comDono.entregador.id)}:${String((r && r.date) || dataDaRotaNaTela())}` : '';
-  }
+  /* 🔴 A ROTA FANTASMA (15/08) — `refDaResposta` MUDOU DE CASA, pro módulo
+     dela de verdade (`25-continuidade-rota.js`, é lá que ela mora agora):
+     este arquivo está no teto de 1000/1000 linhas do portão da ponte. Ver o
+     comentário completo junto da definição nova. */
 
   function vestirPendencias(resp, opcoes = {}) {
     if (!resp || !Array.isArray(resp.items)) return false;

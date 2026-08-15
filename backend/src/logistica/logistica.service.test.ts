@@ -2963,6 +2963,62 @@ test('cancelarEntrega: entrega sem cobrança nenhuma cancela igual ao caminho an
   assert.equal(entrega.status, 'cancelada');
 });
 
+// ── F4 (15/08, revisão adversarial ao LOTE 1) — softDeleteEntrega ganha a
+// MESMA higiene do `limparDia`/`cancelarEntrega`: uma entrega cancelada não
+// pode carregar rastro de rota. Sem isto o resíduo seguia alimentando
+// `kpiParadas`/`filtroFila` com "paradas" que já nem existem mais.
+test('softDeleteEntrega: cancelada some rastro de rota (rotaOrdem/etaAt/startedAt) mas preserva a autoria (entregadorId)', async () => {
+  const row = {
+    id: 'entrega-9', companyId: 1, customerProfileId: 'c1', contatoId: null, productId: null,
+    quantidade: 1, valor: 20, status: 'agendada', scheduledAt: new Date(), deliveredAt: null,
+    cobrancaStatus: 'pendente', notes: null,
+  };
+  const updates: any[] = [];
+  const deletionRecords: any[] = [];
+  const prisma: any = {
+    entrega: {
+      findFirst: async () => row,
+      update: async (args: any) => { updates.push(args); Object.assign(row, args.data); return row; },
+    },
+    deletionRecord: { create: async (args: any) => { deletionRecords.push(args); return args.data; } },
+    $transaction: async (fn: any) => fn(prisma),
+  };
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+
+  const res = await service.softDeleteEntrega(1, 'entrega-9');
+
+  assert.equal(res?.id, 'entrega-9');
+  assert.equal(updates.length, 1);
+  assert.equal(updates[0].data.status, 'cancelada');
+  assert.equal(updates[0].data.rotaOrdem, null, 'mesma lei do limparDia/cancelarEntrega: cancelada não carrega rastro de rota');
+  assert.equal(updates[0].data.etaAt, null);
+  assert.equal(updates[0].data.startedAt, null);
+  assert.equal('entregadorId' in updates[0].data, false, 'exclusão ADMINISTRATIVA nunca apaga a autoria — perde trilha sem ganhar nada');
+  assert.equal(deletionRecords.length, 1, 'o snapshot em DeletionRecord (R3) continua acontecendo junto');
+});
+
+test('softDeleteEntrega: já cancelada é idempotente — não sobrescreve rotaOrdem de novo (não mexe em nada)', async () => {
+  const row = {
+    id: 'entrega-10', companyId: 1, customerProfileId: 'c1', contatoId: null, productId: null,
+    quantidade: 1, valor: 20, status: 'cancelada', scheduledAt: new Date(), deliveredAt: null,
+    cobrancaStatus: 'pendente', notes: null,
+  };
+  const updates: any[] = [];
+  const prisma: any = {
+    entrega: {
+      findFirst: async () => row,
+      update: async (args: any) => { updates.push(args); return row; },
+    },
+    deletionRecord: { create: async () => ({}) },
+    $transaction: async (fn: any) => fn(prisma),
+  };
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+
+  const res = await service.softDeleteEntrega(1, 'entrega-10');
+  assert.equal(res?.id, 'entrega-10');
+  assert.equal(updates.length, 0, 'idempotente: já cancelada não passa pela transação de novo');
+});
+
 // ── 28/07 — BUG DO VALOR: correção que não chegava no dinheiro ────────────────
 // Reabrir existe pra "corrigir quantidade ou incluir itens" e era exatamente
 // nisso que falhava: o reconfirmar recalculava Entrega.valor mas pulava o bloco

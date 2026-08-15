@@ -606,7 +606,19 @@ export class LogisticaRotaService {
     // `podeComprar` = dono/master (LEI DO VENDEDOR): só quem pode gastar o
     // crédito da empresa vê o botão de comprar o passe no 402.
     await this.cobranca.assertAssentoDoDia(companyId, effectiveDriverId, routeDate, isBillingOwnerActor(actor as any));
-    await this.congelarStops(companyId, route.id, routeDate, plan.paradas.map((p) => p.id));
+    const stopsCongelados = await this.congelarStops(companyId, route.id, routeDate, plan.paradas.map((p) => p.id));
+    // 🔴 INVARIANTE DO INICIAR (15/08, "A ROTA FANTASMA") — ponto exato: ANTES
+    // de marcar a 1ª parada `em_rota`, ANTES da sessão TRACKED e ANTES do
+    // `status:'ACTIVE'`/`startedAt`. Assim, se o congelamento não gravou nada
+    // de verdade (read-back = 0), não há sessão pra desfazer nem ACTIVE pra
+    // reverter — só `releaseInitialization` explícito (o gate de assento e o
+    // congelamento ficam FORA do try que chama isto lá embaixo) e um erro
+    // honesto. É a cura (b) da rota fantasma: Iniciar que congelou zero nunca
+    // mais carimba a lápide ACTIVE+startedAt.
+    if (stopsCongelados === 0) {
+      await this.releaseInitialization(companyId, route.id);
+      throw new BadRequestException('Nenhuma parada para iniciar. Monte a rota de novo.');
+    }
 
     // 1ª parada roteável vira 'em_rota' com startedAt — só se ainda estiver
     // 'agendada' (não rebaixa nada já em rota/entregue).
@@ -799,10 +811,10 @@ export class LogisticaRotaService {
     routeId: string,
     routeDate: string,
     deliveryIds: string[],
-  ): Promise<void> {
+  ): Promise<number> {
     const ids = [...new Set(deliveryIds.filter(Boolean))];
-    if (!ids.length) return;
-    await this.prisma.$transaction(async (tx) => {
+    if (!ids.length) return 0;
+    return this.prisma.$transaction(async (tx) => {
       await lockLogisticaRouteTransaction(tx, companyId, routeId);
       const atual = await tx.logisticaRoute.findFirst({ where: { companyId, id: routeId } });
       if (!atual) throw new BadRequestException('Rota não encontrada.');
@@ -853,6 +865,15 @@ export class LogisticaRotaService {
         const snapshotOrder = Number(aggregate?._max?.snapshotOrder ?? -1) + 1;
         await tx.logisticaRouteStop.create({ data: { companyId, routeId, deliveryId, snapshotOrder } });
       }
+
+      // 🔴 INVARIANTE DO INICIAR (15/08) — READ-BACK, não aritmética. Devolver
+      // `ids.length` confiaria no PEDIDO ("eu mandei congelar N"), não no que
+      // ficou gravado de verdade; se algo falhar calado no meio deste método a
+      // aritmética mentiria "congelado" com zero linha no banco. Esta é a MESMA
+      // pergunta que `iniciarRota` faz logo depois de chamar `congelarStops`:
+      // "quantas paradas desta rota estão REALMENTE atadas agora?" — e só o
+      // banco responde.
+      return tx.logisticaRouteStop.count({ where: { companyId, routeId, deliveryId: { in: ids } } });
     });
   }
 
