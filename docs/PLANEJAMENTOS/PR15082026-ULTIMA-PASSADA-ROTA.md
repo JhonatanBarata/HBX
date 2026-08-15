@@ -119,6 +119,65 @@ P4 = convite aceito já entra entregador.
 **Cena de teste:** a rota do print (51 paradas mortas) → abrir o app → tela vira "Montar
 rota" sozinha; se aparecer rota morta, Cancelar limpa sem "Não deu certo".
 
+## LOTE 1.1 — CORREÇÕES DO FISCAL (revisão adversarial do `a707a1cd`, 15/08)
+A revisão adversarial do lote 1 achou 6 furos; 2 são graves. **Entra antes do lote 3.**
+- 🔴 **F2 — RESYNC NÃO PODE APAGAR CHAVE DE IDEMPOTÊNCIA (risco de dinheiro).** O lote 1
+  passou a chamar `esquecerRotaCarregada()` em QUALQUER 409/404 de continuidade — inclusive
+  erros legítimos e inofensivos ("Você já está com uma rota em andamento", "A rota mudou",
+  "Esta rota já começou"). Se essa limpeza apagar `entrega-confirmar:<id>` (a chave de
+  idempotência gravada antes do POST de confirmar e reusada no retry), um retry gera uuid
+  novo ⇒ **confirmação/cobrança duplicada**. **LEI: carimbo de dinheiro não se apaga em
+  limpeza de TELA** — só o próprio desfecho bem-sucedido o remove. (Instrução já corrigida
+  no worker do lote 2, que era quem ia escrever essa limpeza.) Além disso, o resync deve ser
+  o mais brando possível: recarregar sem destruir carimbos.
+- 🔴 **F1 — CANCELAR VIRA NO-OP SILENCIOSO** — e o **banco de prod (SELECT, 15/08) provou
+  que ESTA é a cena do print**, em versão pior que a hipótese:
+  **A rota do print** é `cmsusrv6k05otsfjwx1wgdl1j` · company 41 · 15/08 · **status ACTIVE**
+  (não PLANNED) · TRACKED · **ZERO `LogisticaRouteStop`** · criada e `startedAt` **no mesmo
+  segundo** (16:57) · `operationalEndedAt` 2 min depois (16:59). No mesmo minuto o dia foi
+  **remontado**: 51 entregas novas `agendada` com `rotaOrdem` 0..50 e **nenhuma delas dentro
+  de stop**. Ou seja: **a tela desenha o DIA (51 abertas) e o servidor resolve a ROTA (0
+  abertas)** — duas contabilidades diferentes olhando o mesmo motorista.
+  **Três causas, todas confirmadas no dado:**
+  1. **O Iniciar carimba `ACTIVE` + `startedAt` tendo congelado ZERO stops.** Já aconteceu
+     **4 vezes em 6 dias**, sempre na company 41 (15/08, 14/08 e 2× em 10/08) — padrão, não
+     acidente. Rota vazia "iniciada" é lápide fabricada.
+  2. **`operationalEndedAt` esconde a rota do APP mas não do RESOLVEDOR**: o app volta a
+     mostrar "Iniciar", enquanto o `routeId` reportado (metadata do tracking devolve
+     qualquer rota do motorista+dia) continua apontando pra rota morta ⇒ todo verbo vira
+     `route:<morta>` ⇒ 409 eterno.
+  3. **Remontar o dia não cria rota nova** (a `LogisticaRoute` só nasce no Iniciar), então
+     o dia planejado fica órfão e herda a ref da rota morta.
+  **Cura proposta (3 pontas):** (a) metadata não reporta `routeId` de rota com
+  `operationalEndedAt` — o app cai na ref do DIA e o Cancelar volta a funcionar de verdade;
+  (b) Iniciar que congelou 0 stops **não** vira ACTIVE/`startedAt` — erro honesto "Nenhuma
+  parada para iniciar"; (c) cancelar com alvo `route:` sem stops cai no escopo do DIA em vez
+  do `{ok:true, canceladas:0}` mudo.
+- 🟠 **Achados extras do banco (mesma família, entram na conta):** rota **COMPLETED com 14
+  paradas ABERTAS presas dentro** (company 5, 17/07 — são 14 das 205 órfãs); **13 das 24
+  rotas do banco estão ACTIVE eternas**, várias "encerradas" dias depois (`ACTIVE` virou
+  estado-lixo, nada transiciona pra COMPLETED); company 48 com rota de 09/08 COMPLETED (52
+  stops cancelados) e **98 abertas soltas no mesmo dia**; **nenhuma entrega `em_rota` no
+  banco inteiro** (o estado intermediário não é usado); e as 93 órfãs da company 39 têm
+  `scheduledAt` **00:00 UTC** enquanto todo o resto usa 03:00 UTC (convenção de dia
+  divergente gravada em produção). **`INITIALIZING` preso: ZERO** — o F6 abaixo é risco
+  teórico, nunca prendeu ninguém.
+- 🟡 **F4 — sobrou um cancelador sem higiene:** `softDeleteEntrega` (`DELETE
+  /logistica/entregas/:id`, logistica.service.ts ~1954) carimba `cancelada` sem zerar
+  `rotaOrdem/etaAt/startedAt` — mesma classe dos 2 corrigidos no lote 1.
+- 🟡 **F3 — dado VELHO continua desenhado:** sem backfill, as canceladas com `rotaOrdem`
+  seguem alimentando `kpiParadas`/`filtroFila` (lista/foto/fechamento dizem "51 paradas"
+  mesmo com o mapa curado). Precisa de rotina de cura (SQL idempotente) OU régua honesta
+  de KPI. **Não descartar toda cancelada no app** — cancelada durante a rota deve continuar
+  visível com "×" (é o histórico do dia).
+- 🟡 **F5 —** o ramo `draft:` do `resolve()` ainda lança 404 antes da saída graciosa.
+- 🟡 **F6 — irmã da fantasma (pré-existente):** `assertAssentoDoDia`/`congelarStops` estão
+  FORA do try que chama `releaseInitialization` — um 402 ali deixa a rota **INITIALIZING
+  para sempre**, e o app lê INITIALIZING como 'rodando' (dock sem Cancelar). Beco novo.
+- Provas a acrescentar: cena da fantasma no `prova-fluxo-rota` (hoje o dublê do
+  `continuidade/cancelar` devolve `canceladas:1` e esvazia o dia — não consegue reproduzir
+  o defeito) + teste do lado do app para os fixes C e D do lote 1 (que hoje não têm nenhum).
+
 ## LOTE 2 — VÉU NO TOQUE + RESÍDUOS DO CANCELAR + FECHAMENTO HONESTO + CONTRASTE
 (worker 2 — entra quando o LOTE 1 commitar; mesmos arquivos, serializado)
 1. **Véu síncrono no montar**: espelho do fix do iniciar logo após 30-verbos-rota.js:551
