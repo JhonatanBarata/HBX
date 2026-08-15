@@ -578,10 +578,14 @@ const DADOS={
      preso na navegação é defeito pior que qualquer número faltando.
 
      DADO: manobra* · rumo · velocidade · paradaN · paradaTotal · paradaNome ·
-           chegada · restante · distancia · chegouEndereco · chegouPrecisao ·
-           chegouFaltam · chegouKm · chegouId.
+           chegada · restante · distancia.
      COPY: velocidadeUnidade · chegadaRotulo · restanteRotulo · distanciaRotulo
-           · encerrar · chegouTitulo · chegouAcao.
+           · encerrar.
+     🔴 OS 8 CAMPOS `chegou*` SAÍRAM DAQUI NO LOTE 3 (15/08). O "Você chegou"
+     não é mais um estado deste cromo — é a peça `.chegou-wrap`, montada por
+     `cartaoChegada(d)` com `d={id,n,nome,endereco,gps}` lido direto de
+     `ENTREGAS`/`ultimoFix` na hora (nunca pelo seam: `±20 m` oscilaria 1x/s e
+     derrubaria a camada). Ver o comentário grande em `cartaoChegada`.
 
      `manobraIcone` é DADO, não enfeite: é o TIPO da curva que o trajeto
      mandou. Só entra nome que existe no dicionário `I` — nome errado vira
@@ -609,20 +613,6 @@ const DADOS={
        que saem o cadastro na porta, a venda avulsa e a correção do endereço,
        todos com o GPS carimbado no toque (a folha da rua). */
     registrar:'Registrar', fechar:'Fechamento',
-    chegouTitulo:'Você chegou', chegouEndereco:'R. São Judas, 142',
-    chegouPrecisao:'GPS ±6 m, você está na porta',
-    /* `chegouFaltamVerbo` é COPY com CONCORDÂNCIA: "faltam 5 paradas" mas
-       "falta 1 parada". Quem escolhe a forma é quem sabe o número — a ponte —,
-       e ela não inventa palavra: as duas são do desenho. O desenho só tinha a
-       plural porque o exemplo dele tinha 5. */
-    chegouFaltamVerbo:'faltam', chegouFaltam:'5 paradas',
-    chegouKm:'6,4 km', chegouAcao:'Registrar entrega',
-    /* 🔴 `chegouId` é o INTERRUPTOR do botão verde, e nasce VAZIO de propósito.
-       No desenho não existe parada de verdade: sem id o botão não é desenhado,
-       porque botão que promete "Registrar entrega" e não abre folha nenhuma é
-       pior que vaga vazia — era exatamente o que estava no ar, um verde grande
-       sem `data-acao`. Quem liga é a ponte, com a parada em que se chegou. */
-    chegouId:'',
   },
   /* L4 — A PORTA. Os literais abaixo são os que estavam nos templates da folha
      de chegada e da folha da venda, MOVIDOS pra cá. `itens` é [ícone, nome,
@@ -1640,12 +1630,13 @@ function mapaGpsDesenho(){
    UMA ação. O "Chegou" não fica aceso: ele nasce quando o aparelho chega
    (regra que já existe no app hoje, pelo raio de chegada).
    -------------------------------------------------------------------------- */
-/* Dois estados, dois MAPAS diferentes — e essa é a regra, não enfeite:
-   DIRIGINDO → mapa inclinado, girado pelo rumo, carro a 68%, manobra mandando.
-   CHEGOU    → a navegação ACABOU. Volta o mapa de VISÃO GERAL (o mesmo da
-               rota), porque a pergunta mudou: não é mais "por onde eu vou",
-               é "onde eu estou e o que falta". Manter a visão de direção com
-               o carro parado na porta é tela mentindo sobre o que se faz ali. */
+/* 🔴 "CHEGOU → VOLTA O MAPA DE VISÃO GERAL" MORREU NO LOTE 3 (15/08). Essa
+   regra valia enquanto `T.mapachegou` era uma TELA separada, com o mapa
+   trocando de câmera pra "visão geral" ao chegar. Ordem do dono: o "Você
+   chegou" abre NA FRENTE, sobre o palco em que o motorista já está — 2D
+   parado no mapa geral ou 3D dirigindo, sem trocar de câmera nem de tela. O
+   mapa embaixo do cartão continua sendo o mesmo (o `T.mapa` de sempre); quem
+   muda é só a peça `.chegou-wrap` por cima dele. Ver `cartaoChegada`. */
 /* AS EMPRESAS DO CORREDOR — duas camadas, e a divisão tem motivo:
    `empresasChao()` é MUNDO e entra ANTES da névoa do horizonte, pra empresa
    lá longe ficar embaçada junto com a rua (é o que faz ela parecer estar no
@@ -1727,7 +1718,7 @@ function empresasCromo(){
    `trilha` é a régua: o " · " é do `join`, nunca do template — assim o campo
    que não veio leva o separador embora junto, em vez de deixar um "·" órfão
    boiando no mapa. */
-function telaGps(chegou){
+function telaGps(){
   const g=DADOS.gps||{};
   const trilha=(ps)=>ps.filter(Boolean).join(' · ');
   const paradaDeM=(g.paradaN&&g.paradaTotal)?`Parada <b>${g.paradaN} de ${g.paradaTotal}</b>`:'';
@@ -1745,46 +1736,12 @@ function telaGps(chegou){
   const num=(v,rot,destaque,campo,icone)=>v
     ?`<span class="n${destaque?' destaque':''}">${icone?`<i class="gps-kpi-ico">${ic(icone,22)}</i>`:''}<span><b${campo?` data-vivo="${campo}"`:''}>${v}</b>${rot?`<small>${rot}</small>`:''}</span></span>`:'';
 
-  if(chegou){
-    const rodape=trilha([paradaDeM,g.chegouFaltam?`${g.chegouFaltamVerbo||''} <b>${g.chegouFaltam}</b>`:'',
-      g.chegouKm?`<b>${g.chegouKm}</b>`:'']);
-    const baixo=trilha([g.chegouEndereco,g.chegouPrecisao?`${ic('gps',13)} ${g.chegouPrecisao}`:'']);
-    return `${status}
-<div class="body flush" style="overflow:hidden;padding:0">
-  <div class="gps">
-    ${mapa()}
-    <div class="gps-manobra chegou">
-      <div class="cima">
-        <span class="seta">${ic('check',30)}</span>
-        <span>${g.chegouTitulo?`<b class="dist">${g.chegouTitulo}</b>`:''}${g.paradaNome?`
-          <span class="verbo">${g.paradaNome}</span>`:''}</span>
-      </div>
-      ${baixo?`<div class="baixo">${baixo}</div>`:''}
-    </div>
-    <div class="gps-lado" style="bottom:118px">
-      <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',24)}</button>
-    </div>
-    <!-- 🔴 ESTA TELA ERA UM BECO SEM SAÍDA (09/08). Quem chegava na parada não
-         tinha PORTA nenhuma: nem um data-ir, nem um data-acao — e o verde
-         grande, o botão mais chamativo do app, era MORTO (toque no vidro, nada
-         acontecia). Agora são duas portas na mesma linha do ramo de dirigir: o
-         verde abre a folha da parada e o "Sair" volta pro mapa 2D com a rota
-         viva, no MESMO canto do polegar das duas telas. O verde só existe se
-         houver chegouId: sem parada de verdade a vaga fica vazia, nunca com um
-         botão fingindo. (Sem CRASE aqui dentro: este comentário mora num
-         template literal e a crase o fecharia — foi o que eu quase fiz agora,
-         escrevendo o nome do campo entre crases.) -->
-    <div class="gps-rodape">
-      ${rodape?`<div class="parada">${ic('route',14)} <span class="txt">${rodape}</span></div>`:''}
-      <div class="linha" style="justify-content:flex-end">
-        ${g.chegouId?`<button class="act go full" style="justify-content:center"
-          data-acao="abrir-parada" data-parada="${g.chegouId}">${ic('check',20)}<b>${g.chegouAcao||''}</b></button>`:''}
-        <button class="sair" data-ir="rota">${g.encerrar||''}</button>
-      </div>
-    </div>
-  </div>
-</div>`;
-  }
+  /* 🔴 O RAMO "CHEGOU" MORREU AQUI NO LOTE 3 (15/08). `T.mapachegou` (a tela
+     que trocava o mapa pra visão geral e desenhava o "Você chegou" dentro do
+     próprio cartão de manobra) saiu inteira — quem chegou agora vê a MESMA
+     tela de dirigir de sempre, com a peça `.chegou-wrap` sobreposta por
+     `cartaoChegada()` (ver a função, logo depois de `remontarPortao`). Ver
+     "A morte de T.mapachegou" no plano do lote pro porquê de arquitetura. */
 
   /* A MANOBRA INTEIRA SOME sem trajeto — cartão arredondado vazio no topo do
      mapa é cromo fingindo que sabe pra onde ir. */
@@ -1897,8 +1854,9 @@ function telaGps(chegou){
   </div>
 </div>`;
 }
-T.mapa={nome:'Rota iniciada (dirigindo)',grupo:'Rota',render:()=>telaGps(false)};
-T.mapachegou={nome:'Chegou (mapa geral)',grupo:'Rota',render:()=>telaGps(true)};
+T.mapa={nome:'Rota iniciada (dirigindo)',grupo:'Rota',render:()=>telaGps()};
+/* T.mapachegou MORREU NO LOTE 3 (15/08) — o "Você chegou" não é mais tela,
+   é a peça `.chegou-wrap` por cima de T.mapa (ou de T.rota, no 2D). */
 
 /* 3 — MAPA + FILA --------------------------------------------------------- */
 T.mapalista={nome:'Mapa + fila',grupo:'Rota',render(){
@@ -3748,7 +3706,7 @@ ${nav('ajustes')}`;}};
 /* ==========================================================================
    MONTAGEM
    ========================================================================== */
-const ORDEM=['entrada','saida','rota','rotalista','mapa','mapachegou','mapalista','gerenciador','montagem','conferencia',
+const ORDEM=['entrada','saida','rota','rotalista','mapa','mapalista','gerenciador','montagem','conferencia',
              'venda','folha','folhanao','rapida','salvas','fechamento','terminou','semana','clientes','novocliente','ficha','produtos',
              'fichavinculo','fichaproduto','chat','ajustes','creditos','financeiro','avancado','sons','historico',
              'passeio','portoes'];
@@ -3765,7 +3723,7 @@ let atual='entrada';
    agora causado pela cura. 400+40 = 440 ms cobre os 374 com folga. */
 const DUR={escalonado:200,desfoque:180,molinha:180,eixoz:320,eixox:400,conteudo:30,nenhuma:0};
 /** Telas que TOMAM o aparelho inteiro — entram e saem por outro padrão. */
-const TELA_CHEIA=['mapa','mapachegou'];
+const TELA_CHEIA=['mapa'];
 
 function pintarRail(){/* barra lateral do visualizador: não existe no aparelho */}
 
@@ -4028,6 +3986,12 @@ function pintar(animar,dir){
      Só no REPINTE: TROCAR de tela continua fechando o portão, que é o certo —
      diálogo de uma tela não segue o dedo pra outra. */
   const portaoVivo = (!animar && antiga) ? antiga.querySelector('.portao-wrap') : null;
+  // 🔴 O CARTÃO "VOCÊ CHEGOU" ATRAVESSA O REPINTE PELO MESMO MOTIVO DO PORTÃO
+  // (LOTE 3, 15/08): sem isto ele renasceria — e reanimaria — a cada fix do
+  // GPS na tela de dirigir (1x/s). Só no REPINTE, nunca na troca de tela: a
+  // peça morre ao ir pra folha e renasce pelo observador na volta (é o
+  // comportamento desejado, armadilha nº5 do desenho).
+  const chegadaViva = (!animar && antiga) ? antiga.querySelector('.chegou-wrap') : null;
   const nova=document.createElement('div');
   nova.className='tela';
   nova.innerHTML=T[atual].render();
@@ -4195,9 +4159,11 @@ function pintar(animar,dir){
     antiga.replaceWith(nova);
     herdarRolagem(rolagem,nova);
     remontarPortao(nova,portaoVivo);
-    // DEPOIS do portão voltar, nunca antes: campo de portão (o "Nome" do
-    // Espaço) mora DENTRO do `.portao-wrap`, e enquanto ele não é re-encaixado
-    // o campo não existe na camada nova pra ser reencontrado.
+    remontarChegada(nova,chegadaViva);
+    // DEPOIS do portão (e do cartão de chegada) voltarem, nunca antes: campo
+    // de portão (o "Nome" do Espaço) mora DENTRO do `.portao-wrap`, e
+    // enquanto ele não é re-encaixado o campo não existe na camada nova pra
+    // ser reencontrado.
     herdarFoco(foco,nova);
     // E o relógio continua: `currentTime` põe cada animação exatamente onde a
     // da camada anterior estava. Sem isto a lista recomeçaria do zero e o dado
@@ -4254,9 +4220,10 @@ function pintar(animar,dir){
     app.appendChild(nova);
     herdarRolagem(rolagem,nova);
     // `innerHTML=''` só DESLIGA a camada velha do documento: o nó do portão
-    // continua vivo na variável (com os ouvintes), e é por isso que ele pode
-    // ser re-encaixado aqui embaixo.
+    // (e o do cartão de chegada) continuam vivos na variável (com os
+    // ouvintes), e é por isso que eles podem ser re-encaixados aqui embaixo.
     remontarPortao(nova,portaoVivo);
+    remontarChegada(nova,chegadaViva);
     // idem ao ramo de cima: o foco volta por ÚLTIMO, com o portão já no lugar.
     herdarFoco(foco,nova);
   }
@@ -4603,6 +4570,58 @@ function portao(chave){
 /** Leva o portão aberto pra camada nova de um repinte — ver a nota no `pintar`.
  *  MOVE o nó (os ouvintes vão junto) e desliga a entrada dele, que já rodou. */
 function remontarPortao(nova,wrap){
+  if(!wrap) return;
+  wrap.classList.add('remontado');
+  nova.appendChild(wrap);
+}
+
+/* ==========================================================================
+   VOCÊ CHEGOU — a PEÇA ÚNICA (LOTE 3, 15/08). Espelho literal do `portao()`/
+   `remontarPortao()` acima — e é isso, por construção, que garante a
+   igualdade que o dono pediu: uma função só, um nó só, a mesma cara não
+   importa se o motorista está no mapa 2D (`T.rota`) ou dirigindo no 3D
+   (`T.mapa`). Três razões pra ser peça imperativa e não outro ramo de
+   template (comentário grande, pra não se perder de novo):
+   1. IGUALDADE POR CONSTRUÇÃO — duas chamadas em dois templates seriam
+      "parecidas", que é exatamente o que o dono proibiu.
+   2. A PRECISÃO DO GPS NÃO PASSA PELO SEAM — `±20 m` oscila a cada fix (teto
+      de 1x/s no 3D) e viraria um repinte por segundo; aqui o texto nasce
+      CONGELADO, lido de `ultimoFix` uma vez, na hora de montar.
+   3. `numerarItens` NÃO A ALCANÇA — peça dentro de um template ganharia
+      `trItem` a cada repinte (o pisca de 08/08, pela porta dos fundos).
+
+   `d = { id, n, nome, endereco, gps }` — SÓ DADO; quem escapa é a ponte. A
+   COPY mora aqui dentro ('Você chegou', 'Registrar entrega', 'Agora não'),
+   nunca no seam. */
+function cartaoChegada(d){
+  // Lei do IF: sem `d.id` a peça não é montada — nunca um verde grande que
+  // não abre folha nenhuma.
+  if(!d||!d.id) return;
+  const camadas=document.querySelectorAll('#app .tela');
+  const camada=camadas.length?camadas[camadas.length-1]:null; if(!camada) return;
+  // idempotência: remonta por cima de qualquer cartão anterior na MESMA camada.
+  camada.querySelector('.chegou-wrap')?.remove();
+  const w=document.createElement('div');
+  w.className='chegou-wrap';
+  const baixo=[d.endereco||'', Number.isFinite(d.gps)?`${ic('gps',13)} GPS ±${Math.round(d.gps)} m`:'']
+    .filter(Boolean).join(' · ');
+  w.innerHTML=`<div class="chegou-cartao">
+    <span class="seta">${ic('check',30)}</span>
+    <b class="dist">Você chegou</b>
+    ${d.nome?`<span class="verbo">${d.nome}</span>`:''}
+    ${baixo?`<div class="baixo">${baixo}</div>`:''}
+    <div class="acoes">
+      <button class="ghost" data-fechar="1" data-acao="chegada-dispensar">Agora não</button>
+      <button class="act go full" data-acao="abrir-parada" data-parada="${d.id}">${ic('check',20)}<b>Registrar entrega</b></button>
+    </div>
+  </div>`;
+  camada.appendChild(w);
+}
+/** Leva o cartão aberto pra camada nova de um repinte — mesmo mecanismo do
+ *  `remontarPortao`: MOVE o nó (os ouvintes vão junto) e desliga a entrada
+ *  dele, que já rodou. Sem isto o cartão morreria a cada fix do GPS no 3D
+ *  (1x/s) — o risco nº1 do desenho ("funcionou na bancada e sumiu no g15"). */
+function remontarChegada(nova,wrap){
   if(!wrap) return;
   wrap.classList.add('remontado');
   nova.appendChild(wrap);
@@ -5535,6 +5554,12 @@ function confirmar(){
   </div>`;
   camada.appendChild(w);
 }
+/* Demonstração do "Você chegou" pra galeria — os literais que moravam no seam
+   `DADOS.gps` (LOTE 3, 15/08) migraram pra cá: são dado de EXEMPLO, e exemplo
+   não pertence ao seam que o app real preenche. */
+function chegadaDemo(){
+  cartaoChegada({ id:'demo', n:'3', nome:'Mercado São Judas', endereco:'R. São Judas, 142', gps:6 });
+}
 
 document.addEventListener('click',e=>{
   // a lâmpada vem ANTES do `data-ir`: ela é botão do cabeçalho como os outros,
@@ -5603,12 +5628,13 @@ document.addEventListener('click',e=>{
   }
   const disp=e.target.closest('#avdisparo [data-avisar]');
   if(disp){ avisar(disp.dataset.avisar); return; }
+  const SUPERFICIES={erro,confirmar,chegou:chegadaDemo};
   const sup=e.target.closest('[data-superficie]');
-  if(sup){ (sup.dataset.superficie==='erro'?erro:confirmar)(); return; }
+  if(sup){ (SUPERFICIES[sup.dataset.superficie]||erro)(); return; }
   const pt=e.target.closest('[data-portao]');
   if(pt){ portao(pt.dataset.portao); return; }
   const fec=e.target.closest('[data-fechar]');
-  if(fec){ fechar(fec.closest('.erro-wrap,.conf-wrap,.portao-wrap')); }
+  if(fec){ fechar(fec.closest('.erro-wrap,.conf-wrap,.portao-wrap,.chegou-wrap')); }
   /* O TUTOR TEM DUAS PORTAS E UM PREFIXO SÓ. `tutor-comecar` é o "Vamos lá" do
      cartão de abertura; `tutor-<id>` é a linha do catálogo dos Ajustes. O
      prefixo mantém o namespace longe do roteador de `data-acao` da ponte —

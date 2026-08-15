@@ -9,12 +9,6 @@
     const cliente = (vez && vez.item && vez.item.cliente) || {};
     const total = ENTREGAS.size;
 
-    // o que falta de estrada: soma das pernas ainda por dirigir
-    const faltaM = pendentes.reduce((s, p) => {
-      const m = Number(p.item && p.item.legDistanceM);
-      return s + (Number.isFinite(m) && m > 0 ? m : 0);
-    }, 0);
-
     const m = manobraDaVez();
     const rumo = rumoDaTela();
     /* 🔴 O VELOCÍMETRO VAI EXATO — e agora PODE. Ele é o único número
@@ -27,15 +21,13 @@
     const velExata = ultimoFix && Number.isFinite(ultimoFix.velMps) && ultimoFix.velMps >= 0
       ? Math.round(ultimoFix.velMps * 3.6) : null;
     const velKmh = velExata == null ? '' : String(velExata < 3 ? 0 : velExata);
-    /* 🔴 A PRECISÃO SÓ É ESCRITA NA TELA QUE A DESENHA. `GPS ±20 m` sacode a
-       cada fix (o aparelho mede 18, 21, 19 parado no mesmo lugar) e a tela de
-       DIRIGIR nem a mostra — ela é do "Você chegou". Escrevê-la no seam ali era
-       um repinte por segundo de graça: o `manobraDist` foi arredondado em
-       07/08 pra matar a piscada e ela continuou, porque quem derrubava a
-       camada era ESTE campo invisível. */
-    const precisao = telaAtual() === 'mapachegou'
-      ? (ultimoFix && Number.isFinite(ultimoFix.precisaoM) ? `GPS ±${Math.round(ultimoFix.precisaoM)} m` : '')
-      : ((typeof DADOS !== 'undefined' && DADOS.gps && DADOS.gps.chegouPrecisao) || '');
+    /* 🔴 A PRECISÃO DO GPS SAIU DESTE SEAM NO LOTE 3 (15/08). `GPS ±20 m`
+       sacode a cada fix (o aparelho mede 18, 21, 19 parado no mesmo lugar) —
+       era exatamente por isso que ela só entrava aqui quando a tela era o
+       "Você chegou" (`chegouPrecisao`), pra não repintar a navegação 1x/s de
+       graça. Agora o "Você chegou" nem passa mais pelo seam: `cartaoChegada`
+       lê `ultimoFix` direto na hora de montar (ver `desenharChegada`,
+       D0-porta-entrega.js). Nada aqui precisa mais saber da precisão. */
 
     // chegada = agora + o que a rota disse que falta. Sem rota, sem hora — a
     // conta do relógio é do APARELHO, mas o tempo é do roteador.
@@ -59,25 +51,10 @@
       chegada,
       restante: navRota ? emMinutos(navRota.totalS) : '',
       distancia: navRota ? emMetros(navRota.totalM) : '',
-      /* 🔴 O BOTÃO VERDE DO "VOCÊ CHEGOU" ERA MORTO POR FALTA DE ID (09/08).
-         O desenho monta a porta com `data-acao="abrir-parada" data-parada=…`,
-         e `abrirParada` só sabe abrir o que está em `ENTREGAS` — a chave é o id
-         da ENTREGA, o MESMO que o cartão da lista carrega (`traduzirParada.id`),
-         nunca o do cliente. Sem parada da vez sai VAZIO de propósito: a Lei do
-         IF apaga o botão, e vaga vazia é melhor que verde grande que não leva
-         a lugar nenhum. */
-      chegouId: vez && vez.item && vez.item.id ? String(vez.item.id) : '',
-      chegouEndereco: vez ? esc(cliente.endereco) : '',
-      chegouPrecisao: precisao,
-      // "faltam N paradas" conta as que sobram DEPOIS desta — quem está na
-      // porta da 3ª quer saber o que vem pela frente, não recontar a de agora.
-      // O VERBO CONCORDA: uma parada FALTA, cinco FALTAM. Medido: com 1 pendente
-      // a tela dizia "faltam 1 parada". A ponte escolhe a forma porque só ela
-      // sabe o número; as duas palavras são do desenho.
-      chegouFaltam: pendentes.length > 1
-        ? `${pendentes.length - 1} parada${pendentes.length - 1 > 1 ? 's' : ''}` : '',
-      chegouFaltamVerbo: pendentes.length === 2 ? 'falta' : 'faltam',
-      chegouKm: faltaM > 0 ? emMetros(faltaM) : '',
+      // os 6 campos `chegou*` que moravam aqui (chegouId/Endereco/Precisao/
+      // Faltam/FaltamVerbo/Km) saíram no LOTE 3 (15/08): o "Você chegou" não
+      // é mais cromo desta tela — é a peça `.chegou-wrap`, montada à parte
+      // por `cartaoChegada`/`desenharChegada` (D0-porta-entrega.js).
       // o botão da beirada mostra o estado REAL do aparelho, não um estado só
       // dele: quem silencia pelos Ajustes vê o botão apagado aqui também.
       vozMuda: vozLigada() ? '' : '1',

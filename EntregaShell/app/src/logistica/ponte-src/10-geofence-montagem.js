@@ -543,11 +543,9 @@
          pelo LUGAR: é a tela em que o motorista está DIRIGINDO. Enquanto rota,
          clientes, ajustes, recarga, fechamento e semana já nasciam limpas, esta
          seguia dizendo "Parada 3 de 8 · Mercado São Judas" (cliente que não
-         existe), "240 m · Vire à direita" (curva que ninguém escolheu, com a
-         seta apontando) e "12:26 chegada · 45 min restante · 8,2 km". Todos
-         literais do desenho, cravados no template — nenhum saía de porta
-         nenhuma. Na de chegada era ainda mais direto: "Você chegou · Mercado
-         São Judas · R. São Judas, 142 · GPS ±6 m, você está na porta".
+         existe) e "240 m · Vire à direita" (curva que ninguém escolheu, com a
+         seta apontando). Literais do desenho, cravados no template — nenhum
+         saía de porta nenhuma.
 
          A fiação (§4.1 do PR07082026-FECHAR-LOGISTICA2) ainda não existe;
          então, como nas empresas do corredor, o campo fica VAZIO e o pedaço
@@ -555,22 +553,22 @@
          a seta do motorista e o Encerrar, e nada mais. Honesto.
 
          Zera o que é DADO. NÃO zera o que é COPY: `velocidadeUnidade`,
-         `chegadaRotulo`, `restanteRotulo`, `distanciaRotulo`, `chegouTitulo`,
-         `chegouAcao` e — o que mais importa — `encerrar`, que é a PORTA DE
-         SAÍDA desta tela. Motorista preso na navegação é defeito pior que
-         qualquer número faltando. */
+         `chegadaRotulo`, `restanteRotulo`, `distanciaRotulo` e — o que mais
+         importa — `encerrar`, que é a PORTA DE SAÍDA desta tela. Motorista
+         preso na navegação é defeito pior que qualquer número faltando.
+
+         🔴 OS CAMPOS `chegou*` SAÍRAM DAQUI NO LOTE 3 (15/08). "Você chegou"
+         deixou de ser cromo desta tela — virou a peça `.chegou-wrap`, com
+         COPY própria ('Você chegou', 'Registrar entrega', 'Agora não') e DADO
+         lido direto de `ENTREGAS`/`ultimoFix` na hora de montar, nunca deste
+         apagador (ver `cartaoChegada`/`desenharChegada`). Nada aqui tem mais
+         o que zerar sobre ela. */
       gps: {
         manobraIcone: '', manobraDist: '', manobraVerbo: '',
         manobraRua: '', manobraDepois: '',
         rumo: '', velocidade: '',
         paradaN: '', paradaTotal: '', paradaNome: '',
         chegada: '', restante: '', distancia: '',
-        // 🔴 `chegouId` É DADO, e dado ZERA. Ele é o id da entrega que o botão
-        // verde abre: sobrevivendo ao boot, o "Você chegou" abriria a folha de
-        // uma parada de ONTEM — a mesma família de mentira que este bloco
-        // existe pra matar, só que com o toque do dedo por cima.
-        chegouId: '',
-        chegouEndereco: '', chegouPrecisao: '', chegouFaltam: '', chegouKm: '',
       },
     };
     try {

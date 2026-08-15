@@ -75,7 +75,10 @@
        em nenhuma tela do 2.0, eram duas voltas de laço procurando fantasma.
      · portão e confirmação estavam TROCADOS. Com os dois na tela, o Voltar
        fechava o de baixo e o de cima continuava na cara do motorista. */
-  const POR_CIMA = ['.aula-wrap', '.erro-wrap', '.portao-wrap', '.conf-wrap', '.aviso'];
+  // '.chegou-wrap' entra ENTRE '.conf-wrap' e '.aviso' (LOTE 3, 15/08) — a
+  // lista é z-index decrescente, e o cartão "Você chegou" vale 56: abaixo do
+  // portão/confirmação, acima do aviso passageiro.
+  const POR_CIMA = ['.aula-wrap', '.erro-wrap', '.portao-wrap', '.conf-wrap', '.chegou-wrap', '.aviso'];
   window.HBXApp = window.HBXApp || {};
   window.HBXApp.handleBack = function () {
     const camada = camadaViva();
@@ -1540,11 +1543,9 @@
          pelo LUGAR: é a tela em que o motorista está DIRIGINDO. Enquanto rota,
          clientes, ajustes, recarga, fechamento e semana já nasciam limpas, esta
          seguia dizendo "Parada 3 de 8 · Mercado São Judas" (cliente que não
-         existe), "240 m · Vire à direita" (curva que ninguém escolheu, com a
-         seta apontando) e "12:26 chegada · 45 min restante · 8,2 km". Todos
-         literais do desenho, cravados no template — nenhum saía de porta
-         nenhuma. Na de chegada era ainda mais direto: "Você chegou · Mercado
-         São Judas · R. São Judas, 142 · GPS ±6 m, você está na porta".
+         existe) e "240 m · Vire à direita" (curva que ninguém escolheu, com a
+         seta apontando). Literais do desenho, cravados no template — nenhum
+         saía de porta nenhuma.
 
          A fiação (§4.1 do PR07082026-FECHAR-LOGISTICA2) ainda não existe;
          então, como nas empresas do corredor, o campo fica VAZIO e o pedaço
@@ -1552,22 +1553,22 @@
          a seta do motorista e o Encerrar, e nada mais. Honesto.
 
          Zera o que é DADO. NÃO zera o que é COPY: `velocidadeUnidade`,
-         `chegadaRotulo`, `restanteRotulo`, `distanciaRotulo`, `chegouTitulo`,
-         `chegouAcao` e — o que mais importa — `encerrar`, que é a PORTA DE
-         SAÍDA desta tela. Motorista preso na navegação é defeito pior que
-         qualquer número faltando. */
+         `chegadaRotulo`, `restanteRotulo`, `distanciaRotulo` e — o que mais
+         importa — `encerrar`, que é a PORTA DE SAÍDA desta tela. Motorista
+         preso na navegação é defeito pior que qualquer número faltando.
+
+         🔴 OS CAMPOS `chegou*` SAÍRAM DAQUI NO LOTE 3 (15/08). "Você chegou"
+         deixou de ser cromo desta tela — virou a peça `.chegou-wrap`, com
+         COPY própria ('Você chegou', 'Registrar entrega', 'Agora não') e DADO
+         lido direto de `ENTREGAS`/`ultimoFix` na hora de montar, nunca deste
+         apagador (ver `cartaoChegada`/`desenharChegada`). Nada aqui tem mais
+         o que zerar sobre ela. */
       gps: {
         manobraIcone: '', manobraDist: '', manobraVerbo: '',
         manobraRua: '', manobraDepois: '',
         rumo: '', velocidade: '',
         paradaN: '', paradaTotal: '', paradaNome: '',
         chegada: '', restante: '', distancia: '',
-        // 🔴 `chegouId` É DADO, e dado ZERA. Ele é o id da entrega que o botão
-        // verde abre: sobrevivendo ao boot, o "Você chegou" abriria a folha de
-        // uma parada de ONTEM — a mesma família de mentira que este bloco
-        // existe pra matar, só que com o toque do dedo por cima.
-        chegouId: '',
-        chegouEndereco: '', chegouPrecisao: '', chegouFaltam: '', chegouKm: '',
       },
     };
     try {
@@ -6515,8 +6516,10 @@
 
      🔴 "VOCÊ ESTÁ NA PORTA" MORREU COM A DEMONSTRAÇÃO, DE PROPÓSITO. Era um
      VEREDITO (irmão do selo "Tudo certo!" que o §4.6.5 matou) e não tem porta
-     que o emita. `chegouPrecisao` diz o fato que o aparelho mede — "GPS ±6 m"
-     — e nada além. Quem já diz que chegou é o título da tela.
+     que o emita. O fato que o aparelho mede é só "GPS ±6 m" — e nada além.
+     🔴 A partir do LOTE 3 (15/08) esse fato nem passa mais por este seam: ele
+     mora em `cartaoChegada`/`desenharChegada` (D0-porta-entrega.js), lido
+     direto de `ultimoFix` na hora de montar a peça `.chegou-wrap`.
      ------------------------------------------------------------------------ */
   const R_TERRA = 6371000;
   const rad = (g) => (g * Math.PI) / 180;
@@ -6579,9 +6582,10 @@
     /* 🔴 `arrive` NÃO É MANOBRA (12/08). Ele nunca aparecia porque o fantasma da
        curva anterior ocupava a vaga o trecho inteiro; com a catraca no lugar o
        cursor CHEGA nele — e aí a tela diria "300 m · Você chegou", que é mentira
-       com cara de instrução. Chegada não é curva: quem diz que chegou é a tela
-       `mapachegou`, e o quanto falta já está no rodapé. Sem manobra, o desenho
-       some com o cartão (a Lei do IF) e o motorista vê o mapa — que é o fato. */
+       com cara de instrução. Chegada não é curva: quem diz que chegou é a peça
+       `.chegou-wrap` (LOTE 3, 15/08 — era a tela `mapachegou` até 14/08). Sem
+       manobra, o desenho some com o cartão (a Lei do IF) e o motorista vê o
+       mapa — que é o fato. */
     if (tipo === 'arrive') return null;
     if ((tipo === 'roundabout' || tipo === 'rotary') && Number.isFinite(Number(m.exit))) {
       return saida(`na rotatória, pegue a ${Math.trunc(Number(m.exit))}ª saída`, 'nav');
@@ -7662,12 +7666,6 @@
     const cliente = (vez && vez.item && vez.item.cliente) || {};
     const total = ENTREGAS.size;
 
-    // o que falta de estrada: soma das pernas ainda por dirigir
-    const faltaM = pendentes.reduce((s, p) => {
-      const m = Number(p.item && p.item.legDistanceM);
-      return s + (Number.isFinite(m) && m > 0 ? m : 0);
-    }, 0);
-
     const m = manobraDaVez();
     const rumo = rumoDaTela();
     /* 🔴 O VELOCÍMETRO VAI EXATO — e agora PODE. Ele é o único número
@@ -7680,15 +7678,13 @@
     const velExata = ultimoFix && Number.isFinite(ultimoFix.velMps) && ultimoFix.velMps >= 0
       ? Math.round(ultimoFix.velMps * 3.6) : null;
     const velKmh = velExata == null ? '' : String(velExata < 3 ? 0 : velExata);
-    /* 🔴 A PRECISÃO SÓ É ESCRITA NA TELA QUE A DESENHA. `GPS ±20 m` sacode a
-       cada fix (o aparelho mede 18, 21, 19 parado no mesmo lugar) e a tela de
-       DIRIGIR nem a mostra — ela é do "Você chegou". Escrevê-la no seam ali era
-       um repinte por segundo de graça: o `manobraDist` foi arredondado em
-       07/08 pra matar a piscada e ela continuou, porque quem derrubava a
-       camada era ESTE campo invisível. */
-    const precisao = telaAtual() === 'mapachegou'
-      ? (ultimoFix && Number.isFinite(ultimoFix.precisaoM) ? `GPS ±${Math.round(ultimoFix.precisaoM)} m` : '')
-      : ((typeof DADOS !== 'undefined' && DADOS.gps && DADOS.gps.chegouPrecisao) || '');
+    /* 🔴 A PRECISÃO DO GPS SAIU DESTE SEAM NO LOTE 3 (15/08). `GPS ±20 m`
+       sacode a cada fix (o aparelho mede 18, 21, 19 parado no mesmo lugar) —
+       era exatamente por isso que ela só entrava aqui quando a tela era o
+       "Você chegou" (`chegouPrecisao`), pra não repintar a navegação 1x/s de
+       graça. Agora o "Você chegou" nem passa mais pelo seam: `cartaoChegada`
+       lê `ultimoFix` direto na hora de montar (ver `desenharChegada`,
+       D0-porta-entrega.js). Nada aqui precisa mais saber da precisão. */
 
     // chegada = agora + o que a rota disse que falta. Sem rota, sem hora — a
     // conta do relógio é do APARELHO, mas o tempo é do roteador.
@@ -7712,25 +7708,10 @@
       chegada,
       restante: navRota ? emMinutos(navRota.totalS) : '',
       distancia: navRota ? emMetros(navRota.totalM) : '',
-      /* 🔴 O BOTÃO VERDE DO "VOCÊ CHEGOU" ERA MORTO POR FALTA DE ID (09/08).
-         O desenho monta a porta com `data-acao="abrir-parada" data-parada=…`,
-         e `abrirParada` só sabe abrir o que está em `ENTREGAS` — a chave é o id
-         da ENTREGA, o MESMO que o cartão da lista carrega (`traduzirParada.id`),
-         nunca o do cliente. Sem parada da vez sai VAZIO de propósito: a Lei do
-         IF apaga o botão, e vaga vazia é melhor que verde grande que não leva
-         a lugar nenhum. */
-      chegouId: vez && vez.item && vez.item.id ? String(vez.item.id) : '',
-      chegouEndereco: vez ? esc(cliente.endereco) : '',
-      chegouPrecisao: precisao,
-      // "faltam N paradas" conta as que sobram DEPOIS desta — quem está na
-      // porta da 3ª quer saber o que vem pela frente, não recontar a de agora.
-      // O VERBO CONCORDA: uma parada FALTA, cinco FALTAM. Medido: com 1 pendente
-      // a tela dizia "faltam 1 parada". A ponte escolhe a forma porque só ela
-      // sabe o número; as duas palavras são do desenho.
-      chegouFaltam: pendentes.length > 1
-        ? `${pendentes.length - 1} parada${pendentes.length - 1 > 1 ? 's' : ''}` : '',
-      chegouFaltamVerbo: pendentes.length === 2 ? 'falta' : 'faltam',
-      chegouKm: faltaM > 0 ? emMetros(faltaM) : '',
+      // os 6 campos `chegou*` que moravam aqui (chegouId/Endereco/Precisao/
+      // Faltam/FaltamVerbo/Km) saíram no LOTE 3 (15/08): o "Você chegou" não
+      // é mais cromo desta tela — é a peça `.chegou-wrap`, montada à parte
+      // por `cartaoChegada`/`desenharChegada` (D0-porta-entrega.js).
       // o botão da beirada mostra o estado REAL do aparelho, não um estado só
       // dele: quem silencia pelos Ajustes vê o botão apagado aqui também.
       vozMuda: vozLigada() ? '' : '1',
@@ -8615,10 +8596,11 @@
      cheia que o V4 desenha, sem a barra do Android comendo o topo e a barra de
      gestos comendo o pé.
 
-     🔴 UM DONO SÓ, e ele é a TELA ATUAL: quem entra em `mapa`/`mapachegou`
-     liga, quem sai desliga. Chamado do repinte (e não só do `ir`) porque o app
-     pode ABRIR direto na navegação, e aí o `ir` nunca correu. O guard de
-     igualdade evita conversar com o nativo 12 vezes por segundo. */
+     🔴 UM DONO SÓ, e ele é a TELA ATUAL: quem entra em `mapa` liga, quem sai
+     desliga (`mapachegou` morreu no LOTE 3, 15/08 — ver `naNavegacao` logo
+     abaixo). Chamado do repinte (e não só do `ir`) porque o app pode ABRIR
+     direto na navegação, e aí o `ir` nunca correu. O guard de igualdade evita
+     conversar com o nativo 12 vezes por segundo. */
   let dirigindoAgora = null;
   function modoDirigindo(ligado) {
     if (ligado === dirigindoAgora) return;
@@ -8631,7 +8613,10 @@
      app inteiro (o mapa da rota também bebe dele); o que liga e desliga é o
      PEDIDO DE ROTA e o repinte — bateria e conta de roteador não são pagas por
      tela que ninguém está olhando. */
-  const naNavegacao = () => telaAtual() === 'mapa' || telaAtual() === 'mapachegou';
+  // `mapachegou` morreu no LOTE 3 (15/08): a navegação é só a tela 'mapa' —
+  // o "Você chegou" agora é a peça `.chegou-wrap` por cima dela, nunca outra
+  // tela.
+  const naNavegacao = () => telaAtual() === 'mapa';
   function aoMover() {
     if (!naNavegacao()) return;
     pintarNavegacao();
@@ -9037,16 +9022,17 @@
       // 🔴 E É AQUI QUE A PERMISSÃO DE LOCALIZAÇÃO SE COBRA: no toque do
       // "Navegar", que é o momento em que ela passa a fazer falta. Pedir no
       // boot do app seria pedir fora de hora; não pedir nunca era a tela muda.
-      if (tela === 'mapa' || tela === 'mapachegou') {
+      if (tela === 'mapa') {
         garantirGps(); pintarNavegacao();
         /* 🔴 ENTRAR NA NAVEGAÇÃO É DESCER (§7d-bis) — mas quem diz "entrei" é o
            OBSERVADOR, não este toque. Eram duas portas mandando a mesma coisa
            (medido: dois `jumpTo` com 6 ms de diferença), e só uma delas sabe de
-           ONDE o motorista veio — que é o que separa entrar na rota de voltar
-           do "Você chegou". Aqui fica só o pedido de rota, que é dado. */
-        if (tela === 'mapa') pedirRota();
-        // saindo de "dirigindo" a câmera volta a ter dono nenhum esperando
-        if (tela === 'mapachegou') pararDescida();
+           ONDE o motorista veio. Aqui fica só o pedido de rota, que é dado.
+           🔴 `mapachegou` MORREU NO LOTE 3 (15/08): o "Você chegou" não é mais
+           tela pra onde se navega — é a peça `.chegou-wrap`, por cima desta
+           mesma tela de dirigir. O par `if (tela==='mapachegou') pararDescida()`
+           que morava aqui saiu junto: ninguém chama `window.ir('mapachegou')`. */
+        pedirRota();
       }
       return r;
     };
@@ -9065,18 +9051,33 @@
     if (telaAtual() !== telaVistaAqui) {
       const veioDe = telaVistaAqui;
       telaVistaAqui = telaAtual();
-      /* 🔴 VOLTAR DO "VOCÊ CHEGOU" NÃO É ENTRAR NA ROTA. A tela de chegada é um
-         degrau DENTRO da navegação: o motorista entrega, confirma e volta pro
-         mapa — e repetir ali a cidade nascendo + a descida de 1,8 s seria o
-         show inteiro a cada parada, dezenas de vezes por dia, sempre no meio da
-         rua. Ele já está dirigindo; a câmera continua de onde estava. */
+      /* 🔴 VOLTAR DA FOLHA NÃO É ENTRAR NA ROTA (traduzido no LOTE 3, 15/08 —
+         "a exceção mais perigosa" do plano). Até 14/08 isto testava
+         `veioDe === 'mapachegou'`: a chegada era uma TELA própria, e voltar
+         dela pro mapa não podia reencenar a cidade nascendo. Ela morreu —
+         "Você chegou" agora é a peça `.chegou-wrap`, por cima do PRÓPRIO
+         `T.mapa` — mas o cruzamento que esta exceção evita continua existindo,
+         só que por outra porta: "Registrar entrega" no cartão abre
+         'venda'/'folha' (ou 'folhanao', o desfecho sem entregar), e confirmar
+         devolve o motorista pro 'mapa' de onde o cartão nasceu
+         (`irDepoisDoDesfecho`, lendo `chegadaPalco`). Sem esta tradução, cada
+         parada resolvida enquanto dirigindo reencenaria a cidade nascendo +
+         1,8 s de descida de câmera, dezenas de vezes por dia, no meio da rua —
+         era exatamente o defeito que a exceção original existia pra matar. */
       if (telaVistaAqui === 'mapa') {
-        if (veioDe === 'mapachegou') { camFase = 'dirigindo'; pedirCamera(); }
+        if (veioDe === 'venda' || veioDe === 'folha' || veioDe === 'folhanao') { camFase = 'dirigindo'; pedirCamera(); }
         else entrarNaDescida();
       } else pararDescida();
     }
     const palco = naCamada('[data-mapa]');
     if (palco) montarMapa(palco);
+    // 🔴 A PORTA ÚNICA DO CARTÃO "VOCÊ CHEGOU" (LOTE 3, 15/08). Cobre volta de
+    // Ajustes/Chat/folha, chegada recebida noutra tela (guardada em `chegada`
+    // sem ter montado ainda) e o app subindo com a pendência já carimbada. A
+    // própria função decide se monta, se ignora (repinte com o nó já vivo) ou
+    // se sai calada (fora de rota/mapa) — `function`, hoisted lá de baixo em
+    // D0-porta-entrega.js.
+    desenharChegada();
     // tela que saiu de cena não leva o mapa junto: ele vai pra garagem
     // off-screen e volta inteiro — com a câmera onde estava.
     estacionarMapas();
@@ -13749,6 +13750,19 @@
   let forma = '';                 // pix | dinheiro | cartao | fiado
   let motivo = '';                // o motivo do "não entregue"
 
+  /* ---- LOTE 3 (15/08) — O "VOCÊ CHEGOU" -----------------------------------
+     `chegada` é o id da parada com o CARTÃO aberto (a peça `.chegou-wrap`,
+     nunca a folha — essa é `aberta`, acima). `chegadaPalco` é de onde o
+     motorista estava quando o cartão nasceu ('rota'=2D · 'mapa'=3D): é ele
+     que devolve o motorista pro palco certo depois de confirmar
+     (`irDepoisDoDesfecho`, em 00-nucleo.js — "quem chegou dirigindo volta a
+     dirigir; quem chegou olhando o dia volta pro dia"). `chegadasDispensadas`
+     é o "Agora não": a chegada continua carimbada (o pino segue âmbar), só
+     não insiste em reabrir o cartão sozinha. */
+  let chegada = null;
+  let chegadaPalco = null;
+  const chegadasDispensadas = new Set();
+
   // A config só muda quando o dono mexe em Ajustes: pedir 1× por abertura do
   // app basta, e uma falha aqui NÃO pode fechar a porta — o default é o
   // comportamento de hoje (financeiro ligado, folha completa).
@@ -13899,6 +13913,10 @@
     if (!reg || typeof window.usarDados !== 'function') return;
     aberta = { id: String(id), n: reg.n, item: reg.item };
     carimbarChegada(aberta.id);
+    // "Registrar entrega" do cartão cai NESTA MESMA função (zero código novo,
+    // §3.5 do lote): zera o cartão, nunca `chegadaPalco` — ele só é lido (e
+    // zerado) por `irDepoisDoDesfecho`, depois que a folha fechar.
+    if (chegada === String(id)) chegada = null;
     // Método já gravado (reabrindo) > o padrão do cliente > nenhum. Nada de
     // "Dinheiro" pré-marcado por enfeite: quem escolhe como recebeu é quem
     // está na porta.
@@ -13910,16 +13928,19 @@
     else { encherFolha(reg.item, reg.n); window.ir('folha'); }
   }
 
-  /* ---- CHEGOU NA PORTA: a folha abre SOZINHA ------------------------------
+  /* ---- CHEGOU NA PORTA: O CARTÃO ABRE SOZINHO -----------------------------
      🔴 O KOTLIN GRITAVA PRA NINGUÉM (10/08). `MainActivity.entregarChegada`
      dispara este evento desde sempre, a cada chegada detectada pelo
      `RotaService` — e o app novo nasceu sem ouvinte. Junto com o `activateRoute`
      que ninguém chamava (ver `sincronizarGeofence`), é a corrente inteira do
      "chegou no cliente" que a fusão de 07/08 deixou no chão.
 
-     Ele NÃO é um caminho novo de dinheiro: cai no MESMO `abrirParada` do toque
-     — mesma folha, mesmo carimbo de chegada, mesma regra de venda × folha
-     completa. A diferença entre chegar e tocar é só quem deu a ordem.
+     🔴 ATÉ 14/08 ele caía direto no `abrirParada` (a folha abria sozinha). O
+     LOTE 3 (15/08) pôs um degrau NO MEIO: a chegada abre o CARTÃO
+     (`.chegou-wrap`, por cima do palco em que o motorista já está, sem trocar
+     de tela) — é o toque dele em "Registrar entrega" que cai no `abrirParada`
+     de sempre. Mesmo carimbo de chegada, mesma regra de venda × folha
+     completa; o que mudou é só ONDE o dedo entra na cadeia.
 
      🔴 E NÃO FALA. Quem diz "Chegou: Fulano" é o `RotaService.falar()` do
      nativo, que já rodou antes deste evento existir. Um `H.speak` aqui seria
@@ -13939,8 +13960,79 @@
     if (!reg) return;                       // parada que não é do dia na tela
     const st = String((reg.item && reg.item.status) || '');
     if (st === 'entregue' || st === 'cancelada') return;   // desfecho já dado
-    abrirParada(id);
+    /* ---- GUARDAS DO LOTE 3 (15/08) — o CARTÃO, não mais a folha direto ----
+       Nesta ordem: mesma parada já com cartão aberto (geofence pode repetir o
+       evento); id que o motorista já dispensou nesta sessão ("Agora não" não
+       insiste); 2ª chegada de OUTRO cliente com um cartão já aberto não troca
+       o cliente debaixo do dedo (mesma lei da folha, um degrau acima); e tela
+       fora de rota/mapa GRAVA o estado e sai — o cartão nasce quando ele
+       voltar a um dos dois palcos (o observador de 80-gps-rotas-salvas.js
+       chama `desenharChegada()` de novo nessa volta). */
+    if (chegada === id) return;
+    if (chegadasDispensadas.has(id)) return;
+    if (chegada) return;
+    carimbarChegada(id);
+    chegada = id;
+    const tela = telaAtual();
+    if (tela !== 'rota' && tela !== 'mapa') return;
+    // Ordem importa: o carimbo (acima) já repintou o pino; agora troca a
+    // camada — `desenharChegada` grava `chegadaPalco` com o palco de VERDADE
+    // em que o cartão nasceu (inclusive quando o mount só acontece depois,
+    // pela volta do observador).
+    desenharChegada();
   });
+
+  /* ---- A PORTA ÚNICA DE MONTAGEM DO CARTÃO (LOTE 3, 15/08) ----------------
+     `function`, não `const`: a costura concatena `80-gps-rotas-salvas.js`
+     ANTES deste arquivo, e é de lá (o observador de mutação, depois de
+     `montarMapa(palco)`) que ela também é chamada — só o hoisting garante
+     que o nome já existe quando a chamada roda.
+
+     🔴 A GUARDA `naCamada('.chegou-wrap')` É O QUE IMPEDE O RENASCER 1×/S
+     (armadilha nº2 do desenho). O observador dispara em TODO repinte — e no
+     3D um fix de GPS chega por segundo. Sem esta guarda, cada fix arrancaria
+     o cartão e recolocaria outro, reanimando a entrada pra sempre. Dentro do
+     MESMO repinte, quem já moveu o nó pra camada nova foi `remontarChegada`
+     (chamado por `pintar()`, antes do observador rodar) — então, quando o
+     observador chega aqui, `naCamada('.chegou-wrap')` já é verdade e a função
+     sai sem fazer nada. Só numa TROCA de tela (que destrói o nó velho sem
+     remontar) é que esta porta volta a montar de verdade. */
+  function desenharChegada() {
+    if (!chegada) {
+      const vazio = naCamada('.chegou-wrap');
+      if (vazio) vazio.remove();
+      return;
+    }
+    const tela = telaAtual();
+    // Fora dos dois palcos: sai SEM limpar `chegada` — o cartão nasce quando
+    // ele voltar (o observador chama de novo depois de `montarMapa`).
+    if (tela !== 'rota' && tela !== 'mapa') return;
+    if (naCamada('.chegou-wrap')) return;
+    const reg = ENTREGAS.get(chegada);
+    if (!reg) { chegada = null; chegadaPalco = null; return; }   // a parada sumiu
+    // Grava o palco de VERDADE em que o cartão está nascendo — é o que
+    // `irDepoisDoDesfecho` lê pra devolver o motorista de onde ele veio.
+    chegadaPalco = tela;
+    const c = reg.item.cliente || {};
+    const gps = ultimoFix && Number.isFinite(ultimoFix.precisaoM) ? ultimoFix.precisaoM : null;
+    if (typeof window.cartaoChegada === 'function') {
+      window.cartaoChegada({
+        id: chegada,
+        n: reg.n,
+        nome: esc(c.nome),
+        endereco: [esc(c.endereco), esc(c.cidade)].filter(Boolean).join(' • '),
+        gps,
+      });
+    }
+  }
+
+  /** "Agora não": fecha o cartão sem tocar no servidor nem no pino âmbar. */
+  function dispensarChegada() {
+    if (!chegada) return;
+    chegadasDispensadas.add(chegada);
+    chegada = null;
+    chegadaPalco = null;
+  }
 
   /* ---- REGISTRAR LOCAL: a porta da RUA (ordem do dono, 10/08) --------------
      *"registrar local teria q ser aqui, com GPS ativo"* — na tela de dirigir,
@@ -14042,7 +14134,17 @@
       acabou = (estadoRota === 'rodando' || estadoRota === 'pausada')
         && paradasPendentes().length === 0;
     } catch (_) { acabou = false; }
-    if (!acabou) return window.ir('rota');
+    /* 🔴 QUEM CHEGOU DIRIGINDO VOLTA A DIRIGIR; QUEM CHEGOU OLHANDO O DIA
+       VOLTA PRO DIA (LOTE 3, 15/08). Antes este `return` mandava sempre pra
+       'rota' — e quem confirmava a entrega vindo do 3D (o cartão "Você
+       chegou" sobre a tela de dirigir) era cuspido no 2D, cortando a rua no
+       meio. `chegadaPalco` é o palco de onde o cartão nasceu; zera aqui
+       porque, resolvido o dia, ele já cumpriu o papel. */
+    if (!acabou) {
+      const destino = chegadaPalco === 'mapa' ? 'mapa' : 'rota';
+      chegadaPalco = null;
+      return window.ir(destino);
+    }
     const chave = chaveDoFim();
     if (window.HBX.cache.get(chave, '')) return window.ir('rota');
     if (fechamentoTemConteudo()) window.HBX.cache.set(chave, '1');
@@ -14191,6 +14293,8 @@
     'rota-pendente-continuar': continuarRotaPendente,
     'rota-pendente-puxar': puxarRotaPendente,
     'rota-pendente-cancelar': cancelarRotaPendente,
+    // o "Agora não" do cartão "Você chegou" (LOTE 3, 15/08).
+    'chegada-dispensar': dispensarChegada,
     'entregue-pagou': () => confirmarEntrega(''),
     'entregue-marcou': () => confirmarEntrega('fiado'),
     'confirmar-venda': () => confirmarEntrega(''),

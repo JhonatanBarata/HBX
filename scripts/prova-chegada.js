@@ -290,26 +290,42 @@ const SO_MEDIR = process.argv.includes('--antes');
     natParada.some((n) => n[0] === 'stopRoute'), natParada.map((n) => n[0]).join(','));
 
   /* ===================================================================
-     F3 — O `hbx:arrival` ABRE A FOLHA SOZINHO
-     O Kotlin dispara o evento desde sempre (MainActivity.entregarChegada);
-     o app novo nunca teve ouvinte.
+     F3 — O `hbx:arrival` ABRE O CARTÃO SOZINHO (F3.1/F3.2 mudaram de
+     CONTRATO no LOTE 3, 15/08: a chegada não abre mais a folha direto — abre
+     a peça `.chegou-wrap`, por cima do palco onde o motorista já está, SEM
+     trocar de tela. "Registrar entrega" é quem leva pra folha, e é o MESMO
+     roteador de sempre — zero código novo ali). O Kotlin dispara o evento
+     desde sempre (MainActivity.entregarChegada); o app novo nunca teve
+     ouvinte.
      =================================================================== */
   await cena({ entregas: [P1, P2], routeStatus: 'ACTIVE' });
+  // o cartão só monta com o motorista num dos 2 palcos (rota=2D · mapa=3D);
+  // `cena()` termina na lista (`rotalista`), então entra na rota antes.
+  await irPara('rota', 600);
   await chegar('e2');
   await p.waitForTimeout(800);
   const t3 = await espiar();
-  nota(`[F3] chegou na e2: tela=${t3.tela} · corpo tem "Ademir"=${/Ademir/.test(t3.corpo)}`);
-  eh('F3.1 · a chegada ABRE a folha sozinha (sem toque)', t3.tela === 'venda' || t3.tela === 'folha',
-    `tela=${t3.tela}`);
-  // 🔴 A TELA TEM QUE ENTRAR NA CONTA. Medindo so o texto, esta assercao
-  // passava VERDE com a folha fechada: o nome do cliente tambem esta no cartao
-  // da LISTA. Portao que aprova o defeito que existe pra pegar nao e portao.
-  eh('F3.2 · abre a folha do cliente CERTO',
-    (t3.tela === 'venda' || t3.tela === 'folha') && /Ademir/.test(t3.corpo),
-    `tela=${t3.tela}`);
+  const cartao3 = await p.evaluate(() => {
+    const b = document.querySelector('.chegou-wrap [data-acao="abrir-parada"]');
+    return {
+      existe: !!document.querySelector('.chegou-wrap'),
+      parada: b ? b.dataset.parada : null,
+      texto: (document.querySelector('.chegou-cartao') || {}).textContent || '',
+    };
+  });
+  nota(`[F3] chegou na e2: tela=${t3.tela} · cartao=${cartao3.existe} · parada=${cartao3.parada}`);
+  eh('F3.1 · a chegada ABRE O CARTÃO sozinho (sem toque), sem trocar de tela',
+    cartao3.existe && t3.tela === 'rota', `tela=${t3.tela} cartao=${cartao3.existe}`);
+  eh('F3.2 · o cartão é do cliente CERTO',
+    cartao3.parada === 'e2' && /Ademir/.test(cartao3.texto), `parada=${cartao3.parada} texto="${cartao3.texto}"`);
+
+  // "Registrar entrega" do cartão é quem abre a folha — a MESMA porta de sempre.
+  await p.evaluate(() => document.querySelector('.chegou-wrap [data-acao="abrir-parada"]').click());
+  await p.waitForTimeout(700);
+  const t3b = await espiar();
 
   // chegada com folha JÁ aberta não pode roubar a tela no meio de outra venda
-  const telaAntes = t3.tela;
+  const telaAntes = t3b.tela;
   await chegar('e1');
   await p.waitForTimeout(700);
   const t4 = await espiar();

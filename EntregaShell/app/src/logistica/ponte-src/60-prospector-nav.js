@@ -404,8 +404,10 @@
 
      🔴 "VOCÊ ESTÁ NA PORTA" MORREU COM A DEMONSTRAÇÃO, DE PROPÓSITO. Era um
      VEREDITO (irmão do selo "Tudo certo!" que o §4.6.5 matou) e não tem porta
-     que o emita. `chegouPrecisao` diz o fato que o aparelho mede — "GPS ±6 m"
-     — e nada além. Quem já diz que chegou é o título da tela.
+     que o emita. O fato que o aparelho mede é só "GPS ±6 m" — e nada além.
+     🔴 A partir do LOTE 3 (15/08) esse fato nem passa mais por este seam: ele
+     mora em `cartaoChegada`/`desenharChegada` (D0-porta-entrega.js), lido
+     direto de `ultimoFix` na hora de montar a peça `.chegou-wrap`.
      ------------------------------------------------------------------------ */
   const R_TERRA = 6371000;
   const rad = (g) => (g * Math.PI) / 180;
@@ -468,9 +470,10 @@
     /* 🔴 `arrive` NÃO É MANOBRA (12/08). Ele nunca aparecia porque o fantasma da
        curva anterior ocupava a vaga o trecho inteiro; com a catraca no lugar o
        cursor CHEGA nele — e aí a tela diria "300 m · Você chegou", que é mentira
-       com cara de instrução. Chegada não é curva: quem diz que chegou é a tela
-       `mapachegou`, e o quanto falta já está no rodapé. Sem manobra, o desenho
-       some com o cartão (a Lei do IF) e o motorista vê o mapa — que é o fato. */
+       com cara de instrução. Chegada não é curva: quem diz que chegou é a peça
+       `.chegou-wrap` (LOTE 3, 15/08 — era a tela `mapachegou` até 14/08). Sem
+       manobra, o desenho some com o cartão (a Lei do IF) e o motorista vê o
+       mapa — que é o fato. */
     if (tipo === 'arrive') return null;
     if ((tipo === 'roundabout' || tipo === 'rotary') && Number.isFinite(Number(m.exit))) {
       return saida(`na rotatória, pegue a ${Math.trunc(Number(m.exit))}ª saída`, 'nav');

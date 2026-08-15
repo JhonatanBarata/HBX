@@ -372,8 +372,14 @@ async function abrir(navegador, pele, porta) {
   }
 
   /* ======================================================================
-     CASO 2 — VOLTAR DO "VOCÊ CHEGOU" NÃO REENCENA A ENTRADA.
+     CASO 2 — VOLTAR DA FOLHA NÃO REENCENA A ENTRADA (reescrito no LOTE 3,
+     15/08: `T.mapachegou` morreu — o "Você chegou" agora é a peça
+     `.chegou-wrap`, por cima do PRÓPRIO `T.mapa`, nunca uma tela à parte).
      O motorista entregou, confirmou e voltou pro mapa: ele já está dirigindo.
+     O que a câmera vê é a mesma tela-troca de sempre — mapa → folha → mapa —
+     só que hoje a ida pra folha nasce do toque em "Registrar entrega" do
+     cartão, não de uma tela de chegada própria. `ir('venda')` simula esse
+     mesmo degrau: sair do 3D pra uma folha e voltar.
      ====================================================================== */
   {
     const { ctx, p, erros } = await abrir(navegador, pele, porta);
@@ -384,7 +390,7 @@ async function abrir(navegador, pele, porta) {
       const m = palco && palco.__hbxMapaObj;
       return m ? Math.round(m.getPitch()) : null;
     });
-    await p.evaluate(() => window.ir('mapachegou'));
+    await p.evaluate(() => window.ir('venda'));
     await p.waitForTimeout(700);
     await p.evaluate(ESPIAR);
     await p.evaluate(AMOSTRAR);

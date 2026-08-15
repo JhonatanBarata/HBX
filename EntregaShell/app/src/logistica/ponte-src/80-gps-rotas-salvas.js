@@ -69,10 +69,11 @@
      cheia que o V4 desenha, sem a barra do Android comendo o topo e a barra de
      gestos comendo o pé.
 
-     🔴 UM DONO SÓ, e ele é a TELA ATUAL: quem entra em `mapa`/`mapachegou`
-     liga, quem sai desliga. Chamado do repinte (e não só do `ir`) porque o app
-     pode ABRIR direto na navegação, e aí o `ir` nunca correu. O guard de
-     igualdade evita conversar com o nativo 12 vezes por segundo. */
+     🔴 UM DONO SÓ, e ele é a TELA ATUAL: quem entra em `mapa` liga, quem sai
+     desliga (`mapachegou` morreu no LOTE 3, 15/08 — ver `naNavegacao` logo
+     abaixo). Chamado do repinte (e não só do `ir`) porque o app pode ABRIR
+     direto na navegação, e aí o `ir` nunca correu. O guard de igualdade evita
+     conversar com o nativo 12 vezes por segundo. */
   let dirigindoAgora = null;
   function modoDirigindo(ligado) {
     if (ligado === dirigindoAgora) return;
@@ -85,7 +86,10 @@
      app inteiro (o mapa da rota também bebe dele); o que liga e desliga é o
      PEDIDO DE ROTA e o repinte — bateria e conta de roteador não são pagas por
      tela que ninguém está olhando. */
-  const naNavegacao = () => telaAtual() === 'mapa' || telaAtual() === 'mapachegou';
+  // `mapachegou` morreu no LOTE 3 (15/08): a navegação é só a tela 'mapa' —
+  // o "Você chegou" agora é a peça `.chegou-wrap` por cima dela, nunca outra
+  // tela.
+  const naNavegacao = () => telaAtual() === 'mapa';
   function aoMover() {
     if (!naNavegacao()) return;
     pintarNavegacao();
@@ -491,16 +495,17 @@
       // 🔴 E É AQUI QUE A PERMISSÃO DE LOCALIZAÇÃO SE COBRA: no toque do
       // "Navegar", que é o momento em que ela passa a fazer falta. Pedir no
       // boot do app seria pedir fora de hora; não pedir nunca era a tela muda.
-      if (tela === 'mapa' || tela === 'mapachegou') {
+      if (tela === 'mapa') {
         garantirGps(); pintarNavegacao();
         /* 🔴 ENTRAR NA NAVEGAÇÃO É DESCER (§7d-bis) — mas quem diz "entrei" é o
            OBSERVADOR, não este toque. Eram duas portas mandando a mesma coisa
            (medido: dois `jumpTo` com 6 ms de diferença), e só uma delas sabe de
-           ONDE o motorista veio — que é o que separa entrar na rota de voltar
-           do "Você chegou". Aqui fica só o pedido de rota, que é dado. */
-        if (tela === 'mapa') pedirRota();
-        // saindo de "dirigindo" a câmera volta a ter dono nenhum esperando
-        if (tela === 'mapachegou') pararDescida();
+           ONDE o motorista veio. Aqui fica só o pedido de rota, que é dado.
+           🔴 `mapachegou` MORREU NO LOTE 3 (15/08): o "Você chegou" não é mais
+           tela pra onde se navega — é a peça `.chegou-wrap`, por cima desta
+           mesma tela de dirigir. O par `if (tela==='mapachegou') pararDescida()`
+           que morava aqui saiu junto: ninguém chama `window.ir('mapachegou')`. */
+        pedirRota();
       }
       return r;
     };
@@ -519,18 +524,33 @@
     if (telaAtual() !== telaVistaAqui) {
       const veioDe = telaVistaAqui;
       telaVistaAqui = telaAtual();
-      /* 🔴 VOLTAR DO "VOCÊ CHEGOU" NÃO É ENTRAR NA ROTA. A tela de chegada é um
-         degrau DENTRO da navegação: o motorista entrega, confirma e volta pro
-         mapa — e repetir ali a cidade nascendo + a descida de 1,8 s seria o
-         show inteiro a cada parada, dezenas de vezes por dia, sempre no meio da
-         rua. Ele já está dirigindo; a câmera continua de onde estava. */
+      /* 🔴 VOLTAR DA FOLHA NÃO É ENTRAR NA ROTA (traduzido no LOTE 3, 15/08 —
+         "a exceção mais perigosa" do plano). Até 14/08 isto testava
+         `veioDe === 'mapachegou'`: a chegada era uma TELA própria, e voltar
+         dela pro mapa não podia reencenar a cidade nascendo. Ela morreu —
+         "Você chegou" agora é a peça `.chegou-wrap`, por cima do PRÓPRIO
+         `T.mapa` — mas o cruzamento que esta exceção evita continua existindo,
+         só que por outra porta: "Registrar entrega" no cartão abre
+         'venda'/'folha' (ou 'folhanao', o desfecho sem entregar), e confirmar
+         devolve o motorista pro 'mapa' de onde o cartão nasceu
+         (`irDepoisDoDesfecho`, lendo `chegadaPalco`). Sem esta tradução, cada
+         parada resolvida enquanto dirigindo reencenaria a cidade nascendo +
+         1,8 s de descida de câmera, dezenas de vezes por dia, no meio da rua —
+         era exatamente o defeito que a exceção original existia pra matar. */
       if (telaVistaAqui === 'mapa') {
-        if (veioDe === 'mapachegou') { camFase = 'dirigindo'; pedirCamera(); }
+        if (veioDe === 'venda' || veioDe === 'folha' || veioDe === 'folhanao') { camFase = 'dirigindo'; pedirCamera(); }
         else entrarNaDescida();
       } else pararDescida();
     }
     const palco = naCamada('[data-mapa]');
     if (palco) montarMapa(palco);
+    // 🔴 A PORTA ÚNICA DO CARTÃO "VOCÊ CHEGOU" (LOTE 3, 15/08). Cobre volta de
+    // Ajustes/Chat/folha, chegada recebida noutra tela (guardada em `chegada`
+    // sem ter montado ainda) e o app subindo com a pendência já carimbada. A
+    // própria função decide se monta, se ignora (repinte com o nó já vivo) ou
+    // se sai calada (fora de rota/mapa) — `function`, hoisted lá de baixo em
+    // D0-porta-entrega.js.
+    desenharChegada();
     // tela que saiu de cena não leva o mapa junto: ele vai pra garagem
     // off-screen e volta inteiro — com a câmera onde estava.
     estacionarMapas();

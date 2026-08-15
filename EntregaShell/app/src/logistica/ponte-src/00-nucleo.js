@@ -75,7 +75,10 @@
        em nenhuma tela do 2.0, eram duas voltas de laço procurando fantasma.
      · portão e confirmação estavam TROCADOS. Com os dois na tela, o Voltar
        fechava o de baixo e o de cima continuava na cara do motorista. */
-  const POR_CIMA = ['.aula-wrap', '.erro-wrap', '.portao-wrap', '.conf-wrap', '.aviso'];
+  // '.chegou-wrap' entra ENTRE '.conf-wrap' e '.aviso' (LOTE 3, 15/08) — a
+  // lista é z-index decrescente, e o cartão "Você chegou" vale 56: abaixo do
+  // portão/confirmação, acima do aviso passageiro.
+  const POR_CIMA = ['.aula-wrap', '.erro-wrap', '.portao-wrap', '.conf-wrap', '.chegou-wrap', '.aviso'];
   window.HBXApp = window.HBXApp || {};
   window.HBXApp.handleBack = function () {
     const camada = camadaViva();
