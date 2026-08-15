@@ -7,10 +7,9 @@ Execução: **1 lote por vez, dono testa cada um** antes do próximo. Commit loc
 publish é gesto do dono.
 
 ## DECISÕES DO DONO (15/08) — registro
-- **F3 (chegada):** confirmada a recomendação — chegada = aviso "Você chegou" + pino ÂMBAR
-  **permanecendo na tela 2D**; ✓ só no confirmar. Na 2D a folha abre por TOQUE no aviso/pino
-  (a cena do dono: "continuar nessa tela"); na 3D (dirigindo) a folha continua abrindo
-  sozinha como hoje.
+- **F3 (chegada):** ✓ só no confirmar (chegada nunca vira entrega). **Correção do dono
+  15/08:** a tela "Você chegou" **abre NA FRENTE sozinha, igual nos 2 modos (2D e 3D)** —
+  uma peça só, mesmo desenho, sobre o mapa em que o motorista está, sem trocar de tela.
 - **F1 (pré-menu) e F8 (arquitetura de vínculo/admin): GELADEIRA.** Assuntos delicados,
   fora da sprint — arrumar depois com cuidado. Nada deles entra nos lotes.
 - **F9:** nasce o desenho novo — **2 tipos de parada avulsa**: "só chegar lá" (GPS) ×
@@ -145,16 +144,31 @@ rota" sozinha; se aparecer rota morta, Cancelar limpa sem "Não deu certo".
 **Cena de teste:** montar rota grande → véu no MESMO toque; fechamento sem rede → aviso
 com "Tentar de novo" (e reabre no mesmo dia); modo claro → Sim do cancelar legível.
 
-## LOTE 3 — CHEGADA INTERATIVA NA 2D (decisão do dono fechada)
-1. Ouvinte `hbx:arrival` (D0:198): quando a tela atual é T.rota/T.rotalista, NÃO abre a
-   folha — mostra **selo "Você chegou · <nome>"** na própria tela (som/vibração como hoje),
-   pino já vira âmbar (is-arrived existe, 40-mapa-palcos.js:208). Toque no selo/pino abre
-   a folha. Em T.mapa (3D) mantém o comportamento atual (folha sozinha).
-2. ✓ continua sendo só desfecho confirmado (is-delivered) — semântica preservada.
-3. **T.mapachegou morre** (tela sem porta é proibida; o selo cumpre o papel) — remover do
-   fonte + galeria; provas ajustadas.
-**Cena de teste:** g15, rota iniciada, ficar na tela 2D e aproximar de parada → aviso sem
-troca de tela + âmbar; toque → folha; confirmar → ✓ no mapa.
+## LOTE 3 — CHEGADA: UMA PEÇA SÓ, IGUAL NOS 2 MODOS (correção do dono, 15/08)
+**Ordem literal do dono:** *"a tela que é 'impressa' ao chegar no cliente no 2d e 3d tem
+que ser IGUAL"*. Vale a lei da casa: **padronizar = IGUALAR** (não "parecido").
+1. Nasce **UMA peça única de chegada** (`cartaoChegada`) — mesmo HTML, mesmo texto, mesmos
+   botões, mesmos tokens — renderizada IDENTICAMENTE em **T.rota (2D)** e **T.mapa (3D)**.
+   Conteúdo: "Você chegou" + nome + endereço + GPS ±N m + ação principal **"Registrar
+   entrega"** + secundária discreta. Fonte do desenho: o corpo que já existe em
+   `T.mapachegou` (HTML:4941-4980) vira essa peça reutilizável.
+2. **ABRE NA FRENTE, SOZINHO, NOS 2 PALCOS** (ordem do dono): ao chegar, o cartão é
+   impresso POR CIMA do mapa atual — 2D ou 3D, tanto faz — com o som/vibração de hoje.
+   Não é selo discreto e não depende de toque para aparecer. O ouvinte `hbx:arrival`
+   (D0:198) passa a imprimir a MESMA peça nos dois casos (hoje ele abre a folha direto).
+   **Não troca de tela:** o cartão vive sobre o palco em que o motorista está e, ao
+   registrar/fechar, o mapa continua exatamente onde estava (a cena "continuar nessa tela"
+   do pedido original). A ação principal do cartão abre a folha da entrega.
+3. Pino âmbar `is-arrived` (40-mapa-palcos.js:208) continua nos 2 mapas; ✓ (`is-delivered`)
+   **só** no desfecho confirmado — chegada nunca vira entrega.
+4. **T.mapachegou morre como TELA** (tela sem porta é proibida) — seu corpo vira a peça do
+   item 1; galeria e provas ajustadas.
+5. Portão de igualdade: prova nova compara o HTML renderizado do cartão nos 2 palcos e
+   reprova se divergir 1 byte (mesma doutrina do `casca-conferir`), nos 2 modos de luz.
+**Cena de teste:** g15, rota iniciada — chegar numa parada estando na 2D e depois na 3D:
+o "Você chegou" **abre na frente sozinho nos dois**, com a MESMA cara; nenhum dos dois
+troca de tela; ação principal abre a folha; confirmar → ✓ no mapa e o mapa continua onde
+estava.
 
 ## LOTE 4 — PÓS-INICIAR ELEGANTE (decisões fechadas = recomendação)
 1. Estado **`iniciando`** próprio no transmux (rótulo "Iniciando…"), morre o "Montando…"
