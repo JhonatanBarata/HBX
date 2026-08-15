@@ -159,7 +159,7 @@ test('confirmar persiste comprovante e ator na mesma transação do status entre
   const entrega = {
     id: 'ent-1', status: 'em_rota', customerProfileId: 'cli-1', contatoId: null,
     valor: 0, localId: null, cobrancaStatus: 'pendente', idempotencyKey: null,
-    whatsappStatus: null, cobrancaOutcome: null,
+    whatsappStatus: null, cobrancaOutcome: null, entregadorId: null, arrivedAt: null,
     comprovanteCodigoHash: null, comprovanteCodigoSalt: null,
   };
   const tx: any = {
@@ -168,7 +168,22 @@ test('confirmar persiste comprovante e ator na mesma transação do status entre
       findFirst: async ({ where }: any) => where.id === 'foto-1' && where.tipo === 'foto' ? { id: 'foto-1' } : null,
       updateMany: async (args: any) => { comprovanteUpdates.push(args); return { count: 1 }; },
     },
-    entrega: { update: async ({ data }: any) => { entregaUpdates.push(data); return { ...entrega, ...data }; } },
+    // O confirmar é ATÔMICO (R3): a virada pra 'entregue' é um UPDATE GUARDADO
+    // (id+empresa+entregador+status ainda aberto) que devolve `count` — é o count
+    // que a produção lê pra separar sucesso de replay/409, não a linha atualizada.
+    // O dublê guarda de verdade: se o filtro não casar, devolve 0 como o Prisma.
+    entrega: {
+      updateMany: async ({ where, data }: any) => {
+        const casa =
+          where.id === entrega.id &&
+          where.companyId === ADMIN.companyId &&
+          where.entregadorId === entrega.entregadorId &&
+          where.status.in.includes(entrega.status);
+        if (!casa) return { count: 0 };
+        entregaUpdates.push(data);
+        return { count: 1 };
+      },
+    },
     entregaItem: {
       updateMany: async () => ({ count: 0 }),
       count: async () => 0,
@@ -196,6 +211,8 @@ test('confirmar persiste comprovante e ator na mesma transação do status entre
   );
   const result = await service.confirmarEntrega(7, 'ent-1', { comprovanteFotoId: 'foto-1' }, ADMIN);
   assert.equal(result?.status, 'entregue');
+  assert.equal(entregaUpdates.length, 1, 'a guarda casou: uma virada só, nem replay nem 409');
+  assert.equal(entregaUpdates[0].status, 'entregue');
   assert.equal(entregaUpdates[0].confirmadoPorUserId, ADMIN.id);
   assert.ok(entregaUpdates[0].comprovanteConfirmadoAt instanceof Date);
   assert.deepEqual(comprovanteUpdates[0].where.id.in, ['foto-1']);
