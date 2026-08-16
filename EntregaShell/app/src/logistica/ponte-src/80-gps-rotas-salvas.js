@@ -540,6 +540,24 @@
       if (telaVistaAqui === 'mapa') {
         if (veioDe === 'venda' || veioDe === 'folha' || veioDe === 'folhanao') { camFase = 'dirigindo'; pedirCamera(); }
         else entrarNaDescida();
+      } else if (veioDe === 'mapa' && telaVistaAqui === 'rota') {
+        /* 🔴 A VOLTA GANHOU O GESTO QUE A IDA SEMPRE TEVE (16/08 — dono:
+           *"efeito subindo e descendo, reverso bem feito"* e *"ao assentar o
+           efeito das ruas acendendo nos 2"*). Este `else` era um cancelamento
+           seco: a Panorâmica saía do 3D sem uma ordem de câmera e sem cena
+           nenhuma. As três peças abaixo já existiam — faltava CHAMADOR.
+           1. A SUBIDA, no mapa que está saindo, com a janela do próprio gesto de
+              camada (--mv-cheio, 520 ms): é o `descer()` com o sinal trocado.
+           2. A cena viva do 3D sai SECA antes de pedir a de cima — é a lei "uma
+              cena por vez" que `cenaAoContrario` já escreve. Sem ela, toda volta
+              feita nos ~2 s da cena do 3D cairia no `if (cena) return` de
+              `chamarCena` e o efeito nasceria intermitente.
+           3. `pedirCena('rota')` — o motivo 'rota' JÁ existe, JÁ aponta pro palco
+              'geral' e JÁ tem ritmo próprio declarado. Quem toca é o transplante,
+              quando o palco de cima aparece. */
+        pararDescida(520);
+        if (typeof encerrarCena === 'function' && typeof cena !== 'undefined' && cena) encerrarCena('saida', true);
+        pedirCena('rota');
       } else pararDescida();
     }
     const palco = naCamada('[data-mapa]');

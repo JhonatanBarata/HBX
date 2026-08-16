@@ -348,8 +348,30 @@
   let planoZoomPassos = 0;
   let planoSolto = false;
 
-  /** o dedo pegou o mapa 2D: a régua dos 30 m cala a boca até o botão de enquadrar */
-  function soltarPlano() { planoSolto = true; }
+  /* o dedo pegou o mapa 2D: a régua dos 30 m cala a boca — e volta sozinha.
+     🔴 O DEDO NÃO SEGURA O MAPA PRA SEMPRE, NOS DOIS MODOS (16/08, ordem do
+     dono: *"se eu alterar o mapa na mão e mudar de foco, após alguns segundos
+     sem alterar nada precisa recentralizar automaticamente"*). No 3D isso já
+     existia — `soltarCamera` arma um relógio e `voltarASeguir` devolve a câmera
+     depois de VOLTA_MS. Aqui não existia: eu tinha deixado o freio preso até o
+     botão da beirada, e ficava um modo com repouso e outro sem.
+     O relógio é o MESMO número do 3D, lido de lá (nada de um segundo tempo de
+     repouso nascendo neste arquivo), e quem devolve a vista é `enquadrarPlano` —
+     exatamente o que o botão da beirada faz. Um verbo, dois jeitos de chamar. */
+  let planoVoltaTimer = null;
+  function soltarPlano() {
+    planoSolto = true;
+    if (planoVoltaTimer) clearTimeout(planoVoltaTimer);
+    // Cada toque REARMA: o repouso conta do último gesto, não do primeiro —
+    // senão a câmera pula de volta no meio de quem ainda está mexendo.
+    planoVoltaTimer = setTimeout(() => {
+      planoVoltaTimer = null;
+      // Só se ainda estiver na tela do mapa 2D: devolver enquadramento numa tela
+      // que o motorista já deixou é mexer no que ninguém está olhando.
+      if (typeof telaAtual === 'function' && telaAtual() !== 'rota') { planoSolto = false; return; }
+      enquadrarPlano();
+    }, (typeof VOLTA_MS === 'number' ? VOLTA_MS : 12000));
+  }
   /* SONDA DE PROVA, no padrão do `window.HBXCena.pendente()`: só leitura do zoom
      e o mesmo desarme que o gesto faz. Sem ela, provar a régua dos 30 m exigiria
      um carro de verdade — e o que ela expõe é o que a tela já mostra. */

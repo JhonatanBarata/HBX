@@ -103,23 +103,113 @@
     }catch(e){ toast(''+e); }
   }
   function closePlayer(){ try{AV.stop();AV.close();}catch(e){} document.body.className=''; playing=false; }
+  function openUrl(url, name){
+    if(!AV){ toast('Player indisponível'); return; }
+    try{ try{AV.close();}catch(e){}
+      AV.open(url); AV.setDisplayRect(0,0,1920,1080);
+      AV.setListener({ onerror:function(err){ toast('Erro: '+err); } });
+      AV.prepareAsync(function(){ try{AV.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');}catch(e){}
+        AV.play(); document.body.className='playing'; playing=true; toast('▶ '+name);
+      }, function(err){ toast('prepare: '+err); });
+    }catch(e){ toast(''+e); }
+  }
+
+  /* ---------- busca (VOD via motor) ---------- */
+  var SRV="http://192.168.0.19:8080";
+  var searchOpen=false, sQ="", KB=[], kf=0, KCOLS=6, sresu=[], sf=0, RCOLS=4, szone="kbd";
+  function updateTop(){ var s=$('icSearch'); if(s) s.className='ic'+(zone==='top'?' focused':''); }
+  function buildKB(){ KB=[];
+    for(var i=0;i<26;i++) KB.push({l:String.fromCharCode(65+i), v:String.fromCharCode(97+i)});
+    KB.push({l:'espaço',v:' ',w:true}); KB.push({l:'⌫',v:'DEL'}); KB.push({l:'BUSCAR',v:'GO',w:true});
+  }
+  function renderKB(){ var h='';
+    for(var i=0;i<KB.length;i++){ var k=KB[i];
+      h+='<span class="key'+(k.w?' wide':'')+(szone==='kbd'&&i===kf?' focused':'')+'">'+esc(k.l)+'</span>'; }
+    $('kbd').innerHTML=h;
+  }
+  function updField(){ var e=$('sq').getElementsByClassName('sqtext')[0]; if(e) e.textContent=sQ||'busque um filme ou série'; }
+  function renderRes(){ var h='';
+    for(var i=0;i<sresu.length;i++){ var r=sresu[i];
+      h+='<div class="rtile'+(szone==='res'&&i===sf?' focused':'')+'"><div class="rt">'+esc(r.title)+'</div><div class="rr">▶ assistir</div></div>'; }
+    $('sres').innerHTML=h||'<div style="color:#fff;font-size:24px;padding:20px">—</div>';
+  }
+  function openSearch(){ searchOpen=true;
+    $('liveView').style.display='none'; $('soonView').style.display='none'; $('searchView').style.display='block';
+    if(!KB.length) buildKB(); szone='kbd'; kf=0; renderKB(); updField(); renderRes();
+    $('sstatus').textContent='Digite e aperte BUSCAR';
+  }
+  function closeSearch(){ searchOpen=false; $('searchView').style.display='none'; zone='tabs'; setTab('LIVE'); focusTabs(); updateTop(); }
+  function pressKey(k){ if(k.v==='GO') return doSearch();
+    if(k.v==='DEL') sQ=sQ.slice(0,-1); else sQ+=k.v; updField(); }
+  function doSearch(){ if(!sQ.replace(/\s/g,'')){ $('sstatus').textContent='Digite algo primeiro'; return; }
+    $('sstatus').textContent='Buscando "'+sQ+'" na sua conta…'; sresu=[]; $('sres').innerHTML='';
+    var x=new XMLHttpRequest(); x.open('GET', SRV+'/search?q='+encodeURIComponent(sQ), true); x.timeout=45000;
+    x.onreadystatechange=function(){ if(x.readyState!==4) return;
+      if(x.status===200){ try{ var d=JSON.parse(x.responseText); sresu=d.results||[];
+        $('sstatus').textContent=sresu.length+' resultado(s) — ◀▶▲▼ escolhe, Enter assiste, Voltar volta ao teclado';
+        szone='res'; sf=0; renderRes(); renderKB();
+      }catch(e){ $('sstatus').textContent='Erro lendo resultados'; } }
+      else $('sstatus').textContent='Erro na busca ('+x.status+')'; };
+    x.onerror=function(){ $('sstatus').textContent='Sem resposta do controlador (PC ligado?)'; };
+    x.ontimeout=function(){ $('sstatus').textContent='Busca demorou demais'; };
+    x.send();
+  }
+  function selectResult(r){ $('sstatus').textContent='Preparando "'+r.title+'"…';
+    var x=new XMLHttpRequest(); x.open('GET', SRV+'/play?x='+r.tapx+'&y='+r.tapy+'&t='+encodeURIComponent(r.title), true); x.timeout=90000;
+    x.onreadystatechange=function(){ if(x.readyState!==4) return;
+      if(x.status===200){ try{ var d=JSON.parse(x.responseText);
+        if(d.url){ openSearchHide(); openUrl(d.url, r.title); } else $('sstatus').textContent=d.msg||'ok'; }
+      catch(e){ $('sstatus').textContent='ok'; } } else $('sstatus').textContent='Erro ao preparar ('+x.status+')'; };
+    x.onerror=function(){ $('sstatus').textContent='Sem resposta do controlador'; };
+    x.send();
+  }
+  function openSearchHide(){ $('searchView').style.display='none'; }
+  function handleSearchKey(code){
+    if(code===10009||code===10182){ if(szone==='res'){ szone='kbd'; renderRes(); renderKB(); } else closeSearch(); return; }
+    if(szone==='kbd'){
+      if(code===37){ if(kf>0){kf--;renderKB();} }
+      else if(code===39){ if(kf<KB.length-1){kf++;renderKB();} }
+      else if(code===38){ if(kf>=KCOLS){kf-=KCOLS;renderKB();} }
+      else if(code===40){ if(kf+KCOLS<KB.length){kf+=KCOLS;renderKB();} else if(sresu.length){ szone='res'; sf=0; renderRes(); renderKB(); } }
+      else if(code===13){ pressKey(KB[kf]); }
+    } else {
+      if(code===37){ if(sf>0){sf--;renderRes();} }
+      else if(code===39){ if(sf<sresu.length-1){sf++;renderRes();} }
+      else if(code===38){ if(sf>=RCOLS){sf-=RCOLS;renderRes();} else { szone='kbd'; renderKB(); renderRes(); } }
+      else if(code===40){ if(sf+RCOLS<sresu.length){sf+=RCOLS;renderRes();} }
+      else if(code===13){ selectResult(sresu[sf]); }
+    }
+  }
 
   /* ---------- teclas ---------- */
   function onKey(code){
     if(playing){ if(code===10009||code===10182||code===13) closePlayer(); return; }
-    if(code===38){ if(zone==='chan'){ if(ci>0){ci--;refreshChan();} else {zone='tabs';focusTabs();} } }
-    else if(code===40){ if(zone==='tabs'){ zone='chan'; setTab('LIVE'); focusTabs(); refreshChan(); } else if(ci<chans.length-1){ ci++; refreshChan(); } }
+    if(searchOpen){ handleSearchKey(code); return; }
+    if(code===38){
+      if(zone==='chan'){ if(ci>0){ci--;refreshChan();} else {zone='tabs';focusTabs();} }
+      else if(zone==='tabs'){ zone='top'; }
+    }
+    else if(code===40){
+      if(zone==='top'){ zone='tabs'; focusTabs(); }
+      else if(zone==='tabs'){ zone='chan'; setTab('LIVE'); focusTabs(); refreshChan(); }
+      else if(ci<chans.length-1){ ci++; refreshChan(); }
+    }
     else if(code===37){ if(zone==='tabs'&&ti>0){ ti--; setTab(TABS[ti]); focusTabs(); } }
     else if(code===39){ if(zone==='tabs'&&ti<TABS.length-1){ ti++; setTab(TABS[ti]); focusTabs(); } }
-    else if(code===13){ if(zone==='tabs'){ setTab(TABS[ti]); if(TABS[ti]==='LIVE'){ zone='chan'; focusTabs(); refreshChan(); } } else { openPlayer(chans[ci]); } }
+    else if(code===13){
+      if(zone==='top'){ openSearch(); }
+      else if(zone==='tabs'){ setTab(TABS[ti]); if(TABS[ti]==='LIVE'){ zone='chan'; focusTabs(); refreshChan(); } }
+      else if(zone==='chan'){ openPlayer(chans[ci]); }
+    }
     else if(code===10009||code===10182){ try{ tizen.application.getCurrentApplication().exit(); }catch(e){} }
+    updateTop();
   }
 
   function clock(){ var d=new Date(); var c=$('clock'); if(c) c.textContent=pad(d.getHours())+':'+pad(d.getMinutes()); }
   function boot(){
     try{
       B("boot","chans="+chans.length);
-      setTab('LIVE'); refreshChan(); clock(); setInterval(clock,20000);
+      buildKB(); setTab('LIVE'); refreshChan(); clock(); setInterval(clock,20000);
       document.addEventListener('keydown', function(e){ onKey(e.keyCode); });
       B("rendered","ok");
     }catch(e){ B("BOOTERR", e && e.message ? e.message : (''+e)); toast('Erro boot: '+e); }

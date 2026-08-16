@@ -78,3 +78,22 @@ body.playing #player-layer { display:block; }
   background:rgba(0,0,0,.82); padding:14px 24px; border-radius:10px; font-size:26px;
   opacity:0; }
 #toast.show { opacity:1; }
+
+/* ---- Busca ---- */
+.tools .ic.focused { background:#ff5a6e; box-shadow:0 0 14px rgba(255,120,140,.95); }
+.search { position:absolute; left:40px; top:200px; width:1840px; height:840px; display:none; }
+.sfield { position:absolute; left:0; top:0; width:600px; height:64px; background:rgba(0,0,0,.32);
+  border-radius:10px; padding:0 20px; font-size:30px; line-height:64px; white-space:nowrap; overflow:hidden; }
+.sfield .sqtext { color:#fff; } .sfield .cur { color:#ff5a6e; }
+.kbd { position:absolute; left:0; top:92px; width:600px; }
+.kbd .key { display:inline-block; width:58px; height:58px; line-height:58px; text-align:center;
+  margin:6px; font-size:26px; font-weight:bold; background:rgba(255,255,255,.09); border-radius:8px; color:#eee; }
+.kbd .key.wide { width:auto; padding:0 20px; }
+.kbd .key.focused { background:#ff5a6e; color:#fff; }
+.sstatus { position:absolute; left:0; top:560px; width:600px; font-size:22px; color:rgba(255,255,255,.65); }
+.sres { position:absolute; left:640px; top:0; width:1200px; height:840px; overflow:hidden; }
+.rtile { display:inline-block; vertical-align:top; width:272px; height:118px; margin:0 12px 12px 0;
+  padding:16px 18px; background:linear-gradient(160deg,#3a0c14,#1c0609); border-radius:12px; }
+.rtile .rt { font-size:25px; font-weight:bold; color:#fff; overflow:hidden; height:64px; }
+.rtile .rr { font-size:18px; color:#ff9aa8; margin-top:8px; }
+.rtile.focused { background:linear-gradient(160deg,#ff5a6e,#9c1020); }

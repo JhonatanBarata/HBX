@@ -4,8 +4,8 @@
 <SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha512"></SignatureMethod>
 <Reference URI="author-signature.xml">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>ItJ31CyoHpr+BiJEiYqmLMNXa7qjq0+2pXcpOxsGza2g5rMILU1bqp3xWCYUqC5zU5zOTQ9Zk7cP
-pSDUjrtcSQ==</DigestValue>
+<DigestValue>e7Ag/uwTMCXk1hbw1032pa9Z90KpimYg1bxgCSpltlj1ubk/W84IAVJ/k4Zi9DOxsK7deIWFbAvH
+IFtotaFW0w==</DigestValue>
 </Reference>
 <Reference URI="config.xml">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
@@ -14,8 +14,8 @@ pSDUjrtcSQ==</DigestValue>
 </Reference>
 <Reference URI="css%2Fstyle.css">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>9MfFb+PCdH7C4fuCLmt9kcpgQR1h8TPDzoEpCEkmcKzINgar0Rt3cy+cgK79xFyPq7+Nopi+m59s
-0DWNjla23g==</DigestValue>
+<DigestValue>/QrzS8x3EQD3znCRv/s2u9M8RSaSbPSlhuG0Lh2sFGfERrree8gLBIf9g9DWeteE7bk4HRsYQ0rl
+CBykqaTYjg==</DigestValue>
 </Reference>
 <Reference URI="icon.png">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
@@ -24,13 +24,13 @@ XbvcVtv25g==</DigestValue>
 </Reference>
 <Reference URI="index.html">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>cJqAs+qjJ0RsLi9vOcrX4dPhYpKFDVLf2+OlomU/z5gv3KqQQi7dRUdZqy/MO6w9RDidoePN5VDf
-SmwK3WiCrA==</DigestValue>
+<DigestValue>Qm/qYT7motC1E0WTrEVRqGNicc8M0/pYEogqqw4OLR1BqtckBXf7O1+jwCbXgcplm18+Ci5a19S6
++8OEvsvL9w==</DigestValue>
 </Reference>
 <Reference URI="js%2Fapp.js">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>Nno3fVWyF4durTCejOXPF5KAbKZNcsLanhsZH2K7hDTxIsl2le35yizN94rm4KEg2rXbBkoyn1cA
-PaSd31EqjQ==</DigestValue>
+<DigestValue>hk4XXUNXGCGjvuNLA/IUZwcd5DvPZOEgs+sBm2mypqaI1pKFKpMIoJ3Lg9Gi9ClpkOWDSSZG5Mrc
+047qNY42SA==</DigestValue>
 </Reference>
 <Reference URI="js%2Fcatalog.js">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
@@ -47,9 +47,9 @@ GyvKX9Snig==</DigestValue>
 </Reference>
 </SignedInfo>
 <SignatureValue>
-YZPPfUxwiDrH7PVz+LOXFIXXXLZhc8ruFziLmyjNMlZhKGTvZWgzQPm/WoyFvQOwk+sQQe3QQ7PP
-/rRPSmVqgQ8YwKUNkVPxrHu7tvN2cdAXCRpNx/ybzgW/Pd9PWAnjbaQcX+/kV/3LXzcB3Lb1u+5J
-z+RRZasjTk3rmcQzMfA=
+G0kucFP2dZMzp9TiELykY+dqoJLxuQ9Cbv6fz0MGh5RdFyuoa+NdMY60WdTxl8rmoSuSFEzqnMPe
+BdbHLzYfbCH+hn62jloRrxktl+pxX2AxPQVVIWM1QionYyj7mKIYn5+WvZ+zxVw7pjdGK3NXPe4u
+Jy3zlO2lTpGbyaIERbU=
 </SignatureValue>
 <KeyInfo>
 <X509Data>

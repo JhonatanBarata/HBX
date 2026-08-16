@@ -557,7 +557,19 @@ button,input{font:inherit;color:inherit}
    quem está depois manda, então enquanto há `cena` quem manda é a cena. */
 .tela.entra.cheio{animation:none!important}
 .tela.cena.cheio{animation:mvCheioEntra var(--mv-cheio) var(--cv-entra) both!important}
-.tela.sai.cheio{animation:mvCheioSai var(--mv-cheio) var(--cv-entra) both!important}
+/* 🔴 A SAÍDA USAVA A CURVA DE QUEM CHEGA — e é ISSO que o dono chamou de
+   "travação nojenta" no ir e vir entre o 2D e o 3D (16/08). A Lei 2 desta folha
+   está escrita 300 linhas acima: quem ENTRA desacelera (`--cv-entra`), quem SAI
+   acelera (`--cv-sai`); nunca a mesma curva nos dois. Estas duas regras (e as
+   duas irmãs do `voltando`, logo abaixo) eram as ÚNICAS saídas do arquivo em que
+   a lei não valia.
+   O preço, MEDIDO nos dois sentidos: com `--cv-entra` a camada gasta 95% do
+   movimento nos primeiros ~250 ms e depois arrasta cauda invisível até ser
+   removida aos ~585 ms — ou seja, 230 a 330 ms de tela parada, com duas camadas
+   no ar, TODA vez que se troca de câmera. Não é engasgo de máquina: é a curva
+   mandando o gesto acabar antes do relógio. Nada mais muda — mesmos keyframes,
+   mesma duração, mesmo `espera` de 580 ms. */
+.tela.sai.cheio{animation:mvCheioSai var(--mv-cheio) var(--cv-sai) both!important}
 /* 🔴 A CAMADA QUE SAI PRECISA DA MESMA MORDAÇA DA QUE ENTRA. Enquanto a saída
    do eixo X era do BLOCO, só a `.entra` tinha linha aqui — não existia regra
    nenhuma alcançando `.anim-item` de camada saindo. Com a saída virando cascata
@@ -571,7 +583,7 @@ button,input{font:inherit;color:inherit}
 @keyframes mvCheioSai{to{opacity:0;transform:scale(.9);filter:brightness(.4)}}
 /* Voltando do GPS o gesto inverte: o mapa encolhe e a tela volta de trás. */
 .tela.entra.cheio.voltando{animation:mvCheioVolta var(--mv-cheio) var(--cv-entra) both!important}
-.tela.sai.cheio.voltando{animation:mvCheioVoltaSai var(--mv-cheio) var(--cv-entra) both!important}
+.tela.sai.cheio.voltando{animation:mvCheioVoltaSai var(--mv-cheio) var(--cv-sai) both!important}
 @keyframes mvCheioVolta{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
 @keyframes mvCheioVoltaSai{to{opacity:0;transform:scale(1.16)}}
 /* No GPS a informação chega DEPOIS do lugar, nunca junto: primeiro o mapa

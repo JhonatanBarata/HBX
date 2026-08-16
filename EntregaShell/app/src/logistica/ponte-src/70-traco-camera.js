@@ -125,12 +125,22 @@
      31/07: um `isStyleLoaded` na porta de uma função barrou o pedido da rota e
      o dono ficou "sem traço, sem voz, sem ETA"). Teto de 1,2 s porque mapa
      remontado pode nunca dizer "pronto". */
+  /* 🔴 O TETO VIROU O DONO — e era ele quem segurava a cena das ruas (16/08).
+     MEDIDO no ida-e-volta: em mapa TRANSPLANTADO o `isStyleLoaded()` sai false
+     (o `resize()` do transplante suja as fontes) e o `styledata` só chega em
+     1210 ms, ou seja, EXATAMENTE no teto — enquanto o mapa já tinha anunciado
+     `idle` aos 345 ms. Resultado: ~865 ms de mapa pronto com a tela parada,
+     todo ida-e-volta. O `idle` do maplibre é o sinal que já existe e que já
+     dizia a verdade; só não tinha ninguém ouvindo. O latch `feito` já aceita
+     vários sinais — quem chegar primeiro roda —, então o teto de 1,2 s volta a
+     ser o que ele sempre quis ser: socorro, não caminho normal. */
   function quandoEstiloPronto(mapa, fn) {
     if (!mapa) return;
     if (mapa.isStyleLoaded && mapa.isStyleLoaded()) { fn(); return; }
     let feito = false;
     const roda = () => { if (feito) return; feito = true; try { fn(); } catch (_) { /* estilo trocou no meio */ } };
     try { mapa.once('styledata', roda); } catch (_) { /* mapa morto */ }
+    try { mapa.once('idle', roda); } catch (_) { /* mapa morto */ }
     setTimeout(roda, 1200);
   }
 
@@ -514,8 +524,16 @@
      quarteirão que ficou pra trás. 12 s é o repouso padrão do mercado. */
   const VOLTA_MS = 12000;
   const emCena = () => !!document.querySelector('#app .tela.cena');
-  /** a cidade ainda está nascendo no mapa de dirigir? (§ 7a-bis, motivo 'navegar') */
-  const cenaDasRuasNoAr = () => !!(cena && cena.casa && cena.casa.nome === 'gps');
+  /* a cidade ainda está nascendo no mapa de dirigir? (§ 7a-bis, motivo 'navegar')
+     🔴 A PERGUNTA ERA OUTRA (16/08). O comentário sempre prometeu medir "a
+     cidade ainda está nascendo"; o código media "o objeto `cena` ainda existe" —
+     e entre uma coisa e outra correm o assentamento de COR (420 ms por onda) e a
+     saída da cena, que a própria casa declara invisíveis ("o que sobra é a linha
+     da rua trocando de cor por baixo dela, que ninguém vê", 50-cena-ruas.js:338).
+     MEDIDO: ~940 ms de descida represada esperando um efeito que ninguém enxerga.
+     `mundoVoltou` é a marca que a CENA já levanta no instante em que a última
+     onda partiu — quem decide quando a cidade nasceu passa a ser ela. */
+  const cenaDasRuasNoAr = () => !!(cena && cena.casa && cena.casa.nome === 'gps' && !cena.mundoVoltou);
 
   /* 🔴 A CÂMERA PERGUNTA PRA TELA ONDE A SETA ESTÁ (11/08). Ela guardava uma
      CÓPIA da âncora do desenho (`0.86`, o mesmo número que o mock escrevia em
@@ -598,9 +616,20 @@
   const GERAL_MARGEM_TOPO = 150;
   const GERAL_MARGEM_LADO = 24;
 
-  /** põe a câmera em pé (2D) com a rota INTEIRA acima do motorista */
-  function vistaGeral() {
-    const mapa = mapaDaNavegacao();
+  /* põe a câmera em pé (2D) com a rota INTEIRA acima do motorista.
+     🔴 ELA É TAMBÉM A SUBIDA (16/08) — e virou uma sem ganhar código novo. O par
+     do `descer()` não existia (`grep subir` = 0 no repo inteiro), e a tentação
+     era escrever um: não precisa. A pose de cima já é calculada aqui, com o
+     MESMO `recuoDoPuck` que a descida usa, e a curva `suave` já está pronta ali
+     embaixo. O que faltava era um ARGUMENTO: com `ms > 0` esta função é o
+     movimento de subir; com 0 (o padrão de todos os chamadores de hoje) ela
+     continua o pulo instantâneo que o `offset` exige.
+     E ela aceita o mapa por fora: na VOLTA pro 2D a camada viva já é a da rota,
+     então `mapaDaNavegacao()` — que lê o palco da camada — devolve null bem na
+     hora em que a subida precisa acontecer no mapa que está saindo. A garagem
+     ainda o tem pelo nome, que é como `cenaAoContrario` alcança o dela. */
+  function vistaGeral(ms, mapaDado) {
+    const mapa = mapaDado || mapaDaNavegacao();
     if (!mapa) return;
     const eu = posicaoDaTela();
     if (!poseGeral && eu) {
@@ -637,7 +666,10 @@
        tinha reclamado. `duration:0` continua sendo um pulo instantâneo, e é a
        única forma de o offset valer. Com isto a promessa escrita lá em cima
        ("o offset é o MESMO nas três fases") passa a ser verdade. */
-    try { mapa.easeTo({ ...passo, duration: 0 }); } catch (_) { /* mapa saindo de cena */ }
+    const dur = Number(ms) > 0 ? Number(ms) : 0;
+    try {
+      mapa.easeTo(dur ? { ...passo, duration: dur, easing: suave } : { ...passo, duration: 0 });
+    } catch (_) { /* mapa saindo de cena */ }
   }
 
   /** o movimento: 2,4 s de inclinação, zoom e rumo andando juntos */
@@ -710,10 +742,29 @@
     }, 90);
   }
 
-  /** corta a descida e devolve a câmera pra quem dirige (dedo, ou troca de tela) */
-  function pararDescida() {
+  /* corta a descida e devolve a câmera pra quem dirige (dedo, ou troca de tela)
+     🔴 SAIR TAMBÉM É UM GESTO (16/08 — dono: *"reverso bem feito sem travação
+     alguma"*). Esta função era quatro linhas de `clearTimeout`: a ida tinha uma
+     coreografia inteira e a volta tinha um cancelamento. Agora ela é o PAR da
+     entrada, com as peças que já existiam:
+     · manda a SUBIDA no mapa 3D — que continua vivo e renderizando dentro da
+       `.tela.sai` durante os 520 ms do gesto de camada (medido: `estacionarMapas`
+       só o recolhe DEPOIS da remoção). Ele é alcançado pela GARAGEM porque
+       `mapaDaNavegacao()` lê o palco da camada VIVA, e na volta a camada viva já
+       é a da rota — do jeito que `cenaAoContrario` alcança o mapa dela.
+     · desarma o `voltaTimer` e o estado `solta`, que a entrada arma e a saída
+       esquecia. Sem isto, arrastar o mapa 3D → Panorâmica → Dirigindo dentro dos
+       12 s fazia o `voltarASeguir` disparar no meio da fase 'cima' e cravar
+       'dirigindo': a descida seguinte nascia morta. */
+  function pararDescida(msSubida) {
     if (vigiaCena) { clearInterval(vigiaCena); vigiaCena = null; }
     if (geralTimer) { clearTimeout(geralTimer); geralTimer = null; }
+    if (voltaTimer) { clearTimeout(voltaTimer); voltaTimer = null; }
+    if (Number(msSubida) > 0) {
+      const casa = GARAGEM.get('gps');
+      if (casa && casa.mapa) { poseGeral = null; vistaGeral(Number(msSubida), casa.mapa); }
+    }
+    marcarSolta(false);
     poseGeral = null;
     camFase = 'dirigindo';
   }

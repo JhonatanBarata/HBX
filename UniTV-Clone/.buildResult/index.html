@@ -25,7 +25,7 @@
     <div class="topbar">
       <div class="brand"><span class="logo">◐</span> UniTV</div>
       <div class="tools">
-        <span class="ic">🔍</span><span class="ic">▤</span><span class="ic">🕓</span>
+        <span class="ic" id="icSearch">🔍</span><span class="ic">▤</span><span class="ic">🕓</span>
         <span class="ic prof">👤</span><span class="ic">🔔</span><span class="ic">📶</span>
         <span id="clock">--:--</span>
       </div>
@@ -56,7 +56,15 @@
     <!-- Placeholder outras abas -->
     <div class="soon" id="soonView">
       <div class="soonbox"><div class="soontitle" id="soonTitle"></div>
-        <div class="soonsub">Catálogo VOD via busca/biblioteca (próxima etapa)</div></div>
+        <div class="soonsub">Aperte 🔍 (seta ↑ nas abas) para buscar filmes e séries</div></div>
+    </div>
+
+    <!-- Busca (VOD via motor) -->
+    <div class="search" id="searchView">
+      <div class="sfield" id="sq"><span class="sqtext"></span><span class="cur">|</span></div>
+      <div class="kbd" id="kbd"></div>
+      <div class="sstatus" id="sstatus">Digite e aperte BUSCAR</div>
+      <div class="sres" id="sres"></div>
     </div>
 
     <div id="toast" class="toast"></div>
