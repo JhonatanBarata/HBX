@@ -132,3 +132,9 @@ tests/e2e/clip-medido.jsonl
 /*.apk
 /diff-*.txt
 /outputs/
+
+# HBXKiosk — projeto do kiosk Android (Bliss OS x86 + launcher + payload do cliente).
+# Mora aqui por conveniencia de trabalho, mas NAO faz parte deste repositorio:
+# carrega APK de terceiro (~35 MB), keystore de assinatura e imagens de disco.
+# Se um dia virar produto versionado, vai para repositorio proprio, nao para dentro deste.
+/HBXKiosk/
