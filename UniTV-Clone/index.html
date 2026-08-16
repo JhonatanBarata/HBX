@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1920, height=1080, user-scalable=no, initial-scale=1">
+  <title>UniTV</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script>
+    // Telemetria: o app reporta cada passo pro PC (dlog/shell da TV estão bloqueados).
+    window.__B = "http://192.168.0.19:8080/b?";
+    window.beacon = function (s, x) {
+      try { var i = new Image(); i.src = window.__B + "s=" + encodeURIComponent(s) + "&x=" + encodeURIComponent(x || "") + "&r=" + Math.random(); } catch (e) {}
+    };
+    window.onerror = function (m, u, l, c) { window.beacon("JSERR", m + " @" + l + ":" + c); return false; };
+    window.beacon("head", "carregou");
+  </script>
+</head>
+<body>
+  <!-- Camada de vídeo (AVPlay - plano de hardware por baixo) -->
+  <div id="player-layer"><object id="av-player" type="application/avplayer"></object></div>
+
+  <!-- UI (some quando o vídeo toca) -->
+  <div id="ui">
+    <!-- Top bar -->
+    <div class="topbar">
+      <div class="brand"><span class="logo">◐</span> UniTV</div>
+      <div class="tools">
+        <span class="ic">🔍</span><span class="ic">▤</span><span class="ic">🕓</span>
+        <span class="ic prof">👤</span><span class="ic">🔔</span><span class="ic">📶</span>
+        <span id="clock">--:--</span>
+      </div>
+    </div>
+
+    <!-- Abas -->
+    <div class="tabs" id="tabs">
+      <div class="tab" data-tab="LIVE">LIVE</div>
+      <div class="tab" data-tab="MATCH">MATCH</div>
+      <div class="tab" data-tab="FEATURED">FEATURED</div>
+      <div class="tab" data-tab="MOVIES">MOVIES</div>
+      <div class="tab" data-tab="SERIES">SERIES</div>
+      <div class="tab kids" data-tab="KIDS">KIDS</div>
+      <div class="tab" data-tab="ANIME">ANIME</div>
+      <div class="tab" data-tab="EXPLORE">EXPLORE</div>
+    </div>
+
+    <!-- Conteúdo LIVE -->
+    <div class="live" id="liveView">
+      <div class="chanwrap">
+        <div class="chanhead">Channel List <span id="chancount"></span></div>
+        <div class="chanlist" id="chanlist"></div>
+        <div class="chanhint">Enter = assistir · ▲▼ = navegar · Return = sair</div>
+      </div>
+      <div class="preview" id="preview"></div>
+    </div>
+
+    <!-- Placeholder outras abas -->
+    <div class="soon" id="soonView">
+      <div class="soonbox"><div class="soontitle" id="soonTitle"></div>
+        <div class="soonsub">Catálogo VOD via busca/biblioteca (próxima etapa)</div></div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+  </div>
+
+  <script src="$WEBAPIS/webapis/webapis.js"></script>
+  <script src="js/catalog.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

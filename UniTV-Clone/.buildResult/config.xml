@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  UniTV Tizen Web App (.wgt) — manifesto do widget
+  Alvo: Samsung BU8000 / Tizen 6.5 (perfil TV)
+  IMPORTANTE: o "package" precisa ter EXATAMENTE 10 caracteres e o
+  tizen:application id deve ser "<package>.<NomeDoApp>".
+-->
+<widget xmlns="http://www.w3.org/ns/widgets"
+        xmlns:tizen="http://tizen.org/ns/widgets"
+        id="http://unitv.example/UniTV"
+        version="4.19.1"
+        viewmodes="maximized">
+
+    <tizen:application id="UniTVapp01.UniTV"
+                       package="UniTVapp01"
+                       required_version="6.5"/>
+
+    <content src="index.html"/>
+    <icon src="icon.png"/>
+    <name>UniTV</name>
+    <author email="unitv4k@gmail.com">UniTV</author>
+    <description>UniTV IPTV — Live, Movies, Series &amp; Match (Tizen)</description>
+
+    <!-- Resolução alvo: FHD (o painel do BU8000 é 4K, o web runtime entrega 1920x1080 lógico) -->
+    <feature name="http://tizen.org/feature/screen.size.normal.1080.1920"/>
+
+    <!-- Privilégios -->
+    <tizen:privilege name="http://tizen.org/privilege/internet"/>
+    <tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+    <tizen:privilege name="http://tizen.org/privilege/application.launch"/>
+    <tizen:privilege name="http://tizen.org/privilege/tv.audio"/>
+    <tizen:privilege name="http://developer.samsung.com/privilege/network.public"/>
+
+    <tizen:profile name="tv"/>
+
+    <tizen:setting screen-orientation="landscape"
+                   context-menu="disable"
+                   background-support="disable"
+                   encryption="disable"
+                   install-location="auto"
+                   hwkey-event="enable"/>
+
+    <!-- Permite chamar qualquer host (API/EPG/CDN de mídia) -->
+    <access origin="*" subdomains="true"/>
+</widget>

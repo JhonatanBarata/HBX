@@ -6,7 +6,7 @@ import { CreditActionConfigService } from '../credits/credit-action-config.servi
 import { LogisticaConfigService, storedNivel } from './logistica-config.service';
 import { getLogisticaNivelDefinition } from './logistica-nivel-catalog';
 import { canonicalRouteDate } from './logistica-route-billing.util';
-import { diaDeRotaUsageKey, passeDoDiaUsageKey } from './logistica-rota-cobranca.service';
+import { chaveJaPaga, diaDeRotaUsageKey, passeDoDiaUsageKey } from './logistica-rota-cobranca.service';
 import { resolveDayRange } from './logistica-rota.service';
 import { diagnosticarMotoristaUnico } from './logistica-motorista-unico.util';
 import { isLogisticaAdmin, type LogisticaActor } from './logistica-operacao.service';
@@ -48,12 +48,20 @@ export interface CustoPreviewResult {
  * Não existe mais bloco por parada. Dois casos, mutuamente exclusivos por
  * NÍVEL da empresa:
  *  - CREDITO: 1 débito por EMPRESA+DATA (usageKey `logistica:dia:...`).
- *    Preview olha se essa usageKey já tem `debit` no ledger — se sim, 0; se
- *    não E o dia tem paradas, o custo de `logistica_dia_de_rota`.
+ *    Preview pergunta a `chaveJaPaga` (a MESMA função que a cobrança usa para
+ *    decidir se debita) — se pago, 0; se não E o dia tem paradas, o custo de
+ *    `logistica_dia_de_rota`.
  *  - BASIC/ADVANCED/FULL (rota ILIMITADA): só paga se o motorista estourar o
  *    teto de assentos (nível/override da empresa) e ainda não tiver passe
  *    pago pra hoje — mesma régua de `assertAssentoDoDia`
  *    (logistica-rota-cobranca.service.ts), espelhada aqui em modo LEITURA.
+ *
+ * 🔴 "PAGO" TEM UMA DEFINIÇÃO SÓ, E ELA MORA NA COBRANÇA (16/08). Até aqui este
+ * arquivo tinha a própria: `findFirst` por `kind:'debit'` na chave base. Parece
+ * a mesma pergunta e não é — débito ESTORNADO continua no ledger para sempre
+ * (`refund` grava linha nova, nunca apaga a `debit`), então o preview via "pago"
+ * onde a cobrança via "não pago" e ia debitar de novo. Quem lê este retorno é a
+ * trava de saldo do app; régua frouxa aqui é trava desarmada lá.
  */
 @Injectable()
 export class LogisticaCustoPreviewService {
@@ -92,11 +100,19 @@ export class LogisticaCustoPreviewService {
     const nivel = storedNivel((cfg as any)?.logisticaNivel);
 
     if (nivel === 'CREDITO') {
-      const jaPago = await this.prisma.creditLedgerEntry.findFirst({
-        where: { companyId: cid, usageKey: diaDeRotaUsageKey(cid, routeDate), kind: 'debit' },
-        select: { id: true },
-      });
-      if (jaPago) {
+      // 🔴 A MESMA RÉGUA DA COBRANÇA, NUNCA UMA PARECIDA (16/08). Aqui morava um
+      // `findFirst` cru na chave base, e ele chamava de "pago" QUALQUER linha de
+      // débito — inclusive uma que a própria carteira já tinha estornado por
+      // saldo insuficiente (o refund cria linha nova, `refund:<chave>`, e nunca
+      // apaga a `debit`). O estrago era todo do lado de cá: o app lê
+      // `saldoCobre`/`creditosAIniciar` deste retorno para armar a trava
+      // "Créditos insuficientes" e para dizer "Debitou X". Com a linha estornada
+      // no ledger, o preview respondia "0, já debitado, saldo cobre", a trava
+      // não disparava, o recibo não saía — e o Iniciar seguinte debitava o custo
+      // CHEIO numa chave versionada `:t2`. Dinheiro saindo com a única tela de
+      // dinheiro do app dizendo zero.
+      const { pago } = await chaveJaPaga(this.prisma, cid, diaDeRotaUsageKey(cid, routeDate));
+      if (pago) {
         return { blocosTotais: 1, blocosJaDebitados: 1, creditosAIniciar: 0, saldoAtual, saldoCobre: true };
       }
       const definition = await this.actionConfig.resolveEffective(CREDIT_ACTION_KEYS.LOGISTICA_DIA_DE_ROTA);
@@ -121,11 +137,15 @@ export class LogisticaCustoPreviewService {
     if (ocupantes.length < assentos) {
       return { blocosTotais: 0, blocosJaDebitados: 0, creditosAIniciar: 0, saldoAtual, saldoCobre: true };
     }
-    const passeJaPago = await this.prisma.creditLedgerEntry.findFirst({
-      where: { companyId: cid, usageKey: passeDoDiaUsageKey(cid, entregadorId, routeDate), kind: 'debit' },
-      select: { id: true },
-    });
-    if (passeJaPago) {
+    // Mesma cura do dia, pela mesma razão: `assertAssentoDoDia` (a régua que este
+    // ramo diz espelhar) usa `chaveJaPaga` desde 10/08 — o espelho é que tinha
+    // ficado para trás com o findFirst cru.
+    const { pago: passePago } = await chaveJaPaga(
+      this.prisma,
+      cid,
+      passeDoDiaUsageKey(cid, entregadorId, routeDate),
+    );
+    if (passePago) {
       return { blocosTotais: 1, blocosJaDebitados: 1, creditosAIniciar: 0, saldoAtual, saldoCobre: true };
     }
     const definition = await this.actionConfig.resolveEffective(CREDIT_ACTION_KEYS.LOGISTICA_PASSE_MOTORISTA_DIA);

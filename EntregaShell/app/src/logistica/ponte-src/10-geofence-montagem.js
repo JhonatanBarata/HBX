@@ -554,8 +554,10 @@
 
          Zera o que é DADO. NÃO zera o que é COPY: `velocidadeUnidade`,
          `chegadaRotulo`, `restanteRotulo`, `distanciaRotulo` e — o que mais
-         importa — `encerrar`, que é a PORTA DE SAÍDA desta tela. Motorista
-         preso na navegação é defeito pior que qualquer número faltando.
+         importa — `panoramica` (a antiga `encerrar`), que é a PORTA DE SAÍDA
+         desta tela, e `encerrarDia`. Motorista preso na navegação é defeito
+         pior que qualquer número faltando; e o fim do dia sem rótulo seria um
+         botão mudo na ponta da faixa (16/08, junto da renomeação dos verbos).
 
          🔴 OS CAMPOS `chegou*` SAÍRAM DAQUI NO LOTE 3 (15/08). "Você chegou"
          deixou de ser cromo desta tela — virou a peça `.chegou-wrap`, com

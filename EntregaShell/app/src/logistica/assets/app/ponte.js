@@ -502,17 +502,13 @@
     return km + min;
   };
 
-  /* estado da rota, no vocabulário do transmux do mock.
-     🔴 O VOCABULÁRIO É O DO SERVIDOR, MEDIDO — não o que eu achei que era. O
-     `LogisticaRoute.status` vale `PLANNED | INITIALIZING | ACTIVE | COMPLETED |
-     REFUNDING | FAILED`, e o tracking troca por `ENCERRADA` quando o dia foi
-     encerrado operacionalmente. Eu comparava com 'em_rota'/'iniciada', que não
-     existem: rota INICIADA (ACTIVE, conferido no banco de produção) caía no
-     `if (routeId)` e a tela mostrava "Iniciar" numa rota que já estava rodando.
-     Tocar de novo dava erro — mais um passo sem sequência. */
+  /* Estado da rota, no vocabulário do transmux do mock.
+     🔴 O VOCABULÁRIO É O DO SERVIDOR, MEDIDO: `LogisticaRoute.status` vale `PLANNED | INITIALIZING | ACTIVE | COMPLETED | REFUNDING | FAILED`, e o tracking troca por `ENCERRADA` quando o dia foi encerrado operacionalmente. Comparar com 'em_rota'/'iniciada' (que não existem) foi o que fez a tela mostrar "Iniciar" numa rota já rodando.
+     🔴 E `INITIALIZING` NÃO É `rodando` — É DINHEIRO (16/08): o servidor grava a reserva ANTES de debitar o dia (logistica-rota.service.ts:777 × :473), e este `if` a vestia de rota na rua, ou seja, navegação sobre um dia não cobrado. O porquê inteiro e a saída (o Cancelar) moram em `ROTA_ESTADOS.iniciando`, no mock; aqui só a régua. */
   function estadoDaRota(r) {
     const s = String(r.routeStatus || '').toUpperCase();
-    if (s === 'ACTIVE' || s === 'INITIALIZING') return 'rodando';
+    if (s === 'ACTIVE') return 'rodando';
+    if (s === 'INITIALIZING') return 'iniciando';
     /* 🔴 SEM `routeId` A ROTA AINDA PODE ESTAR MONTADA — e foi isto que quebrou
        a sequência inteira (dono, 07/08: "cliquei em iniciar rota → monte a rota
        antes"; e depois "não tem sequência, não tem vida"). O `routeId` é a rota
@@ -560,7 +556,9 @@
     const e = (typeof estadoRota !== 'undefined' ? String(estadoRota) : '');
     // `consulta` desenha a fotografia exata da pendência (pinos/fita), mas os
     // eventos de mutação continuam bloqueados nas portas de ordem e entrega.
-    return e === 'pronta' || e === 'rodando' || e === 'pausada' || e === 'consulta';
+    // `iniciando` entra: a rota já era desenhada em `pronta`, um quadro antes.
+    // O que ele NÃO ganha é cromo de navegação nem geofence (`rotaNaRua`).
+    return e === 'pronta' || e === 'iniciando' || e === 'rodando' || e === 'pausada' || e === 'consulta';
   };
 
   /* 🔴 O TEMPLATE DO MOCK INTERPOLA CRU (`${…}`), como toda maquete. Enquanto o
@@ -1554,8 +1552,10 @@
 
          Zera o que é DADO. NÃO zera o que é COPY: `velocidadeUnidade`,
          `chegadaRotulo`, `restanteRotulo`, `distanciaRotulo` e — o que mais
-         importa — `encerrar`, que é a PORTA DE SAÍDA desta tela. Motorista
-         preso na navegação é defeito pior que qualquer número faltando.
+         importa — `panoramica` (a antiga `encerrar`), que é a PORTA DE SAÍDA
+         desta tela, e `encerrarDia`. Motorista preso na navegação é defeito
+         pior que qualquer número faltando; e o fim do dia sem rótulo seria um
+         botão mudo na ponta da faixa (16/08, junto da renomeação dos verbos).
 
          🔴 OS CAMPOS `chegou*` SAÍRAM DAQUI NO LOTE 3 (15/08). "Você chegou"
          deixou de ser cromo desta tela — virou a peça `.chegou-wrap`, com
@@ -4173,6 +4173,14 @@
         // 🔴 NUNCA MORRER CALADO (dono, §1.3): primeiro a verdade do
         // servidor — se a rota JÁ ESTÁ em andamento, a resposta certa é
         // levar o motorista pra ela, não um erro genérico.
+        /* 🔴 E "EM ANDAMENTO" DEIXOU DE INCLUIR A RESERVA (16/08). Este era o
+           caminho pelo qual o erro de CRÉDITO sumia: o 2º toque levava 409 do
+           claim, `carregarRota` lia o `INITIALIZING` do 1º pedido, `estadoRota`
+           dizia 'rodando' e o app entrava na navegação com `return` — engolindo
+           justamente o 402 que provava que o dia NÃO foi pago. Hoje INITIALIZING
+           vira `iniciando` (ver `estadoDaRota`), que não casa neste `if`: o erro
+           volta a aparecer, com o botão de repetir. O `if` continua valendo pro
+           que ele sempre quis dizer — rota ACTIVE, dia já debitado. */
         await carregarRota();
         if (estadoRota === 'rodando' || estadoRota === 'pausada') {
           // Já está em andamento? Cai direto NELA — a navegação, não uma tela
@@ -4788,8 +4796,64 @@
   const PLANO_PAD = { top: 74, right: 34, bottom: 34, left: 34 };
   const PLANO_ZOOM_TETO = 16;
 
+  /* ---- A APROXIMAÇÃO POR MOVIMENTO (16/08 — dono: *"no modo 2d, ao se
+     movimentar (uns 30 metros) aproximar uns 30%"*) -------------------------
+     O PORQUÊ DOS 30 m, na palavra dele: *"o GPS às vezes se movimenta um pouco,
+     não quero que este bug seja confundido por movimentação"*. Parado, o fix
+     balança (medido no g15: 0 → 8 → 11 → 0 km/h sem sair do lugar), e é por isso
+     que a régua é DISTÂNCIA e não relógio — a mesma escolha que o pedido de rota
+     já fazia com `NAV_ANDOU_M` (60-prospector-nav.js). A âncora aqui é PRÓPRIA de
+     propósito: a de lá só se reescreve quando o pedido SAI, e congela junto com o
+     teto diário e o backoff — a régua de zoom congelaria calada com ela.
+
+     🔴 "APROXIMAR 30%" NÃO É "+30% DE ZOOM". No maplibre cada nível DOBRA a
+     escala: encurtar a régua em 30% (metros por pixel × 0,7) é +log2(1/0,7) =
+     0,515 de nível. Somar 0,3 daria 23% e ninguém saberia por quê.
+
+     🔴 E ELA TEM TETO DE ACÚMULO. Sem teto, quem roda o dia inteiro termina com
+     o mapa colado no capô: 10 km de rua seriam +171 níveis pedidos, aparados no
+     16 do `PLANO_ZOOM_TETO` — o motorista perderia a rua seguinte sem nunca ter
+     tocado no mapa. Dois passos (~51% mais perto) é o quanto a vista de planejar
+     aguenta continuar sendo vista de planejar.
+
+     🔴 O DEDO MANDA MAIS QUE A RÉGUA. Este palco nunca teve freio de gesto (só o
+     'gps' tinha) porque nunca teve câmera automática — agora tem, e sem freio
+     seria o mapa desfazendo o arrasto do dono, que é o defeito que a fase
+     'solta' curou na navegação. Quem tocou o mapa desliga a aproximação até
+     pedir o enquadramento de volta pelo botão da beirada. */
+  const PLANO_ANDOU_M = 30;
+  const PLANO_ZOOM_PASSO = Math.log2(1 / 0.7);
+  /* 🔴 O TETO CONTA PASSOS, NÃO SOMA ZOOM (medido: a régua deixou passar um 3º
+     passo). Somando `alvo - getZoom()` a conta fecha em 1,0291463456595164
+     contra um teto de 1,0291463456595166 — dois zeros e um vento de diferença,
+     e o `>=` não morde. Contador inteiro não tem essa conversa. */
+  const PLANO_ZOOM_PASSOS_TETO = 2;
+  let planoZoomAncora = null;
+  let planoZoomPassos = 0;
+  let planoSolto = false;
+
+  /** o dedo pegou o mapa 2D: a régua dos 30 m cala a boca até o botão de enquadrar */
+  function soltarPlano() { planoSolto = true; }
+  /* SONDA DE PROVA, no padrão do `window.HBXCena.pendente()`: só leitura do zoom
+     e o mesmo desarme que o gesto faz. Sem ela, provar a régua dos 30 m exigiria
+     um carro de verdade — e o que ela expõe é o que a tela já mostra. */
+  window.HBXMapa2D = {
+    zoom() { const c = GARAGEM.get('geral'); try { return c && c.mapa ? c.mapa.getZoom() : null; } catch (_) { return null; } },
+    dedo() { soltarPlano(); },
+  };
+  /** e o enquadramento (rota nova ou dedo no botão) devolve a régua zerada */
+  function rearmarPlanoZoom() { planoSolto = false; planoZoomPassos = 0; planoZoomAncora = null; }
+
   function enquadrarGeral(casa) {
     if (!casa || casa.nome !== 'geral') return;
+    /* Enquadrar é o RECOMEÇO da régua dos 30 m, nas quatro portas que chegam
+       aqui (mapa nascendo, 1º fix, rota mudou, dedo no botão). Sim: marcar uma
+       entrega muda a digital dos pinos e devolve o dia inteiro, jogando fora a
+       aproximação acumulada — e é o certo. Acabou de entregar é exatamente a
+       hora de rever o dia todo; depois disso, os 30 m seguintes voltam a
+       aproximar sozinhos. O contrário (guardar zoom por cima de um
+       enquadramento) seria a câmera com duas vontades. */
+    rearmarPlanoZoom();
     // a MESMA lista dos pinos (§ paradasDoMapa): sem rota montada ela vem
     // vazia, e a moldura passa a ser só o motorista — enquadrar uma rota que
     // ninguém montou levaria a câmera pra um dia que não existe.
@@ -4912,6 +4976,36 @@
     // o ponto andou; o halo e o farol contam o fix NOVO — precisão velha
     // desenhada em cima de posição nova é a tela mentindo devagar.
     vestirEu(casa);
+    aproximarAoAndar(casa, eu);
+  }
+
+  /* A régua dos 30 m, aplicada no ÚNICO lugar do palco 2D que roda a cada fix.
+     Ela é a exceção escrita à lei de cima ("nunca nos fixes seguintes"), e por
+     isso carrega as três guardas que a lei pedia:
+       · só com a rota NA RUA — parado na garagem, ou com o dia só montado, não
+         há viagem pra acompanhar e mexer na câmera seria cromo;
+       · só se o dedo não tiver pegado o mapa (`planoSolto`);
+       · e só até o teto de acúmulo.
+     `metrosEntre` é MÓDULO (Haversine, sem sinal): ir 30 m e voltar 30 m conta
+     como andar. Aqui isso é o comportamento certo — quem manobrou na rua também
+     saiu do lugar; o que a régua precisa excluir é o TREMOR parado, e 30 m é
+     ordem de grandeza muito acima dele (o erro típico do fix é 3–20 m). */
+  function aproximarAoAndar(casa, eu) {
+    if (typeof rotaNaRua === 'function' && !rotaNaRua()) return;
+    if (planoSolto || planoZoomPassos >= PLANO_ZOOM_PASSOS_TETO) return;
+    if (!planoZoomAncora) { planoZoomAncora = { lat: eu.lat, lng: eu.lng }; return; }
+    if (metrosEntre(planoZoomAncora, eu) < PLANO_ANDOU_M) return;
+    planoZoomAncora = { lat: eu.lat, lng: eu.lng };
+    try {
+      const alvo = Math.min(casa.mapa.getZoom() + PLANO_ZOOM_PASSO, PLANO_ZOOM_TETO);
+      // Já no teto de zoom do enquadramento: gasta o orçamento de uma vez, senão
+      // a régua tentaria de novo a cada 30 m pelo resto do dia.
+      if (alvo <= casa.mapa.getZoom() + 0.001) { planoZoomPassos = PLANO_ZOOM_PASSOS_TETO; return; }
+      planoZoomPassos += 1;
+      // `easeTo` e não `jumpTo`: a tela está na mão de quem dirige, e salto de
+      // meio nível sem transição lê como falha de render.
+      casa.mapa.easeTo({ center: [eu.lng, eu.lat], zoom: alvo, duration: 620 });
+    } catch (_) { /* mapa saindo de cena */ }
   }
 
   /* 🔴 PINO FORA DA TELA NÃO É PINO — é enfeite encostado na moldura. Com a
@@ -6317,8 +6411,18 @@
     /* 🔴 QUEM COMEÇOU O MOVIMENTO: O DEDO OU NÓS? `originalEvent` só existe
        quando veio de gesto humano — o nosso próprio `easeTo` dispara os mesmos
        eventos e, sem esta pergunta, a câmera se declararia "solta" sozinha a
-       cada fix e nunca mais seguiria ninguém. Só o palco da navegação: no mapa
-       "geral" não há câmera automática pra brigar com o dedo. */
+       cada fix e nunca mais seguiria ninguém.
+       🔴 E AGORA OS DOIS PALCOS PRECISAM DISSO (16/08). Este comentário dizia
+       "só o palco da navegação: no mapa geral não há câmera automática pra
+       brigar com o dedo" — e a frase acabou de deixar de ser verdade: o 2D
+       ganhou a aproximação por movimento (os 30 m do dono, em
+       `aproximarAoAndar`). Câmera automática sem freio de gesto é o mapa
+       desfazendo o arrasto de quem estava olhando o dia — exatamente o defeito
+       que a fase 'solta' curou na navegação. O que muda entre os dois é só o
+       QUE o gesto desarma: no 'gps', a câmera que segue (com volta por tempo);
+       no 'geral', a régua dos 30 m, que só volta pelo botão de enquadrar —
+       aqui não existe "voltar sozinho", porque quem abriu o mapa de cima pra
+       olhar o dia inteiro não quer a tela se mexendo debaixo do dedo. */
     if (nome === 'gps') {
       const doDedo = (e) => { if (e && e.originalEvent) soltarCamera(); };
       mapa.on('dragstart', doDedo);
@@ -6326,6 +6430,9 @@
       mapa.on('pitchstart', doDedo);
       mapa.on('zoomstart', doDedo);
     } else {
+      const doDedoNoPlano = (e) => { if (e && e.originalEvent) soltarPlano(); };
+      mapa.on('dragstart', doDedoNoPlano);
+      mapa.on('zoomstart', doDedoNoPlano);
       /* 🔴 "2D" É UMA TRAVA, NÃO UMA POSE INICIAL (dono, 08/08: *"mapa limpo,
          2d"*). Todo mapa do maplibre gira e inclina com dois dedos — quer dizer
          que a tela de PLANEJAR podia sair deitada e torta sem ninguém pedir, e
@@ -13305,19 +13412,28 @@
     const dia = diaDaSemana();
     const sobrando = paradasPendentes().length;
     window.portao({
-      tom: 'info', ico: 'lock', titulo: 'Fechar o dia?',
+      // O título segue o botão que abriu o portão (16/08): os dois lugares de
+      // onde se encerra o dia — o satélite do 2D e a ponta do rodapé do 3D —
+      // dizem "Encerrar dia", e pergunta com outro verbo faz o dedo hesitar.
+      tom: 'info', ico: 'lock', titulo: 'Encerrar o dia?',
       /* Quem sobrou é dito ANTES, não depois: encerrar devolve a parada aberta
          pra pendência (sem ordem) e ainda vira recado no escritório. Quem tem
          direito de saber disso é quem está apertando o botão. */
       sub: sobrando
         ? `${sobrando} ${sobrando === 1 ? 'parada fica' : 'paradas ficam'} pra amanhã · registrar como ${DIAS_SEMANA[dia]}`
         : `Registrar como ${DIAS_SEMANA[dia]}`,
-      acoes: [['Agora não', ''], ['Fechar o dia', 'principal']], classe: 'duas',
+      acoes: [['Agora não', ''], ['Encerrar dia', 'principal']], classe: 'duas',
     });
     const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;
     botao.addEventListener('click', () => comTrava(async () => {
-      if (estadoRota === 'rodando' || estadoRota === 'pausada') {
+      /* 🔴 `iniciando` ENTRA NESTE GATE (16/08) — e é justamente o caso em que
+         ele mais importa. Ele é o `INITIALIZING` do servidor: uma reserva de
+         rota que pode ter ficado PRESA (o `releaseInitialization` de lá é
+         best-effort). Sem esta palavra, o dia travado nessa reserva nunca
+         mandaria `/logistica/rota/encerrar` — o encerrar viraria meio verbo, e
+         o motorista ficaria com um dia que não anda nem acaba. */
+      if (estadoRota === 'rodando' || estadoRota === 'pausada' || estadoRota === 'iniciando') {
         try { await window.API.post('/logistica/rota/encerrar', { date: hojeISO() }); }
         catch (e) { return avisoErro(e); }
       }
@@ -14716,11 +14832,15 @@
       carregarCreditos();
     },
     'recarregar-financeiro': () => retentar('financeiro', carregarFinanceiro),
-    /* O "Finalizar" do dock da rota. Ele é PORTA, não verbo: abre o Fechamento,
-       onde o dinheiro do dia está à vista e mora o único botão que fecha (ver
-       `fecharDia`). Antes apontava pro próprio `fechar-dia` — dois botões no
-       mesmo gancho, um deles numa tela que o outro abre. */
-    'ir-fechamento': () => window.ir('fechamento'),
+    /* ⚰️ `ir-fechamento` MORREU EM 16/08. Ele era o "Finalizar" do dock — uma
+       PORTA vestida de verbo, que o dono pegou na hora: *"pq o 3d tem encerrar e
+       o 2d não?"*. O satélite do 2D e o botão da ponta do 3D passaram os dois a
+       apontar pro `fechar-dia`, que é quem encerra de verdade. Sem botão nenhum
+       apontando pra cá, a entrada saiu junto: handler sem botão é a mesma
+       mentira de mapa que botão sem handler — e esta casa já pagou as duas.
+       Quem quer só VER o fechamento continua entrando pelo caixa da lista e
+       pelos Ajustes, os dois com `data-ir="fechamento"`, que não passa por
+       gancho nenhum. */
     'ir-creditos': () => window.ir('creditos'),
     'ir-financeiro': () => window.ir('financeiro'),
     'ir-avancado': () => window.ir('avancado'),

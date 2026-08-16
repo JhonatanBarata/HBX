@@ -379,8 +379,18 @@
     /* 🔴 QUEM COMEÇOU O MOVIMENTO: O DEDO OU NÓS? `originalEvent` só existe
        quando veio de gesto humano — o nosso próprio `easeTo` dispara os mesmos
        eventos e, sem esta pergunta, a câmera se declararia "solta" sozinha a
-       cada fix e nunca mais seguiria ninguém. Só o palco da navegação: no mapa
-       "geral" não há câmera automática pra brigar com o dedo. */
+       cada fix e nunca mais seguiria ninguém.
+       🔴 E AGORA OS DOIS PALCOS PRECISAM DISSO (16/08). Este comentário dizia
+       "só o palco da navegação: no mapa geral não há câmera automática pra
+       brigar com o dedo" — e a frase acabou de deixar de ser verdade: o 2D
+       ganhou a aproximação por movimento (os 30 m do dono, em
+       `aproximarAoAndar`). Câmera automática sem freio de gesto é o mapa
+       desfazendo o arrasto de quem estava olhando o dia — exatamente o defeito
+       que a fase 'solta' curou na navegação. O que muda entre os dois é só o
+       QUE o gesto desarma: no 'gps', a câmera que segue (com volta por tempo);
+       no 'geral', a régua dos 30 m, que só volta pelo botão de enquadrar —
+       aqui não existe "voltar sozinho", porque quem abriu o mapa de cima pra
+       olhar o dia inteiro não quer a tela se mexendo debaixo do dedo. */
     if (nome === 'gps') {
       const doDedo = (e) => { if (e && e.originalEvent) soltarCamera(); };
       mapa.on('dragstart', doDedo);
@@ -388,6 +398,9 @@
       mapa.on('pitchstart', doDedo);
       mapa.on('zoomstart', doDedo);
     } else {
+      const doDedoNoPlano = (e) => { if (e && e.originalEvent) soltarPlano(); };
+      mapa.on('dragstart', doDedoNoPlano);
+      mapa.on('zoomstart', doDedoNoPlano);
       /* 🔴 "2D" É UMA TRAVA, NÃO UMA POSE INICIAL (dono, 08/08: *"mapa limpo,
          2d"*). Todo mapa do maplibre gira e inclina com dois dedos — quer dizer
          que a tela de PLANEJAR podia sair deitada e torta sem ninguém pedir, e

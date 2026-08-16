@@ -712,8 +712,16 @@ const SO_MEDIR = process.argv.includes('--antes');
     fechou: window.__S.fechou,
     heroi: (document.querySelector('.vazio strong') || {}).textContent || '',
     heroiSub: [...document.querySelectorAll('.vazio span')].map((e) => e.textContent.trim()).filter(Boolean),
-    temFinalizar: document.querySelectorAll('.tmx-sat [data-acao="ir-fechamento"]').length,
-    temFecharDia: document.querySelectorAll('[data-acao="fechar-dia"]').length,
+    // 16/08 — o satelite do dock deixou de ser o "Finalizar" (porta) e virou o
+    // "Encerrar dia", no MESMO gancho do botao da tela de Fechamento. Por isso
+    // os dois espioes abaixo sao ESCOPADOS: sem escopo, `[data-acao=fechar-dia]`
+    // passou a casar em dois lugares e o querySelector pegaria o primeiro do
+    // DOM — a prova mediria o satelite achando que media a tela.
+    temEncerrarDia: document.querySelectorAll('.tmx-sat [data-acao="fechar-dia"]').length,
+    // O `dock` acima lê só o botão do MEIO; o rótulo do satélite mora no <small>
+    // ao lado dele, e é ele que o dono lê na tela.
+    satelites: [...document.querySelectorAll('.tmx-sat small')].map((e) => e.textContent.trim()),
+    temFecharDia: document.querySelectorAll('.act[data-acao="fechar-dia"]').length,
   }));
   const posts = () => p.evaluate(() => window.__chamadas.filter((c) => c[0] === 'POST').map((c) => c[1]));
   /* os POSTs COM O CORPO. "Saiu o POST" não prova nada quando o defeito é um
@@ -1793,38 +1801,54 @@ const SO_MEDIR = process.argv.includes('--antes');
     routeStatus: 'ACTIVE', mesmaBase: true,
   });
   const tV0 = await espiar();
-  nota(`[V] rota na rua: tela=${tV0.tela} · dock="${tV0.dock}" · satelite Finalizar=${tV0.temFinalizar}`);
-  eh('V1 · o dock da rota na rua tem o "Finalizar", e ele aponta pro FECHAMENTO',
-    tV0.temFinalizar === 1, `temFinalizar=${tV0.temFinalizar} dock="${tV0.dock}"`);
+  nota(`[V] rota na rua: tela=${tV0.tela} · dock="${tV0.dock}" · satelite Encerrar dia=${tV0.temEncerrarDia}`);
+  /* 🔴 V1 MUDOU DE ALVO EM 16/08 (ordem do dono: *"pq o 3d tem encerrar e o 2d
+     nao?"*). O satelite era "Finalizar" e apontava pro `ir-fechamento`, um
+     gancho que so ABRIA a tela — verbo que nao cumpre o proprio nome. Agora ele
+     e "Encerrar dia" e usa o MESMO gancho da tela de Fechamento (`fechar-dia`),
+     que e quem encerra de verdade. A prova cobra o dock inteiro pra o rotulo
+     novo nao passar despercebido. */
+  eh('V1 · o dock da rota na rua tem o "Encerrar dia" no satelite, e ele usa o gancho que ENCERRA',
+    tV0.temEncerrarDia === 1 && tV0.satelites.some((s) => /Encerrar dia/i.test(s))
+      && !tV0.satelites.some((s) => /Finalizar/i.test(s)),
+    `temEncerrarDia=${tV0.temEncerrarDia} satelites=${JSON.stringify(tV0.satelites)}`);
+  eh('V1b · e o verbo do meio deixou de prometer navegacao que ja esta acontecendo',
+    /Dirigindo/i.test(tV0.dock) && !/Navegar/i.test(tV0.dock), `dock="${tV0.dock}"`);
   await zerar();
   const achouFimV = await p.evaluate(() => {
-    const x = document.querySelector('.tmx-sat [data-acao="ir-fechamento"]');
+    const x = document.querySelector('.tmx-sat [data-acao="fechar-dia"]');
     if (x) { x.click(); return true; }
     return false;
   });
   await p.waitForTimeout(900);
   const tV1 = await espiar();
   const postsV1 = await posts();
-  nota(`[V] toque no Finalizar: tela=${tV1.tela} · POSTs=${postsV1.length ? postsV1.join(' , ') : '(nenhum)'}`);
+  nota(`[V] toque no Encerrar dia: tela=${tV1.tela} · portao="${tV1.portao}" · POSTs=${postsV1.length ? postsV1.join(' , ') : '(nenhum)'}`);
   /* 🔴 "ZERO POST" NAO E A ASSERÇÃO — e a 1ª versão desta linha reprovou por
      isso. O app tem trânsito de fundo próprio (o poll de recados sai no seu
      tempo, não no meu dedo), então exigir a lista vazia é medir o relógio dele.
-     O que este toque promete é não FECHAR nada: então o que se cobra é a
-     ausência das DUAS portas do fechar, nominalmente. */
+     O que este toque promete é não FECHAR nada ANTES DA CONFIRMAÇÃO: então o que
+     se cobra é a ausência das DUAS portas do fechar, nominalmente. */
   const FIM_DO_DIA = ['/logistica/rota/encerrar', '/logistica/fechamento/finalizar'];
-  eh('V2 · o Finalizar LEVA pro fechamento (nao fecha nada sozinho)',
-    achouFimV && tV1.tela === 'fechamento' && !postsV1.some((x) => FIM_DO_DIA.indexOf(x) >= 0),
-    `tela=${tV1.tela} posts=${postsV1.join(',')}`);
+  /* 🔴 V2 INVERTEU O SENTIDO. Antes o satelite navegava e nao perguntava nada;
+     hoje ele PERGUNTA e nao navega — o dia so acaba depois do "Encerrar dia" do
+     portao. O que continua igual e a promessa de dinheiro: nenhum POST de fim
+     de dia sai do primeiro toque. */
+  eh('V2 · o Encerrar dia do dock ABRE O PORTAO e nao fecha nada sozinho',
+    achouFimV && /Encerrar o dia\?/i.test(tV1.portao) && !postsV1.some((x) => FIM_DO_DIA.indexOf(x) >= 0),
+    `tela=${tV1.tela} portao="${tV1.portao}" posts=${postsV1.join(',')}`);
   await zerar();
   await p.evaluate(() => {
-    const x = document.querySelector('[data-acao="fechar-dia"]');
+    // ESCOPADO no satelite: `[data-acao="fechar-dia"]` cru casa em dois lugares
+    // desde 16/08, e o primeiro do DOM nem sempre e o que a cena quer tocar.
+    const x = document.querySelector('.tmx-sat [data-acao="fechar-dia"]');
     if (x) x.click();
   });
   await p.waitForTimeout(600);
   const tV2 = await espiar();
   nota(`[V] portao: "${tV2.portao}" · sub="${tV2.portaoSub}"`);
   eh('V3 · o portao avisa QUEM fica pra amanha antes de encerrar',
-    /Fechar o dia\?/i.test(tV2.portao) && /1 parada fica pra amanh/i.test(tV2.portaoSub),
+    /Encerrar o dia\?/i.test(tV2.portao) && /1 parada fica pra amanh/i.test(tV2.portaoSub),
     `portao="${tV2.portao}" sub="${tV2.portaoSub}"`);
   await p.evaluate(() => {
     const x = document.querySelector('.portao-wrap .principal');

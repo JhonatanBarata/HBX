@@ -47,7 +47,12 @@ const CROMO = {
   manobraRua: 'Avenida Nove Nv', manobraDepois: 'depois, vire à direita',
   rumo: 'NO', velocidade: '0', paradaN: '1', paradaTotal: '51', paradaNome: 'Ademir',
   chegada: '06:46', restante: '2 h 30', distancia: '80,7 km',
-  registrar: 'Registrar', fechar: 'Fechamento', encerrar: 'Sair',
+  // 16/08 — os rótulos do rodapé mudaram junto com os verbos: `encerrar`/'Sair'
+  // virou `panoramica`/'Panorâmica' e nasceu `encerrarDia`. A semente PRECISA
+  // acompanhar: ela é injetada inteira em `usarDados('gps', …)` e vence o
+  // default do template, então uma semente velha faria este portão medir a
+  // geometria de um botão de 4 letras num slot que hoje carrega 12.
+  registrar: 'Registrar', panoramica: 'Panorâmica', encerrarDia: 'Encerrar dia',
 };
 const NOMES = [
   { nome: 'nome curto', paradaNome: 'Ademir' },

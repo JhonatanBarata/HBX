@@ -502,17 +502,13 @@
     return km + min;
   };
 
-  /* estado da rota, no vocabulário do transmux do mock.
-     🔴 O VOCABULÁRIO É O DO SERVIDOR, MEDIDO — não o que eu achei que era. O
-     `LogisticaRoute.status` vale `PLANNED | INITIALIZING | ACTIVE | COMPLETED |
-     REFUNDING | FAILED`, e o tracking troca por `ENCERRADA` quando o dia foi
-     encerrado operacionalmente. Eu comparava com 'em_rota'/'iniciada', que não
-     existem: rota INICIADA (ACTIVE, conferido no banco de produção) caía no
-     `if (routeId)` e a tela mostrava "Iniciar" numa rota que já estava rodando.
-     Tocar de novo dava erro — mais um passo sem sequência. */
+  /* Estado da rota, no vocabulário do transmux do mock.
+     🔴 O VOCABULÁRIO É O DO SERVIDOR, MEDIDO: `LogisticaRoute.status` vale `PLANNED | INITIALIZING | ACTIVE | COMPLETED | REFUNDING | FAILED`, e o tracking troca por `ENCERRADA` quando o dia foi encerrado operacionalmente. Comparar com 'em_rota'/'iniciada' (que não existem) foi o que fez a tela mostrar "Iniciar" numa rota já rodando.
+     🔴 E `INITIALIZING` NÃO É `rodando` — É DINHEIRO (16/08): o servidor grava a reserva ANTES de debitar o dia (logistica-rota.service.ts:777 × :473), e este `if` a vestia de rota na rua, ou seja, navegação sobre um dia não cobrado. O porquê inteiro e a saída (o Cancelar) moram em `ROTA_ESTADOS.iniciando`, no mock; aqui só a régua. */
   function estadoDaRota(r) {
     const s = String(r.routeStatus || '').toUpperCase();
-    if (s === 'ACTIVE' || s === 'INITIALIZING') return 'rodando';
+    if (s === 'ACTIVE') return 'rodando';
+    if (s === 'INITIALIZING') return 'iniciando';
     /* 🔴 SEM `routeId` A ROTA AINDA PODE ESTAR MONTADA — e foi isto que quebrou
        a sequência inteira (dono, 07/08: "cliquei em iniciar rota → monte a rota
        antes"; e depois "não tem sequência, não tem vida"). O `routeId` é a rota
@@ -560,7 +556,9 @@
     const e = (typeof estadoRota !== 'undefined' ? String(estadoRota) : '');
     // `consulta` desenha a fotografia exata da pendência (pinos/fita), mas os
     // eventos de mutação continuam bloqueados nas portas de ordem e entrega.
-    return e === 'pronta' || e === 'rodando' || e === 'pausada' || e === 'consulta';
+    // `iniciando` entra: a rota já era desenhada em `pronta`, um quadro antes.
+    // O que ele NÃO ganha é cromo de navegação nem geofence (`rotaNaRua`).
+    return e === 'pronta' || e === 'iniciando' || e === 'rodando' || e === 'pausada' || e === 'consulta';
   };
 
   /* 🔴 O TEMPLATE DO MOCK INTERPOLA CRU (`${…}`), como toda maquete. Enquanto o

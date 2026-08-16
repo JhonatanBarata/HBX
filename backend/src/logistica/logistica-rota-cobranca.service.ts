@@ -263,7 +263,14 @@ function dayRange(dateISO: string): { start: Date; end: Date } {
  * base carrega os segmentos seguintes completos.
  * `db` é o prisma OU a tx do chamador (dentro do advisory lock).
  */
-async function chaveJaPaga(
+// 🔴 EXPORTADA EM 16/08 — o custo-preview usava `findFirst` cru na chave base e
+// chamava de "pago" um débito que tinha sido ESTORNADO. Régua de dinheiro em
+// dois lugares é régua que diverge: o preview dizia "custo 0, saldo cobre", a
+// trava "Créditos insuficientes" do app não disparava, e o Iniciar seguinte
+// debitava o custo cheio numa chave `:tN` sem recibo nenhum. O aviso de que o
+// findFirst cru estava errado já estava escrito aqui embaixo, em
+// `assertAssentoDoDia` — faltava o preview obedecer a ele.
+export async function chaveJaPaga(
   db: PrismaService | any,
   companyId: number,
   baseKey: string,

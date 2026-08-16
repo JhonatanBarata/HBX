@@ -721,11 +721,15 @@
       carregarCreditos();
     },
     'recarregar-financeiro': () => retentar('financeiro', carregarFinanceiro),
-    /* O "Finalizar" do dock da rota. Ele é PORTA, não verbo: abre o Fechamento,
-       onde o dinheiro do dia está à vista e mora o único botão que fecha (ver
-       `fecharDia`). Antes apontava pro próprio `fechar-dia` — dois botões no
-       mesmo gancho, um deles numa tela que o outro abre. */
-    'ir-fechamento': () => window.ir('fechamento'),
+    /* ⚰️ `ir-fechamento` MORREU EM 16/08. Ele era o "Finalizar" do dock — uma
+       PORTA vestida de verbo, que o dono pegou na hora: *"pq o 3d tem encerrar e
+       o 2d não?"*. O satélite do 2D e o botão da ponta do 3D passaram os dois a
+       apontar pro `fechar-dia`, que é quem encerra de verdade. Sem botão nenhum
+       apontando pra cá, a entrada saiu junto: handler sem botão é a mesma
+       mentira de mapa que botão sem handler — e esta casa já pagou as duas.
+       Quem quer só VER o fechamento continua entrando pelo caixa da lista e
+       pelos Ajustes, os dois com `data-ir="fechamento"`, que não passa por
+       gancho nenhum. */
     'ir-creditos': () => window.ir('creditos'),
     'ir-financeiro': () => window.ir('financeiro'),
     'ir-avancado': () => window.ir('avancado'),

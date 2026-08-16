@@ -288,9 +288,26 @@ const ROTA_ESTADOS={
   /* Com a rota pronta o satélite da direita é a PORTA DE VOLTA pra montagem:
      rever a lista, salvar o roteiro, ou trocar o dia e montar de novo. Sem ele
      a montagem ficava inalcançável depois de montada — beco sem saída. */
-  pronta:   {main:{acao:'iniciar', glifo:'play', rotulo:'Iniciar'},
+  /* 🔴 "Iniciar rota", não "Iniciar" (16/08, ordem do dono). O verbo solto não
+     dizia o que começava — e a palavra que faltava é justamente a que separa
+     este dock do de baixo: aqui a rota AINDA NÃO está na rua. */
+  pronta:   {main:{acao:'iniciar', glifo:'play', rotulo:'Iniciar rota'},
              esq:{tipo:'perigo', glifo:'close', rotulo:'Cancelar', acao:'cancelar-rota'},
              dir:{tipo:'info', glifo:'route', rotulo:'Montagem', acao:'montar'}},
+  /* 🔴 A JANELA ENTRE O TOQUE E O DINHEIRO (16/08). `iniciando` é o
+     `INITIALIZING` do servidor: a reserva já foi feita, o dia AINDA NÃO foi
+     debitado (ver `estadoDaRota` na ponte). Ele não é `rodando` e não é
+     `montando`:
+     · não é `rodando` porque navegação e "Encerrar dia" não podem existir sobre
+       um dia que o servidor não cobrou;
+     · não é `montando` porque `montando` é recibo de toque MEU, que some sozinho
+       em segundos — este aqui é estado do SERVIDOR e pode ficar preso (o
+       `releaseInitialization` de lá é best-effort).
+     Por isso ele tem satélite, e o satélite é o Cancelar: estado que pode
+     durar precisa de porta, senão é o BECO que o "Recusado" já custou em 14/08.
+     O main não tem ação — dois toques não iniciam duas vezes. */
+  iniciando:{main:{glifo:'route', rotulo:'Iniciando…'},
+             esq:{tipo:'perigo', glifo:'close', rotulo:'Cancelar', acao:'cancelar-rota'}},
   /* Ver uma pendência é consulta. As mutações ficam no cartão nomeado; o dock
      não oferece Iniciar/Cancelar e o mapa não reordena uma rota alheia/velha. */
   /* `nota:true` = estado PERMANENTE, não trabalho em curso. Sem isto ele caía
@@ -302,26 +319,32 @@ const ROTA_ESTADOS={
      (o estado da rota é PLANNED|ACTIVE|COMPLETED|ENCERRADA), então eram dois
      botões que não pausavam nada. Fechar o dia é o "Finalizar" do pé da lista.
 
-     🔴 O "FINALIZAR" ABRE O FECHAMENTO — NÃO FECHA NADA (12/08, dono: "ela
-     aparece algumas vezes no final, sem necessidade, transforme isso em 1x
-     só"). Ele apontava pra `fechar-dia`, o MESMO gancho do botão "Fechar o dia"
-     que mora dentro da tela de Fechamento. O toque abria um portão, o portão
-     mandava o POST, e o caminho terminava em `ir('fechamento')` — ou seja, na
-     tela que tem o botão de novo. Anel: fecha, cai onde fecha, fecha outra vez.
-     E o dia nunca acabava, porque `fechamento/finalizar` não encerra rota
-     nenhuma (ele carimba a página do dia e salva a Rota salva) — a rota seguia
-     ACTIVE e este mesmo rodapé voltava com "Navegar" sobre um dia terminado.
-
-     A régua desta casa já dizia o que fazer, dois blocos abaixo, na dica do dia
-     vazio: repetir o verbo numa segunda peça ensina que existem dois lugares
-     pra mesma coisa — e um dia os dois discordam. Então o verbo ficou com UM
-     dono (o "Fechar o dia" da tela de Fechamento, que é onde o dinheiro está à
-     vista) e este satélite virou o que ele sempre pareceu ser: a PORTA. É o
-     padrão de todo app de rota — "Finish route" abre o recibo do dia, e o dia
-     só fecha depois que o motorista viu o número. */
-  rodando:  {main:{acao:'navegar', glifo:'nav', rotulo:'Navegar'},
+     🔴 OS VERBOS DESTE DOCK MENTIAM OS DOIS (16/08, dono com a tela na mão:
+     *"pq no 2d está falando navegar? pq o 3d tem encerrar e o 2d não? eu já
+     montei a rota, não tenho q clicar em iniciar se o 2d já é um modo
+     iniciado"*).
+     · "Navegar" era `window.ir('mapa')` e mais nada — ZERO rede, medido. Ele
+       prometia começar uma navegação que já estava acontecendo: com a rota
+       ACTIVE o 2D já tem fita, pinos, posição e o "Você chegou" automático. O
+       que o toque faz é TROCAR A CÂMERA, e agora o rótulo diz isso:
+       **Dirigindo** (de cima → inclinado). O par dele vive no rodapé do 3D:
+       **Panorâmica** (inclinado → de cima). Dois nomes, um gesto, ida e volta.
+     · "Finalizar" abria a tela de Fechamento e não finalizava nada — o mesmo
+       destino que o 3D chamava de "Fechamento", com outro nome. Passa a ser
+       **Encerrar dia**, apontando pro `fechar-dia`, que é o ÚNICO verbo que
+       encerra de verdade (POST /logistica/rota/encerrar + a página do dia, e
+       termina no recibo). A lei de 12/08 continua de pé — "o dia só fecha
+       depois que o motorista viu o número" — porque `fecharDia` pergunta antes,
+       num portão, e o número aparece no recibo do fim.
+     · Sem `acao:'navegar'` mudar de nome: a chave é CONTRATO (o handler que
+       leva ao 3D), o rótulo é DESENHO. Trocar a chave junto só quebraria o
+       único caminho 2D→3D sem ninguém ver diferença na tela.
+     · Glifo `lock` e tipo `info`: o satélite esquerdo já é `perigo` (Cancelar).
+       Dois vermelhos lado a lado ensinariam que "encerrar o dia" e "destruir o
+       dia" são a mesma coisa — e não são: um é o fim normal do trabalho. */
+  rodando:  {main:{acao:'navegar', glifo:'nav', rotulo:'Dirigindo'},
              esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar', acao:'cancelar-rota'},
-             dir:{tipo:'info', glifo:'check', rotulo:'Finalizar', acao:'ir-fechamento'}},
+             dir:{tipo:'info', glifo:'lock', rotulo:'Encerrar dia', acao:'fechar-dia'}},
   /* 🔴 O RECIBO DO TOQUE MORA NO BOTÃO TOCADO. Enquanto o servidor monta, o
      meio vira "Montando…": mesmo lugar, mesmo tamanho, SEM ação (dois toques
      não montam duas vezes) e sem satélite — cancelar ou iniciar no meio de uma
@@ -579,13 +602,20 @@ const DADOS={
      🔴 SLOT SEM FONTE **SOME INTEIRO** — com rótulo, unidade e separador. O
      " · " nasce de um `join`, nunca do template: separador órfão e caixa vazia
      boiando no mapa são a mesma mentira de antes, só que mais feia. O que
-     NUNCA some é o `encerrar`: é a porta de saída desta tela, e motorista
+     NUNCA some é a `panoramica`: é a porta de saída desta tela, e motorista
      preso na navegação é defeito pior que qualquer número faltando.
+
+     🔴 AS DUAS CHAVES DO RODAPÉ MUDARAM DE NOME EM 16/08, junto com os verbos.
+     `encerrar` dizia "Sair" e virou `panoramica`; e nasceu `encerrarDia`, que é
+     o verbo novo da ponta direita. A chave velha `fechar` foi APAGADA: ela
+     guardava a palavra "Fechamento" e NINGUÉM a lia (o template cravava o
+     literal) — slot de seam com a copy antiga é armadilha, porque parece ser a
+     fonte do rótulo e não é.
 
      DADO: manobra* · rumo · velocidade · paradaN · paradaTotal · paradaNome ·
            chegada · restante · distancia.
      COPY: velocidadeUnidade · chegadaRotulo · restanteRotulo · distanciaRotulo
-           · encerrar.
+           · panoramica · encerrarDia.
      🔴 OS 8 CAMPOS `chegou*` SAÍRAM DAQUI NO LOTE 3 (15/08). O "Você chegou"
      não é mais um estado deste cromo — é a peça `.chegou-wrap`, montada por
      `cartaoChegada(d)` com `d={id,n,nome,endereco,gps}` lido direto de
@@ -603,21 +633,25 @@ const DADOS={
     chegada:'12:26', chegadaRotulo:'chegada',
     restante:'45 min', restanteRotulo:'restante',
     distancia:'8,2 km', distanciaRotulo:'distância',
-    /* 🔴 "Sair", nunca "Encerrar" (09/08). Este botão só volta pra tela Rota
-       com a rota VIVA — não fecha dia, não devolve parada, não desfaz nada.
-       Verbo destrutivo em botão que não destrói é a mesma mentira do "cancelar"
-       de duas caras: quem lê "Encerrar" no meio do trânsito fica preso no GPS
-       com medo de perder o dia. A CHAVE segue `encerrar` porque é o nome do
-       slot no seam (a ponte não a reescreve); o que o motorista lê é o valor. */
-    encerrar:'Sair',
-    /* Os dois atalhos que dividem a linha de baixo com o Sair (10/08). São COPY
-       fixa como o `encerrar`: a ponte não os reescreve, e por isso eles nunca
-       "somem por falta de dado" — botão de saída e botão de registro não podem
-       depender do que o servidor respondeu.
+    /* 🔴 "Panorâmica", e a razão de 09/08 é a mesma, mais forte (16/08). Este
+       botão só volta pra tela Rota com a rota VIVA — não fecha dia, não devolve
+       parada, não desfaz nada; verbo destrutivo aqui seria mentira. Ele era
+       "Sair", que descrevia o que se PERDE (a tela); "Panorâmica" descreve o que
+       se GANHA (o dia visto de cima) e faz par com o "Dirigindo" do dock do 2D:
+       a mesma viagem, nos dois sentidos, com os dois nomes visíveis. */
+    panoramica:'Panorâmica',
+    /* Os dois vizinhos da mesma faixa. São COPY fixa como a `panoramica`: a
+       ponte não os reescreve, e por isso eles nunca "somem por falta de dado" —
+       porta de saída, botão de registro e fim do dia não podem depender do que o
+       servidor respondeu.
        "Registrar" é o verbo curto de "registrar o local onde eu estou": é dele
        que saem o cadastro na porta, a venda avulsa e a correção do endereço,
-       todos com o GPS carimbado no toque (a folha da rua). */
-    registrar:'Registrar', fechar:'Fechamento',
+       todos com o GPS carimbado no toque (a folha da rua).
+       🔴 "Encerrar dia" é o MESMO verbo do satélite do 2D, e de propósito: um
+       dono só (`fechar-dia`), dois lugares de alcance. Era "Fechamento" aqui e
+       "Finalizar" lá — dois nomes para a mesma porta, que é como o motorista
+       aprende que existem dois lugares pra mesma coisa. */
+    registrar:'Registrar', encerrarDia:'Encerrar dia',
   },
   /* L4 — A PORTA. Os literais abaixo são os que estavam nos templates da folha
      de chegada e da folha da venda, MOVIDOS pra cá. `itens` é [ícone, nome,
@@ -1220,7 +1254,9 @@ const paradasAbertasNaTela=()=>PARADAS.filter(p=>{
    offline que o motorista mais precisa abrir a lista das paradas. A barra do
    mapa continua com a régua dela, mais curta, porque lá o estado GANHA da
    contagem: "Sem sinal" e "12 paradas" não cabem na mesma linha de 412px. */
-const temRotaNoDia=e=>e==='pronta'||e==='rodando'||e==='pausada'||e==='semsinal';
+/* `iniciando` conta como rota no dia (16/08): a lista existe e é justamente
+   nela que o motorista confere o que foi montado enquanto o servidor reserva. */
+const temRotaNoDia=e=>e==='pronta'||e==='iniciando'||e==='rodando'||e==='pausada'||e==='semsinal';
 /* O RODAPÉ DA ROTA — a mesma conta pro mapa e pra lista. As duas telas
    escreviam esta escada à mão, em duas cópias que já divergiam num ponto (a
    lista lia `DADOS.rota.montando`, o mapa lia o `d` local); e é numa cópia
@@ -1867,13 +1903,21 @@ function telaGps(){
       <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',22)}</button>
     </div>
 
-    <!-- 🔴 O RODAPÉ PODE FICAR SÓ COM O "Sair", e é o certo: ele é a PORTA
-         DE SAÍDA da navegação. Motorista preso nesta tela é pior que qualquer
-         número faltando — por isso o "encerrar" é COPY e nunca zera. O rótulo
-         virou "Sair" em 09/08: o botão volta pra tela Rota com a rota VIVA, e
-         verbo de destruir em botão que não destrói é mentira (a razão longa
-         mora no seam, em DADOS.gps). (Sem CRASE aqui dentro: este comentário
-         mora num template literal.) -->
+    <!-- 🔴 A FAIXA DOS VERBOS, REALINHADA COM O 2D (16/08). Ela tinha TRES
+         verbos e NENHUM encerrava coisa alguma: "Fechamento" abria outra tela,
+         "Registrar" abria um portao, "Sair" voltava pro 2D. O dono perguntou
+         por que o 3D tem encerrar e o 2D nao — a medicao mostrou o contrario:
+         o 3D tinha tres portas e nenhuma fechadura.
+         A esquerda passa a ser PANORAMICA, o par exato do "Dirigindo" do dock
+         do 2D: mesma viagem, sentido contrario. Ela mantem data-ir="rota"
+         porque a volta e uma TELA, e porque rota e o unico modulo que nunca
+         desliga — a saida da navegacao nao pode depender de configuracao.
+         A direita passa a ser ENCERRAR DIA, o mesmo verbo e o MESMO gancho
+         (fechar-dia) do satelite do 2D: um dono so, dois lugares de alcance.
+         E ele deixa de ser data-ir: fechamento e chave de MODULO do admin, e
+         com o modulo desligado a poda arrancava o botao do rodape — o motorista
+         na rua ficava sem verbo de encerrar. Com data-acao ele sobrevive.
+         (Sem CRASE aqui dentro: este comentario mora num template literal.) -->
     <div class="gps-rodape">
       ${rodape?`<div class="parada">${ic('route',14)} <span class="txt">${rodape}</span></div>`:''}
       <div class="linha indicadores">
@@ -1883,11 +1927,14 @@ function telaGps(){
       </div>
       <!-- Os três verbos ficam sempre expostos na mesma faixa. Nenhum deles
            depende de abrir menu: quem está dirigindo precisa enxergar a saída,
-           o registro na porta e o encerramento antes de tocar. -->
+           o registro na porta e o encerramento antes de tocar.
+           A ORDEM É A DA CONSEQUÊNCIA: sair da câmera (nada acontece) → registrar
+           (grava uma parada) → encerrar o dia (acaba o trabalho). O verbo mais
+           caro fica na ponta, longe do polegar que estava mirando o mapa. -->
       <div class="gps-encerrar">
-        <button class="gps-encerrar-main" data-ir="fechamento">Fechamento</button>
+        <button class="gps-panoramica" data-ir="rota">${g.panoramica||'Panorâmica'}</button>
         <button class="gps-registrar" data-acao="registrar-local">${g.registrar||'Registrar'}</button>
-        <button class="gps-sair" data-ir="rota">${g.encerrar||'Sair'}</button>
+        <button class="gps-encerrar-main" data-acao="fechar-dia">${g.encerrarDia||'Encerrar dia'}</button>
       </div>
     </div>
   </div>

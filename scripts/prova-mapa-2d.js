@@ -118,7 +118,15 @@ const PONTE = (itens) => {
         return Promise.resolve({ stops: ordem.map((id) => ({ id })) });
       }
       if (caminho.indexOf('/logistica/rota?') === 0) {
-        return Promise.resolve({ items: itens, routeStatus: itens.length ? 'PLANNED' : 'NONE', moduloFinanceiroAtivo: false });
+        // 16/08 — o routeStatus virou VARIÁVEL do dublê. Ele era cravado em
+        // 'PLANNED', e por isso `rotaNaRua()` nunca era verdade aqui: qualquer
+        // prova de coisa que só acontece com a rota NA RUA (a aproximação por
+        // movimento, por exemplo) sairia verde sem exercitar uma linha sequer.
+        return Promise.resolve({
+          items: itens,
+          routeStatus: window.__routeStatus || (itens.length ? 'PLANNED' : 'NONE'),
+          moduloFinanceiroAtivo: false,
+        });
       }
       if (caminho.indexOf('/logistica/agenda') === 0) return Promise.resolve({ dias: [] });
       if (caminho.indexOf('/logistica/dia-preview') === 0) return Promise.resolve({ clientes: [] });
@@ -139,7 +147,7 @@ const eh = (nome, cond, medida) => {
 };
 
 /** abre o app já dublado, na tela Rota, com as paradas pedidas */
-async function abrir(navegador, pele, porta, { itens, permissao, luz }) {
+async function abrir(navegador, pele, porta, { itens, permissao, luz, routeStatus }) {
   const ctx = await navegador.newContext({
     viewport: { width: 412, height: 940 },
     geolocation: { latitude: -22.4126, longitude: -47.5763, accuracy: 30 },
@@ -154,6 +162,7 @@ async function abrir(navegador, pele, porta, { itens, permissao, luz }) {
   // regras novas por cima — elas não existem lá, então não há conflito.
   await p.addStyleTag({ content: pele });
   if (luz) await p.evaluate((l) => { document.documentElement.dataset.luz = l; }, luz);
+  if (routeStatus) await p.evaluate((s) => { window.__routeStatus = s; }, routeStatus);
   await p.evaluate(PONTE, itens);
   await p.evaluate(() => window.HBXRota.carregar());
   await p.waitForTimeout(700);
@@ -653,6 +662,82 @@ const RESOLVER = (valor) => {
       eh(`5.6 [${luz}] o TITULO do estado >= 4,5`, cTit >= 4.5, `${cTit.toFixed(2)}:1`);
     }
     eh('5.7 o mock nao quebrou', erros.length === 0, erros[0] || 'limpo');
+    await ctx.close();
+  }
+
+  /* ===== CASO 7 — A APROXIMACAO POR MOVIMENTO (16/08, pedido do dono) =======
+     "no modo 2d, ao se movimentar (uns 30 metros) aproximar uns 30%".
+     A razao dos 30 m e dele: *"o GPS as vezes se movimenta um pouco, nao quero
+     que este bug seja confundido por movimentacao"*. Entao a prova mede as DUAS
+     pontas: o tremor parado NAO pode aproximar, e andar de verdade TEM que
+     aproximar — e na medida certa (0,515 de nivel = 30% mais perto, porque cada
+     nivel de zoom DOBRA a escala).
+     Sem carro: os fixes entram pelo mesmo caminho do aparelho
+     (`window.HBXRota.fix`), um por vez, com a rota NA RUA (routeStatus ACTIVE). */
+  {
+    const itens = [0, 1, 2, 3].map(paradaFalsa);
+    const { ctx, p, erros } = await abrir(navegador, pele, porta, {
+      itens, permissao: true, routeStatus: 'ACTIVE',
+    });
+    /* Guarda de sonda: sem ela, medir contra um código que ainda não tem a régua
+       mata o arquivo com TypeError — ERRO, não FALHA, e erro não se lê como
+       "reprovou". Faltando a sonda, as quatro asserções abaixo reprovam dizendo
+       exatamente isso. */
+    const temSonda = await p.evaluate(() => !!(window.HBXMapa2D && window.HBXMapa2D.zoom));
+    const zoom = () => (temSonda ? p.evaluate(() => window.HBXMapa2D.zoom()) : Promise.resolve(null));
+    // O fix entra pelo MESMO caminho do aparelho: o watchPosition do WebView.
+    // Mover a geolocalizacao do contexto e mais fiel que chamar a ponte na mao —
+    // e o unico jeito de a cadeia inteira (aoFix -> moverEuNoPlano) ser medida.
+    const fix = async (lat, lng) => {
+      await ctx.setGeolocation({ latitude: lat, longitude: lng, accuracy: 12 });
+    };
+    const BASE = { lat: -22.4126, lng: -47.5763 };
+    // ~0,00027 grau de latitude = 30 m; metade disso e o tremor.
+    const GRAU30 = 0.00027;
+
+    await fix(BASE.lat, BASE.lng);
+    await p.waitForTimeout(700);
+    const z0 = await zoom();
+    // TREMOR: quatro fixes de ~13 m em volta do mesmo ponto.
+    for (const d of [0.00012, -0.00011, 0.0001, -0.00012]) {
+      await fix(BASE.lat + d, BASE.lng + d);
+      await p.waitForTimeout(260);
+    }
+    const zTremor = await zoom();
+    eh('7.1 parado (tremor de ~13 m) o 2D NAO aproxima',
+      z0 != null && zTremor != null && Math.abs(zTremor - z0) < 0.05,
+      temSonda ? `z0=${z0 && z0.toFixed(3)} tremor=${zTremor && zTremor.toFixed(3)}` : 'sem sonda do mapa 2D');
+
+    await fix(BASE.lat + GRAU30 * 1.2, BASE.lng);
+    await p.waitForTimeout(1100);
+    const z1 = await zoom();
+    const passo = z1 != null && z0 != null ? z1 - z0 : 0;
+    eh('7.2 andou 30 m: aproxima ~30% (0,515 de nivel), nem mais nem menos',
+      passo > 0.4 && passo < 0.62,
+      temSonda ? `passo=${passo.toFixed(3)}` : 'sem regua de aproximacao no 2D');
+
+    await fix(BASE.lat + GRAU30 * 2.4, BASE.lng);
+    await p.waitForTimeout(1100);
+    await fix(BASE.lat + GRAU30 * 3.6, BASE.lng);
+    await p.waitForTimeout(1100);
+    await fix(BASE.lat + GRAU30 * 4.8, BASE.lng);
+    await p.waitForTimeout(1100);
+    const zTeto = await zoom();
+    eh('7.3 a aproximacao tem TETO (2 passos): rodar o dia nao cola o mapa no capo',
+      temSonda && zTeto != null && z0 != null && (zTeto - z0) <= (0.515 * 2) + 0.08 && (zTeto - z0) > 0.4,
+      temSonda ? `somado=${(zTeto - z0).toFixed(3)}` : 'sem regua de aproximacao no 2D');
+
+    // O DEDO MANDA MAIS: arrastar desliga a regua ate o botao de enquadrar.
+    if (temSonda) await p.evaluate(() => window.HBXMapa2D.dedo());
+    const zAntesDoDedo = await zoom();
+    await fix(BASE.lat + GRAU30 * 8, BASE.lng);
+    await p.waitForTimeout(1100);
+    const zDepoisDoDedo = await zoom();
+    eh('7.4 depois do dedo no mapa, andar NAO mexe mais na camera',
+      temSonda && Math.abs(zDepoisDoDedo - zAntesDoDedo) < 0.05,
+      temSonda ? `antes=${zAntesDoDedo.toFixed(3)} depois=${zDepoisDoDedo.toFixed(3)}` : 'sem freio de dedo no palco 2D');
+
+    eh('7.5 nenhum erro de pagina no caminho todo', erros.length === 0, erros[0] || 'limpo');
     await ctx.close();
   }
 

@@ -323,6 +323,14 @@
         // 🔴 NUNCA MORRER CALADO (dono, §1.3): primeiro a verdade do
         // servidor — se a rota JÁ ESTÁ em andamento, a resposta certa é
         // levar o motorista pra ela, não um erro genérico.
+        /* 🔴 E "EM ANDAMENTO" DEIXOU DE INCLUIR A RESERVA (16/08). Este era o
+           caminho pelo qual o erro de CRÉDITO sumia: o 2º toque levava 409 do
+           claim, `carregarRota` lia o `INITIALIZING` do 1º pedido, `estadoRota`
+           dizia 'rodando' e o app entrava na navegação com `return` — engolindo
+           justamente o 402 que provava que o dia NÃO foi pago. Hoje INITIALIZING
+           vira `iniciando` (ver `estadoDaRota`), que não casa neste `if`: o erro
+           volta a aparecer, com o botão de repetir. O `if` continua valendo pro
+           que ele sempre quis dizer — rota ACTIVE, dia já debitado. */
         await carregarRota();
         if (estadoRota === 'rodando' || estadoRota === 'pausada') {
           // Já está em andamento? Cai direto NELA — a navegação, não uma tela

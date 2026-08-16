@@ -703,19 +703,28 @@
     const dia = diaDaSemana();
     const sobrando = paradasPendentes().length;
     window.portao({
-      tom: 'info', ico: 'lock', titulo: 'Fechar o dia?',
+      // O título segue o botão que abriu o portão (16/08): os dois lugares de
+      // onde se encerra o dia — o satélite do 2D e a ponta do rodapé do 3D —
+      // dizem "Encerrar dia", e pergunta com outro verbo faz o dedo hesitar.
+      tom: 'info', ico: 'lock', titulo: 'Encerrar o dia?',
       /* Quem sobrou é dito ANTES, não depois: encerrar devolve a parada aberta
          pra pendência (sem ordem) e ainda vira recado no escritório. Quem tem
          direito de saber disso é quem está apertando o botão. */
       sub: sobrando
         ? `${sobrando} ${sobrando === 1 ? 'parada fica' : 'paradas ficam'} pra amanhã · registrar como ${DIAS_SEMANA[dia]}`
         : `Registrar como ${DIAS_SEMANA[dia]}`,
-      acoes: [['Agora não', ''], ['Fechar o dia', 'principal']], classe: 'duas',
+      acoes: [['Agora não', ''], ['Encerrar dia', 'principal']], classe: 'duas',
     });
     const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;
     botao.addEventListener('click', () => comTrava(async () => {
-      if (estadoRota === 'rodando' || estadoRota === 'pausada') {
+      /* 🔴 `iniciando` ENTRA NESTE GATE (16/08) — e é justamente o caso em que
+         ele mais importa. Ele é o `INITIALIZING` do servidor: uma reserva de
+         rota que pode ter ficado PRESA (o `releaseInitialization` de lá é
+         best-effort). Sem esta palavra, o dia travado nessa reserva nunca
+         mandaria `/logistica/rota/encerrar` — o encerrar viraria meio verbo, e
+         o motorista ficaria com um dia que não anda nem acaba. */
+      if (estadoRota === 'rodando' || estadoRota === 'pausada' || estadoRota === 'iniciando') {
         try { await window.API.post('/logistica/rota/encerrar', { date: hojeISO() }); }
         catch (e) { return avisoErro(e); }
       }

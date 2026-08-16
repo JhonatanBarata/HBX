@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="pt-BR" data-luz="escuro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prancheta dos botões — 2D × 3D</title>
+<!--
+  PRANCHETA DOS BOTÕES — 16/08/2026, a pedido do dono ("eu quero um mock deles
+  antes de tudo! como estão os botões atuais do 3d e os botões do 2d").
+
+  Isto NÃO é tela: é o INVENTÁRIO desenhado. Cada peça aqui foi lida no código e
+  carrega a ficha do que ela faz DE VERDADE — não o que o rótulo promete.
+  Fonte de cada afirmação: docs/mockups/logistica2.0/logistica-2.0.html (desenho)
+  e EntregaShell/app/src/logistica/ponte-src/*.js (o que o toque dispara).
+
+  Arquivo separado de propósito: mexer no logistica-2.0.html é mexer no app.
+  Aqui não há app nenhum — é papel.
+-->
+<style>
+  :root{
+    --bg:#080d17; --bg-2:#0a1120; --card:#0d1626; --line:#1a2740; --line-2:#26375a;
+    --ink:#eef3fb; --ink-2:#93a3bf; --ink-3:#7889a6;
+    --lime:#9ede2a; --blue:#2f7ef7; --blue-l:#5b9dff; --amber:#f5a524; --red:#f2555a;
+    --white:#fff; --go-1:#8fd626; --go-2:#68b019; --go-ink:#12200a;
+    --red-line:#5b2626; --red-bg:#1a1114; --glass:#0b1322;
+    --map-btn:46px; --map-raio:16px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:400 15px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:20px 16px 60px}
+  h1{font-size:22px;font-weight:600;margin:0 0 6px;letter-spacing:-.2px}
+  h1 em{font-style:normal;color:var(--lime)}
+  .sub{color:var(--ink-2);font-size:13.5px;max-width:70ch;margin:0 0 24px}
+  h2{font-size:17px;font-weight:600;margin:34px 0 4px;display:flex;align-items:center;gap:9px}
+  h2 .n{width:26px;height:26px;border-radius:9px;display:grid;place-items:center;
+    font-size:12.5px;font-weight:700;background:var(--card);border:1px solid var(--line-2);color:var(--lime)}
+  h3{font-size:13px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
+    color:var(--ink-3);margin:26px 0 10px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+  .colunas{display:grid;grid-template-columns:1fr;gap:8px}
+  @media (min-width:1000px){ .colunas{grid-template-columns:1fr 1fr;gap:30px;align-items:start} }
+
+  /* ---- a ficha de cada peça ---- */
+  .peca{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start;
+    padding:13px;border:1px solid var(--line);border-radius:14px;background:var(--bg-2);margin-bottom:9px}
+  .peca .desenho{display:flex;align-items:center;gap:8px}
+  .peca .ficha{min-width:0}
+  .peca .rot{font-size:14px;font-weight:600;margin-bottom:2px}
+  .peca .rot small{font-weight:400;color:var(--ink-3);font-size:11.5px;margin-left:6px}
+  .peca .quando{font-size:11.5px;color:var(--blue-l);margin-bottom:5px}
+  .peca .faz{font-size:12.5px;color:var(--ink-2)}
+  .peca .faz b{color:var(--ink);font-weight:500}
+  .selo{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+    padding:2px 7px;border-radius:999px;margin-top:7px}
+  .selo.mente{background:#2a1418;color:#ff9b96;border:1px solid var(--red-line)}
+  .selo.inerte{background:#141b2c;color:var(--ink-3);border:1px solid var(--line-2)}
+  .selo.ok{background:#16210c;color:var(--lime);border:1px solid #3d5a1a}
+
+  /* ---- as peças de verdade, desenhadas ---- */
+  .tmx{display:flex;align-items:center;gap:9px;padding:7px 11px 9px;background:var(--bg);
+    border:1px solid var(--line);border-top-color:var(--line-2);border-radius:12px;min-width:290px}
+  .tmx.solo{min-width:250px}
+  .sat{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:4px}
+  .sat button{width:46px;height:46px;border-radius:16px;border:.7px solid var(--line);background:var(--card);
+    color:var(--ink);display:grid;place-items:center;cursor:default;position:relative}
+  .sat.perigo button{color:var(--red);border-color:var(--red-line)}
+  .sat.info button{color:var(--blue-l);border-color:#26436e}
+  .sat small{font-size:9.5px;color:var(--ink-2)}
+  .main{flex:1;min-width:0}
+  .main button{width:100%;height:56px;border-radius:18px;border:0;cursor:default;
+    display:flex;align-items:center;justify-content:center;gap:9px;color:var(--white);
+    background:linear-gradient(180deg,var(--go-1),var(--go-2));box-shadow:0 8px 22px rgba(122,190,30,.28)}
+  .main button b{font-weight:500;font-size:16px;letter-spacing:.1px}
+  .main button.azul{background:linear-gradient(180deg,#4a95ff,#1d5fd0);box-shadow:0 8px 22px rgba(47,126,247,.32)}
+  .main button.parado{background:var(--card);border:.7px solid var(--line);color:var(--ink-2);box-shadow:none}
+  .nota{display:flex;align-items:center;justify-content:center;gap:9px;height:56px;
+    border:.7px dashed var(--line-2);border-radius:18px;color:var(--ink-2);font-size:15px}
+
+  .lado{display:flex;flex-direction:column;gap:10px;padding:11px;border:1px solid var(--line);
+    border-radius:14px;background:#060a14;width:68px}
+  .lado button{width:var(--map-btn);height:var(--map-btn);border-radius:var(--map-raio);
+    border:.7px solid var(--line);background:var(--glass);color:var(--ink);
+    display:grid;place-items:center;cursor:default;box-shadow:0 8px 18px rgba(0,0,0,.36)}
+  .lado button.mudo{opacity:.45}
+
+  .verbos{display:flex;gap:7px;padding:9px;border:1px solid var(--line);border-radius:14px;
+    background:var(--glass);min-width:300px}
+  .verbos button{height:42px;border-radius:11px;border:.7px solid var(--line);background:var(--card);
+    color:var(--ink);font:500 13px Inter,sans-serif;cursor:default;padding:0 12px}
+  .verbos button.fech{flex:1.35;color:var(--lime);text-transform:uppercase;font-weight:700;font-size:12px;letter-spacing:.05em}
+  .verbos button.reg{flex:1}
+  .verbos button.sair{flex:.64;color:#ff8b85;background:var(--red-bg);border-color:var(--red-line)}
+
+  .chip{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;border-radius:12px;
+    background:var(--glass);border:.7px solid var(--line);font-size:12.5px;color:var(--ink)}
+  .chip.ghost{border-radius:11px;color:var(--ink);background:transparent}
+
+  /* ---- o quadro do diagnóstico ---- */
+  .quadro{border:1px solid var(--line-2);border-radius:16px;background:var(--bg-2);padding:16px;margin-top:14px}
+  .quadro h4{margin:0 0 12px;font-size:15px;font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);
+    padding:0 10px 8px 0;font-weight:600;border-bottom:1px solid var(--line)}
+  td{padding:9px 10px 9px 0;border-bottom:1px solid var(--line);vertical-align:top}
+  td.diz{font-weight:600;white-space:nowrap}
+  td.faz{color:var(--ink-2)}
+  tr.ruim td.diz{color:#ff9b96}
+  tr.bom td.diz{color:var(--lime)}
+  .rodape{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);
+    font-size:12px;color:var(--ink-3);max-width:80ch}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
+    background:#0e1728;border:1px solid var(--line);border-radius:5px;padding:1px 5px;color:#b9c8e4}
+</style>
+</head>
+<body>
+
+<h1>Prancheta dos botões — <em>2D</em> × <em>3D</em>, como estão hoje</h1>
+<p class="sub">Inventário desenhado, não tela. Cada peça foi lida no mock e seguida até o handler na ponte:
+a linha <b>faz</b> é o efeito real, não a promessa do rótulo. Tudo o que está aqui existe no app agora.</p>
+
+<div class="colunas">
+
+<!-- ====================== COLUNA 2D ====================== -->
+<div>
+<h2><span class="n">2D</span> Mapa da rota — a aba "Rota"</h2>
+
+<h3>Rodapé de controle · um estado por vez</h3>
+
+<div class="peca">
+  <div class="desenho"><div class="tmx solo"><div class="main"><button class="parado"><b>Carregando…</b></button></div></div></div>
+  <div class="ficha">
+    <div class="rot">Carregando… <small>estado: carregando</small></div>
+    <div class="quando">boot, antes da 1ª resposta do servidor</div>
+    <div class="faz">Sem ação, <b>disabled</b>. Existe só pra o rodapé não brotar debaixo do polegar quando o dado chega.</div>
+  </div>
+</div>
+
+<div class="peca">
+  <div class="desenho"><div class="tmx solo"><div class="main"><button class="azul">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="5" r="2.2"/><path d="M8 19h6a4 4 0 0 0 0-8H10a4 4 0 0 1 0-8h6"/></svg>
+    <b>Montar rota</b></button></div></div></div>
+  <div class="ficha">
+    <div class="rot">Montar rota <small>estado: semparada</small></div>
+    <div class="quando">dia sem nenhuma parada aberta na tela</div>
+    <div class="faz">Só <b>abre a tela de Montagem</b>. Não monta nada, não fala com o servidor — quem monta é o pé de lá.</div>
+    <span class="selo mente">o rótulo promete o verbo, o botão só abre a porta</span>
+  </div>
+</div>
+
+<div class="peca">
+  <div class="desenho"><div class="tmx"><div class="main"><button>
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l6 3.5-6 3.5z" fill="currentColor" stroke="none"/></svg>
+    <b>Iniciar</b></button></div>
+    <div class="sat info"><button><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="5" r="2.2"/><path d="M8 19h6a4 4 0 0 0 0-8H10a4 4 0 0 1 0-8h6"/></svg></button><small>Montagem</small></div>
+  </div></div>
+  <div class="ficha">
+    <div class="rot">Iniciar + Montagem <small>estado: montar (com paradas)</small></div>
+    <div class="quando">há parada aberta, mas a rota ainda não foi planejada</div>
+    <div class="faz">O Iniciar aqui faz <b>tudo de uma vez</b>: materializa, planeja (<b>é aqui que o dinheiro sai</b>), consulta o custo, inicia e pula pro 3D.</div>
+  </div>
+</div>
+
+<div class="peca">
+  <div class="desenho"><div class="tmx">
+    <div class="sat perigo"><button><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></button><small>Cancelar</small></div>
+    <div class="main"><button>
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l6 3.5-6 3.5z" fill="currentColor" stroke="none"/></svg>
+      <b>Iniciar</b></button></div>
+    <div class="sat info"><button><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="5" r="2.2"/><path d="M8 19h6a4 4 0 0 0 0-8H10a4 4 0 0 1 0-8h6"/></svg></button><small>Montagem</small></div>
+  </div></div>
+  <div class="ficha">
+    <div class="rot">Cancelar · Iniciar · Montagem <small>estado: pronta</small></div>
+    <div class="quando">rota MONTADA e não iniciada · servidor diz PLANNED</div>
+    <div class="faz">É a tela da sua foto. O dia <b>já foi cobrado no Montar</b>; este Iniciar normalmente não cobra de novo (chave idempotente por empresa+data) — ele grava <code>ACTIVE</code> e leva pro 3D.</div>
+  </div>
+</div>
+
+<div class="peca">
+  <div class="desenho"><div class="tmx">
+    <div class="sat perigo"><button><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/></svg></button><small>Cancelar</small></div>
+    <div class="main"><button>
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l18-8-8 18-2-8-8-2z"/></svg>
+      <b>Navegar</b></button></div>
+    <div class="sat info"><button><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12.5l5 5L20 6.5"/></svg></button><small>Finalizar</small></div>
+  </div></div>
+  <div class="ficha">
+    <div class="rot">Cancelar · Navegar · Finalizar <small>estado: rodando</small></div>
+    <div class="quando">servidor diz ACTIVE <b>ou INITIALIZING</b></div>
+    <div class="faz">"Navegar" é <b>troca de tela pura</b> — zero rede, só muda a câmera pro 3D. "Finalizar" <b>não finaliza</b>: abre a tela de Fechamento.</div>
+    <span class="selo mente">dois rótulos, nenhum dos dois faz o que diz</span>
+  </div>
+</div>
+
+<div class="peca">
+  <div class="desenho"><div class="tmx solo"><div class="main"><div class="nota">
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="5" r="2.2"/><path d="M8 19h6a4 4 0 0 0 0-8H10a4 4 0 0 1 0-8h6"/></svg>
+    Somente consulta</div></div></div></div>
+  <div class="ficha">
+    <div class="rot">Somente consulta <small>estado: consulta</small></div>
+    <div class="quando">abriu a rota pendente de outro dia / outro dono</div>
+    <div class="faz">Não é botão — é aviso. Os pinos e a fita <b>desenham</b>, mas toda mutação é recusada nas portas.</div>
+    <span class="selo inerte">não aceita dedo, por desenho</span>
+  </div>
+</div>
+
+<div class="peca">
+  <div class="desenho"><div class="tmx solo"><div class="main"><button class="parado"><b>Montando…</b></button></div></div></div>
+  <div class="ficha">
+    <div class="rot">Montando… <small>eixo paralelo, vence todos os estados</small></div>
+    <div class="quando">enquanto planejar / custo / iniciar estão em voo</div>
+    <div class="faz">O recibo do toque, no próprio botão tocado. Sem satélites — cancelar no meio de uma montagem seria botão que mente.</div>
+  </div>
+</div>
+
+<h3>Beirada e topo</h3>
+
+<div class="peca">
+  <div class="desenho"><div class="lado"><button><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8.5"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4"/></svg></button></div></div>
+  <div class="ficha">
+    <div class="rot">Enquadrar a rota <small>o único botão da beirada</small></div>
+    <div class="quando">sempre · muda de nome pra "Centralizar em mim" quando não há rota</div>
+    <div class="faz">Devolve o enquadramento do dia inteiro depois que o dedo levou o mapa embora. <b>É o único jeito de mexer na câmera do 2D</b> — não existe câmera automática nesse palco.</div>
+    <span class="selo ok">o rótulo diz a verdade</span>
+  </div>
+</div>
+
+<div class="peca">
+  <div class="desenho"><span class="chip ghost"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg> Lista</span></div>
+  <div class="ficha">
+    <div class="rot">Lista <small>na barra de vidro do topo</small></div>
+    <div class="quando">só nasce com rota no dia</div>
+    <div class="faz">Abre a lista de paradas (kpis, caixa, filtro, soma). Porta de ida e volta com o mapa.</div>
+    <span class="selo ok">o rótulo diz a verdade</span>
+  </div>
+</div>
+</div>
+
+<!-- ====================== COLUNA 3D ====================== -->
+<div>
+<h2><span class="n">3D</span> Dirigindo — tela cheia, sem cabeçalho nem abas</h2>
+
+<h3>Coluna da beirada · sempre os 3</h3>
+
+<div class="peca">
+  <div class="desenho"><div class="lado">
+    <button><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/></svg></button>
+    <button><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 8.5a5 5 0 0 1 0 7"/></svg></button>
+    <button><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="8.5"/><path d="M12 1.5v4M12 18.5v4M1.5 12h4M18.5 12h4"/></svg></button>
+  </div></div>
+  <div class="ficha">
+    <div class="rot">Chat · Voz · Recentralizar <small>só ícone, sem rótulo</small></div>
+    <div class="quando">sempre — nenhum depende de dado</div>
+    <div class="faz"><b>Chat</b> abre a Central (o balão do cabeçalho não existe aqui). <b>Voz</b> inverte a chave do aparelho, não vai ao servidor. <b>Alvo</b> desfaz o arrasto e volta a seguir o carro.</div>
+    <span class="selo ok">os três fazem exatamente o que prometem</span>
+  </div>
+</div>
+
+<h3>Rodapé · os 3 verbos de saída</h3>
+
+<div class="peca" style="grid-template-columns:1fr">
+  <div class="desenho"><div class="verbos">
+    <button class="fech">Fechamento</button>
+    <button class="reg">Registrar</button>
+    <button class="sair">Sair</button>
+  </div></div>
+  <div class="ficha">
+    <div class="rot">Fechamento · Registrar · Sair</div>
+    <div class="quando">sempre, na mesma faixa, sem menu</div>
+    <div class="faz">
+      <b>Fechamento</b> = só abre outra tela, nenhum endpoint.<br>
+      <b>Registrar</b> = abre um portão com atalhos; sem fix de GPS não promete nada.<br>
+      <b>Sair</b> = só volta pro 2D <b>com a rota viva</b>, solta a tela acesa e sai do modo cheio.
+    </div>
+    <span class="selo mente">nenhum dos três encerra rota, fecha dia ou grava algo no servidor</span>
+  </div>
+</div>
+
+<h3>Peças que parecem botão e não são</h3>
+
+<div class="peca">
+  <div class="desenho"><div class="chip">38 <small style="color:var(--ink-2)">km/h</small></div></div>
+  <div class="ficha">
+    <div class="rot">Velocímetro · Bússola · Cartão da manobra · Chip "Empresas por perto"</div>
+    <div class="quando">nascem com dado, somem sem ele</div>
+    <div class="faz">Nenhum aceita toque. A bússola não aponta pro norte se você tocar; o chip do prospector é texto fixo do desenho.</div>
+    <span class="selo inerte">4 peças inertes</span>
+  </div>
+</div>
+
+<div class="peca">
+  <div class="desenho"><div class="tmx solo" style="min-width:210px"><div class="main"><button style="height:44px">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12.5l5 5L20 6.5"/></svg><b style="font-size:14px">Registrar entrega</b></button></div></div></div>
+  <div class="ficha">
+    <div class="rot">"Você chegou" <small>sobreposição, aparece por cima dos DOIS modos</small></div>
+    <div class="quando">geofence disparou e a rota está rodando</div>
+    <div class="faz">Dois botões: <b>Agora não</b> (só dispensa, não desfaz o carimbo de chegada) e <b>Registrar entrega</b> (abre a folha da venda e volta pro palco de onde saiu).</div>
+    <span class="selo ok">é a única peça que já trata 2D e 3D como a mesma coisa</span>
+  </div>
+</div>
+</div>
+
+</div><!-- /colunas -->
+
+<div class="quadro">
+  <h4>O que o rótulo promete × o que o botão faz</h4>
+  <table>
+    <tr><th>diz</th><th>faz de verdade</th></tr>
+    <tr class="ruim"><td class="diz">Navegar <small>(2D)</small></td><td class="faz">Troca a câmera de cima para inclinada. Zero rede. Você já estava navegando — em 2D.</td></tr>
+    <tr class="ruim"><td class="diz">Iniciar <small>(2D)</small></td><td class="faz">Só existe antes de iniciar — mas reaparece com a rota <code>ENCERRADA</code> ou <code>COMPLETED</code> que ainda tem parada aberta.</td></tr>
+    <tr class="ruim"><td class="diz">Finalizar <small>(2D)</small></td><td class="faz">Abre a tela de Fechamento. Não finaliza. O verbo verdadeiro mora lá dentro: "Fechar o dia".</td></tr>
+    <tr class="ruim"><td class="diz">Montar rota <small>(2D)</small></td><td class="faz">Abre a tela de Montagem. Quem monta é o botão do pé de lá.</td></tr>
+    <tr class="ruim"><td class="diz">Sair <small>(3D)</small></td><td class="faz">Volta pro 2D com a rota viva. Não encerra nada — e o 2D não tem o par dele.</td></tr>
+    <tr class="ruim"><td class="diz">Fechamento <small>(3D)</small></td><td class="faz">Abre outra tela. Mesmo destino do "Finalizar" do 2D, com outro nome.</td></tr>
+    <tr class="bom"><td class="diz">Cancelar</td><td class="faz">Pergunta e cancela de verdade as paradas abertas. <b>Não estorna o crédito.</b></td></tr>
+    <tr class="bom"><td class="diz">Recentralizar / Enquadrar</td><td class="faz">Mexe na câmera. É o que diz.</td></tr>
+    <tr class="bom"><td class="diz">Chat · Voz · Lista · Registrar</td><td class="faz">Fazem o que o nome diz.</td></tr>
+  </table>
+</div>
+
+<div class="quadro">
+  <h4>As três assimetrias que você apontou</h4>
+  <table>
+    <tr><th>pergunta</th><th>resposta medida</th></tr>
+    <tr><td class="diz">Por que o 2D<br>diz "Navegar"?</td><td class="faz">Porque o app trata o 2D como <b>antessala</b> e o 3D como "a navegação". Só que o 2D com a rota viva já tem traço, pinos, posição e chegada automática — só não tem o cromo. O verbo certo para uma troca de câmera é <b>a câmera</b>, não "navegar".</td></tr>
+    <tr><td class="diz">Por que o 3D tem<br>encerrar e o 2D não?</td><td class="faz">Porque os verbos de saída nasceram amarrados à <b>tela</b>, não ao <b>dia</b>. O 3D ganhou "Sair/Fechamento" por ser tela cheia sem abas; o 2D ficou com "Finalizar", que é o mesmo destino com outro nome. Encerrar o dia não é assunto de câmera.</td></tr>
+    <tr><td class="diz">"Iniciar" numa tela<br>que já está iniciada?</td><td class="faz">Correto: o "Iniciar" pertence ao estado <b>pronta</b> (PLANNED). Ele não deveria conviver com um dia na rua — e hoje convive em dois caminhos reais (rota encerrada com parada aberta, e rota COMPLETED com parada presa).</td></tr>
+  </table>
+</div>
+
+<p class="rodape">
+  Prancheta gerada em 16/08/2026 a partir do código vivo: o desenho saiu de
+  <code>docs/mockups/logistica2.0/logistica-2.0.html</code> e cada linha "faz" foi seguida até o handler em
+  <code>EntregaShell/app/src/logistica/ponte-src/</code> e, quando envolvia dinheiro, até
+  <code>backend/src/logistica/</code>. Nenhum botão foi inventado: os 6 botões da tela de dirigir e os 7 estados de
+  rodapé do 2D são os que existem no aparelho agora.
+</p>
+
+</body>
+</html>

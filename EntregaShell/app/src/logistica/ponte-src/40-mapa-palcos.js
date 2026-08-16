@@ -312,8 +312,64 @@
   const PLANO_PAD = { top: 74, right: 34, bottom: 34, left: 34 };
   const PLANO_ZOOM_TETO = 16;
 
+  /* ---- A APROXIMAÇÃO POR MOVIMENTO (16/08 — dono: *"no modo 2d, ao se
+     movimentar (uns 30 metros) aproximar uns 30%"*) -------------------------
+     O PORQUÊ DOS 30 m, na palavra dele: *"o GPS às vezes se movimenta um pouco,
+     não quero que este bug seja confundido por movimentação"*. Parado, o fix
+     balança (medido no g15: 0 → 8 → 11 → 0 km/h sem sair do lugar), e é por isso
+     que a régua é DISTÂNCIA e não relógio — a mesma escolha que o pedido de rota
+     já fazia com `NAV_ANDOU_M` (60-prospector-nav.js). A âncora aqui é PRÓPRIA de
+     propósito: a de lá só se reescreve quando o pedido SAI, e congela junto com o
+     teto diário e o backoff — a régua de zoom congelaria calada com ela.
+
+     🔴 "APROXIMAR 30%" NÃO É "+30% DE ZOOM". No maplibre cada nível DOBRA a
+     escala: encurtar a régua em 30% (metros por pixel × 0,7) é +log2(1/0,7) =
+     0,515 de nível. Somar 0,3 daria 23% e ninguém saberia por quê.
+
+     🔴 E ELA TEM TETO DE ACÚMULO. Sem teto, quem roda o dia inteiro termina com
+     o mapa colado no capô: 10 km de rua seriam +171 níveis pedidos, aparados no
+     16 do `PLANO_ZOOM_TETO` — o motorista perderia a rua seguinte sem nunca ter
+     tocado no mapa. Dois passos (~51% mais perto) é o quanto a vista de planejar
+     aguenta continuar sendo vista de planejar.
+
+     🔴 O DEDO MANDA MAIS QUE A RÉGUA. Este palco nunca teve freio de gesto (só o
+     'gps' tinha) porque nunca teve câmera automática — agora tem, e sem freio
+     seria o mapa desfazendo o arrasto do dono, que é o defeito que a fase
+     'solta' curou na navegação. Quem tocou o mapa desliga a aproximação até
+     pedir o enquadramento de volta pelo botão da beirada. */
+  const PLANO_ANDOU_M = 30;
+  const PLANO_ZOOM_PASSO = Math.log2(1 / 0.7);
+  /* 🔴 O TETO CONTA PASSOS, NÃO SOMA ZOOM (medido: a régua deixou passar um 3º
+     passo). Somando `alvo - getZoom()` a conta fecha em 1,0291463456595164
+     contra um teto de 1,0291463456595166 — dois zeros e um vento de diferença,
+     e o `>=` não morde. Contador inteiro não tem essa conversa. */
+  const PLANO_ZOOM_PASSOS_TETO = 2;
+  let planoZoomAncora = null;
+  let planoZoomPassos = 0;
+  let planoSolto = false;
+
+  /** o dedo pegou o mapa 2D: a régua dos 30 m cala a boca até o botão de enquadrar */
+  function soltarPlano() { planoSolto = true; }
+  /* SONDA DE PROVA, no padrão do `window.HBXCena.pendente()`: só leitura do zoom
+     e o mesmo desarme que o gesto faz. Sem ela, provar a régua dos 30 m exigiria
+     um carro de verdade — e o que ela expõe é o que a tela já mostra. */
+  window.HBXMapa2D = {
+    zoom() { const c = GARAGEM.get('geral'); try { return c && c.mapa ? c.mapa.getZoom() : null; } catch (_) { return null; } },
+    dedo() { soltarPlano(); },
+  };
+  /** e o enquadramento (rota nova ou dedo no botão) devolve a régua zerada */
+  function rearmarPlanoZoom() { planoSolto = false; planoZoomPassos = 0; planoZoomAncora = null; }
+
   function enquadrarGeral(casa) {
     if (!casa || casa.nome !== 'geral') return;
+    /* Enquadrar é o RECOMEÇO da régua dos 30 m, nas quatro portas que chegam
+       aqui (mapa nascendo, 1º fix, rota mudou, dedo no botão). Sim: marcar uma
+       entrega muda a digital dos pinos e devolve o dia inteiro, jogando fora a
+       aproximação acumulada — e é o certo. Acabou de entregar é exatamente a
+       hora de rever o dia todo; depois disso, os 30 m seguintes voltam a
+       aproximar sozinhos. O contrário (guardar zoom por cima de um
+       enquadramento) seria a câmera com duas vontades. */
+    rearmarPlanoZoom();
     // a MESMA lista dos pinos (§ paradasDoMapa): sem rota montada ela vem
     // vazia, e a moldura passa a ser só o motorista — enquadrar uma rota que
     // ninguém montou levaria a câmera pra um dia que não existe.
@@ -436,6 +492,36 @@
     // o ponto andou; o halo e o farol contam o fix NOVO — precisão velha
     // desenhada em cima de posição nova é a tela mentindo devagar.
     vestirEu(casa);
+    aproximarAoAndar(casa, eu);
+  }
+
+  /* A régua dos 30 m, aplicada no ÚNICO lugar do palco 2D que roda a cada fix.
+     Ela é a exceção escrita à lei de cima ("nunca nos fixes seguintes"), e por
+     isso carrega as três guardas que a lei pedia:
+       · só com a rota NA RUA — parado na garagem, ou com o dia só montado, não
+         há viagem pra acompanhar e mexer na câmera seria cromo;
+       · só se o dedo não tiver pegado o mapa (`planoSolto`);
+       · e só até o teto de acúmulo.
+     `metrosEntre` é MÓDULO (Haversine, sem sinal): ir 30 m e voltar 30 m conta
+     como andar. Aqui isso é o comportamento certo — quem manobrou na rua também
+     saiu do lugar; o que a régua precisa excluir é o TREMOR parado, e 30 m é
+     ordem de grandeza muito acima dele (o erro típico do fix é 3–20 m). */
+  function aproximarAoAndar(casa, eu) {
+    if (typeof rotaNaRua === 'function' && !rotaNaRua()) return;
+    if (planoSolto || planoZoomPassos >= PLANO_ZOOM_PASSOS_TETO) return;
+    if (!planoZoomAncora) { planoZoomAncora = { lat: eu.lat, lng: eu.lng }; return; }
+    if (metrosEntre(planoZoomAncora, eu) < PLANO_ANDOU_M) return;
+    planoZoomAncora = { lat: eu.lat, lng: eu.lng };
+    try {
+      const alvo = Math.min(casa.mapa.getZoom() + PLANO_ZOOM_PASSO, PLANO_ZOOM_TETO);
+      // Já no teto de zoom do enquadramento: gasta o orçamento de uma vez, senão
+      // a régua tentaria de novo a cada 30 m pelo resto do dia.
+      if (alvo <= casa.mapa.getZoom() + 0.001) { planoZoomPassos = PLANO_ZOOM_PASSOS_TETO; return; }
+      planoZoomPassos += 1;
+      // `easeTo` e não `jumpTo`: a tela está na mão de quem dirige, e salto de
+      // meio nível sem transição lê como falha de render.
+      casa.mapa.easeTo({ center: [eu.lng, eu.lat], zoom: alvo, duration: 620 });
+    } catch (_) { /* mapa saindo de cena */ }
   }
 
   /* 🔴 PINO FORA DA TELA NÃO É PINO — é enfeite encostado na moldura. Com a

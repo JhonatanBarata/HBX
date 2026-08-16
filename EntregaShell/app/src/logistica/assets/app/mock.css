@@ -2061,9 +2061,19 @@ button,input{font:inherit;color:inherit}
 .gps-encerrar button{min-width:0;border:0;background:transparent;cursor:pointer;font-size:11.5px;font-weight:700;
   white-space:nowrap}
 .gps-encerrar button+button{border-left:.7px solid var(--line)}
-.gps-encerrar-main{flex:1.35;color:var(--lime);font-weight:750;letter-spacing:.08em;text-transform:uppercase}
+/* 🔴 AS LARGURAS SEGUEM O RÓTULO, E O RÓTULO MUDOU (16/08). Esta faixa é
+   `overflow:hidden` + `white-space:nowrap` logo acima: texto que não cabe é
+   CORTADO EM SILÊNCIO, sem reticências e sem erro. "Panorâmica" tem 10 letras e
+   morava no slot de `.64` (o antigo "Sair", de 4); "ENCERRAR DIA" em caixa alta
+   com `letter-spacing` é o rótulo mais largo que esta barra já teve. As três
+   frações foram refeitas em cima dos rótulos novos, não herdadas dos velhos.
+   🔴 E O VERMELHO TROCOU DE PEÇA. Ele morava no botão da esquerda porque ali
+   ficava a saída; hoje a esquerda só troca a câmera — pintar de vermelho quem
+   não destrói nada é a mesma mentira que os rótulos acabaram de perder. Quem
+   carrega a consequência agora é o "Encerrar dia", na ponta direita. */
+.gps-encerrar .gps-panoramica{flex:1;color:var(--ink)}
 .gps-encerrar .gps-registrar{flex:1;color:var(--ink)}
-.gps-encerrar .gps-sair{flex:.64;color:#ff8b85;background:var(--red-bg)}
+.gps-encerrar-main{flex:1.45;color:var(--lime);font-weight:750;letter-spacing:.06em;text-transform:uppercase}
 
 /* ==========================================================================
    AS EMPRESAS DO CORREDOR — o prospector desenhado na tela de navegação.
@@ -3162,7 +3172,10 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .gps-manobra .seta{background:transparent;color:var(--ink)}
 [data-luz="claro"] .gps-manobra .baixo{background:#f4f7fb;border-top-color:var(--line)}
 [data-luz="claro"] .gps.dirigindo .gps-rodape{background:#fff;border-color:var(--line-2)}
-[data-luz="claro"] .gps.dirigindo .gps-sair{background:#fff;color:#a01a16}
+/* A regra do tema claro seguiu a peça, não o nome: o botão que era vermelho
+   virou o "Panorâmica", que não destrói nada. Ela some — o claro já herda a cor
+   de tinta do `.gps-encerrar button`, e o único destaque desta faixa continua
+   sendo o lima do "Encerrar dia", que o `[data-luz]` não sobrescreve. */
 
 /* O mapa claro: RUA BRANCA sobre quadra cinza — exatamente o oposto do escuro,
    onde a rua é que é escura. Sem isto o mapa fica preto no meio da tela clara. */

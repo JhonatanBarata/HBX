@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=1920, height=1080, user-scalable=no, initial-scale=1">
+    <title>UniTV Player</title>
+    <style>
+      html,body{margin:0;padding:0;width:1920px;height:1080px;background:transparent;overflow:hidden;
+                font-family:Arial,Helvetica,sans-serif}
+      #player-layer,#av-player{position:absolute;left:0;top:0;width:1920px;height:1080px}
+      #msg{position:fixed;left:48px;top:40px;color:#fff;font-size:36px;font-weight:bold;
+           text-shadow:0 2px 8px #000;z-index:20}
+      #tag{position:fixed;right:48px;bottom:36px;color:#8ff;font-size:24px;
+           text-shadow:0 2px 8px #000;z-index:20;opacity:.8}
+    </style>
+</head>
+<body>
+    <div id="player-layer"><object id="av-player" type="application/avplayer"></object></div>
+    <div id="msg">Iniciando&hellip;</div>
+    <div id="tag">CACHE &bull; via PC 192.168.0.19</div>
+    <script src="$WEBAPIS/webapis/webapis.js"></script>
+    <script src="player.js"></script>
+</body>
+</html>

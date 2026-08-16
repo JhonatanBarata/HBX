@@ -51,9 +51,31 @@ function makeHarness(opts: {
     logisticaConfig: {
       findUnique: async () => ({ logisticaNivel: nivel, logisticaAssentos: opts.logisticaAssentos ?? null }),
     },
+    // 16/08 — o preview parou de perguntar `findFirst` na chave base e passou a
+    // usar `chaveJaPaga`, que lê débitos E estornos com `startsWith`. O dublê
+    // reproduz o filtro real (o OR de duas famílias de chave), senão o teste do
+    // estorno mede o dublê e não o serviço.
     creditLedgerEntry: {
+      // `findFirst` continua servido de propósito: é o que o código de 15/08
+      // chamava, e sem ele o red-first mentiria — as provas novas reprovariam
+      // por "findFirst is not a function" em vez de reprovarem pelo DEFEITO.
       findFirst: async ({ where }: any) =>
         ledger.find((row) => row.companyId === where.companyId && row.usageKey === where.usageKey && row.kind === where.kind) || null,
+      findMany: async ({ where }: any) => {
+        const casa = (row: any, cond: any) => {
+          if (cond.kind && row.kind !== cond.kind) return false;
+          const alvo = cond.usageKey;
+          if (alvo && typeof alvo === 'object' && typeof alvo.startsWith === 'string') {
+            return String(row.usageKey || '').startsWith(alvo.startsWith);
+          }
+          if (typeof alvo === 'string') return row.usageKey === alvo;
+          return true;
+        };
+        return ledger
+          .filter((row) => row.companyId === where.companyId)
+          .filter((row) => (where.OR ? where.OR.some((cond: any) => casa(row, cond)) : casa(row, where)))
+          .map((row) => ({ usageKey: row.usageKey, kind: row.kind }));
+      },
     },
   };
 
@@ -84,6 +106,27 @@ function makeHarness(opts: {
     },
     marcarPassePago: (companyId: number, driverUserId: number, dateISO: string) => {
       ledger.push({ companyId, usageKey: passeDoDiaUsageKey(companyId, driverUserId, dateISO), kind: 'debit' });
+    },
+    // O CENÁRIO QUE CUSTAVA DINHEIRO: a carteira serviu um débito PARCIAL, viu
+    // que não cobria e estornou (`refund:<chave>`). A linha `debit` fica no
+    // ledger para sempre — é exatamente ela que o findFirst cru lia como "pago".
+    marcarDiaEstornado: (companyId: number, routeDate: string) => {
+      const chave = diaDeRotaUsageKey(companyId, routeDate);
+      ledger.push({ companyId, usageKey: chave, kind: 'debit' });
+      ledger.push({ companyId, usageKey: `refund:${chave}`, kind: 'refund' });
+    },
+    marcarPasseEstornado: (companyId: number, driverUserId: number, dateISO: string) => {
+      const chave = passeDoDiaUsageKey(companyId, driverUserId, dateISO);
+      ledger.push({ companyId, usageKey: chave, kind: 'debit' });
+      ledger.push({ companyId, usageKey: `refund:${chave}`, kind: 'refund' });
+    },
+    // A 2ª tentativa da cobrança nasce na chave versionada `:t2` e essa NÃO foi
+    // estornada — o dia está pago de verdade, mesmo com a base estornada atrás.
+    marcarDiaPagoNaSegundaTentativa: (companyId: number, routeDate: string) => {
+      const chave = diaDeRotaUsageKey(companyId, routeDate);
+      ledger.push({ companyId, usageKey: chave, kind: 'debit' });
+      ledger.push({ companyId, usageKey: `refund:${chave}`, kind: 'refund' });
+      ledger.push({ companyId, usageKey: `${chave}:t2`, kind: 'debit' });
     },
   };
 }
@@ -217,4 +260,56 @@ test('sem deliveryIds explícitos, usa todas as entregas abertas do motorista no
   ['d1', 'd2', 'd3'].forEach((id) => h.seedEntrega(id));
   const preview = await h.preview.previewCusto(7, { date: BASE.routeDate }, 9);
   assert.equal(preview.blocosTotais, 1, 'dia CREDITO com paradas = 1 cobrança pendente (o dia)');
+});
+
+// ── DÉBITO ESTORNADO NÃO É DÉBITO PAGO (16/08) ────────────────────────────
+// O furo que estas três provas fecham: a carteira serve um débito PARCIAL quando
+// o saldo não cobre, estorna, e devolve 402. A linha `debit` fica no ledger. O
+// preview lia essa linha com `findFirst` cru e respondia "já debitado, custo 0,
+// saldo cobre" — desarmando a trava "Créditos insuficientes" do app e deixando o
+// Iniciar seguinte debitar o preço cheio numa chave `:t2`, sem recibo.
+// Red-first: contra o código de 15/08 as três reprovam (o findFirst achava a
+// linha estornada e devolvia blocosJaDebitados 1 / creditosAIniciar 0).
+test('CREDITO: dia com débito ESTORNADO volta a custar — estorno não é pagamento', async () => {
+  const h = makeHarness({ nivel: 'CREDITO', diaCost: 6, available: 100 });
+  h.seedEntrega('d1');
+  h.marcarDiaEstornado(7, BASE.routeDate);
+  const preview = await h.preview.previewCusto(7, { date: BASE.routeDate, deliveryIds: ['d1'] }, 9);
+  assert.equal(preview.blocosJaDebitados, 0, 'a linha estornada NÃO conta como pago');
+  assert.equal(preview.creditosAIniciar, 6, 'o dia volta a custar o preço do catálogo');
+});
+
+test('CREDITO: com saldo curto depois do estorno, a trava de saldo do app REARMA', async () => {
+  // Este é o caso caro: saldo 3, custo 6. Antes, `saldoCobre: true` fazia o app
+  // pular o portão "Créditos insuficientes" e postar o iniciar assim mesmo.
+  const h = makeHarness({ nivel: 'CREDITO', diaCost: 6, available: 3 });
+  h.seedEntrega('d1');
+  h.marcarDiaEstornado(7, BASE.routeDate);
+  const preview = await h.preview.previewCusto(7, { date: BASE.routeDate, deliveryIds: ['d1'] }, 9);
+  assert.equal(preview.saldoCobre, false, 'saldo 3 não cobre custo 6 — o portão tem que nascer');
+  assert.equal(preview.creditosAIniciar, 6);
+});
+
+test('CREDITO: pago na 2ª tentativa (:t2) é pago — o preview não recobra o dia', async () => {
+  // O outro lado da mesma régua: base estornada + `:t2` viva = dia pago DE
+  // VERDADE. Sem isto a cura viraria cobrança fantasma na tela.
+  const h = makeHarness({ nivel: 'CREDITO', diaCost: 6 });
+  h.seedEntrega('d1');
+  h.marcarDiaPagoNaSegundaTentativa(7, BASE.routeDate);
+  const preview = await h.preview.previewCusto(7, { date: BASE.routeDate, deliveryIds: ['d1'] }, 9);
+  assert.equal(preview.blocosJaDebitados, 1);
+  assert.equal(preview.creditosAIniciar, 0);
+});
+
+test('ASSENTO: passe com débito ESTORNADO volta a custar (mesmo espelho de assertAssentoDoDia)', async () => {
+  // Mesmo cenário do "2º motorista estourando o teto": o assento único já está
+  // ocupado pelo 11, e o 9 ainda não tem entrega no dia (senão seria ocupante
+  // por definição). A diferença é o passe dele ter sido debitado e ESTORNADO.
+  const h = makeHarness({ nivel: 'BASIC', passeCost: 8, available: 100 });
+  h.seedEntrega('d1', { entregadorId: 11 });
+  h.seedEntrega('d2', { entregadorId: null });
+  h.marcarPasseEstornado(7, 9, BASE.routeDate);
+  const preview = await h.preview.previewCusto(7, { date: BASE.routeDate, deliveryIds: ['d2'] }, 9);
+  assert.equal(preview.blocosJaDebitados, 0, 'passe estornado não é passe pago');
+  assert.equal(preview.creditosAIniciar, 8);
 });

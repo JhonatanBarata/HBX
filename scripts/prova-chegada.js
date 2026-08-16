@@ -386,24 +386,39 @@ const SO_MEDIR = process.argv.includes('--antes');
   await p.waitForTimeout(500);
   const barra = await p.evaluate(() => ({
     atalhos: [...document.querySelectorAll('.gps-encerrar button')].map((e) => (e.textContent || '').trim()),
-    principal: document.querySelectorAll('.gps-encerrar-main[data-ir="fechamento"]').length,
+    // 16/08 — o botao principal da faixa deixou de ser `data-ir="fechamento"`:
+    // `fechamento` e chave de MODULO do admin, e com o modulo desligado a poda
+    // arrancava o verbo de encerrar do rodape de quem esta na rua. Virou
+    // `data-acao="fechar-dia"`, que a poda nao alcanca.
+    principal: document.querySelectorAll('.gps-encerrar-main[data-acao="fechar-dia"]').length,
     extras: document.querySelectorAll('.gps-acoes-extra button').length,
     numerosForaDasAcoes: document.querySelectorAll('.gps-rodape .linha:not(.acoes) .n').length,
     numerosDentroDasAcoes: document.querySelectorAll('.gps-encerrar .n').length,
-    sairNaDireita: (() => {
-      return !!document.querySelector('.gps-encerrar .gps-sair[data-ir="rota"]');
+    // A saida da navegacao trocou de nome e de lado: era "Sair" na direita,
+    // virou "Panoramica" na ESQUERDA — o par do "Dirigindo" do dock do 2D.
+    panoramicaNaEsquerda: (() => {
+      const b = [...document.querySelectorAll('.gps-encerrar button')];
+      return !!b.length && b[0].classList.contains('gps-panoramica') && b[0].dataset.ir === 'rota';
     })(),
+    // O clipe e SILENCIOSO nesta faixa (overflow:hidden + nowrap): rotulo que
+    // nao cabe some sem erro. Como os rotulos ficaram mais longos, a prova passa
+    // a medir largura, nao so presenca.
+    cortados: [...document.querySelectorAll('.gps-encerrar button')]
+      .filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => (e.textContent || '').trim()),
     mortos: [...document.querySelectorAll('.gps-encerrar button')]
       .filter((e) => !e.dataset.acao && !e.dataset.ir).length,
   }));
   nota(`[F4] barra: ${JSON.stringify(barra.atalhos)} - numeros fora das acoes=${barra.numerosForaDasAcoes}`);
-  eh('F4.1 . o cartao tem as TRES opcoes expostas (encerrar + Registrar + Sair)',
+  eh('F4.1 . o cartao tem as TRES opcoes expostas (Panoramica + Registrar + Encerrar dia)',
     barra.atalhos.length === 3 && barra.principal === 1 && barra.extras === 0,
     JSON.stringify(barra.atalhos));
   eh('F4.2 . os numeros ficam na linha de CIMA (numero se le, botao se aperta)',
     barra.numerosForaDasAcoes === 3 && barra.numerosDentroDasAcoes === 0,
     `fora=${barra.numerosForaDasAcoes} dentro=${barra.numerosDentroDasAcoes}`);
-  eh('F4.3 . o Sair continua no canto direito', barra.sairNaDireita);
+  eh('F4.3 . a Panoramica e a PRIMEIRA da faixa e volta pra tela Rota',
+    barra.panoramicaNaEsquerda, JSON.stringify(barra.atalhos));
+  eh('F4.3b . nenhum dos tres rotulos e cortado em silencio pela faixa',
+    barra.cortados.length === 0, `cortados=${JSON.stringify(barra.cortados)}`);
   // A LEI DO ARQUIVO: botao desenhado sem gancho e pior que botao ausente.
   eh('F4.4 . nenhum dos tres e botao MORTO', barra.mortos === 0, `mortos=${barra.mortos}`);
 
@@ -449,13 +464,24 @@ const SO_MEDIR = process.argv.includes('--antes');
   await cena({ entregas: [P1, P2], routeStatus: 'ACTIVE' });
   /* O acesso ao Fechamento mora hoje na Rota, não dentro do GPS 3D. */
   await irPara('rota', 1200);
-  /* "Finalizar" deixou o rodapé do GPS e hoje é o satélite direito da Rota.
-     Ele só ABRE o Fechamento; fechar o dia continua sendo outro gesto. */
-  await p.evaluate(() => document.querySelector('.tmx-sat [data-acao="ir-fechamento"]').click());
+  /* 16/08 — o satélite direito da Rota deixou de ser o "Finalizar" (que só
+     abria a tela) e virou o "Encerrar dia", no mesmo gancho do botão da tela de
+     Fechamento. O que ele abre agora é o PORTÃO de confirmação: o dia não acaba
+     no primeiro toque, e o motorista lê quantas paradas ficam antes de decidir.
+     Guarda de null de propósito: sem ela, um seletor que deixou de existir mata
+     o arquivo inteiro com TypeError — ERRO, não FALHA. */
+  const achouEncerrar = await p.evaluate(() => {
+    const x = document.querySelector('.tmx-sat [data-acao="fechar-dia"]');
+    if (!x) return false;
+    x.click();
+    return true;
+  });
   await p.waitForTimeout(1000);
   const t9 = await espiar();
-  nota(`[F4] fechamento -> tela=${t9.tela}`);
-  eh('F4.11 . o botao do meio abre o Fechamento que ja existe', t9.tela === 'fechamento', `tela=${t9.tela}`);
+  const portaoFim = await p.evaluate(() => (document.querySelector('.portao h3') || {}).textContent || '');
+  nota(`[F4] encerrar dia -> tela=${t9.tela} - portao="${portaoFim}"`);
+  eh('F4.11 . o satelite "Encerrar dia" PERGUNTA antes de encerrar',
+    achouEncerrar && /Encerrar o dia\?/i.test(portaoFim), `achou=${achouEncerrar} portao="${portaoFim}"`);
 
   await b.close();
   console.log('\n=== MEDIDAS ===');
