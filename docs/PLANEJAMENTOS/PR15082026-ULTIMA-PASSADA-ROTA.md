@@ -6,6 +6,25 @@ GERADOS por casca-injetar) + `EntregaShell/app/src/logistica/ponte-src/` (ponte.
 Execução: **1 lote por vez, dono testa cada um** antes do próximo. Commit local por lote;
 publish é gesto do dono.
 
+## ✅ FECHAMENTO DO FIO (16/08) — FISCAL LIBEROU O PUBLISH
+Cadeia 1 → 1.1 → 1.2 → 1.3 → 1.4 → 1.5 → 1.6 encerrada. **Veredicto do fiscal adversarial:
+PUBLICAR = SIM** — os 3 furos que ele havia reprovado estão fechados com red-first que ele
+mesmo derrubou; **25 portões de tela verdes + 1002 testes de backend**; 64/64 pixels
+idênticos ao pai; sem risco de cobrança dupla (chaves de idempotência são empresa+data e
+empresa+motorista+data, sem routeId; assento conta motorista distinto) e sem vazamento entre
+empresas. Commits locais a publicar: `2b1ec96f`, `734fb9d1`, `284b1297`, `98a7b22f`,
+`ebef6f26`.
+**Resíduos aceitos (menores, invisíveis ao motorista):** (a) `releaseInitialization` vira
+no-op quando a peneira nova acabou de carimbar a rota — sobra linha INITIALIZING carimbada,
+inerte (o próximo Iniciar não a reaproveita); (b) o expurgo de 24 h ainda fecha sessão sem
+carimbar a rota — hoje isso custa **um toque a mais** com aviso na tela, em vez de rastreio
+morto e calado; (c) o helper de regeneração cobre 22/25 provas (3 não precisam: uma mede SQL,
+duas medem o mock-fonte).
+**Lição de método deste fio:** 10 portões verdes não viram 2 defeitos graves que foram para
+produção; quem viu foi a **revisão adversarial independente**, que ataca a régua e não só o
+código. E prova que não regenera o gerado mede código velho — o falso-verde foi reproduzido
+(35/35 sobre fonte mutada).
+
 ## ⚠️ ESTADO DE PUBLISH (15/08 22:28) — LEIA ANTES DE MEXER
 O dono publicou em `94d4519d` (`chore: publish 20260815_222800`), levando junto os lotes
 **1, 1.1, 1.2, 2 e 3**. Consequência: **os 2 furos GRAVES que o fiscal achou no lote 3 estão
