@@ -36,6 +36,11 @@
   let chegada = null;
   let chegadaPalco = null;
   const chegadasDispensadas = new Set();
+  /* AS TELAS QUE SÃO "DIRIGIR" (o 3D). Uma lista, não um literal espalhado:
+     é ela que `irDepoisDoDesfecho` consulta pra devolver o motorista pro palco
+     dele. `mapalista` ("Mapa + fila") ainda é maquete no mock — no dia em que
+     virar tela de dado, ela entra AQUI e nada mais precisa mudar. */
+  const PALCOS_3D = ['mapa'];
 
   // A config só muda quando o dono mexe em Ajustes: pedir 1× por abertura do
   // app basta, e uma falha aqui NÃO pode fechar a porta — o default é o
@@ -471,8 +476,16 @@
        chegou" sobre a tela de dirigir) era cuspido no 2D, cortando a rua no
        meio. `chegadaPalco` é o palco de onde o cartão nasceu; zera aqui
        porque, resolvido o dia, ele já cumpriu o papel. */
+    /* 🔴 A FAMÍLIA 3D É EXPLÍCITA (LOTE 1.3) — e não pode voltar a ser um
+       literal solto. `PALCOS_3D` é a lista das telas que SÃO a navegação
+       (hoje só `mapa`); qualquer outra coisa é 2D e volta pra `rota`. Até
+       aqui a régua era `chegadaPalco === 'mapa'`, e o dia em que `mapalista`
+       ("Mapa + fila", hoje maquete no mock) virar tela de dado, quem abrisse
+       a parada de lá seria cuspido no 2D calado — o MESMO defeito que o furo
+       2 do lote 3.1 acabou de matar, entrando pela porta dos fundos.
+       LEI: palco tem FAMÍLIA, não nome; nome solto envelhece sem avisar. */
     if (!acabou) {
-      const destino = chegadaPalco === 'mapa' ? 'mapa' : 'rota';
+      const destino = PALCOS_3D.includes(String(chegadaPalco || '')) ? 'mapa' : 'rota';
       chegadaPalco = null;
       return window.ir(destino);
     }

@@ -50,6 +50,10 @@ const PONTE = ({
   // a ref cai no `draft:` como sempre caiu. Só as cenas que precisam medir a
   // lápide (`route:` morta) passam este par.
   routeId, cancelarRejeita,
+  // LOTE 1.3 — "as abertas estão CONGELADAS nos stops desta rota?". É o dado
+  // que o servidor de verdade usa pra decidir quem `route:`/`draft:` enxerga;
+  // sem ele o dublê chutava pelo `routeStatus` (ver o POST de cancelar).
+  stopsPresos,
 }) => {
   window.__chamadas = [];
   /* 🔴 PROMESSA QUE MORRE SOZINHA NÃO ACENDE `pageerror`. Quase tudo da ponte é
@@ -122,6 +126,7 @@ const PONTE = ({
     // cenas de resync (409 sem/com código nomeado).
     routeId: routeId || null,
     cancelarRejeita: cancelarRejeita || null,
+    stopsPresos: !!stopsPresos,
   };
   window.__S = S;
   /* O DIALETO REAL do /nucleo/clientes (09/08): lat/lng (o map da resposta
@@ -332,39 +337,59 @@ const PONTE = ({
           return REJ(status, Object.assign({ message: message || 'Conflito.' }, code ? { code } : {}));
         }
         const ref = String((corpo && corpo.ref) || '');
-        /* 🔴 A ROTA FANTASMA (15/08) — o dublê passa a RESPEITAR o `ref`, como
-           o servidor de verdade (`diaDoAlvoMorto` do
-           `logistica-rota-continuidade.service`): `route:<id>` da LÁPIDE
-           (neste dublê ela NUNCA tem parada nenhuma dentro — é sempre a rota
-           morta) cai no escopo do DIA, e só cancela o que estiver aberto ali.
-           Sem isto o dublê ficava MAIS GENEROSO que o servidor — esvaziava o
-           dia pra QUALQUER ref — e a fantasma nunca aparecia numa corrida
-           daqui. Ref `draft:` (o caminho de sempre) continua esvaziando o dia
-           inteiro, como sempre esvaziou (CENA U). */
+        /* 🔴 O DUBLÊ DO CANCELAR MEDE O SERVIDOR, NÃO UMA RÉGUA INVENTADA
+           (LOTE 1.3 — a 1ª versão desta parte, do lote 1.2, media a si mesma:
+           ver a nota da CENA AD). Espelho literal do
+           `logistica-rota-continuidade.service`, e o que decide TUDO é uma
+           coisa só: as abertas estão PRESAS nos stops desta rota, ou soltas
+           no dia?
+
+             `route:<id>` → `resolve()` monta o alvo com as entregas dos STOPS
+                 da rota. Com aberta presa: cancela EXATAMENTE essas. Sem
+                 nenhuma (a lápide, e também a PLANNED que um Iniciar
+                 abortado deixou pra trás): cai no `diaDoAlvoMorto`, que
+                 deriva o DIA e limpa o que estiver aberto nele.
+             `draft:<dono>:<data>` → `resolve()` EXCLUI de propósito toda
+                 entrega presa em stop de rota com `operationalEndedAt` NULO.
+                 Se as abertas estiverem presas numa rota viva, nada resolve:
+                 NotFound → a saída graciosa do F5 → `{ok:true, canceladas:0}`
+                 SEM cancelar nada. É o NO-OP MUDO, e é ele que a CENA AD
+                 existe pra pegar.
+
+           `stopsPresos` é a cena dizendo se a rota congelou os stops
+           (Iniciar que chegou até o congelamento) ou não (Iniciar que morreu
+           antes / lápide já esvaziada). Sem esse dado o dublê tinha que
+           CHUTAR — e chutava pelo `routeStatus`, que é justamente o que o
+           servidor real NÃO usa aqui. */
+        const rotaViva = () => !!S.routeId && String(S.routeStatus || '').toUpperCase() !== 'ENCERRADA';
+        const presasNaRota = () => (S.routeId && S.stopsPresos ? abertas() : []);
+        /* o `limparDia` real tira a entrega do DIA (ela sai da resposta de
+           `/logistica/rota`) — por isso a linha some daqui, como sempre somiu
+           neste dublê. O que muda é só QUAIS linhas: as do alvo, não "todas". */
+        const esvaziar = (alvo) => {
+          const ids = alvo.map((e) => String(e.id));
+          S.entregas = S.entregas.filter((e) => ids.indexOf(String(e.id)) < 0);
+          return ids.length;
+        };
         if (S.routeId && ref === `route:${S.routeId}`) {
+          const presas = presasNaRota();
+          if (presas.length) return R({ ok: true, resumo: { canceladas: esvaziar(presas) } });
           const havia = abertas().length;
           if (!havia) return R({ ok: true, resumo: { canceladas: 0 } });
-          S.entregas = S.entregas.filter((e) => e.status === 'entregue' || e.status === 'cancelada');
+          const n = esvaziar(abertas());
           // A LINHA da rota fica de pé, só ENCERRADA (operationalEndedAt) —
           // igual ao servidor: `status` comercial não muda por causa do
           // cancelar. 'PLANNED' aqui é só pra provar a W3 (fix C): zero
           // aberta com uma rota não-ACTIVE tem que desenhar "Montar rota".
           S.routeStatus = 'PLANNED';
-          return R({ ok: true, resumo: { canceladas: havia } });
+          return R({ ok: true, resumo: { canceladas: n } });
         }
-        /* 🔴 A REGRESSÃO DO FURO 1 (LOTE 1.2, revisão adversarial ao lote
-           1.1) — o dublê tem que RECUSAR `draft:` do mesmo jeito que o
-           `resolve()` real recusa: o ramo `draft:` EXCLUI de propósito
-           qualquer entrega presa num stop de rota VIVA e NÃO-ENCERRADA
-           (`routeId` publicado, `routeStatus !== 'ENCERRADA'`) — é o par
-           exato da régua "rota viva usa `route:`, só a morta solta pro
-           `draft:`". Sem esta distinção o dublê ficava MAIS GENEROSO que o
-           servidor pro lado ERRADO: `draft:` sempre "funcionava" mesmo numa
-           rota viva segurando as paradas, e a CENA AD (a regressão medida no
-           furo 1: ref cai em `draft:` numa rota PLANNED não-'rodando' e o
-           cancelar vira no-op mudo) nunca reprovava numa corrida daqui. */
-        if (ref.indexOf('draft:') === 0 && S.routeId && String(S.routeStatus || '').toUpperCase() !== 'ENCERRADA') {
-          return R({ ok: true, resumo: { canceladas: 0 } });
+        if (ref.indexOf('draft:') === 0) {
+          // o `resolve()` do ramo draft: só enxerga o que NÃO está preso em
+          // stop de rota viva. Zero visível = NotFound = saída graciosa do F5.
+          const soltas = rotaViva() && S.stopsPresos ? [] : abertas();
+          if (!soltas.length) return R({ ok: true, resumo: { canceladas: 0 } });
+          return R({ ok: true, resumo: { canceladas: esvaziar(soltas) } });
         }
         S.entregas = []; S.routeStatus = '';
         return R({ ok: true, resumo: { canceladas: 1 } });
@@ -2197,36 +2222,39 @@ const SO_MEDIR = process.argv.includes('--antes');
     `routeStatus=${tAA1.routeStatus} dock="${tAA1.dock}"`);
 
   /* ===================================================================
-     CENA AD — A REGRESSÃO DO FURO 1 (LOTE 1.2, revisão adversarial ao lote
-     1.1): rota VIVA porém NÃO-'rodando' segurando as abertas.
+     CENA AD — A REGRESSÃO DO FURO 1 (LOTE 1.2), CENA TROCADA NO LOTE 1.3.
 
-     O lote 1.1 restringiu `route:` a `estadoDaRota(r) === 'rodando'`
-     (ACTIVE/INITIALIZING). Uma rota PLANNED com as paradas JÁ montadas
-     (`rotaOrdem` gravado — por isso `estadoDaRota` a chama de 'pronta', não
-     'montar': dá pra reiniciar no mesmo dia) é a rota VIVA que ainda segura
-     as paradas abertas — não está ENCERRADA (`operationalEndedAt` nulo), o
-     servidor publica o mesmo `routeId` de sempre. Com a régua do lote 1.1 a
-     ref caía em `draft:`, e o `resolve()` real (ramo draft) EXCLUI de
-     propósito qualquer entrega presa num stop de rota assim — cancelar
-     virava no-op mudo: `{ok:true, canceladas:0}` sem cancelar nada, pior
-     que o 404 de antes (parecia sucesso).
+     🔴 POR QUE A CENA MUDOU (revisão adversarial ao 1.2): a AD original usava
+     uma rota PLANNED e contava com o dublê recusar `draft:` "porque a rota
+     está viva". Só que ISSO É RÉGUA DO DUBLÊ, não do servidor: no backend
+     real uma PLANNED deixada por um Iniciar que falhou NÃO TEM STOP NENHUM,
+     então as abertas são linhas SOLTAS do dia — o ramo `draft:` acharia todas
+     e o cancelar funcionaria. A cena reprovava contra uma ficção.
 
-     AD1 prova a REF: tem que ser `route:<id>`, nunca `draft:`, pra
-     QUALQUER rota viva não-encerrada — não só a 'rodando'.
-     AD2 prova o EFEITO: o cancelar tem que cancelar de VERDADE (as abertas
-     somem do servidor) — não o no-op mudo do furo 1.
+     O CASO VERDADEIRO é a rota que SEGURA as abertas nos stops dela e não
+     está encerrada: a COMPLETED com paradas abertas presas dentro ("a rota
+     COMPLETED com 14 paradas abertas presas" que existe em produção, §5 do
+     desenho). Aí o `resolve()` do ramo `draft:` EXCLUI de propósito toda
+     entrega presa em stop de rota com `operationalEndedAt` nulo — nada
+     resolve, NotFound, e a saída graciosa do F5 devolve `{ok:true,
+     canceladas:0}` SEM cancelar nada. O no-op mudo, que parece sucesso.
 
-     Contra o código de HOJE (antes do fix do furo 1) esta cena REPROVA nos
-     dois: a ref sai `draft:...` e o dublê do cancelar (que agora imita a
-     exclusão real do `resolve()` pra rota viva não-encerrada — ver o POST
-     de cancelar, acima) devolve `canceladas:0` sem tocar em nada — o mesmo
-     no-op mudo medido no furo 1. Capturado o vermelho ANTES de aplicar o
-     fix da ref em `25-continuidade-rota.js`.
+     `estadoDaRota` chama uma COMPLETED-com-abertas-montadas de 'pronta' (não
+     'rodando'), então com a régua do lote 1.1 (`route:` só pra 'rodando') a
+     ref cai em `draft:` — e a cena REPROVA nos dois: ref errada (AD1) e
+     no-op mudo (AD2). Com a régua do 1.2 (rota VIVA = qualquer coisa !=
+     ENCERRADA) sai `route:` e o cancelar cancela de verdade.
+
+     AE, logo abaixo, é o par que faltava: a PLANNED-fantasma SEM stop —
+     `route:` também, mas resolvendo pelo DIA (`diaDoAlvoMorto`).
      =================================================================== */
   const CLI_AD2 = { id: 'ad2', nome: 'Duda Viva', endereco: 'Rua D, 2', lat: -22.407, lng: -47.557 };
   await cena({
-    routeId: 'route-viva-planned-1',
-    routeStatus: 'PLANNED',
+    routeId: 'route-completed-com-presas',
+    routeStatus: 'COMPLETED',
+    // as abertas estão CONGELADAS nos stops desta rota — é isto que faz o
+    // ramo `draft:` do servidor não enxergar nenhuma delas.
+    stopsPresos: true,
     entregas: [
       { id: 'ad1', status: 'agendada', rotaOrdem: 0, origem: 'recorrente', cliente: CLI_C1 },
       { id: 'ad2', status: 'agendada', rotaOrdem: 1, origem: 'recorrente', cliente: CLI_AD2 },
@@ -2248,13 +2276,53 @@ const SO_MEDIR = process.argv.includes('--antes');
   await p.waitForTimeout(2800);
   const tAD1 = await espiar();
   const cancelarADBodies = await postsDe('/logistica/rota/continuidade/cancelar');
-  nota(`[AD] cancelar (rota viva PLANNED, nao-encerrada, 'pronta' != 'rodando'): achouBotao=${achouCancelarAD} · refPostada=${JSON.stringify(cancelarADBodies)} · entregas=${tAD1.entregasNoServidor} · routeStatus=${tAD1.routeStatus}`);
-  eh('AD1 (FURO 1) · rota VIVA nao-ENCERRADA manda route:, mesmo sem estar rodando (PLANNED com abertas ja montadas)',
+  nota(`[AD] cancelar (COMPLETED com as abertas PRESAS nos stops, 'pronta' != 'rodando'): achouBotao=${achouCancelarAD} · refPostada=${JSON.stringify(cancelarADBodies)} · entregas=${tAD1.entregasNoServidor} · routeStatus=${tAD1.routeStatus}`);
+  eh('AD1 (FURO 1) · rota VIVA nao-ENCERRADA segurando as abertas manda route:, mesmo sem estar rodando',
     achouCancelarAD && cancelarADBodies.length === 1
-      && cancelarADBodies[0] && cancelarADBodies[0].ref === 'route:route-viva-planned-1',
+      && cancelarADBodies[0] && cancelarADBodies[0].ref === 'route:route-completed-com-presas',
     `ref=${JSON.stringify(cancelarADBodies)}`);
   eh('AD2 (FURO 1) · o cancelar cancela de verdade — nao vira no-op mudo (as abertas somem do servidor)',
     tAD1.entregasNoServidor === 0, `entregas=${tAD1.entregasNoServidor}`);
+
+  /* ===================================================================
+     CENA AE (LOTE 1.3) — O PAR HONESTO DA AD: a PLANNED-FANTASMA, aquela
+     que o Iniciar abortado deixou pra trás SEM stop nenhum. A ref também
+     sai `route:` (rota viva, não-ENCERRADA), e é o `diaDoAlvoMorto` do
+     servidor que deriva o DIA e limpa as abertas soltas. Sem esta cena, a
+     régua "rota viva ⇒ route:" ficaria provada só no caso com stop — e o
+     caso SEM stop é o mais comum dos dois em produção.
+     =================================================================== */
+  await cena({
+    routeId: 'route-planned-fantasma',
+    routeStatus: 'PLANNED',
+    // NENHUM stop: o Iniciar morreu antes do congelamento.
+    entregas: [
+      { id: 'ae1', status: 'agendada', rotaOrdem: 0, origem: 'recorrente', cliente: CLI_C1 },
+      { id: 'ae2', status: 'agendada', rotaOrdem: 1, origem: 'recorrente', cliente: CLI_AD2 },
+    ],
+  });
+  await irPara('montagem');
+  await irPara('rota', 1600);
+  await zerar();
+  await p.evaluate(() => {
+    const x = document.querySelector('.tmx-sat [data-acao="cancelar-rota"]');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(500);
+  await p.evaluate(() => {
+    const x = document.querySelector('.portao-wrap .principal');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(2800);
+  const tAE = await espiar();
+  const cancelarAEBodies = await postsDe('/logistica/rota/continuidade/cancelar');
+  nota(`[AE] cancelar (PLANNED-fantasma, ZERO stop): refPostada=${JSON.stringify(cancelarAEBodies)} · entregas=${tAE.entregasNoServidor} · dock="${tAE.dock}"`);
+  eh('AE1 · a PLANNED-fantasma (sem stop) tambem manda route: — rota viva e rota viva',
+    cancelarAEBodies.length === 1 && cancelarAEBodies[0]
+      && cancelarAEBodies[0].ref === 'route:route-planned-fantasma',
+    `ref=${JSON.stringify(cancelarAEBodies)}`);
+  eh('AE2 · e o dia esvazia pelo diaDoAlvoMorto — a rota sem stop nao vira beco',
+    tAE.entregasNoServidor === 0, `entregas=${tAE.entregasNoServidor}`);
 
   /* ===================================================================
      CENA AB/AC — O RESYNC DE 409 NO CANCELAR (15/08, W4/W5 do desenho;

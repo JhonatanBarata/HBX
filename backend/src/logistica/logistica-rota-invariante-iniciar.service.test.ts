@@ -134,14 +134,31 @@ test('(controle) com o read-back de verdade a MESMA rota inicia normalmente — 
  * nunca roda e a rota fica `INITIALIZING` PARA SEMPRE — todo Iniciar seguinte
  * esbarra em "Esta rota já está sendo iniciada. Aguarde e atualize a tela."
  *
- * Esta bancada faz `assertAssentoDoDia` lançar DEPOIS do `claimLogisticaRoute`
- * já ter deixado a rota `INITIALIZING` — exatamente a corrida descrita no
- * furo (402 entre o claim e o gate de assento).
+ * 🔴 O FISCAL ERA TEATRO (LOTE 1.3, revisão adversarial ao 1.2) — e o teste
+ * ANTERIOR provava isto por acidente: ele trocava `cobranca.assertAssentoDoDia`
+ * por um dublê que lançava SEMPRE, e a PRIMEIRA chamada desse método acontece
+ * DENTRO do `planejarRota` (logistica-rota.service.ts, "if (entregadorId)
+ * await this.cobranca.assertAssentoDoDia(...)"), que JÁ tinha `try/catch` com
+ * `releaseInitialization` desde antes deste lote. O erro morria lá, o teste
+ * ficava verde e a linha que ele dizia fiscalizar — o gate REPETIDO, depois do
+ * planejar — nunca era alcançada. MEDIDO: removendo o `try` novo do
+ * `iniciarRota`, o teste antigo continuava VERDE.
+ *
+ * A cura do fiscal: a 1ª chamada (a de dentro do planejar) PASSA, e só a 2ª
+ * (o gate repetido) LANÇA — e o teste COBRA que houve 2 chamadas, senão ele
+ * volta a medir o try velho sem ninguém perceber.
  */
-test('FURO 3 · assertAssentoDoDia lança no meio do Iniciar → releaseInitialization roda mesmo assim, rota nunca fica presa em INITIALIZING', async () => {
+test('FURO 3 · assertAssentoDoDia lança DEPOIS do planejar (o gate repetido) → releaseInitialization roda mesmo assim, rota nunca fica presa em INITIALIZING', async () => {
   const { rota, routes } = bancada({ countMente: false });
   const erroDaCorrida = new Error('402 simulado: assento esgotou entre o claim e o gate.');
-  (rota as any).cobranca.assertAssentoDoDia = async () => { throw erroDaCorrida; };
+  const chamadas: any[][] = [];
+  (rota as any).cobranca.assertAssentoDoDia = async (...args: any[]) => {
+    chamadas.push(args);
+    // 1ª = a de DENTRO do `planejarRota` (try VELHO, já existia). Passa.
+    // 2ª = o gate repetido depois do planejar — a linha que o `try` NOVO
+    // cobre, e a única que este teste tem o direito de fiscalizar.
+    if (chamadas.length >= 2) throw erroDaCorrida;
+  };
 
   await assert.rejects(
     () => rota.iniciarRota(41, { date: DIA, ordemManual: ['d1'] }, 7, 7),
@@ -149,12 +166,41 @@ test('FURO 3 · assertAssentoDoDia lança no meio do Iniciar → releaseInitiali
     'o erro ORIGINAL da corrida tem que chegar ao caller, nunca ser engolido',
   );
 
+  assert.equal(
+    chamadas.length, 2,
+    'o teste TEM que alcançar o gate de depois do planejar — 1 chamada só significa que ele morreu lá dentro, no try velho, e não fiscaliza nada deste lote',
+  );
   assert.equal(routes.length, 1, 'a LogisticaRoute chega a nascer pelo claim');
   assert.equal(
     routes[0].status, 'PLANNED',
-    'HOJE (antes do fix): assertAssentoDoDia está FORA do try — releaseInitialization nunca roda e a rota fica INITIALIZING pra sempre',
+    'sem o try NOVO: o 402 do gate repetido pula pro caller com a rota INITIALIZING pra sempre',
   );
   assert.equal(routes[0].startedAt, undefined, 'a lápide não nasce: nunca chega a carimbar startedAt');
+});
+
+/**
+ * O CONTROLE do fiscal acima: quem lança é a 1ª chamada, a de DENTRO do
+ * `planejarRota`. Aqui quem salva a rota é o `try` VELHO (que já existia) —
+ * e é por isso que o teste anterior passava verde sem provar nada. Este par
+ * deixa a diferença EXPLÍCITA no arquivo, pra ninguém "simplificar" os dois
+ * de volta num só.
+ */
+test('FURO 3 (controle) · assertAssentoDoDia lançando DENTRO do planejar é o try VELHO que salva — 1 chamada só, e a rota também volta a PLANNED', async () => {
+  const { rota, routes } = bancada({ countMente: false });
+  const erroNoPlanejar = new Error('402 simulado dentro do planejarRota.');
+  const chamadas: any[][] = [];
+  (rota as any).cobranca.assertAssentoDoDia = async (...args: any[]) => {
+    chamadas.push(args);
+    throw erroNoPlanejar;
+  };
+
+  await assert.rejects(
+    () => rota.iniciarRota(41, { date: DIA, ordemManual: ['d1'] }, 7, 7),
+    (e: any) => e === erroNoPlanejar,
+  );
+
+  assert.equal(chamadas.length, 1, 'morreu na 1ª chamada: nunca saiu de dentro do planejarRota');
+  assert.equal(routes[0].status, 'PLANNED', 'o try VELHO (em volta do planejarRota) já cobria este caso desde antes do lote 1.2');
 });
 
 /**

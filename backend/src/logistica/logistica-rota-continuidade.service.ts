@@ -541,7 +541,7 @@ export class LogisticaRotaContinuidadeService {
       }
       return resultado;
     }
-    return this.rota.limparDia(
+    const resultado = await this.rota.limparDia(
       companyId,
       {
         date: target.effectiveDate || target.routeDate,
@@ -553,6 +553,59 @@ export class LogisticaRotaContinuidadeService {
       target.ownerId,
       actorId,
     );
+    // 🔴 FURO 2, A OUTRA METADE (LOTE 1.3, revisão adversarial ao 1.2) — o
+    // fechamento ACTIVE→ENDED da `LogisticaTrackingSession` só existia no ramo
+    // `route:` sem parada aberta (acima). Só que a CENA REAL DE PRODUÇÃO — a
+    // lápide já ENCERRADA com uma sessão pendurada — é roteada pro ramo
+    // `draft:` pela régua irmã do mesmo commit (`refDaResposta`: rota
+    // ENCERRADA ⇒ `draft:`), e aqui o `limparDia` vai com `skipRoute:true`
+    // (não há `routeId` num alvo draft) ⇒ `lockedRouteIds` fica vazio lá
+    // dentro e a sessão NUNCA fechava. O sintoma é o mesmo do furo 2:
+    // comando em voo na fila do aparelho batendo CONFLICT contra uma rota que
+    // o app já esqueceu, virando REJECTED preso até o teto de 24h.
+    // `target.parked` (routeId presente + skipRoute) não entra aqui de
+    // propósito: quem estaciona é `retomar`/`puxar`, e os dois já fecham a
+    // sessão da execução velha na própria transação deles.
+    if (!target.routeId) {
+      await this.encerrarSessoesDoDia(
+        companyId,
+        target.ownerId,
+        target.effectiveDate || target.routeDate,
+      );
+    }
+    return resultado;
+  }
+
+  /**
+   * Fecha a `LogisticaTrackingSession` ACTIVE das rotas de um dono+dia. É o
+   * par do bloco de `target.routeId` do ramo `route:` — o ramo `draft:` não
+   * tem `routeId` no alvo, mas a rota do dia pode existir (e sobreviver com a
+   * sessão de GPS aberta) mesmo assim.
+   *
+   * Escopo de tenant em TODA leitura e TODA escrita (`companyId` nos dois
+   * `where`) — nada atravessa empresa. Best-effort de propósito: o Cancelar é
+   * verbo de ESCAPE (lei do repo) e não pode virar beco por causa de uma
+   * limpeza de sessão; e os dublês mínimos de teste que não têm estes modelos
+   * seguem funcionando.
+   */
+  private async encerrarSessoesDoDia(
+    companyId: number,
+    ownerId: number,
+    routeDate: string,
+  ): Promise<void> {
+    const prisma = this.prisma as any;
+    if (typeof prisma.logisticaRoute?.findMany !== 'function') return;
+    if (typeof prisma.logisticaTrackingSession?.updateMany !== 'function') return;
+    const rotas: any[] = await prisma.logisticaRoute.findMany({
+      where: { companyId, entregadorId: ownerId, routeDate },
+      select: { id: true },
+    });
+    const ids = rotas.map((row) => String(row.id)).filter(Boolean);
+    if (!ids.length) return;
+    await prisma.logisticaTrackingSession.updateMany({
+      where: { companyId, routeId: { in: ids }, status: 'ACTIVE' },
+      data: { status: 'ENDED', endedAt: new Date() },
+    });
   }
 
   /**

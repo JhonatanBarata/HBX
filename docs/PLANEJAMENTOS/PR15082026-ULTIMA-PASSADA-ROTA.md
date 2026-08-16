@@ -6,6 +6,28 @@ GERADOS por casca-injetar) + `EntregaShell/app/src/logistica/ponte-src/` (ponte.
 Execução: **1 lote por vez, dono testa cada um** antes do próximo. Commit local por lote;
 publish é gesto do dono.
 
+## ⚠️ ESTADO DE PUBLISH (15/08 22:28) — LEIA ANTES DE MEXER
+O dono publicou em `94d4519d` (`chore: publish 20260815_222800`), levando junto os lotes
+**1, 1.1, 1.2, 2 e 3**. Consequência: **os 2 furos GRAVES que o fiscal achou no lote 3 estão
+EM PRODUÇÃO, no aparelho do motorista** —
+(1) abandonar a folha da entrega pelo Voltar **mata o "Você chegou" pelo resto do dia** e
+para de carimbar a chegada (o `arrivedAt` das paradas seguintes passa a ser a hora do toque
+manual, não a hora real);
+(2) o desfecho leva o motorista para o palco errado nos 2 sentidos (confirmar pela lista 2D
+joga na navegação 3D com tela acesa e GPS a plena carga; confirmar pelo pino no 3D cospe no
+2D). O **LOTE 3.1 é o conserto** (`2b1ec96f`) e ainda NÃO está publicado.
+
+**(3) O TERCEIRO, achado no lote 1.3 e também EM PRODUÇÃO:** desde o 1.2 a ref `route:` nasce
+para qualquer rota não-ENCERRADA, inclusive as que não seguram parada aberta nenhuma — e o
+servidor nunca publica essas em `ownedRefs`. O bloco de "posse revogada" concluía a cada
+60 s que o aparelho tinha perdido a rota: **`stopRoute` + recarga da tela inteira, 1×/min,
+para sempre**. Medido em bancada com controle (3 tiques: +12 `stopRoute`, +6 `GET
+/logistica/rota` na PLANNED-fantasma e na COMPLETED-sem-aberta; zero na ACTIVE normal).
+Conserto no CONSUMIDOR (não na régua da ref, que é o que curou o no-op mudo do Cancelar), no
+lote 1.3, com portão próprio: `scripts/prova-loop-posse.js`.
+
+Estado de publish é VIVO: conferir sempre, nunca citar de memória.
+
 ## DECISÕES DO DONO (15/08) — registro
 - **F3 (chegada):** ✓ só no confirmar (chegada nunca vira entrega). **Correção do dono
   15/08:** a tela "Você chegou" **abre NA FRENTE sozinha, igual nos 2 modos (2D e 3D)** —
@@ -305,8 +327,9 @@ com história é apagada.
 |---|---|---|---|
 | 1 | Rota fantasma + beco cancelar | worker | ✅ `a707a1cd` — fluxo-rota 125/125, specs 51/51 |
 | 1.1 | Cancelar mira o dia certo + lápide + invariante do Iniciar | worker | ⚠️ `5ef7bf33` — cura central REAL (red-first honesto: 5 provas vermelhas no pai), mas fiscal **reprovou com ressalva**: ver 1.2 |
-| 1.2 | Correções do fiscal do 1.1 | worker | 🔄 rodando |
-| 3.1 | Correções do fiscal do lote 3 + portão honesto | worker | 🔄 fila |
+| 1.2 | Correções do fiscal do 1.1 (ref segue rota viva, sessão fecha, invariante, backfill seguro) | worker | ✅ `44cda6ae` — **publicado** em `94d4519d` |
+| 3.1 | Correções do fiscal do lote 3 + portão honesto | worker Opus | ✅ `2b1ec96f` — os 2 furos graves de produção fechados (folha abandonada, palco por parada) |
+| 1.3 | Fim do loop de 60s + fiscal do invariante + réguas honestas | worker Opus | ✅ **loop-posse 24/24** (novo; vermelho medido no pai: +12 `stopRoute`/+6 `GET rota` em 3 tiques), chegada-igual 65/65, fluxo-rota **140/140**, backend 994/994 |
 | 2 | Véu + resíduos + fechamento + contraste | worker | ✅ `561f234b` — fluxo-rota **129/129**, contraste-diálogos **24/24** (Sim do claro 1,96→**6,66**; azul 3,31→**5,17**), limpar-dia 22/22, casca 68/68 |
 | 3 | Chegada: 1 peça só, igual em 2D e 3D | worker | ⚠️ `51be6a16` — peça e portões verdes (44/44 novo, 66/66 casca, 64/64 antes×depois), mas fiscal **REPROVOU**: ver 3.1 |
 | 4 | Pós-iniciar elegante | worker | ⬜ |

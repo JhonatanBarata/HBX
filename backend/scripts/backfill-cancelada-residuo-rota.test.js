@@ -149,3 +149,94 @@ test('FURO 5 · rollback com --company e --apply escreve só as linhas DAQUELA e
   assert.equal(chamada.where.status, 'cancelada', 'CAS: só reverte quem ainda está cancelada');
   assert.equal('startedAt' in chamada.data, false, 'FURO 5: o rollback NUNCA escreve startedAt — este script não é dono desse campo');
 });
+
+/* ==========================================================================
+   LOTE 1.3 — OS DOIS RESÍDUOS DO FURO 5 (revisão adversarial ao lote 1.2).
+   ========================================================================== */
+
+test('LOTE 1.3 · --apply SEM --company recusa ANTES de ler o banco (a assimetria com o freio do rollback)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hbx-backfill-residuo-'));
+  const { mod, chamadas } = carregarCom(['--apply']);
+  const exitCodeOriginal = process.exitCode;
+  const cwdOriginal = process.cwd();
+  // chdir pro tmp: se o freio falhar (red-first), o script grava o backup JSON
+  // no diretório de trabalho — e ele não pode nascer dentro do repo.
+  process.chdir(dir);
+  try {
+    await mod.main();
+    assert.equal(
+      chamadas.entregaFindMany.length, 0,
+      'HOJE (antes do fix): --apply sem --company varre TODAS as empresas — o freio tem que pegar ANTES do primeiro SELECT',
+    );
+    assert.equal(
+      chamadas.entregaUpdate.length + chamadas.entregaUpdateMany.length, 0,
+      'e obviamente nenhuma escrita',
+    );
+    assert.equal(
+      fs.readdirSync(dir).filter((f) => f.startsWith('backfill-cancelada-residuo-')).length, 0,
+      'nem o backup nasce: o freio vem antes de tudo',
+    );
+  } finally {
+    process.chdir(cwdOriginal);
+    process.exitCode = exitCodeOriginal;
+  }
+});
+
+test('LOTE 1.3 · --apply COM --company segue funcionando (o freio não é um NÃO pra tudo)', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hbx-backfill-residuo-'));
+  const { mod, chamadas } = carregarCom(['--apply', '--company=41']);
+  const exitCodeOriginal = process.exitCode;
+  const cwdOriginal = process.cwd();
+  process.chdir(dir);
+  try {
+    await mod.main();
+    assert.equal(chamadas.entregaFindMany.length, 1, 'com empresa nomeada, o backfill LÊ normalmente');
+    assert.equal(chamadas.entregaFindMany[0].where.companyId, 41);
+  } finally {
+    process.chdir(cwdOriginal);
+    process.exitCode = exitCodeOriginal;
+  }
+});
+
+test('LOTE 1.3 · rollback de backup ANTIGO (linhas sem companyId) GRITA — nunca o sereno "0 linhas"', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hbx-backfill-residuo-'));
+  const arquivo = path.join(dir, 'backup-antigo.json');
+  // o formato da 1ª leva: sem `companyId` nas linhas.
+  fs.writeFileSync(arquivo, JSON.stringify({
+    geradoEm: '2026-08-15T00:00:00.000Z',
+    escopo: 'todas',
+    linhas: [{ id: 'd1', rotaOrdem: 3, etaAt: null }, { id: 'd2', rotaOrdem: 7, etaAt: null }],
+  }));
+  const { mod, chamadas } = carregarCom(['--rollback=' + arquivo, '--company=41', '--apply']);
+  const exitCodeOriginal = process.exitCode;
+  const ditas = [];
+  const logOriginal = console.log;
+  console.log = (...a) => { ditas.push(a.join(' ')); };
+  try {
+    await mod.rollback(arquivo);
+  } finally {
+    console.log = logOriginal;
+    process.exitCode = exitCodeOriginal;
+  }
+
+  assert.equal(chamadas.entregaUpdateMany.length, 0, 'arquivo incompatível não escreve nada');
+  const texto = ditas.join('\n');
+  assert.match(
+    texto, /FORMATO ANTIGO/,
+    'HOJE (antes do fix): o filtro por empresa engole as linhas sem companyId e o rollback diz "0 de 2" — a mesma frase de um arquivo de OUTRA empresa',
+  );
+  assert.match(texto, /ERRO/, 'e sai como ERRO, não como relatório');
+});
+
+test('LOTE 1.3 · rollback de backup NOVO (com companyId) não é confundido com o antigo', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hbx-backfill-residuo-'));
+  const arquivo = path.join(dir, 'backup-novo.json');
+  fs.writeFileSync(arquivo, JSON.stringify({
+    geradoEm: new Date().toISOString(),
+    escopo: 41,
+    linhas: [{ id: 'd1', companyId: 41, rotaOrdem: 3, etaAt: null }],
+  }));
+  const { mod, chamadas } = carregarCom(['--rollback=' + arquivo, '--company=41', '--apply']);
+  await mod.rollback(arquivo);
+  assert.equal(chamadas.entregaUpdateMany.length, 1, 'o formato novo continua revertendo — a detecção não pode virar um NÃO pra tudo');
+});

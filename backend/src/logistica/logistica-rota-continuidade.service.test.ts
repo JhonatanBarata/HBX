@@ -215,6 +215,17 @@ test('Cancelar rota fantasma (route: sem nenhuma parada aberta, dia TAMBÉM vazi
 // pergunta que o revisor fez. Compartilhado pelas duas cenas abaixo (a
 // medida, já encerrada; e a nova, viva) para que as DUAS respeitem a MESMA
 // régua.
+/**
+ * 🔴 FURO 4 DO LOTE 1.3 (revisão adversarial ao 1.2) — O DUBLÊ NÃO COBRAVA
+ * `companyId`. Uma regressão que tirasse o escopo de empresa das DUAS escritas
+ * novas (o `updateMany` da rota e o da sessão de tracking) passava VERDE aqui,
+ * porque o "Postgres mínimo" só olhava `id`/`routeId`/`status`. Multi-tenant é
+ * a lei nº1 da casa: nada atravessa empresa. Agora a linha do dublê PERTENCE a
+ * uma empresa (`EMPRESA`) e nenhum `where` sem o `companyId` certo casa —
+ * exatamente o que Postgres faria.
+ */
+const EMPRESA = 7;
+
 function bancadaComEfeitoReal(opts: {
   routeId: string;
   routeStatus: string;
@@ -225,6 +236,7 @@ function bancadaComEfeitoReal(opts: {
   const sessionState = { status: opts.sessionStatusInicial };
   const routeUpdateManyCalls: any[] = [];
   const sessionUpdateManyCalls: any[] = [];
+  const daEmpresa = (where: any) => Number(where?.companyId) === EMPRESA;
   const logisticaRoute = {
     findFirst: async () => ({
       id: opts.routeId,
@@ -241,7 +253,7 @@ function bancadaComEfeitoReal(opts: {
       routeUpdateManyCalls.push(args);
       const bateId = args.where.id === opts.routeId;
       const bateEndedAt = !('operationalEndedAt' in args.where) || args.where.operationalEndedAt === routeState.operationalEndedAt;
-      if (!bateId || !bateEndedAt) return { count: 0 };
+      if (!bateId || !bateEndedAt || !daEmpresa(args.where)) return { count: 0 };
       routeState.operationalEndedAt = args.data.operationalEndedAt;
       return { count: 1 };
     },
@@ -249,9 +261,10 @@ function bancadaComEfeitoReal(opts: {
   const logisticaTrackingSession = {
     updateMany: async (args: any) => {
       sessionUpdateManyCalls.push(args);
-      const bateRoute = args.where.routeId === opts.routeId;
+      const alvo = args.where.routeId;
+      const bateRoute = Array.isArray(alvo?.in) ? alvo.in.includes(opts.routeId) : alvo === opts.routeId;
       const bateStatus = sessionState.status === args.where.status;
-      if (!bateRoute || !bateStatus) return { count: 0 };
+      if (!bateRoute || !bateStatus || !daEmpresa(args.where)) return { count: 0 };
       sessionState.status = args.data.status;
       return { count: 1 };
     },
@@ -323,6 +336,8 @@ test('CENA MEDIDA: rota ACTIVE encerrada com zero stops + 51 abertas no dia — 
   assert.deepEqual(calls.limparDia.input.deliveryIds, esperado, '51 ids, ordenados por rotaOrdem — não pela ordem de leitura');
   assert.equal(bancada.routeUpdateManyCalls.length, 1, 'o updateMany PRÓPRIO do cancelar É chamado, sempre — a lápide pode já estar encerrada');
   assert.equal(bancada.routeUpdateManyCalls[0].where.id, 'cmsusrv6k05otsfjwx1wgdl1j');
+  assert.equal(bancada.routeUpdateManyCalls[0].where.companyId, EMPRESA, 'FURO 4 (lote 1.3): nada atravessa empresa — o where da rota escopa por companyId');
+  assert.equal(bancada.sessionUpdateManyCalls[0].where.companyId, EMPRESA, 'FURO 4 (lote 1.3): idem no where da sessão de tracking');
   assert.equal(bancada.routeUpdateManyCalls[0].where.operationalEndedAt, null, 'FURO 4: o where SÓ re-encerra quem ainda não foi encerrado');
   assert.ok(bancada.routeUpdateManyCalls[0].data.operationalEndedAt instanceof Date);
   // FURO 4, EFEITO MEDIDO (não teatro): contra a lápide JÁ encerrada, este
@@ -377,6 +392,8 @@ test('FURO 4 · rota VIVA (PLANNED, ainda não encerrada) sem stops — o update
   assert.ok(calls.limparDia, 'chama limparDia com o dia derivado da rota-morta-sem-stop');
   // FURO 4, EFEITO MEDIDO: agora sim o where casa — a rota estava viva.
   assert.equal(bancada.routeUpdateManyCalls.length, 1);
+  assert.equal(bancada.routeUpdateManyCalls[0].where.companyId, EMPRESA, 'FURO 4 (lote 1.3): o where da rota escopa por companyId');
+  assert.equal(bancada.sessionUpdateManyCalls[0].where.companyId, EMPRESA, 'FURO 4 (lote 1.3): o where da sessão escopa por companyId');
   assert.equal(bancada.routeUpdateManyCalls[0].where.operationalEndedAt, null);
   assert.ok(
     bancada.routeState.operationalEndedAt instanceof Date,
@@ -387,6 +404,110 @@ test('FURO 4 · rota VIVA (PLANNED, ainda não encerrada) sem stops — o update
   assert.equal(bancada.sessionUpdateManyCalls.length, 1);
   assert.equal(bancada.sessionState.status, null, 'sem sessão ACTIVE pra fechar, o no-op é honesto (count:0)');
   assert.deepEqual(result, { ok: true, resumo: { canceladas: 1 } });
+});
+
+/**
+ * 🔴 FURO 2, A OUTRA METADE (15/08, LOTE 1.3 — revisão adversarial ao 1.2).
+ * O fechamento ACTIVE→ENDED da `LogisticaTrackingSession` que o lote 1.2 pôs
+ * só roda no ramo `route:` COM ZERO parada aberta. Só que a CENA REAL medida em
+ * produção — a lápide já ENCERRADA, com o dia remontado por cima — é roteada
+ * pro ramo `draft:` pela régua irmã do MESMO commit (`refDaResposta`: rota com
+ * `routeStatus === 'ENCERRADA'` ⇒ `draft:`), e no ramo draft o `limparDia` vai
+ * com `skipRoute:true` (alvo draft não tem `routeId`) ⇒ `lockedRouteIds` fica
+ * vazio lá dentro e a sessão NUNCA fechava. O par 1.2 curava exatamente o
+ * caminho que a régua irmã tinha acabado de deixar de usar.
+ *
+ * A bancada é o mesmo "Postgres mínimo" das cenas acima: a linha PERTENCE à
+ * empresa, e nenhum `where` sem `companyId` casa.
+ */
+function bancadaDoDraft(opts: { rotasDoDia: string[]; sessionStatusInicial: 'ACTIVE' | 'ENDED' | null }) {
+  const sessionState = { status: opts.sessionStatusInicial };
+  const routeFindManyCalls: any[] = [];
+  const sessionUpdateManyCalls: any[] = [];
+  const logisticaRoute = {
+    findMany: async (args: any) => {
+      routeFindManyCalls.push(args);
+      if (Number(args?.where?.companyId) !== EMPRESA) return [];
+      return opts.rotasDoDia.map((id) => ({ id }));
+    },
+  };
+  const logisticaTrackingSession = {
+    updateMany: async (args: any) => {
+      sessionUpdateManyCalls.push(args);
+      const alvo = args.where.routeId;
+      const lista = Array.isArray(alvo?.in) ? alvo.in : [alvo];
+      const bateRoute = opts.rotasDoDia.some((id) => lista.includes(id));
+      const bateStatus = sessionState.status === args.where.status;
+      if (!bateRoute || !bateStatus || Number(args.where.companyId) !== EMPRESA) return { count: 0 };
+      sessionState.status = args.data.status;
+      return { count: 1 };
+    },
+  };
+  return { logisticaRoute, logisticaTrackingSession, sessionState, routeFindManyCalls, sessionUpdateManyCalls };
+}
+
+const abertaDoDraft = {
+  id: 'd-draft-1', status: 'agendada', entregadorId: 8,
+  scheduledAt: new Date('2026-08-15T15:00:00.000Z'), rotaOrdem: 0,
+  startedAt: null, arrivedAt: null, entregador: { name: 'André' },
+};
+
+test('FURO 2 (outra metade) · Cancelar no ramo draft: fecha a LogisticaTrackingSession ACTIVE da rota do dono+dia, com companyId nas DUAS pontas', async () => {
+  const bancada = bancadaDoDraft({ rotasDoDia: ['route-lapide-encerrada'], sessionStatusInicial: 'ACTIVE' });
+  const prisma: any = {
+    entrega: { findMany: async () => [abertaDoDraft] },
+    logisticaRoute: bancada.logisticaRoute,
+    logisticaTrackingSession: bancada.logisticaTrackingSession,
+  };
+  const calls: any = { limparDia: null };
+  const rota: any = {
+    limparDia: async (companyId: number, input: any, entregadorId: number, actorUserId: number) => {
+      calls.limparDia = { companyId, input, entregadorId, actorUserId };
+      return { ok: true, resumo: { canceladas: input.deliveryIds.length } };
+    },
+  };
+  const service = new LogisticaRotaContinuidadeService(
+    prisma, {} as any, rota, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+  const dono = { id: 8, companyId: EMPRESA, role: 'DRIVER' };
+
+  const result = await service.cancelar(dono, 'draft:8:2026-08-15');
+
+  assert.ok(calls.limparDia, 'o ramo draft continua chamando limparDia normalmente');
+  assert.equal(calls.limparDia.input.skipRoute, true, 'alvo draft não tem routeId: skipRoute é true — e é por isso que o limparDia não fecha sessão nenhuma');
+  assert.equal(bancada.routeFindManyCalls.length, 1, 'HOJE (antes do fix): o ramo draft nem procura a rota do dia — a sessão fica ACTIVE pra sempre');
+  const [busca] = bancada.routeFindManyCalls;
+  assert.equal(busca.where.companyId, EMPRESA, 'nada atravessa empresa: a LEITURA da rota do dia escopa por companyId');
+  assert.equal(busca.where.entregadorId, 8, 'a rota é do DONO do rascunho, não de qualquer um');
+  assert.equal(busca.where.routeDate, '2026-08-15', 'e do DIA do rascunho');
+  assert.equal(bancada.sessionUpdateManyCalls.length, 1);
+  const [escrita] = bancada.sessionUpdateManyCalls;
+  assert.equal(escrita.where.companyId, EMPRESA, 'nada atravessa empresa: a ESCRITA da sessão escopa por companyId');
+  assert.deepEqual(escrita.where.routeId, { in: ['route-lapide-encerrada'] });
+  assert.equal(escrita.where.status, 'ACTIVE', 'só a sessão ACTIVE fecha — ENDED não se re-encerra');
+  assert.equal(escrita.data.status, 'ENDED');
+  assert.ok(escrita.data.endedAt instanceof Date);
+  assert.equal(bancada.sessionState.status, 'ENDED', 'EFEITO medido: a sessão realmente fecha — sem isto, CONFLICT->REJECTED preso 24h na fila do aparelho');
+  assert.deepEqual(result, { ok: true, resumo: { canceladas: 1 } });
+});
+
+test('FURO 2 (outra metade, controle) · draft: de um dia SEM rota nenhuma não inventa escrita — no-op honesto', async () => {
+  const bancada = bancadaDoDraft({ rotasDoDia: [], sessionStatusInicial: null });
+  const prisma: any = {
+    entrega: { findMany: async () => [abertaDoDraft] },
+    logisticaRoute: bancada.logisticaRoute,
+    logisticaTrackingSession: bancada.logisticaTrackingSession,
+  };
+  const rota: any = { limparDia: async () => ({ ok: true, resumo: { canceladas: 1 } }) };
+  const service = new LogisticaRotaContinuidadeService(
+    prisma, {} as any, rota, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+  const dono = { id: 8, companyId: EMPRESA, role: 'DRIVER' };
+
+  await service.cancelar(dono, 'draft:8:2026-08-15');
+
+  assert.equal(bancada.routeFindManyCalls.length, 1, 'procura — é barato e é a única forma de saber');
+  assert.equal(bancada.sessionUpdateManyCalls.length, 0, 'sem rota identificável, nenhuma escrita de sessão: updateMany com lista vazia pegaria o que não devia');
 });
 
 test('F5 · Cancelar draft: cujo dia já ficou vazio (não resolve mais) alcança a saída graciosa — antes era 404 cru', async () => {

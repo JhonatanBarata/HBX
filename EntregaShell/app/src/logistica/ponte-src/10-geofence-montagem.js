@@ -725,33 +725,14 @@
   // o tour arrancado da tela custa o passo inteiro.
   setInterval(() => { if (!tourRodando()) viradaDoDia(); }, 60000);
 
-  async function atualizarContinuidades() {
-    if (!temPonte()) return;
-    let resp;
-    try { resp = await window.API.get('/logistica/rota/continuidade'); } catch (_) {
-      // Rede ruim preserva o último retrato, mas ele precisa dizer que é um
-      // retrato — silêncio aqui fazia cartão velho parecer informação ao vivo.
-      pendenciasSemConexao = true;
-      if (typeof window.usarDados === 'function') {
-        window.usarDados('rota', { pendencias: pendenciasDaRota, pendenciasSemConexao });
-      }
-      return;
-    }
-    vestirPendencias(resp);
-    if (typeof window.usarDados === 'function') window.usarDados('rota', { pendencias: pendenciasDaRota, pendenciasSemConexao });
-    // Se outra pessoa puxou esta rota, o aparelho antigo perde a posse no
-    // próximo tique/foco e desarma o geofence. Offline de verdade não permite
-    // revogação instantânea; ao reconectar esta é a primeira ação.
-    if (!continuidadeAtiva && rotaRefAtual && paradasAbertasNaTela() > 0 && !refsDoAtor.includes(rotaRefAtual)) {
-      try { if (window.HBX && typeof window.HBX.stopRoute === 'function') window.HBX.stopRoute(); } catch (_) {}
-      await carregarRota();
-    }
-  }
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') atualizarContinuidades();
-  });
-  window.addEventListener('focus', atualizarContinuidades);
-  setInterval(() => { if (!tourRodando()) atualizarContinuidades(); }, 60000);
+  /* 🔴 `atualizarContinuidades` (o poll de 60s da continuidade, com o bloco de
+     POSSE REVOGADA e os 3 gatilhos dele) MUDOU DE CASA no LOTE 1.3, pro módulo
+     dela de verdade — `25-continuidade-rota.js`. Dois motivos, os dois duros:
+     este arquivo bate no teto de 1.000 linhas do portão da ponte, e o poll
+     nunca foi do geofence — é a irmã do `refDaResposta`, que já mora lá desde
+     o lote 1.2. A costura é um IIFE contíguo e `function` hoista, então a
+     mudança de casa não muda comportamento nenhum. `tourRodando` (acima) e
+     `carregarRota` continuam aqui e são lidos de lá. */
 
   const cargaInicial = () => {
     apagarDemonstracao(); carregarBarra(); carregarRecados(); checkAppUpdate();

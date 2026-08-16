@@ -70,6 +70,72 @@
     return comDono ? `draft:${Number(comDono.entregador.id)}:${String((r && r.date) || dataDaRotaNaTela())}` : '';
   }
 
+  /* ------------------------------------------------------------------------
+     O POLL DA CONTINUIDADE — MOVIDO de `10-geofence-montagem.js` no LOTE 1.3
+     (15/08). Ele nunca foi do geofence: é a irmã do `refDaResposta` acima (a
+     mesma pergunta, "de quem é esta rota"), e aquele arquivo estava no teto de
+     1.000 linhas do portão da ponte. A costura é um IIFE contíguo e `function`
+     hoista; `tourRodando`/`carregarRota` continuam lá e são lidos daqui — a
+     mudança de casa não muda comportamento nenhum.
+     ------------------------------------------------------------------------ */
+  async function atualizarContinuidades() {
+    if (!temPonte()) return;
+    let resp;
+    try { resp = await window.API.get('/logistica/rota/continuidade'); } catch (_) {
+      // Rede ruim preserva o último retrato, mas ele precisa dizer que é um
+      // retrato — silêncio aqui fazia cartão velho parecer informação ao vivo.
+      pendenciasSemConexao = true;
+      if (typeof window.usarDados === 'function') {
+        window.usarDados('rota', { pendencias: pendenciasDaRota, pendenciasSemConexao });
+      }
+      return;
+    }
+    vestirPendencias(resp);
+    if (typeof window.usarDados === 'function') window.usarDados('rota', { pendencias: pendenciasDaRota, pendenciasSemConexao });
+    /* Se outra pessoa puxou esta rota, o aparelho antigo perde a posse no
+       próximo tique/foco e desarma o geofence. Offline de verdade não permite
+       revogação instantânea; ao reconectar esta é a primeira ação.
+
+       🔴 O LOOP DE 60 SEGUNDOS (LOTE 1.3, 15/08 — REGRESSÃO QUE FOI PARAR NO
+       APARELHO DO MOTORISTA, medida em bancada com controle). "Posse revogada"
+       só faz sentido com ROTA NA RUA. Desde o lote 1.2 a ref `route:` nasce
+       pra QUALQUER rota não-ENCERRADA — inclusive as que não seguram parada
+       aberta nenhuma (a PLANNED que sobra de um Iniciar que falhou; a
+       COMPLETED com parada nova lançada por cima) — e o servidor NUNCA publica
+       uma rota assim em `ownedRefs` (o `listar` exige `stops: { some: {
+       delivery: status IN abertos } }`). Cada lado está CERTO sozinho; o
+       encontro deles é que mentia: `route:<viva-sem-stop>` ∉ `ownedRefs` ⇒
+       este bloco concluía "perdi a posse" a CADA tique, desarmava o serviço
+       nativo e recarregava a tela inteira, para sempre — bateria e tela
+       piscando na mão de quem está dirigindo. Medido em 3 tiques: +12
+       `stopRoute` e +6 `GET /logistica/rota` na PLANNED-fantasma e na
+       COMPLETED-sem-aberta; ZERO numa rota ACTIVE normal (o controle limpo).
+
+       A cura é no CONSUMIDOR, nunca na régua da ref acima — foi ela que curou
+       o no-op mudo do Cancelar. `estadoRota === 'rodando'` é o MESMO recorte
+       que o `sincronizarGeofence` usa pra decidir se há serviço armado (só
+       ACTIVE/INITIALIZING): desarmar o que não está armado e recarregar o dia
+       de quem não saiu é trabalho inútil por definição. O caso que importa —
+       rota ACTIVE cuja posse foi pra outro aparelho — segue INTEIRO, com
+       controle próprio em `scripts/prova-loop-posse.js`.
+
+       O `try` é a convenção da casa (casca velha pode não ter a variável):
+       sem ele um ReferenceError aqui viraria unhandledrejection mudo, e a
+       régua nova fecharia o bloco pelo motivo errado. */
+    let naRuaAgora = false;
+    try { naRuaAgora = estadoRota === 'rodando'; } catch (_) { naRuaAgora = false; }
+    if (!continuidadeAtiva && naRuaAgora && rotaRefAtual
+      && paradasAbertasNaTela() > 0 && !refsDoAtor.includes(rotaRefAtual)) {
+      try { if (window.HBX && typeof window.HBX.stopRoute === 'function') window.HBX.stopRoute(); } catch (_) {}
+      await carregarRota();
+    }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') atualizarContinuidades();
+  });
+  window.addEventListener('focus', atualizarContinuidades);
+  setInterval(() => { if (!tourRodando()) atualizarContinuidades(); }, 60000);
+
   /* 🔴 A ROTA FANTASMA (14/08, print do dono): "51 paradas · 0 entregues" com
      dock Cancelar|Iniciar|Montagem, e QUALQUER verbo de continuidade batendo
      409/404 sem NUNCA atualizar a tela — o aparelho ficava preso olhando pra

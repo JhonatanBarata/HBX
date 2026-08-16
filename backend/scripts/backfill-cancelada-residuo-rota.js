@@ -44,7 +44,11 @@
  *   node scripts/backfill-cancelada-residuo-rota.js                  # relatório, todas as empresas
  *   node scripts/backfill-cancelada-residuo-rota.js --company=41     # só uma empresa
  *   node scripts/backfill-cancelada-residuo-rota.js --company=41 --apply
- *   node scripts/backfill-cancelada-residuo-rota.js --apply
+ *
+ * 🔴 `--apply` EXIGE `--company` (LOTE 1.3) — era a ASSIMETRIA que sobrou do
+ * lote 1.2: o `--rollback` já cobrava a empresa ("nada atravessa empresa"),
+ * mas o `--apply` sem `--company` varria TODAS as empresas de uma vez. O
+ * relatório (dry-run) segue livre pra ver o mundo inteiro; ESCRITA, nunca.
  *
  * D5 (LOTE 1.1, fechada com o dono): rodar `--apply` é GESTO DO DONO — este
  * script nasce e fica em dry-run; ninguém roda `--apply` por conta própria.
@@ -90,6 +94,20 @@ const rollbackArg = args.find((a) => a.startsWith('--rollback='));
 
 function log(...a) {
   console.log(...a);
+}
+
+/**
+ * O FREIO DE ESCOPO, num lugar só (LOTE 1.3). Toda ESCRITA deste script — o
+ * `--apply` do backfill e o `--apply` do rollback — exige `--company`. Antes
+ * só o rollback cobrava, e a assimetria era o buraco: `--apply` pelado
+ * escrevia em TODAS as empresas. Devolve `false` (e marca `exitCode`) quando
+ * o freio pegou — quem chama tem que SAIR, nunca seguir.
+ */
+function freioDeEscopo(acao) {
+  if (COMPANY_ID) return true;
+  log(`ERRO: ${acao} exige --company=<id> — nada atravessa empresa. Rode de novo com --company=<id>.`);
+  process.exitCode = 1;
+  return false;
 }
 
 // 🔴 FURO 5 (LOTE 1.2) — `startedAt` é FILTRO NEGATIVO (tem que estar NULO),
@@ -143,13 +161,26 @@ function resumoPorEmpresa(rows) {
 // `status:'cancelada'` (CAS). `startedAt` NUNCA é tocado — nem lido do
 // arquivo, nem escrito de volta: este script nunca zerou sinal de vida.
 async function rollback(arquivo) {
-  if (!COMPANY_ID) {
-    log('ERRO: --rollback exige --company=<id> — nada atravessa empresa. Rode de novo com --company=<id>.');
+  if (!freioDeEscopo('--rollback')) return;
+  const dump = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
+  const todasAsLinhas = dump.linhas || [];
+  /* 🔴 BACKUP DE FORMATO ANTIGO GRITA, NÃO SUSSURRA "0 linhas" (LOTE 1.3).
+     A 1ª leva deste script gravava as linhas SEM `companyId`; o filtro por
+     empresa (que é a lei "nada atravessa empresa") joga TODAS elas fora e o
+     rollback relatava serenamente "0 de N linha(s) pertencem a esta empresa"
+     — a mesma frase de um arquivo de OUTRA empresa. Quem estivesse desfazendo
+     um estrago leria "não havia nada pra reverter" e iria embora, com o dado
+     ainda torto no banco. Arquivo incompatível é ERRO, não resultado. */
+  const semEmpresa = todasAsLinhas.filter((r) => !r || r.companyId === undefined || r.companyId === null);
+  if (semEmpresa.length) {
+    log('');
+    log(`ERRO: ${semEmpresa.length} de ${todasAsLinhas.length} linha(s) de "${arquivo}" NÃO têm companyId.`);
+    log('       Este backup é de FORMATO ANTIGO (anterior ao lote 1.2) e não dá pra escopar por empresa —');
+    log('       reverter às cegas atravessaria empresa. Refaça o backfill (que já grava companyId) ou');
+    log('       reverta essas linhas à mão, com o companyId conferido uma a uma.');
     process.exitCode = 1;
     return;
   }
-  const dump = JSON.parse(fs.readFileSync(arquivo, 'utf8'));
-  const todasAsLinhas = dump.linhas || [];
   const linhas = todasAsLinhas.filter((r) => Number(r.companyId) === COMPANY_ID);
 
   log('');
@@ -182,6 +213,10 @@ async function main() {
     await rollback(rollbackArg.split('=')[1]);
     return;
   }
+
+  // O freio ANTES do banco: `--apply` sem `--company` nem chega a LER (menos
+  // ainda a escrever). Dry-run continua livre pra olhar todas as empresas.
+  if (APPLY && !freioDeEscopo('--apply')) return;
 
   const linhas = await coletarCandidatas();
 
@@ -251,4 +286,4 @@ if (require.main === module) {
     .finally(() => prisma.$disconnect());
 }
 
-module.exports = { whereCandidatas, coletarCandidatas, resumoPorEmpresa, rollback };
+module.exports = { whereCandidatas, coletarCandidatas, resumoPorEmpresa, rollback, freioDeEscopo, main };

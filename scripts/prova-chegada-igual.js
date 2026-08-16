@@ -436,6 +436,52 @@ async function legibilidadeSobreOMapa(p) {
   const mapaCru = await pixelMedio(p, fora);
   await p.evaluate(() => { document.querySelector('.chegou-wrap').style.visibility = ''; });
 
+  /* ======================================================================
+     🔴 (a) O VÉU ESTAVA SENDO MEDIDO PELA SOMBRA DO CARTÃO (LOTE 1.3,
+     revisão adversarial ao lote 3.1). A régua anterior era
+     `RAZAO(foraComVeu, mapaCru)` num ponto a 8px da beirada do cartão — e o
+     `.chegou-cartao` tem `box-shadow: 0 22px 54px rgba(0,0,0,.6)`, cujo
+     borrão de 54px cobre esses 8px com folga. Resultado MEDIDO: apagando a
+     regra do véu no modo CLARO, a razão continuava acima do piso (a sombra
+     sozinha escurecia o ponto) e o portão NÃO reprovava. Régua que não
+     reprova quando a peça some é enfeite.
+
+     A cura tem que isolar as duas coisas, e de quebra mede o MECANISMO que a
+     copy sempre alegou — "o véu rebaixa o mapa, a peça pousa num chão
+     PREVISÍVEL em vez de num tile qualquer (parque verde, avenida branca)":
+       · uma SENTINELA branca cobre o palco inteiro atrás da peça (o pior
+         tile possível pro contraste: o branco da avenida);
+       · a SOMBRA do cartão é desligada durante a amostra — sem isso ela
+         responde pelo véu;
+       · a razão passa a ser sentinela CRUA × sentinela sob o véu.
+     Deletar a regra do véu derruba isso pra 1,00 EXATO nos DOIS modos, que é
+     o red-first honesto. Medido com a regra de pé: escuro ~7,9 · claro ~2,6.
+     ====================================================================== */
+  await p.evaluate(() => {
+    const wrap = document.querySelector('.chegou-wrap');
+    const cartao = wrap.querySelector('.chegou-cartao');
+    window.__provaSombra = cartao.style.boxShadow || '';
+    cartao.style.boxShadow = 'none';
+    const s = document.createElement('div');
+    s.id = 'prova-sentinela-palco';
+    // z-index 55 = logo ABAIXO do `.chegou-wrap` (56) e acima de todo o cromo
+    // de tela, então o recorte amostrado vê a sentinela e mais nada.
+    s.style.cssText = 'position:absolute;inset:0;z-index:55;background:#ffffff';
+    wrap.parentElement.insertBefore(s, wrap);
+  });
+  const veuSobreSentinela = await pixelMedio(p, fora);
+  await p.evaluate(() => { document.querySelector('.chegou-wrap').style.visibility = 'hidden'; });
+  const sentinelaCrua = await pixelMedio(p, fora);
+  await p.evaluate(() => {
+    const wrap = document.querySelector('.chegou-wrap');
+    wrap.style.visibility = '';
+    const cartao = wrap.querySelector('.chegou-cartao');
+    cartao.style.boxShadow = window.__provaSombra || '';
+    delete window.__provaSombra;
+    const s = document.getElementById('prova-sentinela-palco');
+    if (s) s.remove();
+  });
+
   const m = /rgba?\(([^)]+)\)/.exec(info.borda || '');
   const bordaRGB = m ? m[1].split(',').slice(0, 3).map((x) => parseFloat(x)) : [0, 0, 0];
   const vazamento = Math.max(
@@ -443,7 +489,11 @@ async function legibilidadeSobreOMapa(p) {
   );
   return {
     vazamento: Math.round(vazamento),
-    veu: RAZAO(foraComVeu, mapaCru),
+    // A ASSERÇÃO: véu isolado (sentinela branca atrás, sombra do cartão OFF).
+    veu: RAZAO(sentinelaCrua, veuSobreSentinela),
+    // A MEDIDA VELHA fica no log com o nome honesto — ela mistura véu+sombra
+    // e por isso nunca mais volta a ser asserção.
+    veuMaisSombraSobreOPalco: RAZAO(foraComVeu, mapaCru),
     borda: info.largura > 0 ? RAZAO(bordaRGB, foraComVeu) : null,
     fundoCartaoXFora: RAZAO(dentroNormal, foraComVeu),
   };
@@ -670,14 +720,22 @@ async function legibilidadeSobreOMapa(p) {
     // 1. o mapa NÃO VAZA no conteúdo: é o que faz os 3 números acima (medidos
     //    contra `--card`) valerem na rua. Sentinela magenta atrás da peça.
     eh(`cartão OPACO: o mapa não vaza no conteúdo (${luz})`, !!L && L.vazamento === 0, JSON.stringify(L));
-    // 2. o VÉU rebaixa o mapa: a peça pousa em chão previsível, não num tile
-    //    qualquer. Apagar a regra derruba a razão pra 1,00 — piso 1,35 com
-    //    folga sobre o medido (escuro 1,61 · claro 3,87).
-    eh(`véu rebaixa o mapa atrás da peça, ≥1,35 (${luz})`, !!L && L.veu >= 1.35, JSON.stringify(L));
-    // a borda continua MEDIDA, com o nome honesto, pro dono decidir repintar.
-    nota(`[${luz}] borda×composto(véu+mapa)=${L && L.borda && L.borda.toFixed(2)}`
+    /* 2. o VÉU rebaixa o mapa: a peça pousa em chão previsível, não num tile
+          qualquer. Medido ISOLADO da sombra do cartão (§ (a) em
+          `legibilidadeSobreOMapa`): sentinela branca atrás — o pior tile
+          possível, a avenida branca — e `box-shadow:none` durante a amostra.
+          Apagar a regra do véu derruba a razão pra 1,00 EXATO nos dois modos;
+          com ela de pé mede escuro ~7,9 e claro ~2,6, então o piso 1,35 tem
+          folga larga dos dois lados e reprova de verdade. */
+    eh(`véu rebaixa o palco atrás da peça (isolado da sombra), ≥1,35 (${luz})`,
+      !!L && L.veu >= 1.35, JSON.stringify(L));
+    // a borda e o composto véu+sombra continuam MEDIDOS, com o nome honesto,
+    // pro dono decidir repintar — nenhum dos dois volta a ser asserção.
+    nota(`[${luz}] veu ISOLADO=${L && L.veu && L.veu.toFixed(2)}`
+      + ` · veu+sombra sobre o palco=${L && L.veuMaisSombraSobreOPalco && L.veuMaisSombraSobreOPalco.toFixed(2)}`
+      + ` · borda×composto=${L && L.borda && L.borda.toFixed(2)}`
       + ` · fundo do cartão×fora=${L && L.fundoCartaoXFora && L.fundoCartaoXFora.toFixed(2)}`
-      + ' — MEDIDA, não asserção (§ legibilidadeSobreOMapa)');
+      + ' — MEDIDAS, não asserções (§ legibilidadeSobreOMapa)');
   });
 
   /* ========================================================================
@@ -862,29 +920,35 @@ async function legibilidadeSobreOMapa(p) {
      folha antiga aberta no 2D. As duas deixam `chegadaPalco` "sujo" de um
      ciclo anterior antes de abrir a parada que de fato vai ser confirmada. */
 
-  // (i) folha antiga no 3D (abandonada) → abre e2 DIRETO PELA LISTA 2D → confirma
+  /* (i) 🔴 REESCRITA NO LOTE 1.3 — A CENA ANTIGA MEDIA A CURA ERRADA.
+     Ela abria a folha do e1 no 3D e a ABANDONAVA pelo Voltar antes de abrir
+     o e2 pela lista — e o abandono cai no embrulho do `window.ir` do FURO 1,
+     que zera `aberta` E `chegadaPalco` juntos. Com `chegadaPalco` já nulo,
+     confirmar o e2 caía em 'rota' por DEFAULT, e não por alguém ter gravado
+     o palco certo: MEDIDO, revertendo só o FURO 2 (o palco voltando a nascer
+     em `desenharChegada`, com o FURO 1 de pé), a cena continuava VERDE.
+
+     A grandeza certa é o PALCO GRAVADO POR PARADA, e pra medir isso a cena
+     não pode passar por abandono nenhum: um cartão NASCE no 3D pro e1 e
+     nunca é aberto (é ele que, na régua velha, gravava `chegadaPalco='mapa'`
+     como estado GLOBAL do último cartão); depois o motorista desce pra lista
+     2D e abre OUTRA parada, a e2, direto. Quem grava o palco agora é
+     `abrirParada` — e o palco desta abertura é o 2D.
+     Red-first isolado: com o FURO 2 revertido esta cena termina em 'mapa'. */
   {
     const { ctx, p } = await abrirContexto(navegador, porta, pele, { luz: 'escuro' });
     await irPalco(p, 'mapa');
-    await chegar(p, 'e1');
+    await chegar(p, 'e1');                    // cartão do e1 NASCE no 3D…
     await p.waitForTimeout(700);
-    await p.evaluate(() => {
-      const b = document.querySelector('.chegou-wrap [data-acao="abrir-parada"]');
-      if (b) b.click();
-    });
-    await p.waitForTimeout(600);
-    await p.evaluate(() => {
-      const voltar = document.querySelector('[data-voltar][data-ir]');
-      if (voltar) voltar.click();
-    });
-    await p.waitForTimeout(600);              // chegadaPalco ficou 'mapa' desta abertura
-    await p.evaluate(() => window.ir('rotalista'));
+    const cartaoNasceuNo3D = await p.evaluate(() => !!document.querySelector('.chegou-wrap [data-acao="abrir-parada"]'));
+    await p.evaluate(() => window.ir('rotalista'));   // …e nunca é aberto
     await p.waitForTimeout(600);
     await p.evaluate(() => {                  // e2 abre DIRETO pela lista — nenhum cartão nasceu pra ela
       const b = document.querySelector('[data-acao="abrir-parada"][data-parada="e2"]');
       if (b) b.click();
     });
     await p.waitForTimeout(600);
+    const abriuFolha = await p.evaluate(TELA);
     await p.evaluate(() => {
       const alvo = [...document.querySelectorAll('[data-acao]')]
         .find((e) => /^(confirmar-venda|entregue-pagou)$/.test(e.dataset.acao || ''));
@@ -892,7 +956,13 @@ async function legibilidadeSobreOMapa(p) {
     });
     await p.waitForTimeout(1000);
     const telaFinal = await p.evaluate(TELA);
-    eh('FURO 2(i) · confirmar parada aberta pela LISTA 2D fica no 2D (não herda palco de cartão antigo)',
+    // sem estas duas, um seletor quebrado (cartão que não nasce, folha que
+    // não abre) deixaria a cena "passar" sem ter exercitado nada.
+    eh('FURO 2(i) · a cena de fato monta o cartão no 3D antes de descer pra lista',
+      cartaoNasceuNo3D === true, `cartaoNasceuNo3D=${cartaoNasceuNo3D}`);
+    eh('FURO 2(i) · a cena de fato abre a folha da e2 pela lista 2D',
+      abriuFolha === 'venda' || abriuFolha === 'folha', `abriuFolha=${abriuFolha}`);
+    eh('FURO 2(i) · confirmar parada aberta pela LISTA 2D fica no 2D (o palco é da PARADA, não do último cartão)',
       telaFinal === 'rota', `telaFinal=${telaFinal}`);
     await ctx.close();
   }
