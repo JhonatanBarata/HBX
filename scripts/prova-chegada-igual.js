@@ -328,21 +328,80 @@ const CONTRASTE = () => {
   };
 };
 
-/* 🔴 PORTÃO HONESTO (c) — a borda medida DE VERDADE contra o mapa, não contra
-   "cor != transparente". A régua antiga só checava se `borderColor` existia e
-   diferia do fundo do CARTÃO — nunca do que está ATRÁS da borda, que é o véu
-   translúcido `rgba(4,7,13,.7)` sobre o mapa (2D ou 3D) por baixo dele. Isto
-   amostra um retângulo fino colado por FORA da borda esquerda do cartão (o
-   wrap tem `padding:0 20px`, então sempre sobra respiro) e decodifica o PNG
-   DENTRO da própria página (`createImageBitmap`+canvas) — sem depender de
-   decoder de imagem nenhum do lado do Node. A razão de contraste (WCAG) é
-   entre a cor DECLARADA da borda (`getComputedStyle`, o token) e o pixel
-   COMPOSTO de verdade (véu + mapa) — devolve `null` quando não há espaço pra
-   amostrar honesto, nunca um número inventado. */
-async function bordaContrasteReal(p) {
+/* pixel MÉDIO de um retângulo da tela. Decodifica o PNG DENTRO da própria
+   página (`createImageBitmap`+canvas) — sem depender de decoder de imagem
+   nenhum do lado do Node. `atob`+`Blob`, nunca `fetch` de `data:` — o
+   `connect-src` da CSP do app barra fetch (armadilha já documentada em
+   00-nucleo.js). */
+async function pixelMedio(p, clip) {
+  const buf = await p.screenshot({ clip });
+  return p.evaluate(async (b64) => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+    const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+    const ctx = c.getContext('2d'); ctx.drawImage(bmp, 0, 0);
+    const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
+    let r0 = 0; let g0 = 0; let b0 = 0; let n = 0;
+    for (let i = 0; i < d.length; i += 4) { r0 += d[i]; g0 += d[i + 1]; b0 += d[i + 2]; n += 1; }
+    return [r0 / n, g0 / n, b0 / n];
+  }, buf.toString('base64'));
+}
+
+const LUM = ([r, g, b]) => {
+  const f = (ch) => { const v = ch / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+};
+const RAZAO = (x, y) => { const [a, b] = [LUM(x), LUM(y)].sort((m, n) => n - m); return (a + 0.05) / (b + 0.05); };
+
+/* ==========================================================================
+   🔴 PORTÃO HONESTO (c) — "BORDA LEGÍVEL SOBRE O MAPA" MEDIA A COISA ERRADA,
+   E A COISA CERTA NÃO ERA A BORDA.
+
+   A régua velha (`bordaWidth>0 && cor!=='transparent' && cor!==fundoDoCartao`)
+   passava POR DEFINIÇÃO: qualquer borda declarada a satisfazia. Trocá-la por
+   "token da borda × composto véu+mapa, piso 3,0" foi o 1º remendo — e ele
+   REPROVOU no escuro (1,29:1). Antes de mexer no produto por causa de uma
+   régua, os pixels foram MEDIDOS (bancada, 2 luzes × 2 palcos):
+
+       escuro │ fundo do cartão × logo fora ....... 1,06:1
+              │ token da borda  × logo fora ....... 1,29:1
+              │ sombra (fora perto × fora longe) .. 1,09:1
+       claro  │ fundo do cartão × logo fora ....... 6,22:1
+              │ token da borda  × logo fora ....... 4,82:1
+
+   No ESCURO nada da beirada chega perto de 3,0 — nem a borda, nem o fundo,
+   nem a sombra. E não há token que conserte: `--line-2`(#26375a) e
+   `--line`(#1a2740) medem 1,04 e 1,29 contra o composto; só um cinza claro
+   tipo `--ink-2` passaria, e isso é um TRAÇO CLARO CONTORNANDO O CARTÃO —
+   repintar peça publicada por causa de uma régua inventada, exatamente o que
+   "conserte a RÉGUA, nunca o produto" proíbe.
+
+   Porque a beirada NUNCA foi o mecanismo. O que torna a peça legível sobre o
+   mapa são DUAS coisas, e as duas são mensuráveis e reprováveis:
+
+     1. O CARTÃO É OPACO — o mapa não vaza no conteúdo. É ISTO que faz os três
+        números de contraste medidos contra `--card` (`dist`/`verbo`/`baixo`,
+        logo acima) serem verdade NA RUA e não artefato de bancada: se o fundo
+        tivesse alpha, o texto estaria sobre mapa+card e nenhum daqueles
+        números valeria nada. Medido pintando uma SENTINELA berrante
+        (`#ff00ff`) atrás da peça e exigindo ZERO deslocamento do pixel de
+        dentro — não é ler `backgroundColor` e acreditar.
+     2. O VÉU REBAIXA O MAPA — `rgba(4,7,13,.7)` / `rgba(20,28,45,.42)`. É ele
+        que garante que a peça pousa num chão PREVISÍVEL em vez de num tile
+        qualquer (parque verde, avenida branca). Medido contra o mapa CRU (o
+        mesmo recorte, com o véu escondido): apagar a regra derruba pra 1,00.
+
+   A borda continua MEDIDA e vai pro log com o nome honesto — número que o
+   dono pode olhar e decidir repintar. O que ela não faz mais é se passar por
+   asserção de legibilidade.
+   ========================================================================== */
+async function legibilidadeSobreOMapa(p) {
   const info = await p.evaluate(() => {
     const cartao = document.querySelector('.chegou-cartao');
-    if (!cartao) return null;
+    const wrap = document.querySelector('.chegou-wrap');
+    if (!cartao || !wrap) return null;
     const r = cartao.getBoundingClientRect();
     const cs = getComputedStyle(cartao);
     return {
@@ -352,42 +411,42 @@ async function bordaContrasteReal(p) {
       vh: window.innerHeight,
     };
   });
-  if (!info || !(info.largura > 0)) return null;
-  const clip = {
-    x: Math.round(info.x - 8), y: Math.round(info.y + info.h / 2 - 3),
-    width: 6, height: 6,
-  };
-  // sem respiro suficiente pra amostrar por FORA do cartão sem invadi-lo: não
-  // inventa número, devolve "não sei medir" (nunca um verde de mentira).
-  if (clip.x < 0 || clip.y < 0 || clip.y + clip.height > info.vh) return null;
-  const buf = await p.screenshot({ clip });
-  // decodifica o PNG DENTRO da página (createImageBitmap+canvas) — sem
-  // decoder de imagem nenhum do lado do Node; só o pixel médio volta pra cá.
-  // `atob`+`Blob`, nunca `fetch` de `data:` — o `connect-src` da CSP do app
-  // barra fetch (mesma armadilha já documentada em 00-nucleo.js).
-  const [rr, gg, bb] = await p.evaluate(async (b64) => {
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-    const blob = new Blob([bytes], { type: 'image/png' });
-    const bmp = await createImageBitmap(blob);
-    const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
-    const ctx = c.getContext('2d'); ctx.drawImage(bmp, 0, 0);
-    const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
-    let r0 = 0; let g0 = 0; let b0 = 0; let n = 0;
-    for (let i = 0; i < d.length; i += 4) { r0 += d[i]; g0 += d[i + 1]; b0 += d[i + 2]; n += 1; }
-    return [r0 / n, g0 / n, b0 / n];
-  }, buf.toString('base64'));
-  // a razão WCAG é pura aritmética — computa aqui no Node, sem precisar
-  // voltar pra página de novo.
-  const lum = ([r, g, b]) => {
-    const f = (ch) => { const v = ch / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
-    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
-  };
+  if (!info) return null;
+  const meioY = Math.round(info.y + (info.h / 2) - 3);
+  // FORA: colado na beirada esquerda (o wrap tem `padding:0 20px`, sempre sobra
+  // respiro). DENTRO: 4px pra dentro, bem dentro do `padding:18px 16px` — chão
+  // liso do cartão, sem texto no caminho.
+  const fora = { x: Math.round(info.x - 8), y: meioY, width: 6, height: 6 };
+  const dentro = { x: Math.round(info.x + 4), y: meioY, width: 6, height: 6 };
+  // sem espaço pra amostrar honesto: devolve "não sei medir", nunca um verde
+  // de mentira (e a asserção reprova em cima do `null`).
+  if (fora.x < 0 || fora.y < 0 || fora.y + fora.height > info.vh) return null;
+
+  const dentroNormal = await pixelMedio(p, dentro);
+  /* SENTINELA: pinta o que está ATRÁS do cartão de magenta puro. Cartão opaco
+     ⇒ o pixel de dentro não se mexe UM canal. Qualquer alpha ⇒ ele puxa pro
+     magenta na hora. */
+  await p.evaluate(() => { document.querySelector('.chegou-wrap').style.background = '#ff00ff'; });
+  const dentroSentinela = await pixelMedio(p, dentro);
+  await p.evaluate(() => { document.querySelector('.chegou-wrap').style.background = ''; });
+
+  const foraComVeu = await pixelMedio(p, fora);
+  // o mapa CRU no MESMO recorte: esconde a peça inteira por um instante.
+  await p.evaluate(() => { document.querySelector('.chegou-wrap').style.visibility = 'hidden'; });
+  const mapaCru = await pixelMedio(p, fora);
+  await p.evaluate(() => { document.querySelector('.chegou-wrap').style.visibility = ''; });
+
   const m = /rgba?\(([^)]+)\)/.exec(info.borda || '');
-  const [br, bg, bb2] = m ? m[1].split(',').slice(0, 3).map((x) => parseFloat(x)) : [0, 0, 0];
-  const [a, b] = [lum([rr, gg, bb]), lum([br, bg, bb2])].sort((x, y) => y - x);
-  return (a + 0.05) / (b + 0.05);
+  const bordaRGB = m ? m[1].split(',').slice(0, 3).map((x) => parseFloat(x)) : [0, 0, 0];
+  const vazamento = Math.max(
+    ...dentroNormal.map((v, i) => Math.abs(v - dentroSentinela[i])),
+  );
+  return {
+    vazamento: Math.round(vazamento),
+    veu: RAZAO(foraComVeu, mapaCru),
+    borda: info.largura > 0 ? RAZAO(bordaRGB, foraComVeu) : null,
+    fundoCartaoXFora: RAZAO(dentroNormal, foraComVeu),
+  };
 }
 
 (async () => {
@@ -435,7 +494,7 @@ async function bordaContrasteReal(p) {
       const cap = await p.evaluate(CAPTURAR);
       const foto = cap.existe ? await fotoDoElemento(p, '.chegou-cartao', 20) : null;
       const contraste = cap.existe ? await p.evaluate(CONTRASTE) : null;
-      const bordaSobreMapa = cap.existe ? await bordaContrasteReal(p) : null;
+      const legibilidade = cap.existe ? await legibilidadeSobreOMapa(p) : null;
 
       /* CAMADA (e) — medida NOS 2 PALCOS, com o cromo que EXISTE em cada um:
          2D usa `.nav`/`.hdr`/`.tmx-dock`; no 3D nenhum dos três existe — quem
@@ -515,7 +574,7 @@ async function bordaContrasteReal(p) {
       }
 
       capturas[chave] = {
-        tela0, tela1, capNascimento, cap, foto, contraste, bordaSobreMapa,
+        tela0, tela1, capNascimento, cap, foto, contraste, legibilidade,
         camada, sobreviveu, acaoPrincipal, voltaPalco, erros,
       };
       nota(`[${chave}] tela0=${tela0} tela1=${tela1} existe=${cap.existe} zIndex=${cap.zIndex || '-'}`);
@@ -602,10 +661,23 @@ async function bordaContrasteReal(p) {
        um seletor quebrado não pode passar disfarçado de "campo ausente". */
     eh(`contraste do texto pequeno ≥4,5 (${luz})`, !!ct && ct.baixo != null && ct.baixo >= 4.5, JSON.stringify(ct));
     eh(`contraste do ícone ≥3,0 (${luz})`, !!ct && ct.icone != null && ct.icone >= 3, JSON.stringify(ct));
-    // (c) medida DE VERDADE contra o composto véu+mapa por trás da borda —
-    // não mais "cor != transparente". Piso 3,0 (texto/gráfico de apoio).
-    eh(`borda legível sobre o mapa, piso 3,0 (${luz})`, c.bordaSobreMapa != null && c.bordaSobreMapa >= 3.0,
-      `razão=${c.bordaSobreMapa}`);
+    /* (c) O MECANISMO REAL, medido — ver o bloco grande em
+       `legibilidadeSobreOMapa`. As duas asserções abaixo substituem a antiga
+       "borda legível sobre o mapa", que passava por definição e, remendada
+       pra medir a borda de verdade, cobrava do produto um traço claro que
+       nenhum token entrega no escuro. */
+    const L = c.legibilidade;
+    // 1. o mapa NÃO VAZA no conteúdo: é o que faz os 3 números acima (medidos
+    //    contra `--card`) valerem na rua. Sentinela magenta atrás da peça.
+    eh(`cartão OPACO: o mapa não vaza no conteúdo (${luz})`, !!L && L.vazamento === 0, JSON.stringify(L));
+    // 2. o VÉU rebaixa o mapa: a peça pousa em chão previsível, não num tile
+    //    qualquer. Apagar a regra derruba a razão pra 1,00 — piso 1,35 com
+    //    folga sobre o medido (escuro 1,61 · claro 3,87).
+    eh(`véu rebaixa o mapa atrás da peça, ≥1,35 (${luz})`, !!L && L.veu >= 1.35, JSON.stringify(L));
+    // a borda continua MEDIDA, com o nome honesto, pro dono decidir repintar.
+    nota(`[${luz}] borda×composto(véu+mapa)=${L && L.borda && L.borda.toFixed(2)}`
+      + ` · fundo do cartão×fora=${L && L.fundoCartaoXFora && L.fundoCartaoXFora.toFixed(2)}`
+      + ' — MEDIDA, não asserção (§ legibilidadeSobreOMapa)');
   });
 
   /* ========================================================================
@@ -672,6 +744,21 @@ async function bordaContrasteReal(p) {
       return { paradaAtual: b ? b.dataset.parada : null };
     });
     eh('2ª chegada não troca o cliente (cartão parado)', antes.paradaAtual === 'e1', JSON.stringify(antes));
+    /* 🔴 FURO 3 (LOTE 3.1) — A OUTRA METADE, QUE NÃO TINHA PORTÃO NENHUM.
+       "Não trocar o cliente" nunca quis dizer "jogar a 2ª chegada fora". Até a
+       3.1 o `if (chegada) return` vinha ANTES do `carimbarChegada(id)`: a 2ª
+       chegada era descartada INTEIRA — `chegada:e2` nunca era gravado e o pino
+       da e2 nunca ficava âmbar, então o `arrivedAt` dela virava a hora do
+       TOQUE MANUAL (minutos depois, às vezes na porta seguinte). O relógio da
+       chegada é dado de operação: é ele que diz se o motorista cumpriu a
+       janela do cliente. Medir só "o cartão continua no e1" deixava essa
+       metade sem fiscal — o fix estava no código e ninguém provava. */
+    const carimbo2 = await p.evaluate(() => ({
+      cache: !!(window.HBX.cache && window.HBX.cache.get('chegada:e2', null)),
+      pino: (() => { try { return !!(PARADAS.find((x) => String(x.id) === 'e2') || {}).chegou; } catch (e) { return null; } })(),
+    }));
+    eh('FURO 3 · 2ª chegada É carimbada mesmo com cartão aberto (pino âmbar)',
+      carimbo2.cache === true && carimbo2.pino === true, JSON.stringify(carimbo2));
     // abre a folha do cartão visível (deveria ser e1) e ABANDONA sem
     // confirmar — se `chegada` tivesse sido silenciosamente sobrescrito pra
     // 'e2' (a guarda `if (chegada) return` apagada, só `naCamada` de pé), é
