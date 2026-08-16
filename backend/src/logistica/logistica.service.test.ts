@@ -2997,6 +2997,52 @@ test('softDeleteEntrega: cancelada some rastro de rota (rotaOrdem/etaAt/startedA
   assert.equal(deletionRecords.length, 1, 'o snapshot em DeletionRecord (R3) continua acontecendo junto');
 });
 
+// ── FURO 6 (15/08, LOTE 1.2 — revisão adversarial ao lote 1.1) ──────────────
+// O F4 do lote 1.1 (teste acima) passou a ZERAR rotaOrdem/etaAt/startedAt no
+// update — mas o `select` que alimenta o `snapshot` do DeletionRecord não
+// guardava esses 3 campos: a exclusão administrativa destruía dado que o
+// PRÓPRIO registro de exclusão não preservava.
+test('softDeleteEntrega: o snapshot do DeletionRecord preserva rotaOrdem/etaAt/startedAt de ANTES do soft-delete (o registro de exclusão não pode perder o que foi excluído)', async () => {
+  const agora = new Date('2026-08-15T16:00:00.000Z');
+  // a entrega estava NA ROTA quando a exclusão administrativa aconteceu.
+  const rowNoBanco = {
+    id: 'entrega-11', companyId: 1, customerProfileId: 'c1', contatoId: null, productId: null,
+    quantidade: 1, valor: 20, status: 'agendada', scheduledAt: new Date(), deliveredAt: null,
+    cobrancaStatus: 'pendente', notes: null,
+    rotaOrdem: 4, etaAt: agora, startedAt: agora,
+  };
+  const deletionRecords: any[] = [];
+  const prisma: any = {
+    entrega: {
+      // 🔴 O DUBLÊ RESPEITA O `select`, COMO O PRISMA REAL — sem isto o teste
+      // mede a si mesmo (teatro, o mesmo defeito do FURO 4): um `findFirst`
+      // que sempre devolve a linha INTEIRA não consegue provar que o SELECT
+      // do serviço realmente pediu os 3 campos; passaria igual com ou sem o
+      // fix. Só os campos listados em `args.select` chegam no `row` que o
+      // serviço usa pra montar o snapshot — EXATAMENTE como o Postgres via
+      // Prisma projeta a resposta.
+      findFirst: async (args: any) => {
+        const campos = Object.keys(args.select || {});
+        const projetado: any = {};
+        for (const campo of campos) projetado[campo] = (rowNoBanco as any)[campo];
+        return projetado;
+      },
+      update: async (args: any) => { Object.assign(rowNoBanco, args.data); return rowNoBanco; },
+    },
+    deletionRecord: { create: async (args: any) => { deletionRecords.push(args); return args.data; } },
+    $transaction: async (fn: any) => fn(prisma),
+  };
+  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
+
+  await service.softDeleteEntrega(1, 'entrega-11');
+
+  assert.equal(deletionRecords.length, 1);
+  const snapshot = JSON.parse(deletionRecords[0].data.snapshot);
+  assert.equal(snapshot.rotaOrdem, 4, 'o snapshot guarda o rotaOrdem de ANTES — sem isto a exclusão apaga sem deixar rastro do que apagou');
+  assert.equal(new Date(snapshot.etaAt).getTime(), agora.getTime());
+  assert.equal(new Date(snapshot.startedAt).getTime(), agora.getTime());
+});
+
 test('softDeleteEntrega: já cancelada é idempotente — não sobrescreve rotaOrdem de novo (não mexe em nada)', async () => {
   const row = {
     id: 'entrega-10', companyId: 1, customerProfileId: 'c1', contatoId: null, productId: null,

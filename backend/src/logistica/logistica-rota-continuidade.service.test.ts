@@ -203,12 +203,75 @@ test('Cancelar rota fantasma (route: sem nenhuma parada aberta, dia TAMBÉM vazi
   assert.deepEqual(result, { ok: true, resumo: { canceladas: 0 } }, 'beco fechado: cancelar sempre sai, mesmo sem abertas');
 });
 
+// ── FURO 4 (15/08, LOTE 1.2 — revisão adversarial ao lote 1.1) — TEATRO DE
+// TESTE: o double antigo de `logisticaRoute.updateMany` devolvia `{count:1}`
+// SEMPRE, ignorando o `where` — contra Postgres de verdade, um `where` com
+// `operationalEndedAt: null` bate ZERO linhas quando a lápide JÁ está
+// encerrada (a cena medida em prod: `operationalEndedAt` gravado 2 min
+// depois do `startedAt`). O teste "passava" sem provar NADA sobre o efeito.
+//
+// Este par de dublês simula um Postgres mínimo: mantém o estado REAL da
+// linha (route/sessão) e só muta quando o `where` bate — exatamente a
+// pergunta que o revisor fez. Compartilhado pelas duas cenas abaixo (a
+// medida, já encerrada; e a nova, viva) para que as DUAS respeitem a MESMA
+// régua.
+function bancadaComEfeitoReal(opts: {
+  routeId: string;
+  routeStatus: string;
+  operationalEndedAtInicial: Date | null;
+  sessionStatusInicial: 'ACTIVE' | 'ENDED' | null;
+}) {
+  const routeState = { operationalEndedAt: opts.operationalEndedAtInicial };
+  const sessionState = { status: opts.sessionStatusInicial };
+  const routeUpdateManyCalls: any[] = [];
+  const sessionUpdateManyCalls: any[] = [];
+  const logisticaRoute = {
+    findFirst: async () => ({
+      id: opts.routeId,
+      routeDate: '2026-08-15',
+      status: opts.routeStatus,
+      startedAt: new Date('2026-08-15T16:57:00.000Z'),
+      operationalEndedAt: routeState.operationalEndedAt,
+      entregadorId: 8,
+      entregador: { name: 'André' },
+      stops: [], // ZERO LogisticaRouteStop — a lápide/rota-viva-sem-stop, como medido
+    }),
+    // O "Postgres mínimo": só muta e só conta quem o `where` realmente pega.
+    updateMany: async (args: any) => {
+      routeUpdateManyCalls.push(args);
+      const bateId = args.where.id === opts.routeId;
+      const bateEndedAt = !('operationalEndedAt' in args.where) || args.where.operationalEndedAt === routeState.operationalEndedAt;
+      if (!bateId || !bateEndedAt) return { count: 0 };
+      routeState.operationalEndedAt = args.data.operationalEndedAt;
+      return { count: 1 };
+    },
+  };
+  const logisticaTrackingSession = {
+    updateMany: async (args: any) => {
+      sessionUpdateManyCalls.push(args);
+      const bateRoute = args.where.routeId === opts.routeId;
+      const bateStatus = sessionState.status === args.where.status;
+      if (!bateRoute || !bateStatus) return { count: 0 };
+      sessionState.status = args.data.status;
+      return { count: 1 };
+    },
+  };
+  return { logisticaRoute, logisticaTrackingSession, routeState, sessionState, routeUpdateManyCalls, sessionUpdateManyCalls };
+}
+
 // ── A CENA MEDIDA NO BANCO DE PRODUÇÃO (15/08): rota
 // `cmsusrv6k05otsfjwx1wgdl1j` · company 41 · status ACTIVE (não PLANNED) ·
 // ZERO `LogisticaRouteStop` · criada e `startedAt` no MESMO segundo (16:57) ·
 // `operationalEndedAt` 2 min depois (16:59) — e no mesmo minuto o dia foi
 // REMONTADO: 51 entregas novas `agendada` com `rotaOrdem` 0..50, nenhuma
 // dentro de stop. Bate segundo a segundo com o print do dono.
+//
+// A lápide medida JÁ chega com `operationalEndedAt` PREENCHIDO (o cancelar
+// anterior, sem esta cura, já carimbou) — o `where.operationalEndedAt: null`
+// do updateMany PRÓPRIO deste cancelar bate ZERO linhas aqui: não há nada
+// pra re-encerrar (idempotente, e é assim que TEM que ser). O que este teste
+// prova de verdade (FURO 2) é que a sessão de tracking ACTIVE, se sobreviveu
+// até aqui, fecha JUNTO — mesmo a lápide já estando encerrada.
 test('CENA MEDIDA: rota ACTIVE encerrada com zero stops + 51 abertas no dia — Cancelar chama limparDia com os 51 ids ORDENADOS e o entregadorId do DONO DA LINHA', async () => {
   const abertas = Array.from({ length: 51 }, (_, i) => ({
     id: `d${i}`,
@@ -222,21 +285,15 @@ test('CENA MEDIDA: rota ACTIVE encerrada com zero stops + 51 abertas no dia — 
     arrivedAt: null,
     entregador: { name: 'André' },
   }));
-  const routeUpdateManyCalls: any[] = [];
+  const bancada = bancadaComEfeitoReal({
+    routeId: 'cmsusrv6k05otsfjwx1wgdl1j',
+    routeStatus: 'ACTIVE',
+    operationalEndedAtInicial: new Date('2026-08-15T16:59:00.000Z'), // JÁ encerrada, como medido
+    sessionStatusInicial: 'ACTIVE', // sessão TRACKED que sobreviveu à lápide — o que o FURO 2 fecha
+  });
   const prisma: any = {
-    logisticaRoute: {
-      findFirst: async () => ({
-        id: 'cmsusrv6k05otsfjwx1wgdl1j',
-        routeDate: '2026-08-15',
-        status: 'ACTIVE',
-        startedAt: new Date('2026-08-15T16:57:00.000Z'),
-        operationalEndedAt: new Date('2026-08-15T16:59:00.000Z'),
-        entregadorId: 8,
-        entregador: { name: 'André' },
-        stops: [], // ZERO LogisticaRouteStop — a lápide, byte a byte como medida
-      }),
-      updateMany: async (args: any) => { routeUpdateManyCalls.push(args); return { count: 1 }; },
-    },
+    logisticaRoute: bancada.logisticaRoute,
+    logisticaTrackingSession: bancada.logisticaTrackingSession,
     entrega: { findMany: async () => abertas },
   };
   const calls: any = { limparDia: null };
@@ -264,10 +321,72 @@ test('CENA MEDIDA: rota ACTIVE encerrada com zero stops + 51 abertas no dia — 
   assert.equal(calls.limparDia.input.routeId, undefined, 'nunca aponta a lápide para o limparDia');
   const esperado = [...abertas].sort((a, b) => a.rotaOrdem - b.rotaOrdem).map((r) => r.id);
   assert.deepEqual(calls.limparDia.input.deliveryIds, esperado, '51 ids, ordenados por rotaOrdem — não pela ordem de leitura');
-  assert.equal(routeUpdateManyCalls.length, 1, 'a lápide é encerrada (operationalEndedAt) por updateMany PRÓPRIO do cancelar');
-  assert.equal(routeUpdateManyCalls[0].where.id, 'cmsusrv6k05otsfjwx1wgdl1j');
-  assert.ok(routeUpdateManyCalls[0].data.operationalEndedAt instanceof Date);
+  assert.equal(bancada.routeUpdateManyCalls.length, 1, 'o updateMany PRÓPRIO do cancelar É chamado, sempre — a lápide pode já estar encerrada');
+  assert.equal(bancada.routeUpdateManyCalls[0].where.id, 'cmsusrv6k05otsfjwx1wgdl1j');
+  assert.equal(bancada.routeUpdateManyCalls[0].where.operationalEndedAt, null, 'FURO 4: o where SÓ re-encerra quem ainda não foi encerrado');
+  assert.ok(bancada.routeUpdateManyCalls[0].data.operationalEndedAt instanceof Date);
+  // FURO 4, EFEITO MEDIDO (não teatro): contra a lápide JÁ encerrada, este
+  // updateMany bate ZERO linhas — é exatamente o que Postgres faria.
+  assert.ok(bancada.routeState.operationalEndedAt instanceof Date, 'a lápide continua encerrada (idempotente, nada mudou)');
+  // FURO 2, EFEITO MEDIDO: a sessão ACTIVE fecha, MESMO a lápide já estando
+  // encerrada de antes (não gateado no count do updateMany da rota).
+  assert.equal(bancada.sessionUpdateManyCalls.length, 1, 'o fechamento da sessão roda sempre que target.routeId existe');
+  assert.equal(bancada.sessionState.status, 'ENDED', 'a LogisticaTrackingSession ACTIVE fecha junto — sem isto, CONFLICT->REJECTED preso 24h na fila do aparelho');
   assert.deepEqual(result, { ok: true, resumo: { canceladas: 51 } });
+});
+
+// ── FURO 4 (15/08, LOTE 1.2) — O CASO QUE FALTAVA: rota VIVA, ainda NÃO
+// encerrada (`operationalEndedAt` nulo — ex.: PLANNED deixada por um Iniciar
+// que falhou depois do congelamento, zero stops). É o ÚNICO caso em que o
+// `where.operationalEndedAt: null` do updateMany PRÓPRIO do cancelar
+// realmente PRECISA casar uma linha — sem um teste que meça o EFEITO (não só
+// a chamada), o "teatro" do dublê antigo escondia justo o caso que importa.
+test('FURO 4 · rota VIVA (PLANNED, ainda não encerrada) sem stops — o updateMany do cancelar REALMENTE encerra (efeito medido, não teatro)', async () => {
+  const abertas = [
+    {
+      id: 'd0', status: 'agendada', entregadorId: 8,
+      scheduledAt: new Date('2026-08-15T15:00:00.000Z'), rotaOrdem: 0,
+      startedAt: null, arrivedAt: null, entregador: { name: 'André' },
+    },
+  ];
+  const bancada = bancadaComEfeitoReal({
+    routeId: 'route-planned-viva-1',
+    routeStatus: 'PLANNED',
+    operationalEndedAtInicial: null, // AINDA VIVA — o caso que faltava
+    sessionStatusInicial: null, // ESSENTIAL, sem sessão TRACKED nenhuma
+  });
+  const prisma: any = {
+    logisticaRoute: bancada.logisticaRoute,
+    logisticaTrackingSession: bancada.logisticaTrackingSession,
+    entrega: { findMany: async () => abertas },
+  };
+  const calls: any = { limparDia: null };
+  const rota: any = {
+    limparDia: async (companyId: number, input: any, entregadorId: number, actorUserId: number) => {
+      calls.limparDia = { companyId, input, entregadorId, actorUserId };
+      return { ok: true, resumo: { canceladas: input.deliveryIds.length } };
+    },
+  };
+  const service = new LogisticaRotaContinuidadeService(
+    prisma, {} as any, rota, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+  const dono = { id: 8, companyId: 7, role: 'DRIVER' };
+
+  const result = await service.cancelar(dono, 'route:route-planned-viva-1', 8);
+
+  assert.ok(calls.limparDia, 'chama limparDia com o dia derivado da rota-morta-sem-stop');
+  // FURO 4, EFEITO MEDIDO: agora sim o where casa — a rota estava viva.
+  assert.equal(bancada.routeUpdateManyCalls.length, 1);
+  assert.equal(bancada.routeUpdateManyCalls[0].where.operationalEndedAt, null);
+  assert.ok(
+    bancada.routeState.operationalEndedAt instanceof Date,
+    'FURO 4: a rota VIVA realmente fica ENCERRADA depois do cancelar — o where casou de verdade, não é teatro',
+  );
+  // Sem sessão TRACKED (ESSENTIAL) o updateMany da sessão ainda roda (é
+  // incondicional em `target.routeId`), mas não casa e não muda nada.
+  assert.equal(bancada.sessionUpdateManyCalls.length, 1);
+  assert.equal(bancada.sessionState.status, null, 'sem sessão ACTIVE pra fechar, o no-op é honesto (count:0)');
+  assert.deepEqual(result, { ok: true, resumo: { canceladas: 1 } });
 });
 
 test('F5 · Cancelar draft: cujo dia já ficou vazio (não resolve mais) alcança a saída graciosa — antes era 404 cru', async () => {

@@ -516,6 +516,28 @@ export class LogisticaRotaContinuidadeService {
           where: { companyId, id: target.routeId, operationalEndedAt: null },
           data: { operationalEndedAt: new Date() },
         });
+        // 🔴 FURO 2 (15/08, LOTE 1.2) — ESPELHO do `encerrarRota`/`limparDia`:
+        // este caminho manda `skipRoute:true` pro `limparDia` (D2, comentário
+        // acima), então `lockedRouteIds` fica vazio lá dentro e o bloco que
+        // fecha `LogisticaTrackingSession` ACTIVE→ENDED NUNCA roda pra esta
+        // lápide. Sem isto uma sessão TRACKED sobrevivia ao cancelamento: um
+        // comando em voo na fila do aparelho (GPS/evento) batia CONFLICT
+        // contra a rota que o app já esqueceu, virava REJECTED e ficava preso
+        // até o teto de 24h do processamento assíncrono — sem ninguém ter
+        // cancelado nada de propósito.
+        //
+        // Roda SEMPRE que `target.routeId` existe — sem gatear no `count` do
+        // updateMany acima (byte a byte o `encerrarRota`, que também não
+        // gateia): uma lápide JÁ encerrada ANTES desta chamada (a cena medida
+        // em prod, gravada por um cancelar de antes do lote 2) pode muito bem
+        // ter ficado com a sessão ACTIVE pra trás — é exatamente o cenário que
+        // este fix existe pra fechar, não pra pular.
+        if (typeof (this.prisma as any).logisticaTrackingSession?.updateMany === 'function') {
+          await (this.prisma as any).logisticaTrackingSession.updateMany({
+            where: { companyId, routeId: target.routeId, status: 'ACTIVE' },
+            data: { status: 'ENDED', endedAt: new Date() },
+          });
+        }
       }
       return resultado;
     }

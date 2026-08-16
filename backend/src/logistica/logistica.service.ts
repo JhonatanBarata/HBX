@@ -1934,6 +1934,14 @@ export class LogisticaService {
         id: true, companyId: true, customerProfileId: true, contatoId: true, productId: true,
         quantidade: true, valor: true, status: true, scheduledAt: true, deliveredAt: true,
         cobrancaStatus: true, notes: true,
+        // FURO 6 (15/08, LOTE 1.2 — revisão adversarial ao lote 1.1) — o F4 do
+        // lote 1.1 passou a ZERAR rotaOrdem/etaAt/startedAt no update abaixo,
+        // mas o `select` do snapshot não os guardava: a exclusão administrativa
+        // destruía dado que o próprio registro de exclusão não preservava. O
+        // `snapshot` do DeletionRecord é o ÚNICO lugar que ainda sabe o valor
+        // de antes — sem os 3 aqui, o soft-delete apaga sem deixar rastro do
+        // que apagou.
+        rotaOrdem: true, etaAt: true, startedAt: true,
       },
     });
     if (!row) return null;

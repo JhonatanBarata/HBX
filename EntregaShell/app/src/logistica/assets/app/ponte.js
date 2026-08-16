@@ -2816,10 +2816,10 @@
      a costura é um IIFE contíguo e `function` hoista, então a mudança de casa
      não muda comportamento nenhum.
 
-     🔴 O QUE MUDOU DE VERDADE: a ref `route:` agora EXIGE rota VIVA
-     (`estadoDaRota(r) === 'rodando'`). Até aqui bastava `r.routeId` existir —
-     e ele existe pra QUALQUER rota do motorista+dia, viva ou morta.
-     `claimLogisticaRoute` (backend) cria a `LogisticaRoute` ANTES de
+     🔴 O QUE MUDOU DE VERDADE: a ref `route:` agora EXIGE rota VIVA — mas
+     "viva" NÃO é o mesmo que "rodando". Até aqui (14/08) bastava `r.routeId`
+     existir — e ele existe pra QUALQUER rota do motorista+dia, viva ou
+     morta. `claimLogisticaRoute` (backend) cria a `LogisticaRoute` ANTES de
      `planejarRota`: todo Iniciar que falha (dia vazio, 402 de assento, OSRM
      fora) deixa uma rota PLANNED com zero stops pra trás — e o Cancelar
      anterior deixa uma rota ACTIVE/ENCERRADA com zero stops (a lápide, medida
@@ -2829,14 +2829,42 @@
      aparelho ficava preso olhando pra uma rota fantasma, rodando
      `carregarRota()` a cada 60 s pra sempre.
 
-     Qualquer outro estado (PLANNED, ENCERRADA, morta) cai na ref do DIA
+     🔴 O FURO DO LOTE 1.1 (15/08, achado pela revisão adversarial) — a 1ª
+     cura restringiu demais: `estadoDaRota(r) === 'rodando'` só é verdade pra
+     ACTIVE/INITIALIZING. Uma rota PLANNED deixada por um Iniciar que falhou
+     DEPOIS do congelamento (ou uma COMPLETED com abertas presas dentro —
+     "a rota COMPLETED com 14 paradas abertas presas" que existe em prod,
+     ver §5 do desenho) AINDA SEGURA os stops do dia — mas caía em `draft:`
+     porque não está "rodando". O `resolve()` do servidor (ramo `draft:`)
+     EXCLUI de propósito qualquer entrega presa num stop de rota com
+     `operationalEndedAt` NULO (é o par exato desta régua: rota viva não
+     encerrada guarda dono via `route:`, só a morta solta pro `draft:`) — a
+     ref virava `draft:`, o resolve não achava as entregas presas, NotFound,
+     e o F5 do lote 1.1 engolia isso como saída graciosa: `{ok:true,
+     canceladas:0}` SEM cancelar nada. Pior que o 404 de antes — parecia
+     sucesso.
+
+     A RÉGUA CERTA (lote 1.2): rota ENCERRADA (`routeStatus === 'ENCERRADA'`,
+     o servidor deriva isso de `operationalEndedAt`) OU inexistente → `draft:`
+     (é o dia que sobrou por cima da lápide — exatamente a cena do print:
+     lápide encerrada → `draft:` → cancela o dia). Rota VIVA (qualquer status
+     != 'ENCERRADA': PLANNED, INITIALIZING, ACTIVE, COMPLETED-com-stop-preso)
+     → `route:`, independente de estar 'rodando'. Isso NÃO reabre a fantasma
+     original: o `routeId` só existe pra rota de HOJE deste motorista
+     (`getOperationalRouteMetadata`), e uma rota PLANNED/COMPLETED com
+     `routeId` publicado sempre tem dono válido no backend — é a MESMA rota
+     que o Cancelar precisa mirar pra realmente esvaziar.
+
+     Qualquer outro estado (sem `routeId`, ou ENCERRADA) cai na ref do DIA
      (`draft:<dono>:<data>`) — é exatamente o que o servidor publica em
      `/logistica/rota/continuidade` quando a rota não é mais "de hoje e
      viva". Sem dono nem ordem gravada, `comDono` não acha ninguém e a ref
      sai vazia — não há o que cancelar, o dock já mostra "Montar rota". */
   function refDaResposta(r, itens) {
     if (r && r.continuityRef) return String(r.continuityRef);
-    if (r && r.routeId && estadoDaRota(r) === 'rodando') return `route:${String(r.routeId)}`;
+    if (r && r.routeId && String(r.routeStatus || '').toUpperCase() !== 'ENCERRADA') {
+      return `route:${String(r.routeId)}`;
+    }
     const comDono = (itens || []).find((it) => it && it.entregador && it.entregador.id
       && it.rotaOrdem !== null && it.rotaOrdem !== undefined);
     return comDono ? `draft:${Number(comDono.entregador.id)}:${String((r && r.date) || dataDaRotaNaTela())}` : '';

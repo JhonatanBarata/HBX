@@ -124,3 +124,60 @@ test('(controle) com o read-back de verdade a MESMA rota inicia normalmente — 
   assert.ok(routes[0].startedAt instanceof Date);
   assert.equal(resultado.paradas.length, 1);
 });
+
+/**
+ * FURO 3 (15/08, LOTE 1.2 — revisão adversarial ao lote 1.1) — a invariante
+ * do Iniciar só cobria o RETORNO `stopsCongelados === 0`; `assertAssentoDoDia`
+ * e `congelarStops` continuavam FORA de qualquer `try`. Se qualquer um dos
+ * dois LANÇAR de verdade (402 de assento numa corrida, `stopDeOutraRotaError`,
+ * "Rota concluída não aceita novas entregas") o `releaseInitialization`
+ * nunca roda e a rota fica `INITIALIZING` PARA SEMPRE — todo Iniciar seguinte
+ * esbarra em "Esta rota já está sendo iniciada. Aguarde e atualize a tela."
+ *
+ * Esta bancada faz `assertAssentoDoDia` lançar DEPOIS do `claimLogisticaRoute`
+ * já ter deixado a rota `INITIALIZING` — exatamente a corrida descrita no
+ * furo (402 entre o claim e o gate de assento).
+ */
+test('FURO 3 · assertAssentoDoDia lança no meio do Iniciar → releaseInitialization roda mesmo assim, rota nunca fica presa em INITIALIZING', async () => {
+  const { rota, routes } = bancada({ countMente: false });
+  const erroDaCorrida = new Error('402 simulado: assento esgotou entre o claim e o gate.');
+  (rota as any).cobranca.assertAssentoDoDia = async () => { throw erroDaCorrida; };
+
+  await assert.rejects(
+    () => rota.iniciarRota(41, { date: DIA, ordemManual: ['d1'] }, 7, 7),
+    (e: any) => e === erroDaCorrida,
+    'o erro ORIGINAL da corrida tem que chegar ao caller, nunca ser engolido',
+  );
+
+  assert.equal(routes.length, 1, 'a LogisticaRoute chega a nascer pelo claim');
+  assert.equal(
+    routes[0].status, 'PLANNED',
+    'HOJE (antes do fix): assertAssentoDoDia está FORA do try — releaseInitialization nunca roda e a rota fica INITIALIZING pra sempre',
+  );
+  assert.equal(routes[0].startedAt, undefined, 'a lápide não nasce: nunca chega a carimbar startedAt');
+});
+
+/**
+ * Mesma corrida, mas o erro nasce dentro de `congelarStops` (o outro lado do
+ * furo 3: "Rota concluída não aceita novas entregas", `stopDeOutraRotaError`).
+ * Aqui simulado direto no dublê do `create()` do stop — a mesma pergunta:
+ * releaseInitialization tem que rodar mesmo quando quem lança é o
+ * congelamento, não o gate de assento.
+ */
+test('FURO 3 · congelarStops lança no meio do Iniciar → releaseInitialization roda mesmo assim, rota nunca fica presa em INITIALIZING', async () => {
+  const { rota, routes } = bancada({ countMente: false });
+  const erroDoCongelamento = new Error('stopDeOutraRotaError simulado: stop estrangeiro não-migrável.');
+  (rota as any).prisma.logisticaRouteStop.create = async () => { throw erroDoCongelamento; };
+
+  await assert.rejects(
+    () => rota.iniciarRota(41, { date: DIA, ordemManual: ['d1'] }, 7, 7),
+    (e: any) => e === erroDoCongelamento,
+    'o erro ORIGINAL do congelamento tem que chegar ao caller, nunca ser engolido',
+  );
+
+  assert.equal(routes.length, 1, 'a LogisticaRoute chega a nascer pelo claim');
+  assert.equal(
+    routes[0].status, 'PLANNED',
+    'HOJE (antes do fix): congelarStops está FORA do try — releaseInitialization nunca roda e a rota fica INITIALIZING pra sempre',
+  );
+});

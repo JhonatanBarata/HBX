@@ -605,16 +605,33 @@ export class LogisticaRotaService {
     // replanejar por um caminho alternativo).
     // `podeComprar` = dono/master (LEI DO VENDEDOR): só quem pode gastar o
     // crédito da empresa vê o botão de comprar o passe no 402.
-    await this.cobranca.assertAssentoDoDia(companyId, effectiveDriverId, routeDate, isBillingOwnerActor(actor as any));
-    const stopsCongelados = await this.congelarStops(companyId, route.id, routeDate, plan.paradas.map((p) => p.id));
-    // 🔴 INVARIANTE DO INICIAR (15/08, "A ROTA FANTASMA") — ponto exato: ANTES
-    // de marcar a 1ª parada `em_rota`, ANTES da sessão TRACKED e ANTES do
-    // `status:'ACTIVE'`/`startedAt`. Assim, se o congelamento não gravou nada
-    // de verdade (read-back = 0), não há sessão pra desfazer nem ACTIVE pra
-    // reverter — só `releaseInitialization` explícito (o gate de assento e o
-    // congelamento ficam FORA do try que chama isto lá embaixo) e um erro
-    // honesto. É a cura (b) da rota fantasma: Iniciar que congelou zero nunca
-    // mais carimba a lápide ACTIVE+startedAt.
+    // 🔴 INVARIANTE DO INICIAR (15/08, "A ROTA FANTASMA", ENDURECIDA NO LOTE
+    // 1.2) — o `try` cobre `assertAssentoDoDia` E `congelarStops`, não só o
+    // read-back. A 1ª leva (lote 1.1) só tratava `stopsCongelados === 0`
+    // (retorno normal); mas os dois podem LANÇAR de verdade no meio de uma
+    // corrida real — `assertAssentoDoDia` com 402 (assento esgotou entre o
+    // `claimLogisticaRoute` e aqui), `congelarStops` com
+    // `stopDeOutraRotaError()` (stop estrangeiro não-migrável) ou
+    // `ConflictException('Rota concluída não aceita novas entregas.')` (rota
+    // virou COMPLETED na corrida). Sem este `try`, qualquer um desses erros
+    // pula direto pro caller com a rota ainda `INITIALIZING` — `releaseInitialization`
+    // NUNCA roda — e a rota fica presa em INITIALIZING PARA SEMPRE (todo
+    // Iniciar seguinte esbarra em "Esta rota já está sendo iniciada"). Ponto
+    // exato mantido: ANTES de marcar a 1ª parada `em_rota`, ANTES da sessão
+    // TRACKED e ANTES do `status:'ACTIVE'`/`startedAt` — nenhuma dessas três
+    // coisas tem sessão pra desfazer se ainda não rodou.
+    let stopsCongelados: number;
+    try {
+      await this.cobranca.assertAssentoDoDia(companyId, effectiveDriverId, routeDate, isBillingOwnerActor(actor as any));
+      stopsCongelados = await this.congelarStops(companyId, route.id, routeDate, plan.paradas.map((p) => p.id));
+    } catch (error) {
+      await this.releaseInitialization(companyId, route.id);
+      throw error;
+    }
+    // Congelamento que não gravou nada de verdade (read-back = 0): não há
+    // sessão pra desfazer nem ACTIVE pra reverter — só `releaseInitialization`
+    // explícito e um erro honesto. É a cura (b) da rota fantasma: Iniciar que
+    // congelou zero nunca mais carimba a lápide ACTIVE+startedAt.
     if (stopsCongelados === 0) {
       await this.releaseInitialization(companyId, route.id);
       throw new BadRequestException('Nenhuma parada para iniciar. Monte a rota de novo.');
