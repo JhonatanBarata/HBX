@@ -1435,10 +1435,38 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
          o desenho ensinando que o botão não funciona. `buscando` é o mesmo dado
          que a barra já usa ('procurando'), lido no mesmo lugar: uma fonte, duas
          peças. Ele se apaga sozinho quando o fix chega. */''}
+    ${/* 🔴 O QUE A COLUNA CARREGA É O QUE A TELA PERDEU — é esta a diferença
+         entre os dois modos, e ela cabe numa frase. Aqui em cima o cabeçalho
+         está vivo (balão do Chat, "+", lâmpada) e a barra de abas também, então
+         a coluna só leva o que é do MAPA: enquadrar. Dirigindo não há cabeçalho
+         nem abas — a tela é cheia —, e é por isso que lá a mesma coluna devolve
+         o Chat e a voz. Botão repetido a 60px de distância de si mesmo é o
+         defeito que o "Finalizar" já pagou em 12/08.
+         🔴 A VOZ ENTRA AQUI QUANDO A ROTA ESTÁ NA RUA. Com o dia rodando, o 2D
+         não é mais a tela de planejar: é a mesma navegação vista de cima, e a
+         voz que fala a manobra é a MESMA (a chave é do aparelho, o soundPrefs).
+         Sem ela, silenciar o GPS obrigaria a entrar no 3D — dedo a mais numa
+         tela que o motorista abriu justamente pra não dirigir olhando.
+         (Sem CRASE aqui dentro: este comentário mora num template literal e a
+         crase o fecharia — foi exatamente o que eu fiz na primeira escrita.) */''}
     <div class="plano-lado">
+      ${emCurso?`<button data-acao="gps-voz" class="${DADOS.gps.vozMuda?'mudo':''}"
+        aria-label="${DADOS.gps.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',22)}</button>`:''}
       <button data-acao="mapa-enquadrar"${d.gps==='procurando'?' class="buscando"':''}
-        aria-label="${temRotaNoDia(e)?'Enquadrar a rota':'Centralizar em mim'}">${ic('target',19)}</button>
+        aria-label="${temRotaNoDia(e)?'Enquadrar a rota':'Centralizar em mim'}">${ic('target',22)}</button>
     </div>
+    ${/* 🔴 O VELOCÍMETRO É O ESPELHO DA COLUNA, E ELE SÓ NASCE COM DADO. Com a
+         rota na rua o 2D passa a ter os dois cantos ocupados, como o 3D — e é
+         isto que faz os dois modos parecerem a mesma tela com outra câmera, em
+         vez de duas telas diferentes. O campo DADOS.gps.velocidade é o MESMO do
+         3D: quem escreve é a ponte, no fix. Enquanto ela não escrever para esta
+         tela (hoje o aoMover da ponte só pinta o cromo quando a tela atual é
+         'mapa'), o disco simplesmente não nasce — desenho sem fonte é peça
+         morta, e peça morta na beirada do mapa é pior que canto vazio.
+         (Sem CRASE aqui dentro: template literal.) */''}
+    ${(emCurso&&DADOS.gps.velocidade)?`<div class="gps-vel"><em class="limite-via"></em>
+      <b data-vivo="velocidade">${DADOS.gps.velocidade}</b>
+      ${DADOS.gps.velocidadeUnidade?`<small>${DADOS.gps.velocidadeUnidade}</small>`:''}</div>`:''}
   </div>
 </div>
 ${dock?`<div class="tmx-dock">${dock}</div>`:''}${nav('rota')}`;
@@ -1826,11 +1854,17 @@ function telaGps(){
          sozinho na poda em vez de virar porta pra parede. SEM o selo de
          não-lidas do balão: ele é estrutura que nasce e some, e nesta tela
          cada nascimento desses derruba a camada inteira do mapa. -->
+    <!-- 🔴 24 VIROU 22 (16/08): o ícone era 24 dentro de uma coluna com
+         escala de 0,9, ou seja, 21,6px na tela. Com a escala fora, 22 é o mesmo
+         desenho de sempre — e agora é o mesmo número do 2D, que é o ponto.
+         A ordem também é régua: o que é do MAPA fica embaixo, no polegar
+         (recentralizar), e o que é de FORA da navegação sobe.
+         (Sem CRASE aqui dentro: template literal.) -->
     <div class="gps-lado">
-      <button data-ir="chat" aria-label="Chat com a Central">${ic('chat',24)}</button>
+      <button data-ir="chat" aria-label="Chat com a Central">${ic('chat',22)}</button>
       <button data-acao="gps-voz" class="${g.vozMuda?'mudo':''}"
-        aria-label="${g.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',24)}</button>
-      <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',24)}</button>
+        aria-label="${g.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',22)}</button>
+      <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',22)}</button>
     </div>
 
     <!-- 🔴 O RODAPÉ PODE FICAR SÓ COM O "Sair", e é o certo: ele é a PORTA

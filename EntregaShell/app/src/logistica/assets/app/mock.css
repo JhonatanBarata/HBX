@@ -1489,6 +1489,37 @@ button,input{font:inherit;color:inherit}
    grande. Pino tapado é pino que não existe, e a tela existe pra mostrar o dia
    INTEIRO. Os dois números são os mesmos do `.body.com-dock` (que já mede este
    mesmo rodapé) — e sem dock na tela sobra só a barra de abas. */
+/* ==========================================================================
+   🔴 A RÉGUA DO CROMO DO MAPA — UMA SÓ PARA O 2D E PARA O 3D (16/08 — dono,
+   com a tela do "Iniciar" na mão: *"combinamos de ter o status 2d e 3d nas
+   navegações… centralize os botões, crie um padrão do 2d e um padrão do 3d"*).
+
+   O que estava na tela, MEDIDO no palco antes de encostar em nada:
+     mapa 2D   1 botão de 44px, `border-radius:50%` (círculo), a 12px da beirada
+     dirigir   3 botões de 52px `scale:.9` = 46,8px reais, raio 17px, a 11px
+     dock      satélites de 46px, raio 16px, a 11px — na MESMA tela do 2D
+   Quer dizer: o MESMO verbo (recentralizar) tinha duas peles a um toque de
+   distância, e nenhuma das duas falava a língua do rodapé que fica 14px abaixo
+   dela. O círculo é forasteiro: o vocabulário deste app inteiro é quadrado de
+   canto mole. E `scale:.9` é a armadilha de sempre — o número escrito no CSS
+   (52) não era o número na tela (46,8), então ninguém conseguia comparar os
+   dois modos lendo a folha.
+
+   A régua nova, e ela é uma CONTA, não um gosto:
+     `--map-btn` 46 e `--map-raio` 16 — os do satélite do dock. Padronizar é
+        IGUALAR com quem já está na tela, não inventar um terceiro tamanho.
+     `--map-beira` 11px = o padding lateral do `.tmx-dock`. Com 46 de largura,
+        o CENTRO do botão cai a 34px da direita — o mesmo centro do satélite
+        "Montagem", que fica logo abaixo. É ISTO o "centralizar": os dois modos
+        e o rodapé passam a ter UM eixo vertical de cada lado, em vez de três
+        margens parecidas que nunca alinham.
+     `--map-chao` + `--map-respiro` = o piso. A única diferença entre os modos é
+        o que está embaixo: no 2D o `.plano` já para acima do dock (chão 0), no
+        3D o chão é o rodapé de dirigir. Mesma fórmula, dois valores.
+   Peça flutuante de mapa que não pousar nesta régua é peça fora do padrão. */
+.plano,.gps{--map-beira:11px;--map-respiro:12px;--map-btn:46px;--map-raio:16px;
+  --map-gap:10px;--map-vel-l:108px;--map-vel-h:113px;--map-chao:0px;
+  --map-piso:calc(var(--map-chao) + var(--map-respiro))}
 .plano{position:absolute;left:0;right:0;top:0;bottom:60px;overflow:hidden;background:var(--fog)}
 .plano.com-dock{bottom:139px}
 /* A barra FLUTUA em vez de empurrar: mapa que começa abaixo de uma faixa opaca
@@ -1555,10 +1586,16 @@ button,input{font:inherit;color:inherit}
    mesma regra nº 6 do GPS aqui embaixo: "recentralizar só faz sentido perto do
    polegar"). De quebra, sai de cima da barra e deixa o topo do mapa livre.
    44px e não 40: alvo de dedo mínimo com luva, no sol, com o carro andando. */
-.plano-lado{position:absolute;right:12px;bottom:14px;z-index:30}
-.plano-lado button{width:44px;height:44px;border-radius:50%;border:.7px solid var(--line);background:var(--glass);
-  color:var(--blue-l);display:grid;place-items:center;cursor:pointer;
-  box-shadow:0 4px 14px rgba(0,0,0,.24)}
+/* 🔴 A COLUNA É A MESMA PEÇA NOS DOIS MODOS — este seletor e o `.gps-lado` lá
+   embaixo são a mesma regra escrita uma vez. O que muda de um modo pro outro é
+   QUANTOS botões nascem, nunca como eles são (ver a régua do cromo, no topo do
+   `.plano`). A coluna cresce PRA CIMA porque é ancorada pelo pé: sobra sempre
+   sai de cima, e o botão de baixo — o mais perto do polegar — nunca se mexe. */
+.plano-lado,.gps-lado{position:absolute;right:var(--map-beira);bottom:var(--map-piso);z-index:30;
+  display:flex;flex-direction:column;gap:var(--map-gap)}
+.plano-lado button,.gps-lado button{width:var(--map-btn);height:var(--map-btn);border-radius:var(--map-raio);
+  border:.7px solid var(--line);background:var(--glass);color:var(--ink);
+  display:grid;place-items:center;cursor:pointer;box-shadow:0 8px 18px rgba(0,0,0,.36)}
 /* PROCURANDO VOCÊ — o alvo respira enquanto o GPS não deu fix (ver `T.rota`).
    É pulso de OPACIDADE, não de tamanho: botão que incha e murcha embaixo do
    polegar muda de alvo no meio do toque. Some sozinho quando o fix chega. */
@@ -1596,8 +1633,13 @@ button,input{font:inherit;color:inherit}
         faz a tela parecer encaixada em vez de empilhada.
    A tela do "Você chegou" tem rodapé mais baixo e não usa nada disto: ela não
    tem seta nem velocímetro, e a coluna de botões dela manda por style inline. */
+/* 🔴 `--gps-piso` NÃO É MAIS UMA CONTA À PARTE — ele é o `--map-piso` da régua
+   do cromo (topo do `.plano`) com o chão deste modo, que é o rodapé de dirigir.
+   O nome fica porque meia dúzia de peças desta tela já o citam; o valor passa a
+   sair da MESMA fórmula do 2D. Modo que calcula o próprio piso é modo que
+   descola do outro na primeira vez que alguém mexe num dos dois. */
 .gps{position:absolute;inset:0;overflow:hidden;background:var(--fog);
-  --gps-rodape-h:117px;--gps-piso:calc(var(--gps-rodape-h) + 12px)}
+  --gps-rodape-h:117px;--map-chao:var(--gps-rodape-h);--gps-piso:var(--map-piso)}
 /* 🔴 O PALCO DE ESPERA É COR, NÃO DESENHO (09/08 — a maquete morreu, ver
    `mapa()`). Ele nasce com a cor do mapa e fica assim até o maplibre subir: o
    que o motorista vê antes do mapa é um chão escuro liso, nunca uma cidade
@@ -1880,12 +1922,21 @@ button,input{font:inherit;color:inherit}
    MOVIMENTO: 56→72 no velocímetro e 40→52 nos botões põe o alvo acima dos 48px
    de toque confortável e deixa o número legível de relance. Elas continuam
    pousando no `--gps-piso`, então o crescimento sobe — não invade o rodapé. */
-.gps-vel{position:absolute;left:11px;bottom:var(--gps-piso);z-index:20;width:120px;height:126px;border-radius:22px;
-  background:var(--vel-bg);border:.7px solid var(--vel-fio);text-align:center;line-height:1;scale:.9;transform-origin:left bottom;
+/* 🔴 O `scale:.9` MORREU AQUI E NA COLUNA (16/08). Ele fazia a folha mentir: o
+   CSS dizia 120×126 e a tela entregava 108×113,4 — e foi por isso que ninguém
+   percebeu que o 2D (44px) e o 3D (52px no papel) eram peças de tamanhos
+   diferentes. O valor medido virou o valor escrito, e ele mora em token porque
+   o aviso de radar pousa em cima do velocímetro e precisa da altura dele. */
+.gps-vel{position:absolute;left:var(--map-beira);bottom:var(--map-piso);z-index:20;
+  width:var(--map-vel-l);height:var(--map-vel-h);border-radius:20px;
+  background:var(--vel-bg);border:.7px solid var(--vel-fio);text-align:center;line-height:1;
   box-shadow:0 10px 24px rgba(0,0,0,.46)}
-.gps-vel::before{content:"";position:absolute;inset:11px;border:2px dotted var(--vel-trilho);border-radius:16px}
-.gps-vel::after{content:"";position:absolute;inset:11px;border:3px solid transparent;border-right-color:var(--vel-acima-ink);
-  border-bottom-color:var(--vel-acima-ink);border-radius:16px;clip-path:polygon(52% 46%,100% 46%,100% 100%,52% 100%);display:none}
+/* Os internos vieram do mundo escalado: cada medida daqui é a de antes × .9,
+   pra que tirar o `scale` mude a FOLHA e não a tela (11→10, 16→14, 45→40,
+   34→31, 18→16). Quem conferir com régua no palco acha os mesmos pixels. */
+.gps-vel::before{content:"";position:absolute;inset:10px;border:2px dotted var(--vel-trilho);border-radius:14px}
+.gps-vel::after{content:"";position:absolute;inset:10px;border:3px solid transparent;border-right-color:var(--vel-acima-ink);
+  border-bottom-color:var(--vel-acima-ink);border-radius:14px;clip-path:polygon(52% 46%,100% 46%,100% 100%,52% 100%);display:none}
 /* 🔴 O NÚMERO NO CENTRO DO DISCO, E O "km/h" FORA DO FLUXO (12/08 — dono:
    *"centralize o número do velocímetro, está muito pra cima"*). O par número+
    unidade JÁ era centralizado como GRUPO (medido: folga 8,5 px em cima e
@@ -1897,11 +1948,11 @@ button,input{font:inherit;color:inherit}
    parte larga do círculo (folga medida: 64 px de corda na altura dela).
    Sem unidade (o mock a torna opcional) o número continua centrado — antes
    também ficava, e essa era a única hora em que ficava. */
-.gps-vel b{position:absolute;left:0;right:0;top:34px;display:block;font-size:45px;font-weight:650;color:var(--ink)}
-.gps-vel small{position:absolute;left:0;right:0;bottom:18px;display:block;
-  font-size:14px;color:var(--ink-2);text-align:center}
-.gps-vel .limite-via{position:absolute;right:-12px;top:-13px;z-index:2;display:grid;place-items:center;
-  width:39px;height:39px;border-radius:50%;background:var(--radar-lim-bg);color:var(--radar-lim-ink);
+.gps-vel b{position:absolute;left:0;right:0;top:31px;display:block;font-size:40px;font-weight:650;color:var(--ink)}
+.gps-vel small{position:absolute;left:0;right:0;bottom:16px;display:block;
+  font-size:13px;color:var(--ink-2);text-align:center}
+.gps-vel .limite-via{position:absolute;right:-11px;top:-12px;z-index:2;display:grid;place-items:center;
+  width:35px;height:35px;border-radius:50%;background:var(--radar-lim-bg);color:var(--radar-lim-ink);
   border:4px solid var(--radar-lim-fio);font-size:17px;font-weight:750;font-style:normal;
   box-shadow:0 5px 12px rgba(0,0,0,.38)}
 .gps-vel .limite-via:empty{display:none}
@@ -1919,9 +1970,9 @@ button,input{font:inherit;color:inherit}
    VELHA no quadro em que a classe entra (medido: 1,00:1 no claro, branco sobre
    branco), então o contraste deixaria de ser mensurável — cor que não se mede
    é cor que ninguém garante. */
-.gps .gps-vel.acima{background:var(--vel-acima-bg);border-color:var(--vel-acima-fio)}
-.gps .gps-vel.acima b{color:var(--vel-acima-ink)}
-.gps .gps-vel.acima::after{display:block}
+.plano .gps-vel.acima,.gps .gps-vel.acima{background:var(--vel-acima-bg);border-color:var(--vel-acima-fio)}
+.plano .gps-vel.acima b,.gps .gps-vel.acima b{color:var(--vel-acima-ink)}
+.plano .gps-vel.acima::after,.gps .gps-vel.acima::after{display:block}
 /* 🔴 O CHIP DO RADAR: nó PERMANENTE e inerte, irmão do selo do retraço — quem o
    acende é a ponte (classe `on`), e o repinte da camada o devolve apagado, que
    é o estado seguro. Ele pousa ACIMA do velocímetro, no mesmo `--gps-piso` (72
@@ -1930,23 +1981,26 @@ button,input{font:inherit;color:inherit}
    cartão da manobra (topo) e do chip do prospector (`.emp-chip`, canto de
    cima) — aviso nunca cobre instrução. `.lim` some quando o radar não traz
    limite: número inventado é pior que nenhum número. */
-.gps-radar{position:absolute;left:11px;bottom:calc(var(--gps-piso) + 136px);z-index:20;
+/* 🔴 O 136px CRAVADO VIROU CONTA (16/08): ele era a altura do velocímetro na
+   tela (113) + 23 de respiro, escrito à mão — número que se descola sozinho na
+   primeira vez que o disco muda de tamanho, que é exatamente o defeito que a
+   régua do cromo veio matar. Agora ele PERGUNTA a altura. */
+.gps-radar{position:absolute;left:var(--map-beira);bottom:calc(var(--map-piso) + var(--map-vel-h) + 23px);z-index:20;
   display:flex;align-items:center;padding:6px 11px;border-radius:999px;
   background:var(--radar-bg);border:.7px solid var(--radar-fio);color:var(--radar-ink);
   font-size:11px;font-weight:700;letter-spacing:.05em;line-height:1;text-transform:uppercase;
   pointer-events:none;opacity:0;transform:translateY(6px);
   transition:opacity .22s ease,transform .22s ease}
 .gps-radar.on{opacity:1;transform:translateY(0)}
-/* A coluna cresce PRA CIMA (é ancorada pelo pé), então quem paga qualquer
-   sobra é sempre o botão de baixo — o mais perto do polegar. Por isso ela pousa
-   no mesmo `--gps-piso` do velocímetro: os dois lados da tela na mesma linha. */
-.gps-lado{position:absolute;right:11px;bottom:var(--gps-piso);z-index:20;display:flex;flex-direction:column;gap:10px;
-  scale:.9;transform-origin:right bottom}
-.gps-lado button{width:52px;height:52px;border-radius:17px;border:.7px solid var(--line);background:var(--glass);
-  color:var(--ink);display:grid;place-items:center;cursor:pointer;box-shadow:0 8px 18px rgba(0,0,0,.36)}
+/* 🔴 A REGRA DESTA COLUNA MORA LÁ EM CIMA, JUNTO COM A DO 2D (`.plano-lado,
+   .gps-lado`) — é a peça única da régua do cromo. Aqui sobra só o z-index, que
+   é o desta tela: no 3D o cromo disputa camada com a fita e o puck do mapa. */
+.gps-lado{z-index:20}
 /* voz desligada: o botão continua ali, apagado — quem silenciou precisa ver
-   COMO religar, e trocar o ícone por um "sem som" seria vocabulário novo. */
-.gps-lado button.mudo{opacity:.45}
+   COMO religar, e trocar o ícone por um "sem som" seria vocabulário novo.
+   Vale nos DOIS modos: quem silencia a voz no 2D e entra no 3D tem que achar o
+   mesmo botão no mesmo estado — chave do aparelho, não estado da tela. */
+.plano-lado button.mudo,.gps-lado button.mudo{opacity:.45}
 
 /* 🔴 QUEM MEXER AQUI REFAZ O `--gps-rodape-h` LÁ EM CIMA. A altura deste rodapé
    é o chão de TODAS as peças flutuantes da tela de dirigir — seta, velocímetro
