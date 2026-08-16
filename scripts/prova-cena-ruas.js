@@ -34,6 +34,7 @@ const path = require('path');
 const http = require('http');
 const fs = require('fs');
 const { chromium } = require('playwright');
+const { regenerarGerados } = require('./_regenerar');
 
 const RAIZ = path.join(__dirname, '..', 'EntregaShell', 'app', 'src', 'logistica');
 const MOCK = path.join(__dirname, '..', 'docs', 'mockups', 'logistica2.0', 'logistica-2.0.html');
@@ -339,6 +340,7 @@ const primeiro = (fita, cond) => { const q = fita.find(cond); return q ? q.t : n
 const ultimo = (fita, cond) => { const q = [...fita].reverse().find(cond); return q ? q.t : null; };
 
 (async () => {
+  regenerarGerados();
   const pele = peleDoMock();
   const [srv, porta] = await servir();
   const navegador = await chromium.launch({

@@ -22,6 +22,7 @@
  */
 const path = require('path');
 const { chromium } = require('playwright');
+const { regenerarGerados } = require('./_regenerar');
 
 const APP = 'file:///' + path
   .join(__dirname, '..', 'EntregaShell/app/src/logistica/assets/app/index.html')
@@ -203,6 +204,7 @@ async function abrir(ctx, cfg) {
 }
 
 (async () => {
+  regenerarGerados();
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 412, height: 940 } });
 

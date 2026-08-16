@@ -9,6 +9,7 @@
  */
 const path = require('path');
 const { chromium } = require('playwright');
+const { regenerarGerados } = require('./_regenerar');
 
 const APP = 'file:///' + path
   .join(__dirname, '..', 'EntregaShell/app/src/logistica/assets/app/index.html')
@@ -64,6 +65,7 @@ const falhou = [];
 const eh = (nome, cond) => (cond ? ok : falhou).push(nome);
 
 (async () => {
+  regenerarGerados();
   const browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 412, height: 940 } });
   const page = await context.newPage();

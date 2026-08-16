@@ -40,18 +40,30 @@
  * 8 `stopRoute` + 8 `GET /logistica/rota` em 4 tiques, para sempre. É o estado
  * em que o motorista passa a tarde inteira. Cena 5 abaixo.
  *
- * As 7 cenas (as 5 pedidas + a do 1.4 + o controle limpo):
- *   1. PLANNED-fantasma  — rota viva sem stop, dia com abertas   → 0 desarme
- *   2. COMPLETED s/ aberta na rota — parada nova por cima         → 0 desarme
- *   3. ENCERRADA         — ref cai em `draft:`, que é do ator     → 0 desarme
- *   4. sem routeId       — idem                                   → 0 desarme
- *   5. ACTIVE com stops fechados + entrega nova (LOTE 1.4)        → 0 desarme
- *   6. CONTROLE ACTIVE + POSSE REVOGADA DE VERDADE  → TEM que continuar
+ * 🔴 O QUE O LOTE 1.6 ACRESCENTOU (16/08) — a régua do 1.5 tinha PREÇO, e o
+ * fiscal cobrou: "posse revogada = servidor sem ref NENHUMA" significa que
+ * basta o ator ter QUALQUER ref no dia (uma avulsa solta) pro aparelho antigo
+ * NUNCA mais se atualizar depois que a rota é puxada por outro. Medido: 4
+ * tiques, 0 desarme e 0 recarga — a tela seguia mostrando, e deixando TOCAR,
+ * paradas de outra pessoa; cada toque desses vira REJECTED, que aqui é lápide
+ * permanente. A cura é ressincronizar UMA vez quando a ref publicada MUDA, sem
+ * encostar no serviço de GPS. Cena I abaixo, e o eixo `recargaUnica`.
+ *
+ * As 9 cenas (as 5 pedidas + a do 1.4 + a do 1.5 + a do 1.6 + os controles):
+ *   1. PLANNED-fantasma  — rota viva sem stop, dia com abertas   → 0 desarme · 1 recarga
+ *   2. COMPLETED s/ aberta na rota — parada nova por cima         → 0 desarme · 1 recarga
+ *   3. ENCERRADA         — ref cai em `draft:`, que é do ator     → 0 desarme · 0 recarga
+ *   4. sem routeId       — idem                                   → 0 desarme · 0 recarga
+ *   5. ACTIVE com stops fechados + entrega nova (LOTE 1.4)        → 0 desarme · 0 recarga
+ *   6. CENA H · ACTIVE cumprida + encaixe COM ordem (LOTE 1.5)    → 0 desarme · 1 recarga
+ *   7. CENA I · rota PUXADA POR OUTRO + avulsa solta (LOTE 1.6)   → 0 desarme · 1 recarga
+ *   8. CONTROLES DE POSSE REVOGADA DE VERDADE (ACTIVE e INITIALIZING, os dois
+ *      estados que `estadoDaRota` chama de 'rodando') → TÊM que continuar
  *      desarmando (é o caso que o bloco existe pra atender: outro aparelho
- *      puxou a rota deste motorista). Se este ficar verde por acidente da
- *      cura, a cura matou o produto. Ele é o PAR da cena 5: mesmo estado,
- *      mesmo `ownedRefs` vazio — só muda o que a rota ainda segura.
- *   7. CONTROLE LIMPO: ACTIVE com a posse na mão                  → 0 desarme
+ *      puxou a rota deste motorista). Se ficarem verdes por acidente da cura,
+ *      a cura matou o produto. São o PAR da cena 5: mesmo estado, mesmo
+ *      `ownedRefs` vazio — só muda o que a rota ainda segura.
+ *   9. CONTROLE LIMPO: ACTIVE com a posse na mão                  → 0 desarme · 0 recarga
  *
  * Bancada: mesma receita do `prova-chegada-igual`/`prova-navegar` — servidor
  * estático dos GERADOS (regenerados aqui no começo, senão a prova mede código
@@ -226,18 +238,35 @@ const eh = (nome, cond, detalhe) => (cond ? ok : falhou).push(nome + (cond || !d
 const nota = (t) => notas.push(t);
 
 /* ==========================================================================
-   AS CENAS. `desarme` é o CONTRATO: false = o aparelho não pode mexer em
-   nada (nem GPS, nem recarga); true = tem que continuar desarmando (é o caso
-   real de posse revogada, que a cura NÃO pode matar).
+   AS CENAS. `desarme` é o CONTRATO: false = o aparelho não pode DESARMAR
+   nada; true = tem que continuar desarmando (é o caso real de posse revogada,
+   que a cura NÃO pode matar).
+
+   🔴 O SEGUNDO EIXO (LOTE 1.6, 16/08): `recargaUnica`. O preço nomeado da
+   régua do 1.5 era uma TELA VELHA ACIONÁVEL — o aparelho de quem perdeu a rota
+   pra outro, mas ainda tem QUALQUER ref no dia (uma avulsa solta), nunca mais
+   se atualizava: seguia mostrando (e deixando TOCAR) paradas que já são de
+   outra pessoa, e esses toques viram REJECTED, que nesta casa é lápide
+   permanente. A cura é a ressincronização de UMA VEZ quando a ref muda — nunca
+   a cada tique, e SEM tocar no serviço de rota. Por isso a régua aqui é
+   `getRota === 1` cravado: 0 seria a tela velha de novo; N seria o loop de
+   volta por outra porta.
    ========================================================================== */
 const CENAS = [
   {
+    /* A ref do app é `route:<fantasma>` e o servidor publica o `draft:` do dia:
+       ref divergente com lista NÃO vazia ⇒ desde o lote 1.6 a tela adota a ref
+       publicada e ressincroniza UMA vez. O GPS continua intocado (é isso que o
+       lote 1.3 nasceu pra garantir) e a `rotaRefAtual` volta a ser derivada da
+       carga nova — o alvo do Cancelar continua sendo o mesmo de sempre. */
     nome: 'PLANNED-fantasma (rota viva sem stop, dia com abertas)',
-    routeId: 'route-planned-fantasma', routeStatus: 'PLANNED', ownedRefs: 'draft', desarme: false,
+    routeId: 'route-planned-fantasma', routeStatus: 'PLANNED', ownedRefs: 'draft',
+    desarme: false, recargaUnica: true,
   },
   {
     nome: 'COMPLETED sem aberta na rota (parada nova lançada por cima)',
-    routeId: 'route-completed-1', routeStatus: 'COMPLETED', ownedRefs: 'draft', desarme: false,
+    routeId: 'route-completed-1', routeStatus: 'COMPLETED', ownedRefs: 'draft',
+    desarme: false, recargaUnica: true,
   },
   {
     nome: 'ENCERRADA (a lápide — ref cai em draft:, que é do ator)',
@@ -274,11 +303,35 @@ const CENAS = [
        apenas mudou de forma. Ele não pode desarmar GPS nem recarregar tela. */
     nome: 'CENA H · ACTIVE cumprida + encaixe COM rotaOrdem e SEM stop (servidor devolve draft: pro ator)',
     routeId: 'route-active-encaixe', routeStatus: 'ACTIVE', ownedRefs: 'draft',
-    itens: 'rota-cumprida-com-encaixe', desarme: false, exigeAbertaDaRota: true,
+    itens: 'rota-cumprida-com-encaixe', desarme: false, recargaUnica: true, exigeAbertaDaRota: true,
+  },
+  {
+    /* 🔴 CENA I — O PREÇO DA RÉGUA DO 1.5, COBRADO (LOTE 1.6, 16/08). A rota
+       FOI puxada por outro aparelho — posse revogada DE VERDADE —, mas este
+       ator ainda tem uma avulsa solta no mesmo dia, então `ownedRefs` volta com
+       o `draft:` dela e a régua "lista vazia" (a única do 1.5) não dispara.
+       Medido no HEAD do 1.5: 4 tiques, 0 desarme e 0 recarga — a tela ficava
+       eternamente mostrando, e deixando TOCAR, paradas que já eram de outra
+       pessoa; cada toque desses vira REJECTED, que aqui é lápide permanente
+       (só sai por descarte manual).
+       O contrato: ressincroniza UMA vez (a ref publicada é adotada) e o GPS
+       NÃO é desarmado — desarmar continua exclusivo do caso lista vazia, senão
+       o loop de 60s renasce por esta porta. */
+    nome: 'CENA I · rota PUXADA POR OUTRO + avulsa solta (o servidor ainda devolve o draft: dela)',
+    routeId: 'route-puxada-por-outro', routeStatus: 'ACTIVE', ownedRefs: 'draft',
+    desarme: false, recargaUnica: true, exigeAbertaDaRota: true,
   },
   {
     nome: 'CONTROLE · ACTIVE com POSSE REVOGADA de verdade (outro aparelho puxou)',
     routeId: 'route-active-revogada', routeStatus: 'ACTIVE', ownedRefs: 'nenhuma', desarme: true,
+  },
+  {
+    /* O MESMO controle no outro estado que `estadoDaRota` chama de 'rodando'.
+       INITIALIZING é a janela do Iniciar (entre o claim e o ACTIVE) — se a
+       cura do 1.6 vazar pra cá, o aparelho para de desarmar justamente no
+       instante em que duas máquinas podem estar disputando a rota. */
+    nome: 'CONTROLE · INITIALIZING com POSSE REVOGADA de verdade',
+    routeId: 'route-initializing-revogada', routeStatus: 'INITIALIZING', ownedRefs: 'nenhuma', desarme: true,
   },
   {
     nome: 'CONTROLE LIMPO · ACTIVE com a posse na mão',
@@ -373,6 +426,23 @@ const CENAS = [
         conta.stopRoute >= TIQUES, `stopRoute=${conta.stopRoute} (esperado >= ${TIQUES})`);
       eh(`POSSE REVOGADA continua ressincronizando a tela · ${cena.nome}`,
         conta.getRota >= TIQUES, `getRota=${conta.getRota} (esperado >= ${TIQUES})`);
+    } else if (cena.recargaUnica) {
+      /* 🔴 O DESARME CONTINUA PROIBIDO PRA QUEM ESTÁ NA RUA — a cura do 1.6
+         mexe em TELA, nunca no serviço. Nas cenas cuja rota NÃO está rodando
+         (PLANNED-fantasma, COMPLETED), o número certo é 1 e não 0, e o 1 não é
+         desta cura: `sincronizarGeofence` desarma em TODA carga de rota que não
+         está na rua (`if (!naRua) return desarmar()`) — é o mesmo desarme que a
+         carga inicial já tinha feito. Cravado nos dois lados de propósito: o
+         loop que este arquivo caça produz 3, 6, 12 — nunca 1. */
+      const naRua = antes.estadoRota === 'rodando';
+      eh(`o GPS de quem está NA RUA não é desarmado · ${cena.nome}`,
+        conta.stopRoute === (naRua ? 0 : 1),
+        `stopRoute=${conta.stopRoute} em ${TIQUES} tiques (estadoRota=${antes.estadoRota}, esperado ${naRua ? 0 : 1})`);
+      /* EXATAMENTE 1, cravado nos dois lados: `>= 1` deixaria o loop passar
+         (é o defeito que este arquivo inteiro existe pra impedir) e `=== 0`
+         seria a tela velha acionável de volta. */
+      eh(`a tela ressincroniza UMA VEZ (ref adotada), e só · ${cena.nome}`,
+        conta.getRota === 1, `getRota=${conta.getRota} em ${TIQUES} tiques (esperado exatamente 1)`);
     } else {
       eh(`o serviço de rota NÃO é desarmado nos tiques · ${cena.nome}`,
         conta.stopRoute === 0, `stopRoute=${conta.stopRoute} em ${TIQUES} tiques`);

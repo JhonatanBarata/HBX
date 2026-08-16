@@ -623,6 +623,26 @@ export class LogisticaRotaContinuidadeService {
    * Escopo de tenant em TODA leitura e TODA escrita (`companyId` nos dois
    * `where`) — nada atravessa empresa.
    *
+   * 🔴 QUEM FECHA A SESSÃO DA ÓRFÃ CARIMBA A ROTA JUNTO (16/08, LOTE 1.6 —
+   * furo GRAVE que o próprio lote 1.5 criou, achado pela revisão adversarial).
+   * O ramo novo (`stops: { none: aberta }`) fechava a sessão e deixava a rota
+   * como estava: **ACTIVE, com `operationalEndedAt` NULO**. E é EXATAMENTE essa
+   * linha que `claimLogisticaRoute` reaproveita no próximo Iniciar do mesmo dia
+   * — o comentário dele proíbe o contrário com todas as letras ("reaproveitar a
+   * linha encerrada faria a próxima saída herdar uma sessão ENDED").
+   *
+   * A CENA: manhã cumprida sem tocar "Encerrar" → cancelam o rascunho da tarde
+   * → o motorista encaixa uma entrega e toca Iniciar. Tudo responde OK e o
+   * rastreamento está MORTO: a rota velha volta viva com a sessão ENDED colada,
+   * e cada ponto de GPS passa a voltar `SESSION_ENDED` — código que não tem UMA
+   * linha de tratamento no app. Recurso que a empresa PAGA, morrendo calado.
+   *
+   * A régua honesta: **rota sem parada aberta e com a sessão fechada É uma
+   * execução encerrada.** Então o mesmo verbo que fecha a sessão carimba a
+   * lápide, e o próximo Iniciar nasce com rota NOVA e sessão NOVA — que é o que
+   * o `claimLogisticaRoute` exige. Só as ÓRFÃS (carimbo nulo) são carimbadas; a
+   * lápide de verdade fica com o relógio original.
+   *
    * 🔴 BEST-EFFORT DE VERDADE (FURO 3 do mesmo lote): o `try/catch` cobre as
    * DUAS queries, não só a ausência de modelo. O `limparDia` acima JÁ commitou
    * quando esta função roda — uma exceção aqui (hiccup de banco, conexão
@@ -651,10 +671,30 @@ export class LogisticaRotaContinuidadeService {
             { stops: { none: { delivery: { status: { in: [...OPEN] } } } } },
           ],
         },
-        select: { id: true },
+        select: { id: true, operationalEndedAt: true },
       });
       const ids = rotas.map((row) => String(row.id)).filter(Boolean);
       if (!ids.length) return;
+      // 🔴 A LÁPIDE VEM ANTES DA SESSÃO (16/08, LOTE 1.6 — ver o JSDoc). A
+      // ORDEM não é gosto: se o carimbo passar e o fechamento da sessão falhar,
+      // sobra rota morta com sessão viva — que o próximo Iniciar já não
+      // reaproveita (nasce linha nova, sessão nova) e o Encerrar/teto de 24h
+      // limpam. O inverso é o furo GRAVE deste lote: sessão morta pendurada
+      // numa rota que o `claimLogisticaRoute` REAPROVEITA, com o rastreamento
+      // morrendo calado (SESSION_ENDED, sem tratamento nenhum no app).
+      const orfas = rotas
+        .filter((row) => row.operationalEndedAt == null)
+        .map((row) => String(row.id))
+        .filter(Boolean);
+      if (orfas.length && typeof prisma.logisticaRoute?.updateMany === 'function') {
+        await prisma.logisticaRoute.updateMany({
+          // `operationalEndedAt: null` é o CAS que impede recarimbar lápide —
+          // o relógio do fim da execução é o ORIGINAL, cancelar o dia por cima
+          // não reescreve história (`ended_with_pending` lê esse campo).
+          where: { companyId, id: { in: orfas }, operationalEndedAt: null },
+          data: { operationalEndedAt: new Date() },
+        });
+      }
       await prisma.logisticaTrackingSession.updateMany({
         where: { companyId, routeId: { in: ids }, status: 'ACTIVE' },
         data: { status: 'ENDED', endedAt: new Date() },

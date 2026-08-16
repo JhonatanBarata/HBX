@@ -473,14 +473,40 @@ function casaOWhere(rota: RotaDoDia, cond: any): boolean {
 function bancadaDoDraft(opts: { rotasDoDia: RotaDoDia[]; sessionStatusInicial: 'ACTIVE' | 'ENDED' | null }) {
   const sessionState = { status: opts.sessionStatusInicial };
   const routeFindManyCalls: any[] = [];
+  const routeUpdateManyCalls: any[] = [];
   const sessionUpdateManyCalls: any[] = [];
   const logisticaRoute = {
     findMany: async (args: any) => {
       routeFindManyCalls.push(args);
       if (Number(args?.where?.companyId) !== EMPRESA) return [];
+      const campos = Object.keys(args?.select || {});
       return opts.rotasDoDia
         .filter((rota) => casaOWhere(rota, args?.where || {}))
-        .map((rota) => ({ id: rota.id }));
+        /* O `select` do dublê devolve SÓ o que o serviço pediu — como o
+           Postgres faria. Sem isto, um serviço que lesse `operationalEndedAt`
+           sem pedir na projeção passaria verde aqui e explodiria (undefined)
+           contra o banco de verdade. */
+        .map((rota) => (campos.includes('operationalEndedAt')
+          ? { id: rota.id, operationalEndedAt: rota.operationalEndedAt }
+          : { id: rota.id }));
+    },
+    /* 🔴 LOTE 1.6 — a rota ÓRFÃ também é ESCRITA agora (carimbo de
+       `operationalEndedAt`). O dublê aplica o `where` de verdade: `id: { in }`
+       + `operationalEndedAt: null` (o CAS que impede recarimbar lápide). */
+    updateMany: async (args: any) => {
+      routeUpdateManyCalls.push(args);
+      const where = args?.where || {};
+      if (Number(where.companyId) !== EMPRESA) return { count: 0 };
+      const alvo = where.id;
+      const lista = Array.isArray(alvo?.in) ? alvo.in : [alvo];
+      let count = 0;
+      opts.rotasDoDia.forEach((rota) => {
+        if (!lista.includes(rota.id)) return;
+        if (where.operationalEndedAt === null && rota.operationalEndedAt !== null) return;
+        Object.assign(rota, args.data);
+        count += 1;
+      });
+      return { count };
     },
   };
   const logisticaTrackingSession = {
@@ -495,7 +521,10 @@ function bancadaDoDraft(opts: { rotasDoDia: RotaDoDia[]; sessionStatusInicial: '
       return { count: 1 };
     },
   };
-  return { logisticaRoute, logisticaTrackingSession, sessionState, routeFindManyCalls, sessionUpdateManyCalls };
+  return {
+    logisticaRoute, logisticaTrackingSession, sessionState,
+    routeFindManyCalls, routeUpdateManyCalls, sessionUpdateManyCalls,
+  };
 }
 
 const abertaDoDraft = {
@@ -683,6 +712,99 @@ test('LOTE 1.5 · Cancelar no ramo draft FECHA a sessão órfã da rota ACTIVE q
     'EFEITO medido: a sessão órfã fecha — sem isto o comando em voo vira REJECTED preso até 24h',
   );
   assert.deepEqual(result, { ok: true, resumo: { canceladas: 1 } });
+});
+
+/**
+ * 🔴 A SESSÃO DE GPS RENASCIA MORTA (16/08, LOTE 1.6 — furo GRAVE criado pelo
+ * lote 1.5, achado pela revisão adversarial). O ramo novo (`stops: { none:
+ * aberta }`) fecha a sessão da rota ÓRFÃ — e deixava a rota do jeito que
+ * estava: **ACTIVE, com `operationalEndedAt` NULO**. Só que é EXATAMENTE essa
+ * linha que `claimLogisticaRoute` reaproveita no próximo Iniciar do mesmo dia
+ * (o comentário dele proíbe o contrário com todas as letras: "reaproveitar a
+ * linha encerrada faria a próxima saída herdar uma sessão ENDED").
+ *
+ * A CENA: manhã cumprida sem tocar Encerrar → cancelam o rascunho da tarde
+ * (ramo `draft:`) → o motorista abre a Montagem, encaixa uma entrega e toca
+ * Iniciar. Tudo responde OK; a rota velha é reaproveitada, a sessão dela está
+ * ENDED, e daí em diante TODO ponto de GPS volta `SESSION_ENDED` — código que
+ * não tem UMA linha de tratamento no app. Rastreamento morto, calado, num
+ * recurso que a empresa PAGA.
+ *
+ * A régua: **rota sem parada aberta e com a sessão fechada É uma execução
+ * encerrada** — então quem fecha a sessão carimba a lápide junto. Assim o
+ * próximo Iniciar nasce com rota NOVA e sessão NOVA, que é o que o
+ * `claimLogisticaRoute` exige. A lápide (ramo 1 do `OR`) não é recarimbada: o
+ * `where` leva `operationalEndedAt: null` e o carimbo original fica de pé.
+ */
+test('LOTE 1.6 · a rota ÓRFÃ é CARIMBADA como encerrada junto com a sessão — senão o próximo Iniciar reaproveita a linha e herda sessão ENDED', async () => {
+  const orfa: RotaDoDia = {
+    id: 'route-cumprida-sem-encerrar',
+    operationalEndedAt: null, // ninguém tocou "Encerrar" — segue ACTIVE
+    stops: ['entregue', 'entregue'], // e não segura mais nada: órfã
+  };
+  const bancada = bancadaDoDraft({ rotasDoDia: [orfa], sessionStatusInicial: 'ACTIVE' });
+  const prisma: any = {
+    entrega: { findMany: async () => [abertaDoDraft] },
+    logisticaRoute: bancada.logisticaRoute,
+    logisticaTrackingSession: bancada.logisticaTrackingSession,
+  };
+  const rota: any = { limparDia: async () => ({ ok: true, resumo: { canceladas: 1 } }) };
+  const service = new LogisticaRotaContinuidadeService(
+    prisma, {} as any, rota, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+  const dono = { id: 8, companyId: EMPRESA, role: 'DRIVER' };
+
+  const result = await service.cancelar(dono, 'draft:8:2026-08-15');
+
+  assert.equal(bancada.sessionState.status, 'ENDED', 'a sessão órfã continua fechando (a cura do 1.5, intocada)');
+  assert.equal(
+    bancada.routeUpdateManyCalls.length, 1,
+    'a rota órfã tem que ser CARIMBADA — sem isto ela volta viva no próximo claimLogisticaRoute, com a sessão morta a tiracolo',
+  );
+  const [carimbo] = bancada.routeUpdateManyCalls;
+  assert.equal(carimbo.where.companyId, EMPRESA, 'nada atravessa empresa: a ESCRITA da rota escopa por companyId');
+  assert.deepEqual(carimbo.where.id, { in: ['route-cumprida-sem-encerrar'] });
+  assert.equal(carimbo.where.operationalEndedAt, null, 'CAS: só carimba quem ainda não tinha carimbo — lápide não se re-encerra');
+  assert.ok(carimbo.data.operationalEndedAt instanceof Date);
+  assert.ok(
+    orfa.operationalEndedAt instanceof Date,
+    'EFEITO medido: a rota fica ENCERRADA de verdade — é isso que faz o próximo Iniciar nascer com rota e sessão NOVAS',
+  );
+  assert.deepEqual(result, { ok: true, resumo: { canceladas: 1 } });
+});
+
+/**
+ * O CONTROLE do carimbo acima: a LÁPIDE (já encerrada) não pode ser
+ * recarimbada. `operationalEndedAt` é o relógio de quando a execução acabou —
+ * reescrevê-lo num cancelamento posterior falsificaria o histórico do dia (e o
+ * `ended_with_pending` da tela lê justamente esse campo).
+ */
+test('LOTE 1.6 (controle) · a LÁPIDE já encerrada NÃO tem o carimbo reescrito pelo cancelar', async () => {
+  const carimboOriginal = new Date('2026-08-15T16:59:00.000Z');
+  const lapide: RotaDoDia = {
+    id: 'route-lapide-encerrada',
+    operationalEndedAt: carimboOriginal,
+    stops: ['agendada'], // ended_with_pending: encerrada COM parada aberta presa
+  };
+  const bancada = bancadaDoDraft({ rotasDoDia: [lapide], sessionStatusInicial: 'ACTIVE' });
+  const prisma: any = {
+    entrega: { findMany: async () => [abertaDoDraft] },
+    logisticaRoute: bancada.logisticaRoute,
+    logisticaTrackingSession: bancada.logisticaTrackingSession,
+  };
+  const rota: any = { limparDia: async () => ({ ok: true, resumo: { canceladas: 1 } }) };
+  const service = new LogisticaRotaContinuidadeService(
+    prisma, {} as any, rota, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+  const dono = { id: 8, companyId: EMPRESA, role: 'DRIVER' };
+
+  await service.cancelar(dono, 'draft:8:2026-08-15');
+
+  assert.equal(bancada.sessionState.status, 'ENDED', 'a sessão pendurada da lápide continua fechando');
+  assert.equal(
+    lapide.operationalEndedAt, carimboOriginal,
+    'o relógio do fim da execução é o ORIGINAL — cancelar o dia por cima não reescreve história',
+  );
 });
 
 /**

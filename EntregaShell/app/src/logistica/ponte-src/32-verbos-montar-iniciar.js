@@ -462,6 +462,14 @@
     // 2º toque no Cancelar não posta ref morta (mesma var que
     // 10-geofence-montagem.js grava direto ao ler /logistica/rota).
     rotaRefAtual = '';
+    /* 🔴 O FREIO DA ADOÇÃO ESQUECE JUNTO (LOTE 1.6). `ultimaRefAdotada`
+       (25-continuidade-rota.js) existe pra impedir que a ressincronização de
+       UMA vez vire uma a cada tique — mas se ela sobrevivesse ao "esquecer a
+       rota", uma ref já adotada NUNCA mais autorizaria a próxima
+       ressincronização, e o freio viraria TRAVA (a tela velha acionável de
+       volta, que é o defeito que esta cura fecha). Sem risco de loop: quem
+       zera isto é ação do usuário/resync 409-404, nunca o relógio de 60s. */
+    try { ultimaRefAdotada = ''; } catch (_) { /* casca velha sem a variável */ }
     previaSeq += 1;
     previaCrua = null;
     previaDoDedo = false;

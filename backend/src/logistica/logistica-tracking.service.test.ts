@@ -26,6 +26,9 @@ function setup(options?: { session?: boolean; sessionStartedAt?: Date }) {
       status: 'ACTIVE',
       startedAt: options?.sessionStartedAt ?? new Date(Date.now() - 30 * 60 * 1000),
       createdAt: new Date(Date.now() - 31 * 60 * 1000),
+      // LOTE 1.6 — a rota do dublê passa a ter o campo que separa "viva" de
+      // "lápide"; sem ele o CAS do carimbo não teria o que comparar.
+      operationalEndedAt: null,
     },
     session: null as any,
     points: [] as any[],
@@ -236,6 +239,10 @@ function setup(options?: { session?: boolean; sessionStartedAt?: Date }) {
       updateMany: async (args: any) => {
         if (args.where.companyId !== state.route.companyId || args.where.id !== state.route.id) return { count: 0 };
         if (args.where.status && !matchesStatus(state.route.status, args.where.status)) return { count: 0 };
+        /* 🔴 LOTE 1.6 — o CAS do carimbo de lápide (`operationalEndedAt: null`)
+           tem que ser AVALIADO aqui, senão o dublê deixaria passar um carimbo
+           que recobre a data de fim de uma execução já encerrada. */
+        if (args.where.operationalEndedAt === null && state.route.operationalEndedAt != null) return { count: 0 };
         Object.assign(state.route, args.data);
         return { count: 1 };
       },
@@ -340,6 +347,54 @@ test('rota TRACKED ainda PLANNED abre sessão — é como o iniciar chama, ANTES
     const created = await service.ensureSessionForStartedRoute(3, 'route-1', state.route.startedAt);
     assert.ok(created, 'rota PLANNED tem que abrir sessão — sem isso todo Iniciar TRACKED morre em 500');
     assert.equal(created.deviceId, null);
+  });
+});
+
+/**
+ * 🔴 A SESSÃO NUNCA MAIS RENASCE MORTA — O CINTO (16/08, LOTE 1.6). A metade
+ * (a) desta cura mora no cancelar (carimbar a rota órfã); esta é a (b), a
+ * guarda que fecha a porta pra QUALQUER caminho futuro: `ensureSessionForStartedRoute`
+ * devolvia a sessão existente **sem olhar o status**. Medido em bancada antes
+ * do fix: rota ACTIVE + sessão ENDED ⇒ ela devolvia a ENDED, o Iniciar seguia
+ * feliz, a rota ficava ACTIVE — e todo ponto de GPS passava a voltar
+ * `SESSION_ENDED`, código que não tem UMA linha de tratamento no app.
+ *
+ * O schema tem `@@unique([routeId, companyId])`: NÃO existe 2ª sessão pra mesma
+ * rota. Então "abrir sessão nova" aqui só pode significar uma coisa honesta —
+ * a rota é que já morreu. Ela é carimbada como encerrada (para o próximo
+ * `claimLogisticaRoute` NASCER numa linha nova, com sessão nova) e o Iniciar
+ * falha ALTO, com 409 humano, em vez de sair verde com o rastreamento morto.
+ * É o oposto de um beco: o toque seguinte funciona.
+ */
+test('LOTE 1.6 · sessão ENDED numa rota reaproveitada NUNCA volta como sessão do turno — o Iniciar falha alto e a rota vira lápide', async () => {
+  await withTrackingEnabled(async () => {
+    const { service, state } = setup({ session: true });
+    // A cena do furo: a rota segue ACTIVE com `operationalEndedAt` nulo (o
+    // motorista não tocou Encerrar) e a sessão dela já foi fechada por fora
+    // (o cancelar do rascunho, ramo órfão do lote 1.5).
+    state.session.status = 'ENDED';
+    state.session.endedAt = new Date();
+
+    await assert.rejects(
+      () => service.ensureSessionForStartedRoute(3, 'route-1', state.route.startedAt),
+      /encerrada/i,
+      'devolver a sessão ENDED é o defeito: o app não trata SESSION_ENDED em lugar nenhum e o GPS morre calado',
+    );
+    assert.equal(state.session.status, 'ENDED', 'a sessão morta não é ressuscitada (a trilha e o vínculo dela são da saída anterior)');
+    assert.ok(
+      state.route.operationalEndedAt instanceof Date,
+      'EFEITO medido: a rota vira LÁPIDE — é isso que faz o próximo Iniciar nascer numa linha NOVA, em vez de repetir o erro pra sempre',
+    );
+  });
+});
+
+test('LOTE 1.6 (controle) · sessão ACTIVE existente continua sendo devolvida, sem carimbar rota nenhuma', async () => {
+  await withTrackingEnabled(async () => {
+    const { service, state } = setup({ session: true });
+    const devolvida = await service.ensureSessionForStartedRoute(3, 'route-1', state.route.startedAt);
+    assert.equal(devolvida.id, 'session-1', 'o caminho normal (retry/idempotência do Iniciar) é byte a byte o de sempre');
+    assert.equal(devolvida.status, 'ACTIVE');
+    assert.equal(state.route.operationalEndedAt, null, 'rota viva não é carimbada por engano');
   });
 });
 

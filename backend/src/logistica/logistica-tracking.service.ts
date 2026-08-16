@@ -95,6 +95,24 @@ export class LogisticaTrackingService {
    * Parte transacional da inicialização web: a sessão já nasce no início da
    * rota TRACKED, mas sem escolher aparelho. O primeiro device do próprio
    * motorista faz um CAS em /sessions/start; depois o vínculo fica congelado.
+   *
+   * 🔴 SESSÃO MORTA NUNCA VOLTA COMO SESSÃO DO TURNO (16/08, LOTE 1.6 — a
+   * guarda "suspensório" do furo grave do lote 1.5; o "cinto" é o carimbo da
+   * rota órfã, em `logistica-rota-continuidade.service.ts`). Aqui a linha
+   * existente era devolvida **sem olhar o status**: medido em bancada, rota
+   * ACTIVE + sessão ENDED devolvia a ENDED, o Iniciar seguia feliz, e todo
+   * ponto de GPS passava a voltar `SESSION_ENDED` — código que não tem UMA
+   * linha de tratamento no app. Rastreamento morto e calado, num recurso que a
+   * empresa PAGA.
+   *
+   * O schema tem `@@unique([routeId, companyId])`: **não existe 2ª sessão pra
+   * mesma rota**. Então "abrir sessão nova" aqui só pode significar uma coisa
+   * honesta — quem já morreu é a ROTA. Ela é carimbada como encerrada (assim o
+   * próximo `claimLogisticaRoute` NASCE numa linha nova, com sessão nova) e o
+   * Iniciar falha ALTO, com 409 humano. Não é beco: o toque seguinte funciona
+   * — e é o oposto exato do defeito, que era sair VERDE sem rastrear nada.
+   * Ressuscitar a sessão ENDED nunca esteve em jogo: a trilha, o aparelho
+   * vinculado e a autoria dela são da saída ANTERIOR.
    */
   async ensureSessionForStartedRoute(
     companyId: number,
@@ -120,7 +138,7 @@ export class LogisticaTrackingService {
     const existing = await (this.prisma as any).logisticaTrackingSession.findFirst({
       where: { companyId, routeId: route.id },
     });
-    if (existing) return existing;
+    if (existing) return this.somenteSessaoViva(companyId, route.id, existing);
 
     try {
       return await (this.prisma as any).logisticaTrackingSession.create({
@@ -137,9 +155,34 @@ export class LogisticaTrackingService {
       const winner = await (this.prisma as any).logisticaTrackingSession.findFirst({
         where: { companyId, routeId: route.id },
       });
-      if (winner) return winner;
+      // A vencedora da corrida passa pela MESMA peneira: uma linha que já
+      // nasceu (ou virou) não-ACTIVE não pode entrar por esta porta lateral.
+      if (winner) return this.somenteSessaoViva(companyId, route.id, winner);
       throw error;
     }
+  }
+
+  /**
+   * LOTE 1.6 — a peneira única de `ensureSessionForStartedRoute`: sessão ACTIVE
+   * passa; qualquer outro estado é execução encerrada disfarçada de viva.
+   * Nesse caso a ROTA é carimbada (`operationalEndedAt`) — é o carimbo que faz
+   * o próximo `claimLogisticaRoute` ignorá-la (o `where` dele exige carimbo
+   * nulo) e nascer numa linha nova, com sessão nova. Sem ele o erro se
+   * repetiria a cada toque, PARA SEMPRE, e o escape viraria beco. O carimbo é
+   * best-effort de propósito: o 409 honesto vale mais, e uma falha de banco
+   * aqui não pode virar 500 na cara do motorista.
+   */
+  private async somenteSessaoViva(companyId: number, routeId: string, sessao: any): Promise<any> {
+    if (String(sessao?.status || '').toUpperCase() === 'ACTIVE') return sessao;
+    try {
+      await (this.prisma as any).logisticaRoute.updateMany({
+        where: { companyId, id: routeId, operationalEndedAt: null },
+        data: { operationalEndedAt: new Date() },
+      });
+    } catch (_) { /* o 409 abaixo já conta a verdade ao app */ }
+    throw new ConflictException(
+      'A execução anterior desta rota já foi encerrada. Toque em Iniciar de novo para abrir uma nova.',
+    );
   }
 
   async discardUnboundSessionAfterRouteFailure(companyId: number, routeIdInput: string): Promise<void> {

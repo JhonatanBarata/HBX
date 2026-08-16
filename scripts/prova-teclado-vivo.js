@@ -33,6 +33,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { chromium } = require('playwright');
+const { regenerarGerados } = require('./_regenerar');
 
 const raiz = path.join(__dirname, '..');
 const MOCK = path.join(raiz, 'docs/mockups/logistica2.0/logistica-2.0.html');
@@ -147,6 +148,7 @@ const falhou = [];
 const eh = (nome, cond, extra) => (cond ? ok : falhou).push(nome + (cond || !extra ? '' : '  → ' + extra));
 
 (async () => {
+  regenerarGerados();
   const servidor = await servir();
   const base = 'http://127.0.0.1:' + servidor.address().port + '/index.html';
   const b = await chromium.launch();

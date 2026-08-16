@@ -35,6 +35,7 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { chromium } = require('playwright');
+const { regenerarGerados } = require('./_regenerar');
 
 const raiz = path.join(__dirname, '..');
 const APP_DIR = path.join(raiz, 'EntregaShell/app/src/logistica/assets/app');
@@ -280,6 +281,7 @@ const eh = (nome, cond, extra) => (cond ? ok : falhou).push(nome + (cond || !ext
 const nota = (t) => notas.push(t);
 
 (async () => {
+  regenerarGerados();
   const b = await chromium.launch();
   /* 🔴 O GPS É QUEM RANQUEIA — sem posição a prova mediria outra tela. A ponte
      lê a posição pelo `navigator.geolocation.watchPosition` (§80-gps), então

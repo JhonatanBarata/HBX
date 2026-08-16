@@ -36,6 +36,7 @@ const path = require('path');
 const http = require('http');
 const fs = require('fs');
 const { chromium } = require('playwright');
+const { regenerarGerados } = require('./_regenerar');
 
 const RAIZ = path.join(__dirname, '..');
 const MOCK = path.join(RAIZ, 'docs', 'mockups', 'logistica2.0', 'logistica-2.0.html');
@@ -310,6 +311,7 @@ async function dirigir(navegador, pele, porta, radares, roteiro) {
 }
 
 (async () => {
+  regenerarGerados();
   const pele = peleDoMock();
   const [srv, porta] = await servir();
   const navegador = await chromium.launch({

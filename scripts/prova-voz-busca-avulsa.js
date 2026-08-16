@@ -8,6 +8,7 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const { regenerarGerados } = require('./_regenerar');
 
 const raiz = path.join(__dirname, '..');
 const appDir = path.join(raiz, 'EntregaShell/app/src/logistica/assets/app');
@@ -73,6 +74,7 @@ async function pagina(comReconhecedor) {
 }
 
 (async () => {
+  regenerarGerados();
   await medir('Android declara RECORD_AUDIO sem pedir no boot', () => {
     contem(manifest, /android\.permission\.RECORD_AUDIO/, 'RECORD_AUDIO ausente no Manifest');
     contem(activity, /Manifest\.permission\.RECORD_AUDIO/, 'MainActivity não controla RECORD_AUDIO');

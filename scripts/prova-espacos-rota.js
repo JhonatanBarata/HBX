@@ -25,6 +25,7 @@
  */
 const path = require('path');
 const { chromium } = require('playwright');
+const { regenerarGerados } = require('./_regenerar');
 
 const APP = 'file:///' + path
   .join(__dirname, '..', 'EntregaShell/app/src/logistica/assets/app/index.html')
@@ -215,6 +216,7 @@ const nota = (t) => notas.push(t);
 const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 (async () => {
+  regenerarGerados();
   const b = await chromium.launch();
   const ctx = await b.newContext({
     viewport: { width: 412, height: 940 },

@@ -125,6 +125,16 @@
     return n;
   }
 
+  /* 🔴 A ÚLTIMA REF QUE ESTE APARELHO ADOTOU DO SERVIDOR (LOTE 1.6, 16/08). Ela
+     é o FREIO da cura abaixo, e existe por um motivo mecânico: `carregarRota`
+     re-DERIVA `rotaRefAtual` do payload (`refDaResposta`) toda vez, então a
+     divergência que disparou a adoção volta a existir no tique seguinte. Sem
+     guardar o que já foi adotado, "ressincronizar uma vez" viraria
+     "ressincronizar sempre" — o loop de 60s de volta por uma porta nova.
+     Guarda a ref PUBLICADA (não a derivada): é ela que muda quando o dia muda
+     de verdade, e é essa mudança que autoriza a próxima ressincronização. */
+  let ultimaRefAdotada = '';
+
   async function atualizarContinuidades() {
     if (!temPonte()) return;
     let resp;
@@ -224,21 +234,22 @@
        mesma coisa que ele dizia no único caso em que ele estava certo, e não
        mente no resto.
 
-       NÃO se adota a ref publicada aqui de propósito: `rotaRefAtual` é
-       DERIVADA (`refDaResposta`) do payload da rota a cada `carregarRota`, e
-       o `route:` de uma rota viva-sem-stop é justamente o alvo que o Cancelar
-       precisa (o backend deriva o dia da rota morta, ver `diaDoAlvoMorto`).
-       Escrever por cima aqui seria um valor que a próxima carga apaga — e o
-       preço de errar é desarmar o GPS de quem está na rua.
+       NESTE bloco não se adota a ref publicada, e isso não mudou: aqui se
+       DESARMA GPS, e desarme errado é a mão fora do volante. A adoção da ref
+       (sem tocar no serviço de rota) virou um bloco PRÓPRIO logo abaixo, no
+       lote 1.6 — é a metade que faltava, e ela paga o preço nomeado no
+       parágrafo seguinte.
 
-       O PREÇO HONESTO desta régua (nomeado, não escondido): se a rota for
-       puxada por outro aparelho E este ator ainda tiver alguma entrega solta
-       com ordem no mesmo dia, `ownedRefs` não vem vazia e o aparelho antigo
-       não desarma no tique — ele fica com a tela velha até a próxima carga. É
-       um retrato desatualizado, sem perda de dado; o outro lado da balança
-       era GPS desarmando e tela recarregando 1×/min a tarde inteira, todo dia,
-       na mão de quem dirige. Entre um retrato velho e o volante, fica o
-       volante. */
+       O PREÇO HONESTO desta régua (nomeado quando ela nasceu, e COBRADO no
+       lote 1.6): se a rota for puxada por outro aparelho E este ator ainda
+       tiver alguma entrega solta com ordem no mesmo dia, `ownedRefs` não vem
+       vazia e o aparelho antigo não desarma no tique. Ficar com a tela velha
+       parecia barato ("retrato desatualizado, sem perda de dado") — não é: a
+       tela velha é ACIONÁVEL, o motorista antigo toca paradas que já são de
+       outra pessoa e cada toque volta REJECTED, lápide permanente nesta casa.
+       Daí a cura do 1.6 logo abaixo: ressincronizar UMA vez, sem desarmar
+       nada. O volante continua intocado — o que mudou é que o retrato velho
+       deixou de ser eterno. */
     let naRuaAgora = false;
     try { naRuaAgora = estadoRota === 'rodando'; } catch (_) { naRuaAgora = false; }
     const semRefNenhuma = !Array.isArray(refsDoAtor) || refsDoAtor.length === 0;
@@ -246,6 +257,50 @@
       && paradasAbertasNaTela() > 0 && paradasAbertasDaRota() > 0) {
       try { if (window.HBX && typeof window.HBX.stopRoute === 'function') window.HBX.stopRoute(); } catch (_) {}
       await carregarRota();
+      return;
+    }
+    /* 🔴 O PREÇO DA RÉGUA DO 1.5, PAGO (LOTE 1.6, 16/08 — furo 2 da revisão
+       adversarial). O parágrafo acima nomeia o preço com todas as letras:
+       "se a rota for puxada por outro aparelho E este ator ainda tiver alguma
+       entrega solta com ordem no mesmo dia, `ownedRefs` não vem vazia e o
+       aparelho antigo não desarma no tique — ele fica com a tela velha". O
+       fiscal mediu o que "tela velha" custa: 4 tiques, 0 desarme, 0 recarga —
+       e a tela continua ACIONÁVEL. O motorista antigo segue tocando paradas que
+       já são de OUTRA pessoa; cada toque desses entra na fila offline e volta
+       REJECTED, que nesta casa é LÁPIDE PERMANENTE (só sai por descarte
+       manual). Retrato velho é uma coisa; retrato velho com botão é outra.
+
+       A cura NÃO reabre o loop, e a diferença é onde ela mexe:
+         · o servidor DEVOLVEU refs (a lista não está vazia) ⇒ não houve
+           revogação total: o serviço de rota fica INTOCADO (zero `stopRoute`).
+           Desarmar continua exclusivo do caso lista vazia, que é o único em
+           que o servidor não reconhece NADA como deste ator;
+         · a ref que este aparelho carrega não está entre as publicadas ⇒ ela
+           está velha (ou mudou de FORMA, `route:`→`draft:`). O aparelho ADOTA a
+           publicada e ressincroniza UMA vez — condicionado à MUDANÇA da ref
+           (`ultimaRefAdotada`), nunca a cada tique.
+       E ela é coerente com o resto: rota viva COM stop aberto SEMPRE aparece em
+       `ownedRefs` (o `listar` a publica), então pra ela nada muda — a troca só
+       acontece onde o `draft:` do dia já é o alvo certo. O `route:` derivado
+       volta na carga seguinte (`refDaResposta` re-deriva do payload), então o
+       alvo do Cancelar continua sendo o mesmo de sempre: esta escrita é um
+       PISO pra não ficar com ref morta se a recarga falhar, não um teto.
+
+       `paradasAbertasNaTela`/`paradasAbertasDaRota` NÃO entram aqui de
+       propósito: os dois guardam DESARME de GPS ("na dúvida, a mão fica fora
+       do volante"), e aqui não se desarma nada. Uma tela velha acionável é
+       igualmente perigosa com a rota parada. */
+    if (!continuidadeAtiva && rotaRefAtual && !semRefNenhuma
+      && refsDoAtor.indexOf(rotaRefAtual) < 0) {
+      // Uma `route:` publicada é mais específica que o `draft:` do dia — quando
+      // as duas vierem, a rota manda. Determinístico de propósito: a mesma
+      // resposta tem que dar sempre a mesma ref.
+      const publicada = refsDoAtor.filter((r) => String(r).indexOf('route:') === 0)[0] || refsDoAtor[0];
+      if (publicada && publicada !== ultimaRefAdotada) {
+        ultimaRefAdotada = publicada;
+        rotaRefAtual = publicada;
+        await carregarRota();
+      }
     }
   }
   document.addEventListener('visibilitychange', () => {
