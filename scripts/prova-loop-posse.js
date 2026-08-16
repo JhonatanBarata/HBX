@@ -137,7 +137,34 @@ const PONTE = ({ hoje, routeId, routeStatus, ownedRefs, dono, itens }) => {
     { id: 'e2', status: 'entregue', rotaOrdem: 1, origem: 'recorrente', entregador: { id: dono, nome: 'André' }, cliente: CLI(2, -22.4100, -47.5600) },
     { id: 'e3', status: 'agendada', rotaOrdem: null, origem: 'avulsa', entregador: { id: dono, nome: 'André' }, cliente: CLI(3, -22.4200, -47.5700) },
   ];
-  const ITENS = itens === 'rota-cumprida-com-nova' ? ROTA_CUMPRIDA_COM_NOVA : DO_DIA;
+  /* 🔴 A CENA H — A METADE QUE SOBROU DO LOOP (LOTE 1.5, 16/08). Igual à de
+     cima em tudo, MENOS numa coisa: o encaixe da tarde chega COM `rotaOrdem`
+     gravado. E é assim que ele chega de verdade — TODO encaixe do app
+     (ficha do cliente, parada avulsa, dedo na rota, recado com anexo) e o
+     desktop do admin chamam `/logistica/rota/planejar` no mesmo toque, e o
+     planejar GRAVA `rotaOrdem` SEM criar stop (quem cria stop é o
+     `congelarStops`, que só roda no INICIAR).
+     Consequência no servidor: a entrega nova tem `rotaOrdem` e não tem stop ⇒
+     ela FORMA rascunho (`listar`: `logisticaRouteStop: is null` + `rotaOrdem
+     not null`) ⇒ o ator possui `draft:<dono>:<hoje>`. Mas a ROTA continua sem
+     stop aberto ⇒ `route:<id>` NÃO entra em `ownedRefs`.
+     Do lado do app, `refDaResposta` continua devolvendo `route:<id>` (rota
+     ACTIVE, não-ENCERRADA — lei do lote 1.2), e `paradasAbertasDaRota()`
+     CONTA essa entrega (ela tem ordem gravada) ⇒ o guarda do lote 1.4 não
+     segura nada. O aparelho não perdeu a rota: a ref dele só mudou de FORMA. */
+  const ROTA_CUMPRIDA_COM_ENCAIXE = [
+    { id: 'e1', status: 'entregue', rotaOrdem: 0, origem: 'recorrente', entregador: { id: dono, nome: 'André' }, cliente: CLI(1, -22.4000, -47.5500) },
+    { id: 'e2', status: 'entregue', rotaOrdem: 1, origem: 'recorrente', entregador: { id: dono, nome: 'André' }, cliente: CLI(2, -22.4100, -47.5600) },
+    { id: 'e3', status: 'agendada', rotaOrdem: 2, origem: 'avulsa', entregador: { id: dono, nome: 'André' }, cliente: CLI(3, -22.4200, -47.5700) },
+  ];
+  const ITENS = itens === 'rota-cumprida-com-nova' ? ROTA_CUMPRIDA_COM_NOVA
+    : itens === 'rota-cumprida-com-encaixe' ? ROTA_CUMPRIDA_COM_ENCAIXE : DO_DIA;
+  /* Espelho do que `paradasAbertasDaRota()` (dentro do IIFE da ponte, fora do
+     alcance do `evaluate`) conta: aberta COM ordem gravada. É o anti-falso-
+     verde da cena H — se este número vier 0, o guarda do lote 1.4 já seguraria
+     o desarme sozinho e a cena não estaria medindo a régua nova. */
+  window.__abertasComOrdem = ITENS.filter((it) => it.status !== 'entregue'
+    && it.status !== 'cancelada' && it.rotaOrdem !== null && it.rotaOrdem !== undefined).length;
   const antigo = window.HBX || {};
   window.HBX = Object.assign({}, antigo, {
     /* 🔴 SEM `sessionScope` A PROVA MEDIRIA A SI MESMA. `vestirPendencias`
@@ -237,6 +264,19 @@ const CENAS = [
     itens: 'rota-cumprida-com-nova', desarme: false,
   },
   {
+    /* 🔴 CENA H — A METADE QUE SOBROU DO LOOP (LOTE 1.5, 16/08; o fiscal mediu
+       8 `stopRoute` + 8 `GET /logistica/rota` em 4 tiques no HEAD do 1.4). É a
+       variante MAIS COMUM da cena 5, porque `rotaOrdem` nasce no `planejar` —
+       a porta que TODO encaixe do app toca junto com o encaixe. Aqui o guarda
+       do 1.4 (`paradasAbertasDaRota() > 0`) fica VERDADEIRO e não segura nada;
+       o que salva é só a régua nova: o servidor DEVOLVEU ref pro ator (o
+       `draft:` do dia), então não houve revogação nenhuma — a ref do aparelho
+       apenas mudou de forma. Ele não pode desarmar GPS nem recarregar tela. */
+    nome: 'CENA H · ACTIVE cumprida + encaixe COM rotaOrdem e SEM stop (servidor devolve draft: pro ator)',
+    routeId: 'route-active-encaixe', routeStatus: 'ACTIVE', ownedRefs: 'draft',
+    itens: 'rota-cumprida-com-encaixe', desarme: false, exigeAbertaDaRota: true,
+  },
+  {
     nome: 'CONTROLE · ACTIVE com POSSE REVOGADA de verdade (outro aparelho puxou)',
     routeId: 'route-active-revogada', routeStatus: 'ACTIVE', ownedRefs: 'nenhuma', desarme: true,
   },
@@ -277,6 +317,7 @@ const CENAS = [
       estadoRota: (() => { try { return estadoRota; } catch (e) { return null; } })(),
       abertas: (() => { try { return paradasAbertasNaTela(); } catch (e) { return null; } })(),
       escopo: (() => { try { return window.HBX.info().sessionScope; } catch (e) { return null; } })(),
+      abertasComOrdem: Number(window.__abertasComOrdem) || 0,
       conta: JSON.parse(JSON.stringify(window.__conta)),
     }));
     // ZERA depois da carga inicial: o que se mede é o que os TIQUES fazem.
@@ -298,6 +339,7 @@ const CENAS = [
 
     const conta = await p.evaluate(() => JSON.parse(JSON.stringify(window.__conta)));
     nota(`[${cena.nome}] estadoRota=${antes.estadoRota} escopo=${antes.escopo} abertas=${antes.abertas}`
+      + ` abertasComOrdem=${antes.abertasComOrdem}`
       + ` · em ${TIQUES} tiques: stopRoute=${conta.stopRoute} getRota=${conta.getRota}`
       + ` getContinuidade=${conta.getContinuidade} activateRoute=${conta.activateRoute}`);
 
@@ -317,6 +359,14 @@ const CENAS = [
        aqui = cena que não mede o que diz medir. */
     eh(`o dia TEM parada aberta na tela · ${cena.nome}`,
       Number(antes.abertas) > 0, `abertas=${antes.abertas}`);
+    /* 🔴 O TERCEIRO ANTI-FALSO-VERDE (LOTE 1.5): a cena H só mede a régua nova
+       se a ROTA ainda segurar parada aberta — senão o guarda do lote 1.4
+       (`paradasAbertasDaRota() > 0`) fecharia o bloco antes, e a cena ficaria
+       verde sem encostar em nada novo. */
+    if (cena.exigeAbertaDaRota) {
+      eh(`a ROTA ainda segura parada aberta (o guarda do 1.4 NÃO salva esta cena) · ${cena.nome}`,
+        Number(antes.abertasComOrdem) > 0, `abertasComOrdem=${antes.abertasComOrdem}`);
+    }
 
     if (cena.desarme) {
       eh(`POSSE REVOGADA continua desarmando o serviço · ${cena.nome}`,

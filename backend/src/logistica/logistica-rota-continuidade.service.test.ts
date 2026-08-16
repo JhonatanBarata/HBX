@@ -430,7 +430,45 @@ test('FURO 4 · rota VIVA (PLANNED, ainda não encerrada) sem stops — o update
  * `null` = viva na rua; `Date` = lápide), e o `findMany` só devolve quem o
  * `where` realmente pega — como Postgres faria.
  */
-type RotaDoDia = { id: string; operationalEndedAt: Date | null };
+/**
+ * 🔴 O DUBLÊ TAMBÉM PRECISA DOS STOPS (16/08, LOTE 1.5). A régua do 1.4
+ * perguntava só `operationalEndedAt`; a do 1.5 pergunta TAMBÉM se a rota ainda
+ * segura parada aberta — e sem modelar os stops o dublê não conseguiria
+ * reprovar uma varredura que matasse a rota que está na rua. `stops` é a lista
+ * de STATUS das entregas presas nesta rota (o que o Postgres olharia em
+ * `stops: { none: { delivery: { status: { in: [...] } } } }`).
+ */
+type RotaDoDia = { id: string; operationalEndedAt: Date | null; stops?: string[] };
+
+/* Avalia o `where` como o Postgres avaliaria — e EXPLODE no que não entende.
+   Devolver `true` no desconhecido é como o dublê do 1.3 passava verde uma
+   varredura sem filtro nenhum: um `where` novo entraria calado e a bancada
+   certificaria o contrário do que o banco faria. */
+function casaOWhere(rota: RotaDoDia, cond: any): boolean {
+  if (!cond || typeof cond !== 'object') throw new Error('dublê: condição vazia no where');
+  return Object.keys(cond).every((chave) => {
+    if (chave === 'companyId' || chave === 'entregadorId' || chave === 'routeDate') return true;
+    if (chave === 'OR') {
+      const ramos = cond.OR;
+      if (!Array.isArray(ramos) || !ramos.length) throw new Error('dublê: OR precisa de ramos');
+      return ramos.some((ramo: any) => casaOWhere(rota, ramo));
+    }
+    if (chave === 'operationalEndedAt') {
+      const filtro = cond.operationalEndedAt;
+      if (filtro === null) return rota.operationalEndedAt === null;
+      if (filtro && 'not' in filtro && filtro.not === null) return rota.operationalEndedAt !== null;
+      throw new Error(`dublê: filtro de operationalEndedAt não entendido: ${JSON.stringify(filtro)}`);
+    }
+    if (chave === 'stops') {
+      const none = cond.stops?.none;
+      if (!none) throw new Error('dublê: só entendo `stops: { none: ... }`');
+      const abertos = none?.delivery?.status?.in;
+      if (!Array.isArray(abertos)) throw new Error('dublê: `stops.none` sem lista de status');
+      return !(rota.stops || []).some((status) => abertos.includes(status));
+    }
+    throw new Error(`dublê: campo desconhecido no where da rota: ${chave}`);
+  });
+}
 
 function bancadaDoDraft(opts: { rotasDoDia: RotaDoDia[]; sessionStatusInicial: 'ACTIVE' | 'ENDED' | null }) {
   const sessionState = { status: opts.sessionStatusInicial };
@@ -440,14 +478,8 @@ function bancadaDoDraft(opts: { rotasDoDia: RotaDoDia[]; sessionStatusInicial: '
     findMany: async (args: any) => {
       routeFindManyCalls.push(args);
       if (Number(args?.where?.companyId) !== EMPRESA) return [];
-      const filtro = args?.where?.operationalEndedAt;
       return opts.rotasDoDia
-        .filter((rota) => {
-          if (filtro === undefined) return true;
-          if (filtro === null) return rota.operationalEndedAt === null;
-          if (filtro && 'not' in filtro && filtro.not === null) return rota.operationalEndedAt !== null;
-          return true;
-        })
+        .filter((rota) => casaOWhere(rota, args?.where || {}))
         .map((rota) => ({ id: rota.id }));
     },
   };
@@ -477,7 +509,16 @@ test('FURO 2 (outra metade) · Cancelar no ramo draft: fecha a LogisticaTracking
     // A LÁPIDE: rota JÁ encerrada operacionalmente, com a sessão pendurada. É a
     // cena que este fechamento nasceu pra curar, e ela continua coberta byte a
     // byte depois do filtro do lote 1.4.
-    rotasDoDia: [{ id: 'route-lapide-encerrada', operationalEndedAt: new Date('2026-08-15T16:59:00.000Z') }],
+    // 🔴 E ELA CHEGA COM PARADA ABERTA PRESA (LOTE 1.5): é o estado
+    // `ended_with_pending`, que o próprio serviço nomeia — encerrar o dia não
+    // fecha as entregas que sobraram. Essa escolha de fixture é de propósito:
+    // ela mantém o ramo "já encerrada" da régua nova OBRIGATÓRIO. Quem trocar o
+    // `OR` por um "sem parada aberta" puro reprova aqui na hora.
+    rotasDoDia: [{
+      id: 'route-lapide-encerrada',
+      operationalEndedAt: new Date('2026-08-15T16:59:00.000Z'),
+      stops: ['agendada'],
+    }],
     sessionStatusInicial: 'ACTIVE',
   });
   const prisma: any = {
@@ -506,9 +547,21 @@ test('FURO 2 (outra metade) · Cancelar no ramo draft: fecha a LogisticaTracking
   assert.equal(busca.where.companyId, EMPRESA, 'nada atravessa empresa: a LEITURA da rota do dia escopa por companyId');
   assert.equal(busca.where.entregadorId, 8, 'a rota é do DONO do rascunho, não de qualquer um');
   assert.equal(busca.where.routeDate, '2026-08-15', 'e do DIA do rascunho');
-  assert.deepEqual(
-    busca.where.operationalEndedAt, { not: null },
-    'LOTE 1.4: só rota JÁ ENCERRADA entra na varredura — a viva do mesmo dono+dia não pode ter a sessão morta no meio da rua',
+  /* 🔴 A FORMA DO `where` (LOTE 1.5). O 1.4 exigia `operationalEndedAt: { not:
+     null }` cravado, e era esse crava que deixava a rota ACTIVE-sem-parada-
+     aberta de fora (o furo 2 deste lote). A régua agora é ÓRFÃ = já encerrada
+     OU sem nenhuma parada aberta, e a asserção mira o CONTRATO dos dois ramos,
+     não a letra de um deles. O que NÃO pode voltar é varredura sem recorte
+     nenhum: por isso o `OR` é obrigatório aqui. */
+  assert.ok(Array.isArray(busca.where.OR) && busca.where.OR.length === 2,
+    'a varredura tem recorte: rota órfã é a JÁ ENCERRADA ou a SEM PARADA ABERTA — nunca "todas do dono+dia"');
+  assert.ok(
+    busca.where.OR.some((ramo: any) => JSON.stringify(ramo.operationalEndedAt) === JSON.stringify({ not: null })),
+    'ramo 1: a lápide (rota já encerrada) continua entrando na varredura — é a cena que este fechamento nasceu pra curar',
+  );
+  assert.ok(
+    busca.where.OR.some((ramo: any) => ramo?.stops?.none?.delivery?.status?.in?.length),
+    'ramo 2: a rota que não segura NENHUMA parada aberta é órfã e também entra',
   );
   assert.equal(bancada.sessionUpdateManyCalls.length, 1);
   const [escrita] = bancada.sessionUpdateManyCalls;
@@ -540,7 +593,15 @@ test('FURO 2 (outra metade) · Cancelar no ramo draft: fecha a LogisticaTracking
  */
 test('LOTE 1.4 · Cancelar no ramo draft NÃO mata a sessão de uma rota VIVA do mesmo dono+dia (o motorista está na rua com ela)', async () => {
   const bancada = bancadaDoDraft({
-    rotasDoDia: [{ id: 'route-a-rodando-na-rua', operationalEndedAt: null }],
+    /* 🔴 "VIVA" GANHOU DEFINIÇÃO NO LOTE 1.5: não é só `operationalEndedAt`
+       nulo — é a rota que AINDA SEGURA parada aberta. É o que "estar na rua"
+       quer dizer, e por isso a fixture agora carrega os stops abertos dela.
+       Este é o teste que reprova se a régua nova encerrar a rota viva junto. */
+    rotasDoDia: [{
+      id: 'route-a-rodando-na-rua',
+      operationalEndedAt: null,
+      stops: ['em_rota', 'agendada'],
+    }],
     sessionStatusInicial: 'ACTIVE',
   });
   const prisma: any = {
@@ -570,6 +631,56 @@ test('LOTE 1.4 · Cancelar no ramo draft NÃO mata a sessão de uma rota VIVA do
   assert.equal(
     bancada.sessionState.status, 'ACTIVE',
     'EFEITO medido: a sessão de rastreamento da rota que está na rua continua ABERTA — sem isto, SESSION_ENDED calado no meio do turno',
+  );
+  assert.deepEqual(result, { ok: true, resumo: { canceladas: 1 } });
+});
+
+/**
+ * 🔴 A CURA DO 1.4 DEIXOU UMA SESSÃO ÓRFÃ ABERTA (16/08, LOTE 1.5 — furo 2,
+ * apontado pela revisão adversarial ao 1.4). `operationalEndedAt: { not: null }`
+ * é estreito DEMAIS: a rota do motorista que cumpriu tudo e foi embora SEM
+ * tocar "Encerrar" fica ACTIVE com `operationalEndedAt` NULO e ZERO parada
+ * aberta. Ela não está na rua — não há nada a rastrear —, mas a sessão TRACKED
+ * dela continua ACTIVE. Aí o dia é cancelado pelo ramo `draft:` (o encaixe
+ * solto por cima), a varredura do 1.4 não a alcança, e o comando em voo na fila
+ * do aparelho volta a bater CONFLICT ⇒ REJECTED preso até o teto de 24h — o
+ * MESMO sintoma que o furo 2 original nasceu pra matar, por outra porta.
+ *
+ * A régua honesta: sessão ACTIVE de rota que não segura NENHUMA parada aberta
+ * é ÓRFÃ e pode fechar; rota com parada aberta (a que está na rua) nunca. O
+ * ramo da lápide continua ao lado, porque encerrada COM pendente ainda é rota
+ * que acabou (ver a fixture `ended_with_pending` do teste de cima).
+ */
+test('LOTE 1.5 · Cancelar no ramo draft FECHA a sessão órfã da rota ACTIVE que não segura NENHUMA parada aberta (o motorista foi embora sem Encerrar)', async () => {
+  const bancada = bancadaDoDraft({
+    rotasDoDia: [{
+      id: 'route-cumprida-sem-encerrar',
+      operationalEndedAt: null, // ninguém tocou "Encerrar" — segue ACTIVE
+      stops: ['entregue', 'entregue'], // e não segura mais nada: órfã
+    }],
+    sessionStatusInicial: 'ACTIVE',
+  });
+  const prisma: any = {
+    entrega: { findMany: async () => [abertaDoDraft] },
+    logisticaRoute: bancada.logisticaRoute,
+    logisticaTrackingSession: bancada.logisticaTrackingSession,
+  };
+  const rota: any = { limparDia: async () => ({ ok: true, resumo: { canceladas: 1 } }) };
+  const service = new LogisticaRotaContinuidadeService(
+    prisma, {} as any, rota, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+  const dono = { id: 8, companyId: EMPRESA, role: 'DRIVER' };
+
+  const result = await service.cancelar(dono, 'draft:8:2026-08-15');
+
+  assert.equal(bancada.sessionUpdateManyCalls.length, 1, 'a sessão órfã tem que ser alcançada pela varredura');
+  const [escrita] = bancada.sessionUpdateManyCalls;
+  assert.equal(escrita.where.companyId, EMPRESA, 'nada atravessa empresa: a ESCRITA da sessão escopa por companyId');
+  assert.deepEqual(escrita.where.routeId, { in: ['route-cumprida-sem-encerrar'] });
+  assert.equal(escrita.where.status, 'ACTIVE');
+  assert.equal(
+    bancada.sessionState.status, 'ENDED',
+    'EFEITO medido: a sessão órfã fecha — sem isto o comando em voo vira REJECTED preso até 24h',
   );
   assert.deepEqual(result, { ok: true, resumo: { canceladas: 1 } });
 });

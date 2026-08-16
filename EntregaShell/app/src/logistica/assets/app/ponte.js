@@ -2881,7 +2881,16 @@
 
      Falha aqui devolve ZERO — "não sei" tem que virar "não mexe". Este número
      só existe pra AUTORIZAR um desarme de GPS + recarga de tela no meio da rua;
-     na dúvida, a mão fica fora do volante. */
+     na dúvida, a mão fica fora do volante.
+
+     🔴 CONTINUA VIVA DEPOIS DO LOTE 1.5, e é fácil achar que não. A régua nova
+     (`refsDoAtor.length === 0`) não cobre a cena 5 da bancada: rota ACTIVE com
+     os stops todos fechados e um encaixe SEM ordem por cima — ali o servidor
+     não publica a rota (sem stop aberto) NEM forma rascunho (o `listar` só
+     agrupa em `draft:` quem tem `rotaOrdem` OU `startedAt`), então `ownedRefs`
+     vem VAZIA sem que ninguém tenha puxado nada. Quem separa essa cena do
+     controle de posse revogada de verdade é só esta conta. Apagar isto reabre
+     o loop naquela variante — a prova `prova-loop-posse` reprova na hora. */
   function paradasAbertasDaRota() {
     let n = 0;
     try {
@@ -2965,12 +2974,57 @@
        Hoje a segunda implica a primeira; no dia em que divergirem, quem manda
        é a mais estreita, e nenhuma divergência reabre o loop. O CONTROLE segue
        inteiro: rota ACTIVE com parada aberta cuja posse foi pra outro aparelho
-       continua desarmando e ressincronizando, com cena própria na bancada. */
+       continua desarmando e ressincronizando, com cena própria na bancada.
+
+       🔴 A METADE QUE SOBROU — E A RÉGUA DEFINITIVA (LOTE 1.5, 16/08; o fiscal
+       mediu 8 `stopRoute` + 8 `GET /logistica/rota` em 4 tiques no HEAD do
+       1.4, na variante MAIS COMUM). O guarda acima (`paradasAbertasDaRota`)
+       decide "esta parada é DESTA rota" pela ORDEM GRAVADA — mas quem prova
+       isso no SERVIDOR é o STOP (`listar`: `stops: { some: { delivery: aberta
+       } }`), e stop só nasce no INICIAR (`congelarStops`). O
+       `/logistica/rota/planejar` grava `rotaOrdem` SEM criar stop — e é ele
+       que TODO encaixe do app chama no mesmo toque (ficha do cliente, parada
+       avulsa, dedo na rota, recado com anexo), além do desktop do admin. Cena
+       medida: o motorista cumpre a rota da manhã, não encerra (segue ACTIVE),
+       encaixa uma entrega de tarde ⇒ ela ganha ordem e não ganha stop ⇒
+       `paradasAbertasDaRota()` volta a contar 1 ⇒ o loop inteiro renasce, com
+       ele dirigindo.
+
+       A régua que fecha a porta é OUTRA, e é mais rasa: **posse revogada só
+       existe quando o servidor não devolve ref NENHUMA pro ator**. Se ele
+       devolveu alguma (na cena acima, o `draft:` do dia — o encaixe sem stop
+       FORMA rascunho), o aparelho não perdeu rota alguma: a ref que ele
+       carrega apenas mudou de FORMA (`route:` → `draft:`) enquanto o dia
+       continua dele. Perder posse é o servidor não reconhecer mais NADA como
+       seu — que é exatamente o que acontece quando outro aparelho puxa a rota
+       (o CONTROLE, que continua desarmando e recarregando).
+
+       Por isso o `!refsDoAtor.includes(rotaRefAtual)` SAIU: com a lista vazia
+       ele é sempre verdadeiro, e com a lista cheia ele passou a ser a pergunta
+       ERRADA (ref diferente ≠ posse perdida). `refsDoAtor.length === 0` diz a
+       mesma coisa que ele dizia no único caso em que ele estava certo, e não
+       mente no resto.
+
+       NÃO se adota a ref publicada aqui de propósito: `rotaRefAtual` é
+       DERIVADA (`refDaResposta`) do payload da rota a cada `carregarRota`, e
+       o `route:` de uma rota viva-sem-stop é justamente o alvo que o Cancelar
+       precisa (o backend deriva o dia da rota morta, ver `diaDoAlvoMorto`).
+       Escrever por cima aqui seria um valor que a próxima carga apaga — e o
+       preço de errar é desarmar o GPS de quem está na rua.
+
+       O PREÇO HONESTO desta régua (nomeado, não escondido): se a rota for
+       puxada por outro aparelho E este ator ainda tiver alguma entrega solta
+       com ordem no mesmo dia, `ownedRefs` não vem vazia e o aparelho antigo
+       não desarma no tique — ele fica com a tela velha até a próxima carga. É
+       um retrato desatualizado, sem perda de dado; o outro lado da balança
+       era GPS desarmando e tela recarregando 1×/min a tarde inteira, todo dia,
+       na mão de quem dirige. Entre um retrato velho e o volante, fica o
+       volante. */
     let naRuaAgora = false;
     try { naRuaAgora = estadoRota === 'rodando'; } catch (_) { naRuaAgora = false; }
-    if (!continuidadeAtiva && naRuaAgora && rotaRefAtual
-      && paradasAbertasNaTela() > 0 && paradasAbertasDaRota() > 0
-      && !refsDoAtor.includes(rotaRefAtual)) {
+    const semRefNenhuma = !Array.isArray(refsDoAtor) || refsDoAtor.length === 0;
+    if (!continuidadeAtiva && naRuaAgora && rotaRefAtual && semRefNenhuma
+      && paradasAbertasNaTela() > 0 && paradasAbertasDaRota() > 0) {
       try { if (window.HBX && typeof window.HBX.stopRoute === 'function') window.HBX.stopRoute(); } catch (_) {}
       await carregarRota();
     }

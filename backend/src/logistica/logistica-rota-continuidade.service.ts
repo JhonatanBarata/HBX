@@ -593,8 +593,32 @@ export class LogisticaRotaContinuidadeService {
    * naquele cartão, o alvo resolve pro ramo `draft:` — e a sessão da rota A
    * morria no meio do turno. Dali em diante todo ponto de GPS volta
    * SESSION_ENDED, calado; e sessão TRACKED é recurso que a empresa PAGA.
-   * `operationalEndedAt: { not: null }` é a linha que separa as duas: quem
+   * `operationalEndedAt: { not: null }` era a linha que separava as duas: quem
    * encerra rota viva é o Encerrar, com a mão do dono.
+   *
+   * 🔴 SÓ QUE ELA FICOU ESTREITA DEMAIS (16/08, LOTE 1.5 — furo 2, revisão
+   * adversarial ao 1.4). "Não encerrada" não é o mesmo que "na rua": o
+   * motorista que cumpriu todas as paradas e foi embora SEM tocar "Encerrar"
+   * deixa a rota ACTIVE, com `operationalEndedAt` NULO e ZERO parada aberta.
+   * Não há nada a rastrear ali, mas a sessão TRACKED continua ACTIVE — e o
+   * filtro do 1.4 não a alcançava. Quando o dia era cancelado pelo ramo
+   * `draft:`, o comando em voo na fila do aparelho voltava a bater CONFLICT ⇒
+   * REJECTED preso até o teto de 24h: o MESMO sintoma que o furo 2 original
+   * nasceu pra matar, por outra porta.
+   *
+   * A RÉGUA (a que descreve o mundo, não o sintoma): **sessão de rota que não
+   * segura NENHUMA parada aberta é ÓRFÃ e pode fechar; rota com parada aberta
+   * — a que está na rua — nunca.** Os dois ramos do `OR` são necessários e
+   * nenhum cobre o outro:
+   *   · `operationalEndedAt: { not: null }` — a LÁPIDE. Encerrar o dia não
+   *     fecha as entregas que sobraram (`ended_with_pending` é estado que este
+   *     próprio arquivo nomeia), então existe lápide COM parada aberta presa;
+   *     sem este ramo ela escaparia da varredura.
+   *   · `stops: { none: { delivery: aberta } }` — a ÓRFÃ do parágrafo acima,
+   *     que o ramo da lápide não alcança porque ela nunca foi encerrada.
+   * A rota que está na rua (não encerrada E com parada aberta) não bate em
+   * nenhum dos dois — que é exatamente a garantia do lote 1.4, mantida com
+   * teste próprio.
    *
    * Escopo de tenant em TODA leitura e TODA escrita (`companyId` nos dois
    * `where`) — nada atravessa empresa.
@@ -618,7 +642,15 @@ export class LogisticaRotaContinuidadeService {
     if (typeof prisma.logisticaTrackingSession?.updateMany !== 'function') return;
     try {
       const rotas: any[] = await prisma.logisticaRoute.findMany({
-        where: { companyId, entregadorId: ownerId, routeDate, operationalEndedAt: { not: null } },
+        where: {
+          companyId,
+          entregadorId: ownerId,
+          routeDate,
+          OR: [
+            { operationalEndedAt: { not: null } },
+            { stops: { none: { delivery: { status: { in: [...OPEN] } } } } },
+          ],
+        },
         select: { id: true },
       });
       const ids = rotas.map((row) => String(row.id)).filter(Boolean);
