@@ -22,6 +22,7 @@
  */
 const path = require('path');
 const { chromium } = require('playwright');
+const { regenerarGerados } = require('./_regenerar');
 
 const APP = 'file:///' + path
   .join(__dirname, '..', 'EntregaShell/app/src/logistica/assets/app/index.html')
@@ -640,6 +641,11 @@ const nota = (t) => notas.push(t);
 const SO_MEDIR = process.argv.includes('--antes');
 
 (async () => {
+  /* 🔴 O GERADO PRIMEIRO (LOTE 1.4): esta prova abre `assets/app/**`, que é
+     SAÍDA de `ponte-costurar`/`casca-injetar`. Sem regenerar, ela mede o
+     gerado que estiver no disco — e um red-first feito na FONTE sai VERDE
+     sobre código velho. Ver `scripts/_regenerar.js`. */
+  regenerarGerados();
   const b = await chromium.launch();
   const ctx = await b.newContext({ viewport: { width: 412, height: 940 } });
   const p = await ctx.newPage();

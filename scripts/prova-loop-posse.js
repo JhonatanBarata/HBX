@@ -32,16 +32,26 @@
  *   ACTIVE posse revogada .... 6 · 6   (certo, e TEM que continuar assim)
  *   ACTIVE posse na mão ...... 0 · 0   (controle limpo)
  *
- * As 6 cenas (as 5 pedidas + o controle limpo):
+ * 🔴 O QUE O LOTE 1.4 ACRESCENTOU (16/08) — a cura do 1.3 (`estadoRota ===
+ * 'rodando'`) SÓ encolheu o loop: ela desliga o bloco pra rota que não está na
+ * rua, mas "rodando" não diz nada sobre a rota ainda SEGURAR parada aberta. O
+ * fiscal adversarial mediu no HEAD do 1.3 a cena que faltava — rota ACTIVE (dia
+ * não encerrado) com todos os stops JÁ fechados e uma entrega nova por cima:
+ * 8 `stopRoute` + 8 `GET /logistica/rota` em 4 tiques, para sempre. É o estado
+ * em que o motorista passa a tarde inteira. Cena 5 abaixo.
+ *
+ * As 7 cenas (as 5 pedidas + a do 1.4 + o controle limpo):
  *   1. PLANNED-fantasma  — rota viva sem stop, dia com abertas   → 0 desarme
  *   2. COMPLETED s/ aberta na rota — parada nova por cima         → 0 desarme
  *   3. ENCERRADA         — ref cai em `draft:`, que é do ator     → 0 desarme
  *   4. sem routeId       — idem                                   → 0 desarme
- *   5. CONTROLE ACTIVE + POSSE REVOGADA DE VERDADE  → TEM que continuar
+ *   5. ACTIVE com stops fechados + entrega nova (LOTE 1.4)        → 0 desarme
+ *   6. CONTROLE ACTIVE + POSSE REVOGADA DE VERDADE  → TEM que continuar
  *      desarmando (é o caso que o bloco existe pra atender: outro aparelho
  *      puxou a rota deste motorista). Se este ficar verde por acidente da
- *      cura, a cura matou o produto.
- *   6. CONTROLE LIMPO: ACTIVE com a posse na mão                  → 0 desarme
+ *      cura, a cura matou o produto. Ele é o PAR da cena 5: mesmo estado,
+ *      mesmo `ownedRefs` vazio — só muda o que a rota ainda segura.
+ *   7. CONTROLE LIMPO: ACTIVE com a posse na mão                  → 0 desarme
  *
  * Bancada: mesma receita do `prova-chegada-igual`/`prova-navegar` — servidor
  * estático dos GERADOS (regenerados aqui no começo, senão a prova mede código
@@ -51,8 +61,8 @@
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
-const { execFileSync } = require('child_process');
 const { chromium } = require('playwright');
+const { regenerarGerados } = require('./_regenerar');
 
 const RAIZ = path.join(__dirname, '..');
 const RAIZ_APP = path.join(RAIZ, 'EntregaShell', 'app', 'src', 'logistica');
@@ -60,17 +70,11 @@ const MOCK = path.join(RAIZ, 'docs', 'mockups', 'logistica2.0', 'logistica-2.0.h
 const TIPOS = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 
 const SO_MEDIR = process.argv.includes('--antes');
-const SEM_REGERAR = process.argv.includes('--sem-regerar');
 
 /** quantos tiques de foco/visibilidade cada cena leva. NUNCA 1: o defeito é a
  *  repetição, e uma prova de um tique só não distingue um desarme legítimo de
  *  um loop eterno. */
 const TIQUES = 3;
-
-function regenerarGerados() {
-  execFileSync(process.execPath, [path.join(RAIZ, 'scripts', 'ponte-costurar.js')], { stdio: 'inherit' });
-  execFileSync(process.execPath, [path.join(RAIZ, 'scripts', 'casca-injetar.js')], { stdio: 'inherit' });
-}
 
 function peleDoMock() {
   const txt = fs.readFileSync(MOCK, 'utf8');
@@ -105,7 +109,7 @@ const DONO = 9;
    · `GET /logistica/rota` — a recarga da tela do dia (dado + repinte).
    O `ownedRefs` é PARÂMETRO da cena, porque é exatamente ele que o servidor
    de verdade calcula com o filtro `stops: { some: { delivery: aberta } }`. */
-const PONTE = ({ hoje, routeId, routeStatus, ownedRefs, dono }) => {
+const PONTE = ({ hoje, routeId, routeStatus, ownedRefs, dono, itens }) => {
   window.__erros = [];
   window.__conta = { stopRoute: 0, getRota: 0, getContinuidade: 0, activateRoute: 0 };
   window.addEventListener('unhandledrejection', (e) => {
@@ -116,10 +120,24 @@ const PONTE = ({ hoje, routeId, routeStatus, ownedRefs, dono }) => {
   });
   /* AS ABERTAS DO DIA — com `rotaOrdem` gravado (dia JÁ montado) e com
      `entregador.id`, que é o que a ref `draft:` precisa pra existir. */
-  const ITENS = [
+  const DO_DIA = [
     { id: 'e1', status: 'agendada', rotaOrdem: 0, origem: 'recorrente', entregador: { id: dono, nome: 'André' }, cliente: CLI(1, -22.4000, -47.5500) },
     { id: 'e2', status: 'agendada', rotaOrdem: 1, origem: 'recorrente', entregador: { id: dono, nome: 'André' }, cliente: CLI(2, -22.4100, -47.5600) },
   ];
+  /* 🔴 A ROTA CUMPRIDA COM UMA ENTREGA NOVA POR CIMA — o dia inteiro do
+     motorista (LOTE 1.4). As duas paradas DA ROTA estão ENTREGUES (no servidor:
+     stops todos fechados ⇒ a rota NUNCA aparece em `ownedRefs`), e chegou uma
+     entrega nova solta: `rotaOrdem: null` e sem stop nenhum — ela também não
+     forma rascunho no servidor (o `listar` só agrupa em `draft:` quem tem
+     `rotaOrdem` OU `startedAt`), então o ator não possui ref NENHUMA. A rota
+     segue ACTIVE porque o dia não foi encerrado, que é o normal: o motorista
+     só toca "Encerrar" no fim do turno. */
+  const ROTA_CUMPRIDA_COM_NOVA = [
+    { id: 'e1', status: 'entregue', rotaOrdem: 0, origem: 'recorrente', entregador: { id: dono, nome: 'André' }, cliente: CLI(1, -22.4000, -47.5500) },
+    { id: 'e2', status: 'entregue', rotaOrdem: 1, origem: 'recorrente', entregador: { id: dono, nome: 'André' }, cliente: CLI(2, -22.4100, -47.5600) },
+    { id: 'e3', status: 'agendada', rotaOrdem: null, origem: 'avulsa', entregador: { id: dono, nome: 'André' }, cliente: CLI(3, -22.4200, -47.5700) },
+  ];
+  const ITENS = itens === 'rota-cumprida-com-nova' ? ROTA_CUMPRIDA_COM_NOVA : DO_DIA;
   const antigo = window.HBX || {};
   window.HBX = Object.assign({}, antigo, {
     /* 🔴 SEM `sessionScope` A PROVA MEDIRIA A SI MESMA. `vestirPendencias`
@@ -203,6 +221,22 @@ const CENAS = [
     routeId: null, routeStatus: '', ownedRefs: 'draft', desarme: false,
   },
   {
+    /* 🔴 O FURO DO LOTE 1.3 (medido pelo fiscal adversarial no `734fb9d1`, com
+       sonda própria: 8 stopRoute + 8 GET /logistica/rota em 4 tiques). A cura do
+       1.3 (`estadoRota === 'rodando'`) não alcança este caso: a rota ESTÁ
+       rodando (ACTIVE — o dia não foi encerrado), o dia TEM aberta na tela (a
+       entrega nova), e mesmo assim o servidor não publica ref nenhuma pro ator
+       (a rota não tem stop aberto; a entrega nova não tem `rotaOrdem` nem
+       `startedAt` pra virar rascunho). É o estado em que o motorista passa a
+       TARDE INTEIRA depois de cumprir as paradas da manhã.
+       Esta cena é a irmã EXATA do controle logo abaixo — mesmo `routeStatus`,
+       mesmo `ownedRefs` vazio: o que muda é SÓ o que a rota ainda segura. Se as
+       duas ficarem iguais, a régua nova não está medindo nada. */
+    nome: 'ACTIVE com stops fechados + entrega nova por cima (o dia inteiro do motorista)',
+    routeId: 'route-active-cumprida', routeStatus: 'ACTIVE', ownedRefs: 'nenhuma',
+    itens: 'rota-cumprida-com-nova', desarme: false,
+  },
+  {
     nome: 'CONTROLE · ACTIVE com POSSE REVOGADA de verdade (outro aparelho puxou)',
     routeId: 'route-active-revogada', routeStatus: 'ACTIVE', ownedRefs: 'nenhuma', desarme: true,
   },
@@ -213,10 +247,7 @@ const CENAS = [
 ];
 
 (async () => {
-  if (!SEM_REGERAR) {
-    console.log('[prova-loop-posse] regenerando ponte.js + mock.js/index.html…');
-    regenerarGerados();
-  }
+  regenerarGerados();
   const [srv, porta] = await servir();
   const pele = peleDoMock();
   const navegador = await chromium.launch();
@@ -231,7 +262,7 @@ const CENAS = [
     await p.addStyleTag({ content: pele });
     await p.evaluate(PONTE, {
       hoje: HOJE, routeId: cena.routeId, routeStatus: cena.routeStatus,
-      ownedRefs: cena.ownedRefs, dono: DONO,
+      ownedRefs: cena.ownedRefs, dono: DONO, itens: cena.itens || 'do-dia',
     });
     // a carga que ENSINA a tela: é ela que grava `rotaRefAtual`/`estadoRota`.
     await p.evaluate(() => window.HBXRota && window.HBXRota.carregar());
@@ -279,6 +310,13 @@ const CENAS = [
       conta.getContinuidade >= TIQUES,
       `getContinuidade=${conta.getContinuidade} (esperado >= ${TIQUES})`);
     eh(`zero pageerror · ${cena.nome}`, erros.length === 0, erros[0] || '');
+    /* 🔴 O SEGUNDO ANTI-FALSO-VERDE (LOTE 1.4): TODA cena tem que chegar aqui
+       com parada aberta NA TELA. O bloco de posse já era guardado por
+       `paradasAbertasNaTela() > 0` desde antes — uma cena sem aberta ficaria
+       verde por aquele guarda velho, sem encostar na régua nova. Zero aberta
+       aqui = cena que não mede o que diz medir. */
+    eh(`o dia TEM parada aberta na tela · ${cena.nome}`,
+      Number(antes.abertas) > 0, `abertas=${antes.abertas}`);
 
     if (cena.desarme) {
       eh(`POSSE REVOGADA continua desarmando o serviço · ${cena.nome}`,

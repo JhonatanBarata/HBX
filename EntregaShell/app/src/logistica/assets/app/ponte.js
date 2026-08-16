@@ -2859,6 +2859,44 @@
      hoista; `tourRodando`/`carregarRota` continuam lá e são lidos daqui — a
      mudança de casa não muda comportamento nenhum.
      ------------------------------------------------------------------------ */
+  /* 🔴 QUANTAS PARADAS **DESTA ROTA** AINDA ESTÃO ABERTAS — que NÃO é a conta
+     do DIA (LOTE 1.4, 16/08). As duas contas divergem exatamente no estado em
+     que o motorista passa a tarde: rota cumprida (todos os stops fechados) e
+     uma entrega nova lançada por cima. O dia tem aberta; a ROTA não tem
+     nenhuma. E é a conta da ROTA que o servidor usa pra decidir se publica
+     `route:<id>` em `ownedRefs` (`listar`: `stops: { some: { delivery: status
+     IN abertos } }`).
+
+     A régua de "esta parada é desta rota" é a MESMA que o resto da casa já usa
+     e que `estadoDaRota` escreve com todas as letras: quem prova é a ORDEM
+     GRAVADA (`rotaOrdem`) — é ela que o `rota/planejar` grava e é ela que o
+     `carregarRota` usa pra separar parada de rota de resíduo do dia. Entrega
+     nova (avulsa lançada depois, agenda que caiu no dia) chega SEM ordem: não
+     está em stop nenhum e não é desta rota.
+
+     Fonte: `ENTREGAS`, que o `carregarRota` reescreve inteira a cada carga com
+     os ITENS crus do servidor (`{item, n}`) — o mesmo material de onde
+     `PARADAS` nasce. Ler os itens crus (e não `PARADAS`) é de propósito: a
+     parada traduzida perde o `rotaOrdem` no caminho.
+
+     Falha aqui devolve ZERO — "não sei" tem que virar "não mexe". Este número
+     só existe pra AUTORIZAR um desarme de GPS + recarga de tela no meio da rua;
+     na dúvida, a mão fica fora do volante. */
+  function paradasAbertasDaRota() {
+    let n = 0;
+    try {
+      ENTREGAS.forEach((e) => {
+        const it = (e && e.item) || null;
+        if (!it) return;
+        const st = String(it.status || '');
+        if (st === 'entregue' || st === 'cancelada') return;
+        if (it.rotaOrdem === null || it.rotaOrdem === undefined) return;
+        n += 1;
+      });
+    } catch (_) { return 0; }
+    return n;
+  }
+
   async function atualizarContinuidades() {
     if (!temPonte()) return;
     let resp;
@@ -2902,11 +2940,37 @@
 
        O `try` é a convenção da casa (casca velha pode não ter a variável):
        sem ele um ReferenceError aqui viraria unhandledrejection mudo, e a
-       régua nova fecharia o bloco pelo motivo errado. */
+       régua nova fecharia o bloco pelo motivo errado.
+
+       🔴 O LOTE 1.3 SÓ ENCOLHEU O LOOP (LOTE 1.4, 16/08 — medido pela revisão
+       adversarial com sonda própria: 8 `stopRoute` + 8 `GET /logistica/rota`
+       em 4 tiques, no código já corrigido). `estadoRota === 'rodando'` desliga
+       o bloco pra rota que não está na rua — mas "rodando" NADA diz sobre a
+       rota ainda SEGURAR parada aberta: `estadoDaRota` devolve 'rodando' por
+       `routeStatus === 'ACTIVE'` e ponto, e ACTIVE dura até alguém ENCERRAR o
+       dia. Rota cumprida de manhã + entrega nova de tarde = ACTIVE, dia com
+       aberta na tela, e o servidor sem publicar ref nenhuma pro ator (a rota
+       não tem stop aberto; a entrega nova não tem `rotaOrdem` nem `startedAt`
+       pra formar rascunho). Todas as condições batiam, INCLUSIVE a nova — e o
+       aparelho desarmava o GPS e recarregava a tela 1×/min a tarde inteira.
+
+       A régua que faltava: só se PERDE a posse de uma rota que o servidor
+       AINDA reconheceria como sua — isto é, uma rota que ainda segura parada
+       aberta (`paradasAbertasDaRota`, o espelho do filtro do `listar`). Sem
+       parada aberta na rota, a ausência dela em `ownedRefs` não é revogação:
+       é o servidor dizendo que aquela rota acabou. Não há posse a perder.
+
+       As DUAS contas ficam, porque elas leem fontes diferentes — a do DIA vem
+       de `PARADAS` (o mock/tela), a da ROTA vem de `ENTREGAS` (os itens crus).
+       Hoje a segunda implica a primeira; no dia em que divergirem, quem manda
+       é a mais estreita, e nenhuma divergência reabre o loop. O CONTROLE segue
+       inteiro: rota ACTIVE com parada aberta cuja posse foi pra outro aparelho
+       continua desarmando e ressincronizando, com cena própria na bancada. */
     let naRuaAgora = false;
     try { naRuaAgora = estadoRota === 'rodando'; } catch (_) { naRuaAgora = false; }
     if (!continuidadeAtiva && naRuaAgora && rotaRefAtual
-      && paradasAbertasNaTela() > 0 && !refsDoAtor.includes(rotaRefAtual)) {
+      && paradasAbertasNaTela() > 0 && paradasAbertasDaRota() > 0
+      && !refsDoAtor.includes(rotaRefAtual)) {
       try { if (window.HBX && typeof window.HBX.stopRoute === 'function') window.HBX.stopRoute(); } catch (_) {}
       await carregarRota();
     }

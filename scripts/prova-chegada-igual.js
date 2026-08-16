@@ -31,8 +31,8 @@ const path = require('path');
 const http = require('http');
 const fs = require('fs');
 const crypto = require('crypto');
-const { execFileSync } = require('child_process');
 const { chromium } = require('playwright');
+const { regenerarGerados } = require('./_regenerar');
 
 const RAIZ = path.join(__dirname, '..');
 const RAIZ_APP = path.join(RAIZ, 'EntregaShell', 'app', 'src', 'logistica');
@@ -40,12 +40,6 @@ const MOCK = path.join(RAIZ, 'docs', 'mockups', 'logistica2.0', 'logistica-2.0.h
 const TIPOS = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 
 const SO_MEDIR = process.argv.includes('--antes');
-const SEM_REGERAR = process.argv.includes('--sem-regerar'); // só pra depurar a própria prova
-
-function regenerarGerados() {
-  execFileSync(process.execPath, [path.join(RAIZ, 'scripts', 'ponte-costurar.js')], { stdio: 'inherit' });
-  execFileSync(process.execPath, [path.join(RAIZ, 'scripts', 'casca-injetar.js')], { stdio: 'inherit' });
-}
 
 function peleDoMock() {
   const txt = fs.readFileSync(MOCK, 'utf8');
@@ -500,10 +494,7 @@ async function legibilidadeSobreOMapa(p) {
 }
 
 (async () => {
-  if (!SEM_REGERAR) {
-    console.log('[prova-chegada-igual] regenerando ponte.js + mock.js/index.html…');
-    regenerarGerados();
-  }
+  regenerarGerados();
   const [srv, porta] = await servir();
   const pele = peleDoMock();
   const navegador = await chromium.launch();

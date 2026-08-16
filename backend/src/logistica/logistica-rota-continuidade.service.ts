@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { isBillingOwnerActor } from '../access/actor-kind';
@@ -69,6 +70,8 @@ export type RotaContinuidadeItem = {
  */
 @Injectable()
 export class LogisticaRotaContinuidadeService {
+  private readonly logger = new Logger(LogisticaRotaContinuidadeService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly logistica: LogisticaService,
@@ -577,16 +580,33 @@ export class LogisticaRotaContinuidadeService {
   }
 
   /**
-   * Fecha a `LogisticaTrackingSession` ACTIVE das rotas de um dono+dia. É o
-   * par do bloco de `target.routeId` do ramo `route:` — o ramo `draft:` não
-   * tem `routeId` no alvo, mas a rota do dia pode existir (e sobreviver com a
-   * sessão de GPS aberta) mesmo assim.
+   * Fecha a `LogisticaTrackingSession` ACTIVE das rotas JÁ ENCERRADAS de um
+   * dono+dia. É o par do bloco de `target.routeId` do ramo `route:` — o ramo
+   * `draft:` não tem `routeId` no alvo, mas a lápide do dia pode existir (e
+   * sobreviver com a sessão de GPS aberta) mesmo assim.
+   *
+   * 🔴 SÓ LÁPIDE, NUNCA ROTA VIVA (16/08, LOTE 1.4 — regressão do 1.3 achada
+   * pela revisão adversarial). A varredura era por dono+dia e mais nada, e o
+   * `updateMany` encerrava a sessão de TODAS as rotas devolvidas. A cena: o
+   * motorista está na rua com a rota A (ACTIVE, TRACKED); chega entrega nova,
+   * ele monta e não inicia (fica solta, sem stop), o admin toca Cancelar
+   * naquele cartão, o alvo resolve pro ramo `draft:` — e a sessão da rota A
+   * morria no meio do turno. Dali em diante todo ponto de GPS volta
+   * SESSION_ENDED, calado; e sessão TRACKED é recurso que a empresa PAGA.
+   * `operationalEndedAt: { not: null }` é a linha que separa as duas: quem
+   * encerra rota viva é o Encerrar, com a mão do dono.
    *
    * Escopo de tenant em TODA leitura e TODA escrita (`companyId` nos dois
-   * `where`) — nada atravessa empresa. Best-effort de propósito: o Cancelar é
+   * `where`) — nada atravessa empresa.
+   *
+   * 🔴 BEST-EFFORT DE VERDADE (FURO 3 do mesmo lote): o `try/catch` cobre as
+   * DUAS queries, não só a ausência de modelo. O `limparDia` acima JÁ commitou
+   * quando esta função roda — uma exceção aqui (hiccup de banco, conexão
+   * derrubada) subia como erro do Cancelar, o app abria "Este dia mudou" e o
+   * motorista lia que falhou, com as entregas canceladas por baixo. Cancelar é
    * verbo de ESCAPE (lei do repo) e não pode virar beco por causa de uma
-   * limpeza de sessão; e os dublês mínimos de teste que não têm estes modelos
-   * seguem funcionando.
+   * limpeza de sessão. Falhou aqui: registra e segue — a sessão órfã é o mal
+   * MENOR e tem cura (o Encerrar, o teto de 24h da fila).
    */
   private async encerrarSessoesDoDia(
     companyId: number,
@@ -596,16 +616,22 @@ export class LogisticaRotaContinuidadeService {
     const prisma = this.prisma as any;
     if (typeof prisma.logisticaRoute?.findMany !== 'function') return;
     if (typeof prisma.logisticaTrackingSession?.updateMany !== 'function') return;
-    const rotas: any[] = await prisma.logisticaRoute.findMany({
-      where: { companyId, entregadorId: ownerId, routeDate },
-      select: { id: true },
-    });
-    const ids = rotas.map((row) => String(row.id)).filter(Boolean);
-    if (!ids.length) return;
-    await prisma.logisticaTrackingSession.updateMany({
-      where: { companyId, routeId: { in: ids }, status: 'ACTIVE' },
-      data: { status: 'ENDED', endedAt: new Date() },
-    });
+    try {
+      const rotas: any[] = await prisma.logisticaRoute.findMany({
+        where: { companyId, entregadorId: ownerId, routeDate, operationalEndedAt: { not: null } },
+        select: { id: true },
+      });
+      const ids = rotas.map((row) => String(row.id)).filter(Boolean);
+      if (!ids.length) return;
+      await prisma.logisticaTrackingSession.updateMany({
+        where: { companyId, routeId: { in: ids }, status: 'ACTIVE' },
+        data: { status: 'ENDED', endedAt: new Date() },
+      });
+    } catch (error) {
+      this.logger.warn(
+        `[logistica] encerrarSessoesDoDia company=${companyId} owner=${ownerId} date=${routeDate} falhou: ${String((error as any)?.message || error)}`,
+      );
+    }
   }
 
   /**

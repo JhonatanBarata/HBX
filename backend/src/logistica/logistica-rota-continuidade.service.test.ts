@@ -420,7 +420,19 @@ test('FURO 4 · rota VIVA (PLANNED, ainda não encerrada) sem stops — o update
  * A bancada é o mesmo "Postgres mínimo" das cenas acima: a linha PERTENCE à
  * empresa, e nenhum `where` sem `companyId` casa.
  */
-function bancadaDoDraft(opts: { rotasDoDia: string[]; sessionStatusInicial: 'ACTIVE' | 'ENDED' | null }) {
+/**
+ * 🔴 O DUBLÊ NÃO MODELAVA `operationalEndedAt` (16/08, LOTE 1.4 — furo achado
+ * pela revisão adversarial ao 1.3). Ele devolvia TODA rota do dono+dia
+ * ignorando qualquer filtro além do `companyId`, então a régua não conseguia
+ * nem PERGUNTAR a coisa que importa: *esta rota está viva?* Com isso, um
+ * `encerrarSessoesDoDia` que matasse a sessão de uma rota RODANDO passava
+ * verde. Agora cada rota do dia é uma LINHA com estado (`operationalEndedAt`:
+ * `null` = viva na rua; `Date` = lápide), e o `findMany` só devolve quem o
+ * `where` realmente pega — como Postgres faria.
+ */
+type RotaDoDia = { id: string; operationalEndedAt: Date | null };
+
+function bancadaDoDraft(opts: { rotasDoDia: RotaDoDia[]; sessionStatusInicial: 'ACTIVE' | 'ENDED' | null }) {
   const sessionState = { status: opts.sessionStatusInicial };
   const routeFindManyCalls: any[] = [];
   const sessionUpdateManyCalls: any[] = [];
@@ -428,7 +440,15 @@ function bancadaDoDraft(opts: { rotasDoDia: string[]; sessionStatusInicial: 'ACT
     findMany: async (args: any) => {
       routeFindManyCalls.push(args);
       if (Number(args?.where?.companyId) !== EMPRESA) return [];
-      return opts.rotasDoDia.map((id) => ({ id }));
+      const filtro = args?.where?.operationalEndedAt;
+      return opts.rotasDoDia
+        .filter((rota) => {
+          if (filtro === undefined) return true;
+          if (filtro === null) return rota.operationalEndedAt === null;
+          if (filtro && 'not' in filtro && filtro.not === null) return rota.operationalEndedAt !== null;
+          return true;
+        })
+        .map((rota) => ({ id: rota.id }));
     },
   };
   const logisticaTrackingSession = {
@@ -436,7 +456,7 @@ function bancadaDoDraft(opts: { rotasDoDia: string[]; sessionStatusInicial: 'ACT
       sessionUpdateManyCalls.push(args);
       const alvo = args.where.routeId;
       const lista = Array.isArray(alvo?.in) ? alvo.in : [alvo];
-      const bateRoute = opts.rotasDoDia.some((id) => lista.includes(id));
+      const bateRoute = opts.rotasDoDia.some((rota) => lista.includes(rota.id));
       const bateStatus = sessionState.status === args.where.status;
       if (!bateRoute || !bateStatus || Number(args.where.companyId) !== EMPRESA) return { count: 0 };
       sessionState.status = args.data.status;
@@ -453,7 +473,13 @@ const abertaDoDraft = {
 };
 
 test('FURO 2 (outra metade) · Cancelar no ramo draft: fecha a LogisticaTrackingSession ACTIVE da rota do dono+dia, com companyId nas DUAS pontas', async () => {
-  const bancada = bancadaDoDraft({ rotasDoDia: ['route-lapide-encerrada'], sessionStatusInicial: 'ACTIVE' });
+  const bancada = bancadaDoDraft({
+    // A LÁPIDE: rota JÁ encerrada operacionalmente, com a sessão pendurada. É a
+    // cena que este fechamento nasceu pra curar, e ela continua coberta byte a
+    // byte depois do filtro do lote 1.4.
+    rotasDoDia: [{ id: 'route-lapide-encerrada', operationalEndedAt: new Date('2026-08-15T16:59:00.000Z') }],
+    sessionStatusInicial: 'ACTIVE',
+  });
   const prisma: any = {
     entrega: { findMany: async () => [abertaDoDraft] },
     logisticaRoute: bancada.logisticaRoute,
@@ -480,6 +506,10 @@ test('FURO 2 (outra metade) · Cancelar no ramo draft: fecha a LogisticaTracking
   assert.equal(busca.where.companyId, EMPRESA, 'nada atravessa empresa: a LEITURA da rota do dia escopa por companyId');
   assert.equal(busca.where.entregadorId, 8, 'a rota é do DONO do rascunho, não de qualquer um');
   assert.equal(busca.where.routeDate, '2026-08-15', 'e do DIA do rascunho');
+  assert.deepEqual(
+    busca.where.operationalEndedAt, { not: null },
+    'LOTE 1.4: só rota JÁ ENCERRADA entra na varredura — a viva do mesmo dono+dia não pode ter a sessão morta no meio da rua',
+  );
   assert.equal(bancada.sessionUpdateManyCalls.length, 1);
   const [escrita] = bancada.sessionUpdateManyCalls;
   assert.equal(escrita.where.companyId, EMPRESA, 'nada atravessa empresa: a ESCRITA da sessão escopa por companyId');
@@ -489,6 +519,94 @@ test('FURO 2 (outra metade) · Cancelar no ramo draft: fecha a LogisticaTracking
   assert.ok(escrita.data.endedAt instanceof Date);
   assert.equal(bancada.sessionState.status, 'ENDED', 'EFEITO medido: a sessão realmente fecha — sem isto, CONFLICT->REJECTED preso 24h na fila do aparelho');
   assert.deepEqual(result, { ok: true, resumo: { canceladas: 1 } });
+});
+
+/**
+ * 🔴 O CANCELAR MATAVA O GPS DE UMA ROTA QUE ESTAVA RODANDO (16/08, LOTE 1.4 —
+ * regressão NOVA do lote 1.3, medida pela revisão adversarial). O
+ * `encerrarSessoesDoDia` varria por dono+dia e mais nada — sem filtro de
+ * `operationalEndedAt`, sem filtro de status — e encerrava ACTIVE→ENDED a
+ * sessão de TODAS as rotas que voltassem.
+ *
+ * A CENA: o motorista está na rua com a rota A (ACTIVE, TRACKED, sessão de
+ * rastreamento aberta). Chega uma entrega nova; ele monta e não inicia, então
+ * ela fica solta (sem stop) e o Cancelar do admin naquele cartão resolve pro
+ * ramo `draft:`. A varredura pegava a rota A junto e matava a sessão dela: os
+ * pontos seguintes passam a ser recusados com SESSION_ENDED, calados, no meio
+ * do turno — e sessão TRACKED é recurso que a empresa PAGA.
+ *
+ * A régua: a limpeza é da LÁPIDE (rota já encerrada com sessão pendurada). Rota
+ * viva não se toca — quem encerra rota viva é o Encerrar, com a mão do dono.
+ */
+test('LOTE 1.4 · Cancelar no ramo draft NÃO mata a sessão de uma rota VIVA do mesmo dono+dia (o motorista está na rua com ela)', async () => {
+  const bancada = bancadaDoDraft({
+    rotasDoDia: [{ id: 'route-a-rodando-na-rua', operationalEndedAt: null }],
+    sessionStatusInicial: 'ACTIVE',
+  });
+  const prisma: any = {
+    entrega: { findMany: async () => [abertaDoDraft] },
+    logisticaRoute: bancada.logisticaRoute,
+    logisticaTrackingSession: bancada.logisticaTrackingSession,
+  };
+  const calls: any = { limparDia: null };
+  const rota: any = {
+    limparDia: async (companyId: number, input: any, entregadorId: number, actorUserId: number) => {
+      calls.limparDia = { companyId, input, entregadorId, actorUserId };
+      return { ok: true, resumo: { canceladas: input.deliveryIds.length } };
+    },
+  };
+  const service = new LogisticaRotaContinuidadeService(
+    prisma, {} as any, rota, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+  const dono = { id: 8, companyId: EMPRESA, role: 'DRIVER' };
+
+  const result = await service.cancelar(dono, 'draft:8:2026-08-15');
+
+  assert.ok(calls.limparDia, 'o cancelar do rascunho continua fazendo o trabalho dele');
+  assert.equal(
+    bancada.sessionUpdateManyCalls.length, 0,
+    'a rota VIVA não entra na varredura: nenhuma escrita de sessão sai daqui',
+  );
+  assert.equal(
+    bancada.sessionState.status, 'ACTIVE',
+    'EFEITO medido: a sessão de rastreamento da rota que está na rua continua ABERTA — sem isto, SESSION_ENDED calado no meio do turno',
+  );
+  assert.deepEqual(result, { ok: true, resumo: { canceladas: 1 } });
+});
+
+/**
+ * 🔴 FURO 3 (16/08, LOTE 1.4) — o "best-effort" do JSDoc só existia contra
+ * MODELO AUSENTE (`typeof ... !== 'function'`). Um hiccup de banco no `findMany`
+ * ou no `updateMany` subia a exceção DEPOIS de o `limparDia` já ter commitado:
+ * o app abre "Este dia mudou", o motorista lê que não deu certo, e as entregas
+ * estão canceladas do mesmo jeito. Cancelar é verbo de ESCAPE (lei do repo) e
+ * não pode virar beco por causa de uma limpeza de sessão.
+ */
+test('FURO 3 · banco tropeça na limpeza de sessão e o Cancelar AINDA ASSIM devolve o desfecho (escape não vira beco)', async () => {
+  const chamadas: string[] = [];
+  const prisma: any = {
+    entrega: { findMany: async () => [abertaDoDraft] },
+    logisticaRoute: {
+      findMany: async () => {
+        chamadas.push('findMany');
+        throw new Error('terminating connection due to administrator command');
+      },
+    },
+    logisticaTrackingSession: { updateMany: async () => ({ count: 0 }) },
+  };
+  const rota: any = { limparDia: async () => ({ ok: true, resumo: { canceladas: 1 } }) };
+  const service = new LogisticaRotaContinuidadeService(
+    prisma, {} as any, rota, {} as any, { assertCapacidade: async () => undefined } as any,
+  );
+  const dono = { id: 8, companyId: EMPRESA, role: 'DRIVER' };
+
+  const result = await service.cancelar(dono, 'draft:8:2026-08-15');
+
+  assert.equal(chamadas.length, 1, 'a limpeza foi TENTADA — o try/catch não pode virar desistência silenciosa de tentar');
+  assert.deepEqual(
+    result, { ok: true, resumo: { canceladas: 1 } },
+    'o desfecho do cancelamento (que JÁ commitou) chega ao app inteiro, em vez de virar "Este dia mudou" com as entregas canceladas por baixo',
+  );
 });
 
 test('FURO 2 (outra metade, controle) · draft: de um dia SEM rota nenhuma não inventa escrita — no-op honesto', async () => {
