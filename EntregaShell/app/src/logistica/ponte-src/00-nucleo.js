@@ -168,6 +168,10 @@
   let updateCheckEm = 0;
   let updateAguardaPermissao = false;
 
+  /* 🔴 O versionNAME NÃO IDENTIFICA BUILD: é "alpha1" e não muda entre publicações, então "Versão alpha1 pronta" era a MESMA frase toda vez — e aviso que não muda ensina o dedo a tocar "Agora não". Medido 16/08: g15 em 276 com a 280 no ar, 3 publicações ignoradas, 12 h de trabalho testadas contra o app velho. LEI: o número que MUDA é o que aparece. Régua única — pop-up e linha dos Ajustes bebem daqui. */
+  const frasePronta = () => { const i = (window.HBX && window.HBX.info && window.HBX.info()) || {};
+    return `Versão ${(updateInfo && updateInfo.versionCode) || ''} pronta${i.versionCode ? ` — você está na ${Number(i.versionCode)}` : ''}.`; };
+
   function portaoUpdate() {
     if (!updateInfo || typeof window.portao !== 'function') return;
     // A abertura é uma cena com relógio; portão em cima dela morre na troca
@@ -181,7 +185,7 @@
     window.portao({
       tom: 'info', ico: 'download', titulo: 'Atualizar app',
       sub: updateBusy ? 'Baixando…'
-        : `Versão ${updateInfo.versionName || ''} pronta.${podeInstalar ? '' : ' O Android vai abrir uma tela: ligue "Permitir desta fonte" e volte.'}`,
+        : `${frasePronta()}${podeInstalar ? '' : ' O Android vai abrir uma tela: ligue "Permitir desta fonte" e volte.'}`,
       acoes, classe: acoes.length === 2 ? 'duas' : '',
     });
     if (updateBusy) return;
@@ -328,16 +332,12 @@
   function linhaDaVersao() {
     const info = (window.HBX && window.HBX.info && window.HBX.info()) || {};
     const meu = Number(info.versionCode || 0);
-    // 🔴 O versionNAME NÃO IDENTIFICA BUILD (mesma lição do `HbxMobileBridge`):
-    // ele é "alpha1" e não muda entre publicações. Sem o versionCODE do lado, o
-    // dono olha a tela e não tem como saber se o aparelho pegou a publicação de
-    // agora ou a de três dias atrás.
     const nome = info.versionName ? `Versão ${esc(info.versionName)}${meu ? ` (${meu})` : ''}` : '';
     const nova = updateInfo && updateInfo.versionCode > meu;
     return {
       versao: nome,
       versaoSub: nova
-        ? `Versão ${esc(updateInfo.versionName || '')} pronta — toque para instalar`
+        ? `${frasePronta()} Toque para instalar.`
         : 'toque para procurar atualização',
       versaoTag: nova ? 'Atualizar' : '',
     };

@@ -293,7 +293,10 @@ const ROTA_ESTADOS={
              dir:{tipo:'info', glifo:'route', rotulo:'Montagem', acao:'montar'}},
   /* Ver uma pendência é consulta. As mutações ficam no cartão nomeado; o dock
      não oferece Iniciar/Cancelar e o mapa não reordena uma rota alheia/velha. */
-  consulta:{main:{glifo:'route', rotulo:'Somente consulta'}},
+  /* `nota:true` = estado PERMANENTE, não trabalho em curso. Sem isto ele caía
+     no traje do "Montando…" (verde, respirando, aria-busy eterno) — ver a
+     regra `.tmx-nota` no CSS. */
+  consulta:{main:{glifo:'route', rotulo:'Somente consulta', nota:true}},
   /* Com a rota RODANDO o que o motorista faz é ANDAR: o botão do meio abre a
      navegação. "Pausar"/"Continuar" saíram — pausa não existe no servidor
      (o estado da rota é PLANNED|ACTIVE|COMPLETED|ENCERRADA), então eram dois
@@ -346,7 +349,9 @@ function transmux(estado){
      O ícone encolhe (34 → 21) porque virou o acompanhante, não o cartaz. */
   return `<div class="transmux">${sat(c.esq,'esq')}
     <span class="tmx-main">
-      <button${c.main.acao?` data-estado="${c.main.acao}"`:' class="ocupado" disabled aria-busy="true"'}>${ic(c.main.glifo,21)}<b>${c.main.rotulo}</b></button>
+      ${c.main.nota
+        ? `<span class="tmx-nota" role="status">${ic(c.main.glifo,21)}<b>${c.main.rotulo}</b></span>`
+        : `<button${c.main.acao?` data-estado="${c.main.acao}"`:' class="ocupado" disabled aria-busy="true"'}>${ic(c.main.glifo,21)}<b>${c.main.rotulo}</b></button>`}
     </span>
     ${sat(c.dir,'dir')}</div>`;
 }
@@ -1967,6 +1972,12 @@ ${nav('rota')}`;}};
    corpo é um só e a `semana` o desenha desbotado no fundo. O selo só aparece
    com fato ("N vendas"): sem venda, pill com um check sozinho era veredito
    sem fonte. */
+/* 🔴 A MESMA CONTA EM 2 LUGARES VIRA 2 VERDADES (16/08). O corpo decide entre
+   o caixa de verdade e o "Nada registrado"; o rodapé decide se "Fechar o dia"
+   merece o verde. São a MESMA pergunta ("este dia aconteceu?") e por isso
+   moram numa régua só — dado em 2 lugares é bug de produto. */
+function fechamentoTemDado(d){d=d||DADOS.fechamento;
+  return !!((d.formas.length||d.formaTotal)||(d.entregues||d.clientes||d.produtos));}
 function fechamentoCorpo(){const d=DADOS.fechamento;
   /* 🔴 O MIOLO E O "NADA AINDA" (15/08). Duas mentiras moravam aqui, as duas
      por AUSÊNCIA: sem `miolo`, uma rede ruim no `/logistica/fechamento/resumo`
@@ -1977,7 +1988,7 @@ function fechamentoCorpo(){const d=DADOS.fechamento;
      vale aqui: dia sem venda nenhuma é FATO, não vazio sem explicação.
      `temDado` é a MESMA conta das duas condições que já decidiam os blocos —
      só nomeada, pra decidir também entre elas e o "Nada registrado". */
-  const temDado=(d.formas.length||d.formaTotal)||(d.entregues||d.clientes||d.produtos);
+  const temDado=fechamentoTemDado(d);
   const corpoDeVerdade=temDado?`
   ${(d.formas.length||d.formaTotal)?`<div class="forms">
     ${d.formas.map(f=>`<div class="form-c"><span style="color:${f[1]}">${ic(f[0],19)}</span><small>${f[2]}</small><b>${f[3]}</b></div>`).join('')}
@@ -2002,7 +2013,12 @@ ${hdr({voltar:'rota'})}
 <div class="body">
   ${fechamentoCorpo()}
   <div class="acts">
-    <button class="act go" style="justify-content:center" data-acao="fechar-dia">${ic('check',19)}<b>Fechar o dia</b></button>
+    <!-- 🔴 VERDE É "PODE IR", NÃO "É O ÚNICO BOTÃO" (16/08, visto no g15 com o
+         APK 280): num dia sem nada registrado o verde primário oferecia FECHAR
+         um dia que não abriu. O verbo continua ali (dia de chuva sem entrega
+         também fecha — trava sem saída é beco), mas sem vestir a cor de ação
+         principal enquanto não houver fato na tela. Régua: fechamentoTemDado. -->
+    <button class="act${fechamentoTemDado()?' go':''}" style="justify-content:center" data-acao="fechar-dia">${ic('check',19)}<b>Fechar o dia</b></button>
     <button class="act" style="justify-content:center" data-ir="semana">${ic('chart',17)}<b>Ver detalhes</b></button>
   </div>
 </div>

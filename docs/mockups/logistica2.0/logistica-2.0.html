@@ -64,6 +64,15 @@ button,input{font:inherit;color:inherit}
 
   --bg:#080d17; --bg-2:#0a1120; --card:#0d1626; --line:#1a2740; --line-2:#26375a;
   --ink:#eef3fb; --ink-2:#93a3bf; --ink-3:#7889a6;
+  /* 🔴 O ESQUELETO ERA INVISÍVEL (16/08, medido no g15 com o APK 280 publicado).
+     A onda valia 1,15:1 contra a própria base, e a base 1,07:1 contra o fundo
+     da tela — ou seja, trocar o dia na Montagem apagava a lista e punha no
+     lugar um RETÂNGULO PRETO por ~500 ms. O dono leu isso como "o carregando
+     demora a aparecer"; ele não demorava, ele não dava pra ver. Agora a onda
+     tem 3,07:1 (escuro) / 3,27:1 (claro) contra a base — o piso do WCAG pra
+     componente não-textual que informa estado. Cor de esqueleto é TOKEN porque
+     tem dois modos de luz e um fiscal que a mede. */
+  --esq-1:#1d2c48; --esq-2:#63769f;
   --lime:#9ede2a; --lima-viva:var(--lime); --blue:#2f7ef7; --blue-l:#5b9dff;
   --amber:#f5a524; --purple:#a855f7; --red:#f2555a;
   /* famílias tonais e botões — F1 leva 2 (mesmo valor nos 2 modos até o claro pedir) */
@@ -1302,6 +1311,20 @@ button,input{font:inherit;color:inherit}
   box-shadow:0 8px 22px rgba(224,138,0,.3)}
 .tmx-main button[data-estado="montar"]{background:linear-gradient(180deg,#4a95ff,var(--btn-blue-2));
   box-shadow:0 8px 22px rgba(47,126,247,.32)}
+/* 🔴 ESTADO PERMANENTE NÃO É TRABALHO EM CURSO (16/08, medido no g15 no APK
+   280). O `main` sem `acao` vestia SEMPRE o traje do "Montando…": verde de
+   ação, `.ocupado` respirando e `aria-busy="true"`. Serve pro que vai acabar
+   em 2 s; não serve pro "Somente consulta", que é o estado da tela pra
+   SEMPRE — ali virava um botão verde pulsando eternamente, que não aceita
+   dedo e mente pro leitor de tela. Pior: contradiz a aula da própria casa
+   (`.tmx-main` = "o botão grande é sempre o próximo passo do dia"), porque
+   consultar não é passo nenhum. A nota ocupa a MESMA vaga e a MESMA altura
+   (o rodapé não pula), com a superfície neutra que o resto da casa já usa. */
+.tmx-nota{width:100%;height:56px;border-radius:18px;
+  display:flex;align-items:center;justify-content:center;gap:9px;
+  background:var(--card);border:.7px solid var(--line);color:var(--ink-2)}
+.tmx-nota b{font-weight:500;font-size:15px;letter-spacing:.1px;color:var(--ink-2);
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 /* TRABALHANDO: o botão continua no lugar, com o mesmo tamanho, respirando.
    Some com a sombra viva porque nada vai acontecer se o dedo insistir. */
 .ocupado{opacity:.62;box-shadow:none!important;animation:respira 1.15s ease-in-out infinite}
@@ -1430,7 +1453,7 @@ button,input{font:inherit;color:inherit}
 .vazio strong{display:block;font-size:15px;font-weight:500}
 .vazio span{display:block;font-size:12px;color:var(--ink-2);margin-top:4px}
 .vazio .ghost{margin-top:14px}
-.esq{background:linear-gradient(90deg,var(--card) 25%,#16233a 50%,var(--card) 75%);background-size:280% 100%;
+.esq{background:linear-gradient(90deg,var(--esq-1) 25%,var(--esq-2) 50%,var(--esq-1) 75%);background-size:280% 100%;
   border-radius:11px;animation:esqOnda 1.5s linear infinite}
 @keyframes esqOnda{to{background-position:-280% 0}}
 .esq-linha{height:62px;margin-bottom:6px}
@@ -2814,6 +2837,7 @@ button,input{font:inherit;color:inherit}
    ========================================================================== */
 [data-luz="claro"] .app{
   --bg:#eef1f7; --bg-2:#f7f9fc; --card:#ffffff; --line:#dde3ee; --line-2:#c3cfe1;
+  --esq-1:#dfe5f0; --esq-2:#6f7d9b;
   /* --ink-3 é o rótulo da aba apagada: em #7d8ba3 media 3,45 sobre o branco
      da barra. Escurecido até passar — texto de 9px não tem folga nenhuma. */
   --ink:#0f1726; --ink-2:#55637d; --ink-3:#616f89;
@@ -3088,7 +3112,8 @@ button,input{font:inherit;color:inherit}
    ROSA claro — senão o campo errado vira o único buraco preto da tela. */
 [data-luz="claro"] .campo.erro input{border-color:#e6a3a3;background:#fff5f5}
 [data-luz="claro"] .gps-rodape .sair{background:#fff;border-color:#e0a9a7;color:#a01a16}
-[data-luz="claro"] .esq{background:linear-gradient(90deg,#e7ecf5 25%,#f4f7fb 50%,#e7ecf5 75%);background-size:280% 100%}
+/* O claro não repinta mais o `.esq` na mão: ele só troca `--esq-1`/`--esq-2`
+   lá em cima, junto com os outros tokens. Tema troca TOKEN, não regra. */
 [data-luz="claro"] .vazio .ico{background:#fff;border-color:var(--line);color:var(--ink-3)}
 [data-luz="claro"] [data-gestos] .stop::after{background:rgba(192,32,27,.14)}
 [data-luz="claro"] [data-gestos] .stop.pronto{background:#fff2f1;border-color:var(--red)}
@@ -3554,7 +3579,10 @@ const ROTA_ESTADOS={
              dir:{tipo:'info', glifo:'route', rotulo:'Montagem', acao:'montar'}},
   /* Ver uma pendência é consulta. As mutações ficam no cartão nomeado; o dock
      não oferece Iniciar/Cancelar e o mapa não reordena uma rota alheia/velha. */
-  consulta:{main:{glifo:'route', rotulo:'Somente consulta'}},
+  /* `nota:true` = estado PERMANENTE, não trabalho em curso. Sem isto ele caía
+     no traje do "Montando…" (verde, respirando, aria-busy eterno) — ver a
+     regra `.tmx-nota` no CSS. */
+  consulta:{main:{glifo:'route', rotulo:'Somente consulta', nota:true}},
   /* Com a rota RODANDO o que o motorista faz é ANDAR: o botão do meio abre a
      navegação. "Pausar"/"Continuar" saíram — pausa não existe no servidor
      (o estado da rota é PLANNED|ACTIVE|COMPLETED|ENCERRADA), então eram dois
@@ -3607,7 +3635,9 @@ function transmux(estado){
      O ícone encolhe (34 → 21) porque virou o acompanhante, não o cartaz. */
   return `<div class="transmux">${sat(c.esq,'esq')}
     <span class="tmx-main">
-      <button${c.main.acao?` data-estado="${c.main.acao}"`:' class="ocupado" disabled aria-busy="true"'}>${ic(c.main.glifo,21)}<b>${c.main.rotulo}</b></button>
+      ${c.main.nota
+        ? `<span class="tmx-nota" role="status">${ic(c.main.glifo,21)}<b>${c.main.rotulo}</b></span>`
+        : `<button${c.main.acao?` data-estado="${c.main.acao}"`:' class="ocupado" disabled aria-busy="true"'}>${ic(c.main.glifo,21)}<b>${c.main.rotulo}</b></button>`}
     </span>
     ${sat(c.dir,'dir')}</div>`;
 }
@@ -5228,6 +5258,12 @@ ${nav('rota')}`;}};
    corpo é um só e a `semana` o desenha desbotado no fundo. O selo só aparece
    com fato ("N vendas"): sem venda, pill com um check sozinho era veredito
    sem fonte. */
+/* 🔴 A MESMA CONTA EM 2 LUGARES VIRA 2 VERDADES (16/08). O corpo decide entre
+   o caixa de verdade e o "Nada registrado"; o rodapé decide se "Fechar o dia"
+   merece o verde. São a MESMA pergunta ("este dia aconteceu?") e por isso
+   moram numa régua só — dado em 2 lugares é bug de produto. */
+function fechamentoTemDado(d){d=d||DADOS.fechamento;
+  return !!((d.formas.length||d.formaTotal)||(d.entregues||d.clientes||d.produtos));}
 function fechamentoCorpo(){const d=DADOS.fechamento;
   /* 🔴 O MIOLO E O "NADA AINDA" (15/08). Duas mentiras moravam aqui, as duas
      por AUSÊNCIA: sem `miolo`, uma rede ruim no `/logistica/fechamento/resumo`
@@ -5238,7 +5274,7 @@ function fechamentoCorpo(){const d=DADOS.fechamento;
      vale aqui: dia sem venda nenhuma é FATO, não vazio sem explicação.
      `temDado` é a MESMA conta das duas condições que já decidiam os blocos —
      só nomeada, pra decidir também entre elas e o "Nada registrado". */
-  const temDado=(d.formas.length||d.formaTotal)||(d.entregues||d.clientes||d.produtos);
+  const temDado=fechamentoTemDado(d);
   const corpoDeVerdade=temDado?`
   ${(d.formas.length||d.formaTotal)?`<div class="forms">
     ${d.formas.map(f=>`<div class="form-c"><span style="color:${f[1]}">${ic(f[0],19)}</span><small>${f[2]}</small><b>${f[3]}</b></div>`).join('')}
@@ -5263,7 +5299,12 @@ ${hdr({voltar:'rota'})}
 <div class="body">
   ${fechamentoCorpo()}
   <div class="acts">
-    <button class="act go" style="justify-content:center" data-acao="fechar-dia">${ic('check',19)}<b>Fechar o dia</b></button>
+    <!-- 🔴 VERDE É "PODE IR", NÃO "É O ÚNICO BOTÃO" (16/08, visto no g15 com o
+         APK 280): num dia sem nada registrado o verde primário oferecia FECHAR
+         um dia que não abriu. O verbo continua ali (dia de chuva sem entrega
+         também fecha — trava sem saída é beco), mas sem vestir a cor de ação
+         principal enquanto não houver fato na tela. Régua: fechamentoTemDado. -->
+    <button class="act${fechamentoTemDado()?' go':''}" style="justify-content:center" data-acao="fechar-dia">${ic('check',19)}<b>Fechar o dia</b></button>
     <button class="act" style="justify-content:center" data-ir="semana">${ic('chart',17)}<b>Ver detalhes</b></button>
   </div>
 </div>

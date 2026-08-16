@@ -168,6 +168,10 @@
   let updateCheckEm = 0;
   let updateAguardaPermissao = false;
 
+  /* 🔴 O versionNAME NÃO IDENTIFICA BUILD: é "alpha1" e não muda entre publicações, então "Versão alpha1 pronta" era a MESMA frase toda vez — e aviso que não muda ensina o dedo a tocar "Agora não". Medido 16/08: g15 em 276 com a 280 no ar, 3 publicações ignoradas, 12 h de trabalho testadas contra o app velho. LEI: o número que MUDA é o que aparece. Régua única — pop-up e linha dos Ajustes bebem daqui. */
+  const frasePronta = () => { const i = (window.HBX && window.HBX.info && window.HBX.info()) || {};
+    return `Versão ${(updateInfo && updateInfo.versionCode) || ''} pronta${i.versionCode ? ` — você está na ${Number(i.versionCode)}` : ''}.`; };
+
   function portaoUpdate() {
     if (!updateInfo || typeof window.portao !== 'function') return;
     // A abertura é uma cena com relógio; portão em cima dela morre na troca
@@ -181,7 +185,7 @@
     window.portao({
       tom: 'info', ico: 'download', titulo: 'Atualizar app',
       sub: updateBusy ? 'Baixando…'
-        : `Versão ${updateInfo.versionName || ''} pronta.${podeInstalar ? '' : ' O Android vai abrir uma tela: ligue "Permitir desta fonte" e volte.'}`,
+        : `${frasePronta()}${podeInstalar ? '' : ' O Android vai abrir uma tela: ligue "Permitir desta fonte" e volte.'}`,
       acoes, classe: acoes.length === 2 ? 'duas' : '',
     });
     if (updateBusy) return;
@@ -328,16 +332,12 @@
   function linhaDaVersao() {
     const info = (window.HBX && window.HBX.info && window.HBX.info()) || {};
     const meu = Number(info.versionCode || 0);
-    // 🔴 O versionNAME NÃO IDENTIFICA BUILD (mesma lição do `HbxMobileBridge`):
-    // ele é "alpha1" e não muda entre publicações. Sem o versionCODE do lado, o
-    // dono olha a tela e não tem como saber se o aparelho pegou a publicação de
-    // agora ou a de três dias atrás.
     const nome = info.versionName ? `Versão ${esc(info.versionName)}${meu ? ` (${meu})` : ''}` : '';
     const nova = updateInfo && updateInfo.versionCode > meu;
     return {
       versao: nome,
       versaoSub: nova
-        ? `Versão ${esc(updateInfo.versionName || '')} pronta — toque para instalar`
+        ? `${frasePronta()} Toque para instalar.`
         : 'toque para procurar atualização',
       versaoTag: nova ? 'Atualizar' : '',
     };
@@ -13204,7 +13204,16 @@
       // ficaria PRESA no esqueleto pra sempre depois da 1ª carga: nada mais
       // neste método zerava `carregando`.
       ...fonteVoltou,
-      entregues: String(entregues),
+      /* 🔴 ZERO TEM QUE CHEGAR FALSY (16/08, medido no g15 com o APK 280
+         publicado). `String(0)` é `'0'`, e `'0'` é TRUTHY — então o `temDado`
+         do `fechamentoCorpo()` dava verdadeiro num dia que não aconteceu, o
+         "Nada registrado hoje ainda" que o lote 2 escreveu no mock nunca
+         aparecia, e a tela abria com `0 entregues` sobre 80% de retângulo
+         preto. O mock estava certo; quem mentia era esta linha. `seTiver` é a
+         MESMA régua que `clientes`/`produtos`/`formaTotal` já usavam duas
+         linhas abaixo — a exceção era só o `entregues`.
+         LEI: número que decide se a tela tem conteúdo nunca vira string aqui. */
+      entregues: seTiver(entregues),
       // O selo do canto diz um FATO (quantas vendas), nunca um veredito: o app
       // não tem como saber que está "tudo certo". Sem venda, sem selo.
       selo: vendas ? `${vendas} ${vendas === 1 ? 'venda' : 'vendas'}` : '',

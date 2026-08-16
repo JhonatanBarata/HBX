@@ -602,7 +602,16 @@
       // ficaria PRESA no esqueleto pra sempre depois da 1ª carga: nada mais
       // neste método zerava `carregando`.
       ...fonteVoltou,
-      entregues: String(entregues),
+      /* 🔴 ZERO TEM QUE CHEGAR FALSY (16/08, medido no g15 com o APK 280
+         publicado). `String(0)` é `'0'`, e `'0'` é TRUTHY — então o `temDado`
+         do `fechamentoCorpo()` dava verdadeiro num dia que não aconteceu, o
+         "Nada registrado hoje ainda" que o lote 2 escreveu no mock nunca
+         aparecia, e a tela abria com `0 entregues` sobre 80% de retângulo
+         preto. O mock estava certo; quem mentia era esta linha. `seTiver` é a
+         MESMA régua que `clientes`/`produtos`/`formaTotal` já usavam duas
+         linhas abaixo — a exceção era só o `entregues`.
+         LEI: número que decide se a tela tem conteúdo nunca vira string aqui. */
+      entregues: seTiver(entregues),
       // O selo do canto diz um FATO (quantas vendas), nunca um veredito: o app
       // não tem como saber que está "tudo certo". Sem venda, sem selo.
       selo: vendas ? `${vendas} ${vendas === 1 ? 'venda' : 'vendas'}` : '',
