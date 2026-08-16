@@ -304,9 +304,11 @@ com história é apagada.
 | Lote | O quê | Quem | Estado |
 |---|---|---|---|
 | 1 | Rota fantasma + beco cancelar | worker | ✅ `a707a1cd` — fluxo-rota 125/125, specs 51/51 |
-| 1.1 | Cancelar mira o dia certo + lápide + invariante do Iniciar | worker | 🔄 rodando (com fiscal adversarial no fim) |
+| 1.1 | Cancelar mira o dia certo + lápide + invariante do Iniciar | worker | ⚠️ `5ef7bf33` — cura central REAL (red-first honesto: 5 provas vermelhas no pai), mas fiscal **reprovou com ressalva**: ver 1.2 |
+| 1.2 | Correções do fiscal do 1.1 | worker | 🔄 rodando |
+| 3.1 | Correções do fiscal do lote 3 + portão honesto | worker | 🔄 fila |
 | 2 | Véu + resíduos + fechamento + contraste | worker | ✅ `561f234b` — fluxo-rota **129/129**, contraste-diálogos **24/24** (Sim do claro 1,96→**6,66**; azul 3,31→**5,17**), limpar-dia 22/22, casca 68/68 |
-| 3 | Chegada: 1 peça só, igual em 2D e 3D | worker | 🔄 fila da cadeia (após fiscal do 1.1) |
+| 3 | Chegada: 1 peça só, igual em 2D e 3D | worker | ⚠️ `51be6a16` — peça e portões verdes (44/44 novo, 66/66 casca, 64/64 antes×depois), mas fiscal **REPROVOU**: ver 3.1 |
 | 4 | Pós-iniciar elegante | worker | ⬜ |
 | 5 | 2 tipos de avulsa | worker + migration | ⬜ |
 | 6 | Dinheiro da porta | worker | ⬜ |

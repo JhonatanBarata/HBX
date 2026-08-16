@@ -227,7 +227,7 @@ const chegar = (p, id) => p.evaluate((d) => {
    byte a byte; a foto mede o resto — então ela recorta um retângulo
    ENCOLHIDO (inset 20px, bem maior que o raio) pra medir só o miolo sólido
    da peça, sem o ruído do que está atrás dos 4 cantos. */
-const shaDoElemento = async (p, seletor, inset) => {
+const fotoDoElemento = async (p, seletor, inset) => {
   const box = await p.evaluate((sel) => {
     const el = document.querySelector(sel);
     if (!el) return null;
@@ -241,8 +241,61 @@ const shaDoElemento = async (p, seletor, inset) => {
     width: Math.max(1, box.width - (2 * i)), height: Math.max(1, box.height - (2 * i)),
   };
   const buf = await p.screenshot({ clip });
-  return crypto.createHash('sha1').update(buf).digest('hex');
+  return { buf, sha: crypto.createHash('sha1').update(buf).digest('hex') };
 };
+
+/* 🔴 SHA BYTE A BYTE É RÉGUA DEMAIS PRA FOTO — medido: com HTML e pintura já
+   idênticos byte a byte entre 2D e 3D (as duas camadas anteriores), a FOTO
+   ainda assim diverge por antialiasing de sub-pixel — a mesma peça, embutida
+   em duas árvores de ancestrais DIFERENTES (a lista 2D vs o mapa 3D), recebe
+   uma fração de pixel de posição ligeiramente diferente, e a fonte sub-pixel
+   redesenha os glifos com uns poucos tons de cinza a menos/a mais na borda
+   das letras. Medido nos dois modos de luz: ~4-5% dos pixels do cartão
+   diferem, DIFERENÇA MÁXIMA por pixel de 8-10 em 1020 possíveis (soma dos 4
+   canais) — invisível a olho nu (as duas fotos são indistinguíveis lado a
+   lado). Cobrar bit-a-bit aqui reprovaria a peça por um efeito do MOTOR DE
+   RENDERIZAÇÃO, não do produto — o oposto de "medir de verdade": uma régua
+   frouxa demais mente que está tudo igual (armadilha b), uma régua PESADA
+   demais mente que está tudo diferente. A cura é comparação PERCEPTUAL: conta
+   quantos pixels mudam e o quanto cada um muda, com piso generoso o bastante
+   pra sub-pixel (visto: ≤6%/≤10) e curto o bastante pra pegar defeito de
+   verdade (cor trocada, elemento sumido, layout deslocado — que mudam
+   MILHARES de pixels em CENTENAS de unidades, não algumas centenas em
+   dígitos). */
+async function fotosParecidas(utilPage, bufA, bufB) {
+  if (!bufA || !bufB) return { parecidas: false, motivo: 'falta screenshot' };
+  return utilPage.evaluate(async ([b64a, b64b]) => {
+    const paraImagem = async (b64) => {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+      return createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+    };
+    const [imgA, imgB] = await Promise.all([paraImagem(b64a), paraImagem(b64b)]);
+    if (imgA.width !== imgB.width || imgA.height !== imgB.height) {
+      return { parecidas: false, motivo: `tamanhos diferentes ${imgA.width}x${imgA.height} × ${imgB.width}x${imgB.height}` };
+    }
+    const ler = (img) => {
+      const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+      c.getContext('2d').drawImage(img, 0, 0);
+      return c.getContext('2d').getImageData(0, 0, img.width, img.height).data;
+    };
+    const dA = ler(imgA); const dB = ler(imgB);
+    let diffCount = 0; let maxDiff = 0;
+    for (let i = 0; i < dA.length; i += 4) {
+      const d = Math.abs(dA[i] - dB[i]) + Math.abs(dA[i + 1] - dB[i + 1])
+        + Math.abs(dA[i + 2] - dB[i + 2]) + Math.abs(dA[i + 3] - dB[i + 3]);
+      if (d > 0) diffCount += 1;
+      if (d > maxDiff) maxDiff = d;
+    }
+    const total = dA.length / 4;
+    const diffPct = diffCount / total;
+    // pisos: medido em bancada ~4-5% dos pixels / máximo 8-10 por antialiasing
+    // de sub-pixel puro; a régua dá o dobro de folga pros dois lados.
+    const parecidas = diffPct <= 0.10 && maxDiff <= 40;
+    return { parecidas, diffPct, maxDiff, diffCount, total };
+  }, [bufA.toString('base64'), bufB.toString('base64')]);
+}
 
 /* contraste WCAG — roda DENTRO da página, é ela que sabe a cor resolvida. */
 const CONTRASTE = () => {
@@ -267,16 +320,75 @@ const CONTRASTE = () => {
     return razao(getComputedStyle(el).color, bgCartao);
   };
   const seta = cartao.querySelector('.seta');
-  const bordaCor = getComputedStyle(cartao).borderColor;
-  const bordaWidth = parseFloat(getComputedStyle(cartao).borderWidth) || 0;
   return {
     dist: medir('.dist'),      // texto grande (24px/650) — piso 3,0
     verbo: medir('.verbo'),    // 19px/500 — conta como "grande" — piso 3,0
     baixo: medir('.baixo') || medir('.sub'),  // texto pequeno — piso 4,5
     icone: seta ? razao(getComputedStyle(seta).color, getComputedStyle(seta).backgroundColor) : null,
-    bordaVisivel: bordaWidth > 0 && bordaCor !== 'rgba(0, 0, 0, 0)' && bordaCor !== bgCartao,
   };
 };
+
+/* 🔴 PORTÃO HONESTO (c) — a borda medida DE VERDADE contra o mapa, não contra
+   "cor != transparente". A régua antiga só checava se `borderColor` existia e
+   diferia do fundo do CARTÃO — nunca do que está ATRÁS da borda, que é o véu
+   translúcido `rgba(4,7,13,.7)` sobre o mapa (2D ou 3D) por baixo dele. Isto
+   amostra um retângulo fino colado por FORA da borda esquerda do cartão (o
+   wrap tem `padding:0 20px`, então sempre sobra respiro) e decodifica o PNG
+   DENTRO da própria página (`createImageBitmap`+canvas) — sem depender de
+   decoder de imagem nenhum do lado do Node. A razão de contraste (WCAG) é
+   entre a cor DECLARADA da borda (`getComputedStyle`, o token) e o pixel
+   COMPOSTO de verdade (véu + mapa) — devolve `null` quando não há espaço pra
+   amostrar honesto, nunca um número inventado. */
+async function bordaContrasteReal(p) {
+  const info = await p.evaluate(() => {
+    const cartao = document.querySelector('.chegou-cartao');
+    if (!cartao) return null;
+    const r = cartao.getBoundingClientRect();
+    const cs = getComputedStyle(cartao);
+    return {
+      x: r.x, y: r.y, w: r.width, h: r.height,
+      borda: cs.borderColor,
+      largura: parseFloat(cs.borderWidth) || 0,
+      vh: window.innerHeight,
+    };
+  });
+  if (!info || !(info.largura > 0)) return null;
+  const clip = {
+    x: Math.round(info.x - 8), y: Math.round(info.y + info.h / 2 - 3),
+    width: 6, height: 6,
+  };
+  // sem respiro suficiente pra amostrar por FORA do cartão sem invadi-lo: não
+  // inventa número, devolve "não sei medir" (nunca um verde de mentira).
+  if (clip.x < 0 || clip.y < 0 || clip.y + clip.height > info.vh) return null;
+  const buf = await p.screenshot({ clip });
+  // decodifica o PNG DENTRO da página (createImageBitmap+canvas) — sem
+  // decoder de imagem nenhum do lado do Node; só o pixel médio volta pra cá.
+  // `atob`+`Blob`, nunca `fetch` de `data:` — o `connect-src` da CSP do app
+  // barra fetch (mesma armadilha já documentada em 00-nucleo.js).
+  const [rr, gg, bb] = await p.evaluate(async (b64) => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+    const blob = new Blob([bytes], { type: 'image/png' });
+    const bmp = await createImageBitmap(blob);
+    const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+    const ctx = c.getContext('2d'); ctx.drawImage(bmp, 0, 0);
+    const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
+    let r0 = 0; let g0 = 0; let b0 = 0; let n = 0;
+    for (let i = 0; i < d.length; i += 4) { r0 += d[i]; g0 += d[i + 1]; b0 += d[i + 2]; n += 1; }
+    return [r0 / n, g0 / n, b0 / n];
+  }, buf.toString('base64'));
+  // a razão WCAG é pura aritmética — computa aqui no Node, sem precisar
+  // voltar pra página de novo.
+  const lum = ([r, g, b]) => {
+    const f = (ch) => { const v = ch / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+  };
+  const m = /rgba?\(([^)]+)\)/.exec(info.borda || '');
+  const [br, bg, bb2] = m ? m[1].split(',').slice(0, 3).map((x) => parseFloat(x)) : [0, 0, 0];
+  const [a, b] = [lum([rr, gg, bb]), lum([br, bg, bb2])].sort((x, y) => y - x);
+  return (a + 0.05) / (b + 0.05);
+}
 
 (async () => {
   if (!SEM_REGERAR) {
@@ -286,12 +398,15 @@ const CONTRASTE = () => {
   const [srv, porta] = await servir();
   const pele = peleDoMock();
   const navegador = await chromium.launch();
+  // página utilitária, sem app nenhum dentro — só decodifica PNG pra comparar
+  // fotos entre contextos já fechados (§ fotosParecidas).
+  const utilPage = await navegador.newPage();
 
   /* ======================================================================
      LAÇO PRINCIPAL — 2 modos de luz × 2 palcos. É aqui que existência,
      não-troca-de-tela, HTML/pintura/foto e camada são medidos.
      ====================================================================== */
-  const capturas = {}; // chave `${luz}|${palco}` → { tela0, tela1, cap, sha, camada }
+  const capturas = {}; // chave `${luz}|${palco}` → { tela0, tela1, capNascimento, cap, foto, camada }
 
   for (const luz of ['escuro', 'claro']) {
     for (const palco of ['rota', 'mapa']) {
@@ -302,17 +417,39 @@ const CONTRASTE = () => {
       await chegar(p, 'e1');
       await p.waitForTimeout(900);
       const tela1 = await p.evaluate(TELA);
+      // capturado ANTES de qualquer repinte forçado — é o único momento honesto
+      // pra medir "nasce sem .remontado" (a settle logo abaixo já marcaria).
+      const capNascimento = await p.evaluate(CAPTURAR);
+      /* 🔴 PORTÃO HONESTO (b) — sem isto, a igualdade 2D×3D passa por SORTE de
+         cronômetro: no 3D o `watchPosition` alimenta `aoMover()`→
+         `pintarNavegacao()` (repinta sozinho, marca `.remontado`), e a
+         bancada às vezes não tem tempo de repintar o suficiente pro 2D fazer
+         o mesmo dentro da janela de captura — o fiscal PROVOU isto disparando
+         um `usarDados('gps',…)` manual e vendo a igualdade quebrar. Um
+         repinte FORÇADO, igual pros dois palcos, ANTES de medir HTML/pintura/
+         foto/camada, garante que os dois lados estão no MESMO estado de
+         repinte — só assim a igualdade prova o produto, não o relógio da
+         máquina que rodou o teste. */
+      await p.evaluate(() => window.usarDados('rota', { kpiEntregues: `settle-${Math.random()}` }));
+      await p.waitForTimeout(400);
       const cap = await p.evaluate(CAPTURAR);
-      const sha = cap.existe ? await shaDoElemento(p, '.chegou-cartao', 20) : null;
+      const foto = cap.existe ? await fotoDoElemento(p, '.chegou-cartao', 20) : null;
       const contraste = cap.existe ? await p.evaluate(CONTRASTE) : null;
+      const bordaSobreMapa = cap.existe ? await bordaContrasteReal(p) : null;
 
-      // CAMADA: acima do dock/nav, e abaixo de um portão legítimo aberto por cima.
+      /* CAMADA (e) — medida NOS 2 PALCOS, com o cromo que EXISTE em cada um:
+         2D usa `.nav`/`.hdr`/`.tmx-dock`; no 3D nenhum dos três existe — quem
+         existe é `.gps-rodape` e `.status` (justamente o que o desenho manda
+         cobrir). Medir sempre os mesmos 3 seletores de 2D deixava o "fica
+         acima do dock" passar sozinho no 3D (`z > (zDock||0)` com zDock=null
+         vira `z>0`, verdade de graça) — cada elemento agora tem `existe`
+         próprio, e a régua reprova se o cromo esperado daquele palco não
+         estiver nem lá pra ser medido. */
       let camada = null;
       if (cap.existe) {
-        camada = await p.evaluate(() => {
+        const seletores = palco === 'mapa' ? ['.gps-rodape', '.status'] : ['.nav', '.hdr', '.tmx-dock'];
+        camada = await p.evaluate((sels) => {
           const wrap = document.querySelector('.chegou-wrap');
-          const nav = document.querySelector('.nav');
-          const dock = document.querySelector('.tmx-dock');
           const cartao = wrap.querySelector('.chegou-cartao');
           const r = cartao.getBoundingClientRect();
           const cx = r.x + r.width / 2; const cy = r.y + r.height / 2;
@@ -327,17 +464,19 @@ const CONTRASTE = () => {
             return pw ? Number(getComputedStyle(pw).zIndex) : null;
           })();
           document.querySelectorAll('.portao-wrap').forEach((n) => n.remove()); // limpa pro resto da prova
-          return {
-            zChegou,
-            zNav: nav ? Number(getComputedStyle(nav).zIndex) : null,
-            zDock: dock ? Number(getComputedStyle(dock).zIndex) : null,
-            zPortao,
-            dentroAntes, dentroDepois,
-          };
-        });
+          const cromo = sels.map((sel) => {
+            const el = document.querySelector(sel);
+            return { sel, existe: !!el, z: el ? Number(getComputedStyle(el).zIndex) : null };
+          });
+          return { zChegou, zPortao, dentroAntes, dentroDepois, cromo };
+        }, seletores);
       }
 
-      // REPINTE: sobrevive sem reanimar — a MESMA instância de nó, marcada .remontado.
+      /* REPINTE (a): sobrevive sem reanimar — a MESMA instância de nó, marcada
+         `.remontado`, e SEM animação nenhuma `running` de verdade
+         (`getAnimations`, não só a classe: o fiscal apagou a regra CSS que
+         desliga a animação em runtime e a classe sozinha continuou "passando",
+         com mvConf/mvPop/trItem tocando de novo — o pisca de 1×/s na rua). */
       let sobreviveu = null;
       if (cap.existe) {
         await p.evaluate(() => { document.querySelector('.chegou-wrap').__marcaProva = 'x'; });
@@ -345,7 +484,13 @@ const CONTRASTE = () => {
         await p.waitForTimeout(400);
         sobreviveu = await p.evaluate(() => {
           const w = document.querySelector('.chegou-wrap');
-          return { existe: !!w, mesmoNo: !!(w && w.__marcaProva === 'x'), remontado: !!(w && w.classList.contains('remontado')) };
+          const anims = w && typeof w.getAnimations === 'function' ? w.getAnimations({ subtree: true }) : [];
+          const rodando = anims.filter((an) => an.playState === 'running').length;
+          return {
+            existe: !!w, mesmoNo: !!(w && w.__marcaProva === 'x'),
+            remontado: !!(w && w.classList.contains('remontado')),
+            animacoesRodando: rodando,
+          };
         });
       }
 
@@ -369,7 +514,10 @@ const CONTRASTE = () => {
         voltaPalco = await p.evaluate(TELA);
       }
 
-      capturas[chave] = { tela0, tela1, cap, sha, contraste, camada, sobreviveu, acaoPrincipal, voltaPalco, erros };
+      capturas[chave] = {
+        tela0, tela1, capNascimento, cap, foto, contraste, bordaSobreMapa,
+        camada, sobreviveu, acaoPrincipal, voltaPalco, erros,
+      };
       nota(`[${chave}] tela0=${tela0} tela1=${tela1} existe=${cap.existe} zIndex=${cap.zIndex || '-'}`);
       await ctx.close();
     }
@@ -385,14 +533,17 @@ const CONTRASTE = () => {
     });
   });
 
-  // ---- HTML/pintura/foto IDÊNTICOS entre palcos, no MESMO modo de luz -----
-  ['escuro', 'claro'].forEach((luz) => {
+  // ---- HTML/pintura IDÊNTICOS + foto PERCEPTUALMENTE igual, no MESMO luz --
+  for (const luz of ['escuro', 'claro']) {
     const r = capturas[`${luz}|rota`]; const m = capturas[`${luz}|mapa`];
     eh(`HTML idêntico 2D×3D (${luz})`, iguais(r.cap.html, m.cap.html));
     eh(`pintura idêntica 2D×3D (${luz})`,
       iguais(r.cap.pintura && r.cap.pintura.join('~~'), m.cap.pintura && m.cap.pintura.join('~~')));
-    eh(`foto idêntica 2D×3D (${luz})`, iguais(r.sha, m.sha), `${r.sha} × ${m.sha}`);
-  });
+    // eslint-disable-next-line no-await-in-loop
+    const p = await fotosParecidas(utilPage, r.foto && r.foto.buf, m.foto && m.foto.buf);
+    eh(`foto perceptualmente idêntica 2D×3D (${luz})`, !!p.parecidas,
+      `sha ${r.foto && r.foto.sha} × ${m.foto && m.foto.sha} · ${JSON.stringify(p)}`);
+  }
 
   // ---- estrutura igual entre os 2 modos de luz (cor pode mudar, forma não) ----
   {
@@ -400,24 +551,35 @@ const CONTRASTE = () => {
     eh('estrutura igual entre modos de luz', iguais(escuro.cap.estrutura, claro.cap.estrutura));
   }
 
-  // ---- camada: acima de dock/nav, abaixo de um portão legítimo ------------
-  {
-    const c = capturas['escuro|rota'].camada;
-    eh('z-index 56 (acima do cromo de tela)', !!c && c.zChegou === 56, JSON.stringify(c));
-    eh('fica acima do dock/nav', !!c && c.zChegou > (c.zNav || 0) && c.zChegou > (c.zDock || 0));
-    eh('fica ABAIXO de um portão legítimo', !!c && c.zPortao != null && c.zChegou < c.zPortao);
-    eh('portão legítimo GANHA o toque (elementFromPoint)', !!c && c.dentroAntes && !c.dentroDepois,
+  // ---- camada (e): acima do cromo de tela, abaixo de um portão legítimo —
+  //      medida NOS 2 PALCOS, cada um com o cromo que EXISTE nele -----------
+  ['rota', 'mapa'].forEach((palco) => {
+    const c = capturas[`escuro|${palco}`].camada;
+    eh(`z-index 56 (${palco})`, !!c && c.zChegou === 56, JSON.stringify(c));
+    const cromoEsperado = c ? c.cromo : [];
+    cromoEsperado.forEach((item) => {
+      eh(`cromo ${item.sel} existe pra medir (${palco})`, item.existe, JSON.stringify(c));
+    });
+    const todosExistem = cromoEsperado.length > 0 && cromoEsperado.every((x) => x.existe);
+    const acima = todosExistem && cromoEsperado.every((x) => c.zChegou > x.z);
+    eh(`fica acima do cromo de tela (${palco})`, acima, JSON.stringify(c));
+    eh(`fica ABAIXO de um portão legítimo (${palco})`, !!c && c.zPortao != null && c.zChegou < c.zPortao,
       JSON.stringify(c));
-  }
+    eh(`portão legítimo GANHA o toque (${palco})`, !!c && c.dentroAntes && !c.dentroDepois, JSON.stringify(c));
+  });
 
-  // ---- repinte não reencena nem derruba ------------------------------------
+  // ---- repinte não reencena nem derruba (a): mesmo nó, .remontado E zero
+  //      animação `running` de verdade (getAnimations, não só a classe) -----
   {
     const s = capturas['escuro|mapa'].sobreviveu; // no 3D o fix chega 1x/s: é o caso que mais pisca
     eh('repinte não derruba a peça (mesmo nó)', !!s && s.existe && s.mesmoNo, JSON.stringify(s));
     eh('repinte marca .remontado (desliga a animação)', !!s && s.remontado, JSON.stringify(s));
+    eh('repinte NÃO deixa animação rodando (getAnimations)', !!s && s.animacoesRodando === 0, JSON.stringify(s));
   }
   {
-    const primeiro = capturas['escuro|rota'].cap;
+    // capturado ANTES do repinte forçado (§b) — o único momento honesto pra
+    // medir que a entrada acontece 1x.
+    const primeiro = capturas['escuro|rota'].capNascimento;
     eh('nasce SEM .remontado (entrada acontece 1x)', primeiro.existe && primeiro.remontado === false);
   }
 
@@ -430,13 +592,20 @@ const CONTRASTE = () => {
     eh(`confirmar volta ao palco de origem (${palco})`, c.voltaPalco === palco, `voltou=${c.voltaPalco}`);
   });
 
-  // ---- contraste --------------------------------------------------------
+  // ---- contraste ----------------------------------------------------------
   ['escuro', 'claro'].forEach((luz) => {
-    const ct = capturas[`${luz}|rota`].contraste;
+    const c = capturas[`${luz}|rota`];
+    const ct = c.contraste;
     eh(`contraste do texto grande ≥3,0 (${luz})`, !!ct && ct.dist >= 3 && ct.verbo >= 3, JSON.stringify(ct));
-    eh(`contraste do texto pequeno ≥4,5 (${luz})`, !!ct && (ct.baixo == null || ct.baixo >= 4.5), JSON.stringify(ct));
+    /* (f) a ausência de `.baixo` não é mais coringa: a cena SEMPRE tem
+       endereço (P1/P2 do fixture), então `null` aqui é FALHA de verdade —
+       um seletor quebrado não pode passar disfarçado de "campo ausente". */
+    eh(`contraste do texto pequeno ≥4,5 (${luz})`, !!ct && ct.baixo != null && ct.baixo >= 4.5, JSON.stringify(ct));
     eh(`contraste do ícone ≥3,0 (${luz})`, !!ct && ct.icone != null && ct.icone >= 3, JSON.stringify(ct));
-    eh(`borda legível sobre o mapa (${luz})`, !!ct && ct.bordaVisivel, JSON.stringify(ct));
+    // (c) medida DE VERDADE contra o composto véu+mapa por trás da borda —
+    // não mais "cor != transparente". Piso 3,0 (texto/gráfico de apoio).
+    eh(`borda legível sobre o mapa, piso 3,0 (${luz})`, c.bordaSobreMapa != null && c.bordaSobreMapa >= 3.0,
+      `razão=${c.bordaSobreMapa}`);
   });
 
   /* ========================================================================
@@ -473,11 +642,24 @@ const CONTRASTE = () => {
     }), antesChamadas);
     eh('dispensar fecha o cartão', r.wrapSumiu, JSON.stringify(r));
     eh('dispensar NÃO apaga chegada:<id> do cache', r.chegadaNoCache, JSON.stringify(r));
+    // (g) `pinoAmbar` já era medido e nunca virava asserção — é requisito
+    // ESCRITO ("dispensar não apaga o pino"), não só um número no log.
+    eh('dispensar NÃO apaga o pino âmbar', r.pinoAmbar === true, JSON.stringify(r));
     eh('dispensar NÃO fala com o servidor', r.novasChamadas === 0, JSON.stringify(r));
     await ctx.close();
   }
 
-  // ---- 2ª chegada não troca o cliente debaixo do dedo ----------------------
+  /* (d) 🔴 PORTÃO HONESTO — as duas cenas abaixo mediam só o CARTÃO parado
+     (o botão que já estava na tela, do jeito que ele nasceu) — e passariam
+     IGUAL com a guarda que elas dizem fiscalizar apagada, porque o efeito
+     observado vinha de OUTRA guarda (`naCamada('.chegou-wrap')` em
+     `desenharChegada` já impede o card de ser redesenhado, então o DOM
+     parado mente por baixo mesmo sem a guarda de `chegada`/`aberta`).
+     A grandeza certa é o ESTADO QUE SOBRA depois que a folha em cena fecha
+     e o motorista volta pro mapa: é aí que `abrirParada` decide (ou não)
+     zerar `chegada`, e é isso — não o botão parado — que a guarda protege. */
+
+  // ---- 2ª chegada não troca o cliente debaixo do dedo (mede o ESTADO) ------
   {
     const { ctx, p } = await abrirContexto(navegador, porta, pele, { luz: 'escuro' });
     await irPalco(p, 'rota');
@@ -485,15 +667,35 @@ const CONTRASTE = () => {
     await p.waitForTimeout(700);
     await chegar(p, 'e2');
     await p.waitForTimeout(700);
-    const r = await p.evaluate(() => {
+    const antes = await p.evaluate(() => {
       const b = document.querySelector('.chegou-wrap [data-acao="abrir-parada"]');
       return { paradaAtual: b ? b.dataset.parada : null };
     });
-    eh('2ª chegada não troca o cliente', r.paradaAtual === 'e1', JSON.stringify(r));
+    eh('2ª chegada não troca o cliente (cartão parado)', antes.paradaAtual === 'e1', JSON.stringify(antes));
+    // abre a folha do cartão visível (deveria ser e1) e ABANDONA sem
+    // confirmar — se `chegada` tivesse sido silenciosamente sobrescrito pra
+    // 'e2' (a guarda `if (chegada) return` apagada, só `naCamada` de pé), é
+    // AQUI que o Ademir (e2) nasceria sozinho ao voltar pro mapa.
+    await p.evaluate(() => {
+      const b = document.querySelector('.chegou-wrap [data-acao="abrir-parada"]');
+      if (b) b.click();
+    });
+    await p.waitForTimeout(600);
+    await p.evaluate(() => {
+      const voltar = document.querySelector('[data-voltar][data-ir]');
+      if (voltar) voltar.click();
+    });
+    await p.waitForTimeout(600);
+    const depois = await p.evaluate(() => {
+      const corpo = (document.querySelector('.body') || {}).textContent || '';
+      return { wrapExiste: !!document.querySelector('.chegou-wrap'), temAdemir: /Ademir/.test(corpo) };
+    });
+    eh('2ª chegada não troca o cliente (estado sobrevive ao abandono)',
+      !depois.wrapExiste && !depois.temAdemir, JSON.stringify(depois));
     await ctx.close();
   }
 
-  // ---- chegada com folha já aberta segue ignorada --------------------------
+  // ---- chegada com folha já aberta segue ignorada (mede o ESTADO) ----------
   {
     const { ctx, p } = await abrirContexto(navegador, porta, pele, { luz: 'escuro' });
     await irPalco(p, 'rota');
@@ -508,9 +710,142 @@ const CONTRASTE = () => {
     await chegar(p, 'e2');
     await p.waitForTimeout(600);
     const telaDepois = await p.evaluate(TELA);
-    const wrapExiste = await p.evaluate(() => !!document.querySelector('.chegou-wrap'));
-    eh('chegada com folha aberta segue ignorada', telaDepois === telaAntes && !wrapExiste,
-      `tela ${telaAntes}→${telaDepois} · wrap=${wrapExiste}`);
+    const wrapExisteJa = await p.evaluate(() => !!document.querySelector('.chegou-wrap'));
+    eh('chegada com folha aberta segue ignorada (não abre na hora)',
+      telaDepois === telaAntes && !wrapExisteJa, `tela ${telaAntes}→${telaDepois} · wrap=${wrapExisteJa}`);
+    // ABANDONA a folha de e1 (sem confirmar) e volta pro mapa — se a 2ª
+    // chegada tivesse gravado `chegada='e2'` por baixo do capô (a guarda de
+    // `aberta` apagada), é AQUI que o cartão do Ademir nasceria sozinho, sem
+    // nenhuma chegada nova ter acontecido.
+    await p.evaluate(() => {
+      const voltar = document.querySelector('[data-voltar][data-ir]');
+      if (voltar) voltar.click();
+    });
+    await p.waitForTimeout(600);
+    const depois = await p.evaluate(() => {
+      const corpo = (document.querySelector('.body') || {}).textContent || '';
+      return { wrapExiste: !!document.querySelector('.chegou-wrap'), temAdemir: /Ademir/.test(corpo) };
+    });
+    eh('chegada com folha aberta segue ignorada (não ressurge sozinha depois)',
+      !depois.wrapExiste && !depois.temAdemir, JSON.stringify(depois));
+    await ctx.close();
+  }
+
+  /* ---- FURO 1 (LOTE 3.1) — abandonar a folha pelo × não trava a chegada
+     seguinte pro resto do dia: abre, ABANDONA sem desfecho, e uma chegada
+     NOVA (doutra parada) tem que continuar abrindo o cartão normalmente. */
+  {
+    const { ctx, p } = await abrirContexto(navegador, porta, pele, { luz: 'escuro' });
+    await irPalco(p, 'rota');
+    await chegar(p, 'e1');
+    await p.waitForTimeout(700);
+    await p.evaluate(() => {
+      const b = document.querySelector('.chegou-wrap [data-acao="abrir-parada"]');
+      if (b) b.click();
+    });
+    await p.waitForTimeout(600);
+    const telaNaFolha = await p.evaluate(TELA);
+    await p.evaluate(() => {
+      const voltar = document.querySelector('[data-voltar][data-ir]');
+      if (voltar) voltar.click();
+    });
+    await p.waitForTimeout(600);
+    const telaAposVoltar = await p.evaluate(TELA);
+    await chegar(p, 'e2');
+    await p.waitForTimeout(700);
+    const r = await p.evaluate(() => {
+      const wrap = document.querySelector('.chegou-wrap');
+      const b = wrap ? wrap.querySelector('[data-acao="abrir-parada"]') : null;
+      return {
+        wrapExiste: !!wrap,
+        paradaAtual: b ? b.dataset.parada : null,
+        chegadaCarimbada: !!(window.HBX.cache && window.HBX.cache.get('chegada:e2', null)),
+      };
+    });
+    eh('FURO 1 · abandonar a folha (Voltar/×) não trava a próxima chegada',
+      r.wrapExiste && r.paradaAtual === 'e2' && r.chegadaCarimbada,
+      `folha=${telaNaFolha} depoisVoltar=${telaAposVoltar} · ${JSON.stringify(r)}`);
+    await ctx.close();
+  }
+
+  /* ---- FURO 2 — `chegadaPalco` GRAVADO EM abrirParada, não no cartão. As
+     duas cenas medidas pelo fiscal, nos DOIS sentidos: (i) abrir pela LISTA
+     2D não pode herdar o palco de um cartão/folha ANTIGA que nasceu no 3D;
+     (ii) abrir pelo PINO dirigindo no 3D não pode herdar o palco de uma
+     folha antiga aberta no 2D. As duas deixam `chegadaPalco` "sujo" de um
+     ciclo anterior antes de abrir a parada que de fato vai ser confirmada. */
+
+  // (i) folha antiga no 3D (abandonada) → abre e2 DIRETO PELA LISTA 2D → confirma
+  {
+    const { ctx, p } = await abrirContexto(navegador, porta, pele, { luz: 'escuro' });
+    await irPalco(p, 'mapa');
+    await chegar(p, 'e1');
+    await p.waitForTimeout(700);
+    await p.evaluate(() => {
+      const b = document.querySelector('.chegou-wrap [data-acao="abrir-parada"]');
+      if (b) b.click();
+    });
+    await p.waitForTimeout(600);
+    await p.evaluate(() => {
+      const voltar = document.querySelector('[data-voltar][data-ir]');
+      if (voltar) voltar.click();
+    });
+    await p.waitForTimeout(600);              // chegadaPalco ficou 'mapa' desta abertura
+    await p.evaluate(() => window.ir('rotalista'));
+    await p.waitForTimeout(600);
+    await p.evaluate(() => {                  // e2 abre DIRETO pela lista — nenhum cartão nasceu pra ela
+      const b = document.querySelector('[data-acao="abrir-parada"][data-parada="e2"]');
+      if (b) b.click();
+    });
+    await p.waitForTimeout(600);
+    await p.evaluate(() => {
+      const alvo = [...document.querySelectorAll('[data-acao]')]
+        .find((e) => /^(confirmar-venda|entregue-pagou)$/.test(e.dataset.acao || ''));
+      if (alvo) alvo.click();
+    });
+    await p.waitForTimeout(1000);
+    const telaFinal = await p.evaluate(TELA);
+    eh('FURO 2(i) · confirmar parada aberta pela LISTA 2D fica no 2D (não herda palco de cartão antigo)',
+      telaFinal === 'rota', `telaFinal=${telaFinal}`);
+    await ctx.close();
+  }
+
+  // (ii) folha antiga no 2D (abandonada) → abre e1 de novo, agora PELO PINO
+  //      no 3D → confirma
+  {
+    const { ctx, p } = await abrirContexto(navegador, porta, pele, { luz: 'escuro' });
+    await irPalco(p, 'rota');
+    await chegar(p, 'e1');
+    await p.waitForTimeout(700);
+    await p.evaluate(() => {
+      const b = document.querySelector('.chegou-wrap [data-acao="abrir-parada"]');
+      if (b) b.click();
+    });
+    await p.waitForTimeout(600);
+    await p.evaluate(() => {
+      const voltar = document.querySelector('[data-voltar][data-ir]');
+      if (voltar) voltar.click();
+    });
+    await p.waitForTimeout(600);              // chegadaPalco ficou 'rota' desta abertura
+    await irPalco(p, 'mapa');
+    await p.evaluate(() => {                  // e1 (ainda 1ª da fila) abre PELO PINO — sem cartão nenhum
+      document.dispatchEvent(new CustomEvent('hbx:mapa-parada', { detail: { id: 'e1' } }));
+    });
+    await p.waitForTimeout(400);
+    await p.evaluate(() => {
+      const b = document.querySelector('.portao-wrap .principal');
+      if (b) b.click();
+    });
+    await p.waitForTimeout(600);
+    await p.evaluate(() => {
+      const alvo = [...document.querySelectorAll('[data-acao]')]
+        .find((e) => /^(confirmar-venda|entregue-pagou)$/.test(e.dataset.acao || ''));
+      if (alvo) alvo.click();
+    });
+    await p.waitForTimeout(1000);
+    const telaFinal = await p.evaluate(TELA);
+    eh('FURO 2(ii) · confirmar parada aberta pelo PINO no 3D fica no 3D (não herda palco de folha antiga)',
+      telaFinal === 'mapa', `telaFinal=${telaFinal}`);
     await ctx.close();
   }
 

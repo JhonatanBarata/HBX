@@ -13781,12 +13781,16 @@
   /* ---- LOTE 3 (15/08) — O "VOCÊ CHEGOU" -----------------------------------
      `chegada` é o id da parada com o CARTÃO aberto (a peça `.chegou-wrap`,
      nunca a folha — essa é `aberta`, acima). `chegadaPalco` é de onde o
-     motorista estava quando o cartão nasceu ('rota'=2D · 'mapa'=3D): é ele
-     que devolve o motorista pro palco certo depois de confirmar
-     (`irDepoisDoDesfecho`, em 00-nucleo.js — "quem chegou dirigindo volta a
-     dirigir; quem chegou olhando o dia volta pro dia"). `chegadasDispensadas`
-     é o "Agora não": a chegada continua carimbada (o pino segue âmbar), só
-     não insiste em reabrir o cartão sozinha. */
+     motorista estava quando ABRIU A FOLHA ('rota'=2D · 'mapa'=3D) — gravado
+     em `abrirParada`, não no nascimento do cartão (FURO 2 do LOTE 3.1,
+     15/08: nem toda folha abre por um cartão — lista 2D, pino do mapa e
+     mapalista chamam `abrirParada` direto, e um cartão visto e nunca aberto
+     não pode gravar palco nenhum). É ele que devolve o motorista pro palco
+     certo depois de confirmar (`irDepoisDoDesfecho`, logo abaixo neste
+     mesmo arquivo — "quem chegou dirigindo volta a dirigir; quem chegou
+     olhando o dia volta pro dia"). `chegadasDispensadas` é o "Agora não": a
+     chegada continua carimbada (o pino segue âmbar), só não insiste em
+     reabrir o cartão sozinha. */
   let chegada = null;
   let chegadaPalco = null;
   const chegadasDispensadas = new Set();
@@ -13939,11 +13943,26 @@
   function abrirParada(id) {
     const reg = ENTREGAS.get(String(id));
     if (!reg || typeof window.usarDados !== 'function') return;
+    /* 🔴 FURO 2 DO LOTE 3.1 (15/08) — `chegadaPalco` GRAVA AQUI, não mais
+       dentro de `desenharChegada`. Até a 3.1 o campo nascia junto do CARTÃO
+       ("o palco onde ele apareceu na tela") — mas nem toda folha abre por um
+       cartão: lista 2D, pino do mapa e mapalista chamam esta função DIRETO,
+       sem cartão nenhum passar por `desenharChegada`. Um cartão visto e nunca
+       aberto (ou aberto bem depois, de OUTRO palco) deixava `chegadaPalco`
+       apontando pro ÚLTIMO cartão que nasceu — estado GLOBAL do cartão, não
+       da parada sendo desfechada. Medido nos dois sentidos: confirmar uma
+       parada aberta pela LISTA 2D jogava o motorista na navegação 3D sem ele
+       ter pedido; confirmar uma parada aberta pelo PINO dirigindo no 3D
+       cuspia no 2D — o defeito que o lote 3 dizia ter matado.
+       `telaAtual()` no instante exato do toque é a única fonte que não
+       mente: `irDepoisDoDesfecho` lê isto depois, pra devolver o motorista
+       pro palco de onde ELE abriu ESTA folha, nunca do último cartão. */
+    chegadaPalco = telaAtual();
     aberta = { id: String(id), n: reg.n, item: reg.item };
     carimbarChegada(aberta.id);
     // "Registrar entrega" do cartão cai NESTA MESMA função (zero código novo,
-    // §3.5 do lote): zera o cartão, nunca `chegadaPalco` — ele só é lido (e
-    // zerado) por `irDepoisDoDesfecho`, depois que a folha fechar.
+    // §3.5 do lote): zera o cartão da chegada — `chegada`, não `chegadaPalco`,
+    // que acabou de ser regravado acima com o palco de VERDADE desta abertura.
     if (chegada === String(id)) chegada = null;
     // Método já gravado (reabrindo) > o padrão do cliente > nenhum. Nada de
     // "Dinheiro" pré-marcado por enfeite: quem escolhe como recebeu é quem
@@ -13998,15 +14017,19 @@
        chama `desenharChegada()` de novo nessa volta). */
     if (chegada === id) return;
     if (chegadasDispensadas.has(id)) return;
-    if (chegada) return;
+    /* 🔴 FURO 3 DO LOTE 3.1 (15/08) — CARIMBA ANTES DE DECIDIR (mesma ordem
+       do `abrirParada`: carimba primeiro, decide depois). Até a 3.1, `if
+       (chegada) return` vinha ANTES do carimbo: a 2ª chegada com um cartão já
+       aberto era descartada INTEIRA — `chegada:<id>` nunca era gravado e o
+       pino da 2ª parada nunca ficava âmbar (o `arrivedAt` dela virava a hora
+       do toque manual). Carimbar não abre cartão nenhum sozinho — só decide o
+       relógio; quem decide se TROCA o cliente na tela é a guarda logo abaixo,
+       que continua de pé. */
     carimbarChegada(id);
+    if (chegada) return;      // não troca o cliente debaixo do dedo
     chegada = id;
     const tela = telaAtual();
     if (tela !== 'rota' && tela !== 'mapa') return;
-    // Ordem importa: o carimbo (acima) já repintou o pino; agora troca a
-    // camada — `desenharChegada` grava `chegadaPalco` com o palco de VERDADE
-    // em que o cartão nasceu (inclusive quando o mount só acontece depois,
-    // pela volta do observador).
     desenharChegada();
   });
 
@@ -14037,10 +14060,9 @@
     if (tela !== 'rota' && tela !== 'mapa') return;
     if (naCamada('.chegou-wrap')) return;
     const reg = ENTREGAS.get(chegada);
-    if (!reg) { chegada = null; chegadaPalco = null; return; }   // a parada sumiu
-    // Grava o palco de VERDADE em que o cartão está nascendo — é o que
-    // `irDepoisDoDesfecho` lê pra devolver o motorista de onde ele veio.
-    chegadaPalco = tela;
+    // a parada sumiu. `chegadaPalco` NÃO é responsabilidade daqui desde a
+    // 3.1 (§ FURO 2, ver `abrirParada`) — nada a zerar aqui.
+    if (!reg) { chegada = null; return; }
     const c = reg.item.cliente || {};
     const gps = ultimoFix && Number.isFinite(ultimoFix.precisaoM) ? ultimoFix.precisaoM : null;
     if (typeof window.cartaoChegada === 'function') {
@@ -14060,6 +14082,45 @@
     chegadasDispensadas.add(chegada);
     chegada = null;
     chegadaPalco = null;
+  }
+
+  /* ---- FURO 1 DO LOTE 3.1 (15/08) — FOLHA ABANDONADA NÃO TRAVA A CHEGADA
+     SEGUINTE. `aberta` só nascia zerado dentro de `confirmarEntrega`/
+     `registrarNaoEntregue` — sair da folha pelo Voltar do Android (ou pelo ×
+     do cabeçalho: os dois caem no MESMO `window.ir`, nunca noutra porta) SEM
+     nenhum desfecho deixava `aberta` preso pro resto do dia. E como
+     `if (aberta) return` é a PRIMEIRA guarda do ouvinte `hbx:arrival`
+     (acima), nenhuma chegada seguinte abria o cartão — o `arrivedAt` de TODA
+     parada seguinte virava a hora do toque manual. Medido em bancada: abrir
+     folha → handleBack → nova chegada → `.chegou-wrap` nunca nasce,
+     `chegada:<id>` nunca é gravado.
+
+     🔴 `window.ir` É A ÚNICA PORTA POR ONDE TODA TROCA DE TELA PASSA — mesmo
+     choke point que `trocarLuz` (00-nucleo.js) e o próprio `ir` (já
+     embrulhado em 80-gps-rotas-salvas.js) usam. Embrulhar de novo aqui, por
+     CIMA do que 80- já embrulhou, fecha a porta inteira SEM tocar nos dois
+     arquivos que não são desta leva: o Voltar do Android cai no
+     `[data-voltar][data-ir]` do degrau do meio (`handleBack`, 00-nucleo.js),
+     o × do cabeçalho da folha é o MESMO botão pelo clique — os dois terminam
+     em `window.ir(destino)`. */
+  if (typeof window.ir === 'function') {
+    const irAntesDaPorta = window.ir;
+    const naFolha = (t) => t === 'venda' || t === 'folha' || t === 'folhanao';
+    window.ir = function (tela) {
+      const veioDe = telaAtual();
+      const r = irAntesDaPorta.apply(this, arguments);
+      /* Só morde quando `aberta` SOBREVIVEU à troca de tela. `confirmarEntrega`
+         e `registrarNaoEntregue` já zeram `aberta` (e `chegadaPalco`) ANTES de
+         chamar `ir` — então nesses dois caminhos isto é um no-op honesto.
+         `aberta` de pé DEPOIS de sair de venda/folha/folhanao só pode
+         significar abandono — nunca a troca folha↔folhanao ("Não entregue"
+         dentro da própria folha), que fica DENTRO do conjunto e não é saída
+         nenhuma: é o motivo mudando de tela, a mesma folha ainda aberta. */
+      if (aberta && naFolha(veioDe) && !naFolha(telaAtual())) {
+        aberta = null; forma = ''; motivo = ''; chegadaPalco = null;
+      }
+      return r;
+    };
   }
 
   /* ---- REGISTRAR LOCAL: a porta da RUA (ordem do dono, 10/08) --------------
