@@ -164,7 +164,16 @@ plugins {
 // ninguém ver erro. É o mesmo caso de 95→110 e 156→170, e a mesma lei: piso
 // ACIMA do maior número que existe em QUALQUER celular, não do último
 // publicado. 310 fica com folga sobre 307.
-val hbxLogisticaVersionCodeFloor = 310
+// 🔴 310 → 325 na MESMA madrugada, e a lição é sobre SESSÃO PARALELA. Publiquei
+// 311 e instalei no g15; minutos depois o aparelho apareceu com versionCode 320 —
+// número que NENHUM commit deste repo produziu (o piso era 310). Só pode ter vindo
+// de build local de outra sessão instalando direto por ADB. Resultado: o servidor
+// anunciando 312 e o celular em 320, ou seja, a atualização parada de novo, e o
+// `adb install` recusando com INSTALL_FAILED_VERSION_DOWNGRADE. A lei não muda —
+// piso ACIMA do maior número que existe em QUALQUER celular — mas ela tem um
+// corolário novo: build local sideloadado conta, mesmo sem commit nenhum. Quando
+// houver sessão paralela mexendo no APK, CONFERIR o dumpsys antes de publicar.
+val hbxLogisticaVersionCodeFloor = 325
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
