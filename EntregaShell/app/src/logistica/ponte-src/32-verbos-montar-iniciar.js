@@ -204,6 +204,15 @@
         try { modo = String(window.HBX.cache.get('mapa-modo', 'mapa') || 'mapa'); }
         catch (_) { /* sem cache: 3D, que é o efeito completo */ }
         if (modo !== 'rota') modo = 'mapa';   // chave estranha cai no default
+        /* 🔴 SÓ SE DESCE PRA UM DIA QUE ESTÁ NA RUA (17/08). O 3D é a tela de
+           DIRIGIR: manobra, velocímetro, bússola e o rodapé de quem está andando.
+           Este pouso também é o desfecho dos FRACASSOS — sem saldo, erro no
+           custo, erro no iniciar — e nesses a rota fica MONTADA e PARADA. Descer
+           ali entregaria a tela de dirigir sobre um dia que ninguém começou, com
+           "Cancelar/Registrar/Finalizar" pra uma rota que não saiu: é o beco de
+           14/08 vestido de efeito. Sem estar na rua, pousa no 2D — que é onde o
+           "Iniciar" do dock mora, a saída depois da recarga. */
+        if (modo === 'mapa' && !(typeof rotaNaRua === 'function' ? rotaNaRua() : true)) modo = 'rota';
         const viaja = telaAtual() === 'montagem' && typeof window.ir === 'function';
         if (!viaja || modo === 'rota') pedirCena('rota');
         devolverEstado();        // o "Montando…" sai com o dado já na tela

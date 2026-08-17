@@ -32,6 +32,107 @@
      Enquanto houver alguém saindo de cena, a cena espera. */
   const telaSaindo = () => !!document.querySelector('#app .tela.sai');
 
+  /* 🔴 A CASCA ESTÁ EM CENA? A marca `cena` da camada é o gatilho de "há véu na
+     tela", e quem a põe é o mock ENTRANDO na tela cheia — nunca na troca de modo
+     (o mock proíbe isso de propósito desde 17/08). Ela morava em
+     `70-traco-camera` porque quem esperava por ela era a câmera; mudou de casa
+     hoje porque quem PERGUNTA agora é a fila, e a fila é assunto da cena. */
+  const emCena = () => !!document.querySelector('#app .tela.cena');
+
+  /* ==========================================================================
+     🔴 A FILA DA CENA — UMA COISA POR VEZ, ANUNCIADA POR QUEM SABE (17/08).
+
+     Ordem do dono, com o g15 na mão: *"efeito de troca entre 2d e 3d tem q ser
+     um pouco mais devagar, um pouco mais organizado. Mesma coisa ao montar a
+     rota, organize isso! montou rota? Carregou? Escurece, preencher com cor do
+     mapa, comece o efeito, desce até o ponto, faz todos efeitos, ao concluir
+     aparecem os botões. está travando no celular, pq tem muita coisa
+     acontecendo ao mesmo tempo!! FAÇA UM ROTEIRO, LEVE SEU TEMPO"*.
+
+     O diagnóstico é dele, e é de ORQUESTRA e não de máquina: o véu abrindo
+     (casca, 0,22–0,62 s), as ruas crescendo no mapa de verdade (aqui, ~1,06 s),
+     o cromo entrando (casca, 0,48–0,58 s) e a descida da câmera (§ 70, 1,8 s)
+     caíam todos no mesmo punhado de quadros. No g15 isso é WebGL desenhando +
+     17 animações de cromo + um `easeTo` no mesmo frame.
+
+     São QUATRO fases, nesta ordem, e a marca mora na RAIZ (`<html data-cena>`):
+
+         escurece → ruas → descida → pronto        ('' = não há cena nenhuma)
+
+     Na RAIZ e não na camada porque a camada é TROCADA a cada repinte do seam
+     (1×/s dirigindo): marca em camada morre no meio da cena.
+
+     QUEM ESCREVE É A PONTE, e o motivo é que só ela sabe — quando o tile chegou,
+     quando a última onda partiu, quando o `easeTo` terminou. Quem VESTE é a
+     casca, em `:root[data-cena="…"]`. E o anúncio sai no EVENTO, nunca no
+     relógio: relógio aqui é só socorro (`FASE_TETO`).
+
+     🔴 AUSÊNCIA DE MARCA = CROMO NORMAL, e esta é a trava de segurança do
+     contrato inteiro. Cena recusada (`prefers-reduced-motion`, cena já no ar,
+     mapa sem estilo, troca de modo) não marca fase nenhuma — e nesse caso a tela
+     tem que ser a de sempre. Cromo preso invisível é pior que cena nenhuma: é a
+     lei de 09/08 ("a cena não espera o mapa"), agora escrita como TETO.
+     ========================================================================== */
+  const FASE_ORDEM = ['escurece', 'ruas', 'descida', 'pronto'];
+  /* quanto o véu leva pra encher a tela na cor do mapa (§ a folha). A 1ª onda
+     não parte antes disso — "escurece, preencher com cor do mapa, COMECE o
+     efeito" é uma ordem, e era exatamente esse cruzamento que travava o g15. */
+  const FASE_ESCURECE_MS = 420;
+  /* 🔴 O TETO VENCE DEPOIS DO CAMINHO NORMAL, SEMPRE — senão ele PASSA A SER o
+     caminho normal (a lei que a medição de 16/08 deixou no `quandoEstiloPronto`).
+     · `escurece` espera o CHÃO: `quandoEstiloPronto` gasta até 1,2 s e o
+       `esperarChao` até `CENA_TETO_TILE` — os dois somados, mais folga.
+     · `ruas` acaba na ÚLTIMA onda: 1,16 s no ritmo da rota e 0,66 s no do
+       navegar (§ `CENA_PASSO`/`CENA_ONDA`) — 5,2 s é folga de 4×.
+     · `descida` é o `easeTo` de `DESCIDA_MS` (1,8 s, § 70-traco-camera) + folga.
+       Número literal e não a constante: ela nasce num arquivo POSTERIOR da
+       costura, e ler `const` de arquivo posterior aqui no topo é TDZ na cara. */
+  const FASE_TETO = { escurece: CENA_TETO_TILE + 1600, ruas: 5200, descida: 2600 };
+  /* e o `pronto` é TETO, não duração: os 420 ms de entrada do cromo mais a folga
+     da travada de thread — a mesma folga que o `CENA_CHEIA` do mock documenta. */
+  const FASE_PRONTO_MS = 1400;
+
+  let cenaFase = '';           // a fase no ar — o espelho do que está na raiz
+  let cenaFaseEm = 0;          // quando ela foi escrita (o piso do véu lê daqui)
+  let cenaFaseRelogio = null;  // o socorro
+  let cenaFilaAberta = false;  // 🔴 só o `escurece` abre; só o `pronto` fecha
+
+  /** o ÚNICO lugar que escreve a marca da fila na raiz */
+  function faseDaCena(nome) {
+    const fase = nome || '';
+    /* 🔴 `escurece` ABRE A FILA, `pronto` FECHA, e no meio ela só anda PRA
+       FRENTE. Sem este latch o teto não seria teto: empurrada a fila até
+       `pronto`, um `descida` atrasado (o `easeTo` que ainda ia sair) esconderia
+       de novo o cromo que acabou de entrar — o socorro virando o defeito.
+       E fase repetida não se escreve: reescrever a raiz reencena a animação da
+       casca no meio dela (a mesma lei da marca `entra`, no mock). */
+    if (fase === 'escurece') cenaFilaAberta = true;
+    else if (fase && !cenaFilaAberta) return;
+    else if (fase && FASE_ORDEM.indexOf(fase) <= FASE_ORDEM.indexOf(cenaFase)) return;
+    if (fase === cenaFase) return;
+    cenaFase = fase;
+    cenaFaseEm = (window.performance && performance.now) ? performance.now() : Date.now();
+    if (cenaFaseRelogio) { clearTimeout(cenaFaseRelogio); cenaFaseRelogio = null; }
+    try {
+      const raiz = document.documentElement;
+      if (fase) raiz.dataset.cena = fase; else delete raiz.dataset.cena;
+    } catch (_) { /* documento indo embora: a fila não é dona de ninguém */ }
+    /* a outra metade do latch: a fila fecha no `pronto` E no vazio. Depois de
+       qualquer um dos dois, anúncio atrasado não veste mais nada. */
+    if (!fase || fase === 'pronto') cenaFilaAberta = false;
+    const teto = FASE_TETO[fase];
+    if (teto) {
+      cenaFaseRelogio = setTimeout(() => { cenaFaseRelogio = null; faseDaCena('pronto'); }, teto);
+      return;
+    }
+    /* 🔴 E O `pronto` TAMBÉM SAI DA RAIZ. Fase que fica pendurada é fase que a
+       casca pode reencenar no repinte seguinte, e "não há cena nenhuma" é um
+       estado de verdade desta tela — o mais comum deles, na maior parte do dia. */
+    if (fase === 'pronto') {
+      cenaFaseRelogio = setTimeout(() => { cenaFaseRelogio = null; faseDaCena(''); }, FASE_PRONTO_MS);
+    }
+  }
+
   /** de qual palco é cada cena — 'navegar' mora na tela de dirigir */
   /* 🔴 UM PALCO SÓ (16/08): as cenas continuam DUAS ('navegar' na tela de
      dirigir, 'rota'/'entrada' no 2D) — o que deixou de existir são dois lugares
@@ -54,8 +155,11 @@
   function esquecerCenaPedida() { cenaPedido = null; }
   /* a sonda da prova (`prova-fluxo-rota`): `cenaPedido` é fechadura de IIFE e
      sem isto a asserção "cancelar não deixa pedido vivo" não teria o que ler.
-     Mesmo precedente do `window.HBXRota`. */
-  window.HBXCena = { pendente: () => !!cenaPedido };
+     Mesmo precedente do `window.HBXRota`.
+     🔴 `fase()` ENTRA JUNTO (17/08): a fila é uma ORDEM de quatro tempos, e ordem
+     só se prova lendo o tempo em que ela está. A prova pode ler a raiz direto,
+     mas aí ela mediria a SAÍDA e não a decisão — e é a decisão que tem dono. */
+  window.HBXCena = { pendente: () => !!cenaPedido, fase: () => cenaFase };
 
   function atenderCena(casa) {
     const p = cenaPedido;
@@ -81,9 +185,23 @@
     cena = {
       casa, motivo, mundo: null, t0: 0, ondas: [], nomes: [],
       cartao: null, eu: null, raf: 0, dedo: null, onda: CENA_ONDA,
-      mundoVoltou: false, nomesSairam: false,
+      mundoVoltou: false, nomesSairam: false, ruasPartiram: false,
     };
     const daVez = cena;
+    /* 🔴 A FILA COMEÇA AQUI, NO INSTANTE EM QUE A CENA É ACEITA — e ela só nasce
+       onde existe VÉU (§ `emCena`). "Aceita" e não "mundo escondido": o
+       `quandoEstiloPronto` logo abaixo pode gastar até 1,2 s, e escurecer DEPOIS
+       de esconder a cidade seria mostrar o mapa sumindo na cara do motorista.
+       Assim a ordem é a que o dono ditou — escurece na cor do mapa, ENTÃO o mundo
+       sai por trás do véu, ENTÃO as ruas nascem.
+       As outras duas cenas que este arquivo toca NÃO são fila, e não por
+       esquecimento:
+       · a da TROCA DE MODO (`aoAssentar` → `pedirCena`, § 45-troca-de-modo) — o
+         mock proíbe a marca `cena` no `modo-troca` de propósito, e o cromo que a
+         fila esconderia é justamente a peça que o gesto está mostrando;
+       · a da ENTRADA do app — ela roda num palco fantasma atrás do splash, onde
+         véu não existe; quem manda no ritmo ali é a abertura (§ 7a-ter). */
+    if (emCena()) faseDaCena('escurece');
     /* O mundo sai de cena assim que o estilo existir — ANTES do primeiro tile
        pintar. Escondê-lo no `load` deixaria a cidade aparecer por um quadro e
        sumir, que é a piscada que esta casa passou o dia 09/08 matando. */
@@ -236,6 +354,18 @@
     let ruasEm = CENA_RUAS_ROTA;
     if (daVez.motivo === 'entrada') ruasEm = CENA_RUAS_ENTRADA;
     else if (nav) ruasEm = CENA_RUAS_NAV;
+    /* 🔴 A 1ª ONDA ESPERA O VÉU ENCHER — e só o que FALTA dele (17/08, ordem do
+       dono: *"Escurece, preencher com cor do mapa, comece o efeito"*, nesta
+       ordem). Com o tile já na mão o `esperarChao` chega aqui ~300 ms depois da
+       marca, e as ruas nasciam com a tela AINDA escurecendo: são as "muitas
+       coisas acontecendo ao mesmo tempo" no ponto exato. Fila é ORDEM, não pausa
+       inventada — véu já cheio, este piso é zero e nada atrasa.
+       (O relógio da cena, `t0`, nasce poucas linhas abaixo: a diferença entre
+       ler o tempo aqui e lá é o custo do cartão, abaixo de um quadro.) */
+    if (cenaFase === 'escurece') {
+      const agora = (window.performance && performance.now) ? performance.now() : Date.now();
+      ruasEm = Math.max(ruasEm, Math.round(FASE_ESCURECE_MS - (agora - cenaFaseEm)));
+    }
     daVez.ondas.forEach((o, i) => { o.em = ruasEm + (i * passo); });
     daVez.nomes = nomes.map((r) => ({
       nome: r.nome,
@@ -330,6 +460,16 @@
     const corpo = daVez.corpo || (daVez.corpo = tinta('--map-cena-rua', '#59677a'));
     const cabeca = daVez.cabeca || (daVez.cabeca = tinta('--map-cabeca', '#e8f4ff'));
 
+    /* 🔴 `ruas` SE ANUNCIA QUANDO A 1ª ONDA PARTE DE VERDADE, e não quando a cena
+       começa: entre uma coisa e outra corre o `ruasEm`, que carrega o piso do véu
+       (§ `comecarCena`) — é ele que faz a fase 1 ACABAR antes de a fase 2 começar.
+       A régua é a MESMA que o laço abaixo usa pra acender a onda (`p > 0`): duas
+       réguas pro mesmo instante divergem caladas. */
+    if (!daVez.ruasPartiram && daVez.ondas.length && t > daVez.ondas[0].em) {
+      daVez.ruasPartiram = true;
+      faseDaCena('ruas');
+    }
+
     /* 🔴 O RESTO DO MUNDO VOLTA ENQUANTO A CENA AINDA CRESCE (10/08 — dono:
        *"não pode ter a impressão de pisca e pula de tela… acende as coisas,
        preenche os nomes e PARA NO ESTADO"*).
@@ -347,6 +487,11 @@
         daVez.mundoVoltou = true;
         devolverMundo(mapa, fatiaDoMundo(daVez.mundo, false), CENA_VOLTA_RESTO);
         apagarNomesDaCena(mapa, CENA_VOLTA_RESTO, daVez);
+        /* 🔴 O POUSO NO 2D NÃO TEM FASE 3 (contrato de 17/08): não existe descida
+           nenhuma pra esperar ali, então a última onda É o fim da fila e o cromo
+           entra aqui. No 3D quem fecha é o `descer` — a câmera ainda tem 1,8 s de
+           trabalho, e *"ao concluir aparecem os botões"* quer dizer AO CONCLUIR. */
+        if (daVez.motivo !== 'navegar') faseDaCena('pronto');
       }
     }
 
@@ -426,6 +571,14 @@
     const c = cena;
     if (!c) return;
     cena = null;
+    /* 🔴 E A FILA NÃO MORRE PRESA (17/08). Todo desfecho passa por aqui — fim,
+       dedo, teto, erro no meio, tela que trocou, `sem-rua`, `sem-estilo`,
+       `sem-fonte` — e em NENHUM deles o cromo pode ficar invisível esperando um
+       anúncio que não vem mais. Vem antes do trabalho todo lá embaixo de
+       propósito: exceção no meio da devolução do mundo não pode levar a fila.
+       A única saída que não fecha é o fim natural da cena do 3D: ali a fase 3
+       ainda VAI acontecer, e quem fecha é ela (§ `descer`, 70-traco-camera). */
+    if (!(motivo === 'fim' && c.motivo === 'navegar')) faseDaCena('pronto');
     if (c.raf) { try { cancelAnimationFrame(c.raf); } catch (_) { /* já passou */ } }
     const mapa = c.casa && c.casa.mapa;
     /* 🔴 O DEDO TEM PRESSA E O FIM NÃO. Quem tocou o mapa quer o mapa agora — um

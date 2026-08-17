@@ -161,6 +161,129 @@ const CAPTURAR = () => {
   };
 };
 
+/* ==========================================================================
+   🔴 (h) O CROMO TROCOU DE NOME EM 17/08 E A RÉGUA FICOU MEDINDO O DESENHO DE
+   ONTEM. Régua velha: `['.nav', '.hdr', '.tmx-dock']` no palco 2D, com uma
+   asserção "cromo <sel> existe pra medir" por seletor. Ela ficou VERMELHA sem
+   nenhuma regressão de produto — a entrega de 17/08 (ordem do dono, ver
+   `docs/PLANEJAMENTOS/PR17082026-2D-3D-UMA-TELA-SO.md`, itens 1/2/8 e a
+   decisão D4) matou os dois nomes NESTE estado:
+     · com rota montada o 2D virou TELA CHEIA — o `.nav` (as abas) sai de cena
+       e o cabeçalho passa a flutuar dentro de `.plano-topo`;
+     · o `.tmx-dock` foi substituído pelo MESMO `.gps-rodape` do 3D (tira de
+       indicadores + painel de 4 botões).
+   E `.tmx-dock` não é "cromo que sumiu": ele nasce de `!comRota` (§ `rota()` no
+   mock, `${(!comRota&&dock)?...}`) enquanto o `.gps-rodape` nasce de `comRota`
+   — e o ouvinte de `hbx:arrival` (ponte, D0-porta-entrega.js) tem
+   `if (estadoRota !== 'rodando') return`, e `rodando ⊂ temRotaNoDia`. Ou seja:
+   `.tmx-dock` e o "Você chegou" são MUTUAMENTE EXCLUSIVOS por construção —
+   exigi-lo aqui é exigir cromo de um estado em que este cartão não existe.
+   Medido na bancada: dia sem rota ⇒ `.chegou-wrap` nunca nasce.
+
+   A PERGUNTA CERTA não tem nome de peça dentro: *"o cartão fica ACIMA de todo
+   o cromo de tela"*. Então a régua para de listar o desenho da semana e passa
+   a MEDIR o que está pintado:
+     1. varre uma lista larga de CROMO PERSISTENTE e guarda só o que está de
+        fato PINTADO (`display`/`visibility`/área > 0) — `.status` é
+        `display:none` fora do frame do mockup, e nó invisível não tapa nada;
+     2. exige `zChegou > z` de CADA peça pintada;
+     3. e faz o TOQUE valer: `elementFromPoint` no centro de cada peça tem que
+        cair dentro de `.chegou-wrap`. É este o dente — z-index sozinho mente
+        quando há contexto de empilhamento no meio (`.body` é z-index 20 e
+        `position:relative`, então o `.gps-rodape` de dentro dele viaja na
+        camada do `.body`, não na dele própria).
+   A lista NÃO inclui `.chat-wrap`(57), `.conf-wrap`(58), `.portao-wrap`(59)
+   nem `.erro-wrap`(60): esses são portões LEGÍTIMOS acima do cartão e já têm
+   asserção própria logo abaixo ("fica ABAIXO de um portão legítimo").
+   ========================================================================== */
+const CROMO_TELA = ['.status', '.hdr', '.nav', '.tmx-dock', '.plano-topo', '.plano-bar',
+  '.rota-continuidades', '.plano-lado', '.next-card', '.map-ctrl', '.map-float', '.emp-chip',
+  '.gps-rodape', '.gps-lado', '.gps-manobra', '.gps-vel', '.gps-bussola', '.gps-radar',
+  '.gps-redir', '.aula-wrap'];
+
+/* O CROMO QUE TEM QUE ESTAR PINTADO EM CADA ESTADO — é o anti-vácuo: sem isto,
+   um seletor que ninguém desenha mais deixaria a régua "passar" medindo lista
+   vazia (foi assim que o `z > (zDock||0)` do 3D passava de graça, § (e)).
+   Os dois estados existem de verdade e os dois têm o cartão: `cheio` é o
+   padrão de 17/08 (rota montada ⇒ tela cheia) e `abas` é o INTERRUPTOR do item
+   1 do dono (`DADOS.rota.telaCheia === false` ⇒ voltam cabeçalho e abas, e a
+   tela continua sendo a navegação vista de cima, com `.gps-rodape`). */
+const FAMILIA_DO_CROMO = {
+  rota: { cheio: ['.plano-topo', '.hdr', '.gps-rodape'], abas: ['.nav', '.hdr', '.gps-rodape'] },
+  mapa: { cheio: ['.gps-rodape', '.gps-lado'], abas: ['.nav', '.hdr', '.gps-rodape'] },
+};
+
+/** o cromo PINTADO agora na tela, com z-index e com o toque no centro de cada peça */
+const MEDIR_CROMO = (sels) => {
+  const wrap = document.querySelector('.chegou-wrap');
+  if (!wrap) return { existe: false, cromo: [] };
+  const zChegou = Number(getComputedStyle(wrap).zIndex);
+  const W = window.innerWidth; const H = window.innerHeight;
+  const cromo = sels.map((sel) => [...document.querySelectorAll(sel)].map((el) => {
+    const cs = getComputedStyle(el);
+    const b = el.getBoundingClientRect();
+    if (!(b.width > 0 && b.height > 0) || cs.display === 'none' || cs.visibility === 'hidden') return null;
+    const cx = b.x + b.width / 2; const cy = b.y + b.height / 2;
+    // centro fora do quadro não tem toque pra medir (a peça está meio fora da
+    // tela): o z-index dela continua cobrado, o toque não — melhor não medir
+    // que medir `elementFromPoint(...) === null` e chamar isso de defeito.
+    const noQuadro = cx >= 0 && cy >= 0 && cx < W && cy < H;
+    const topo = noQuadro ? document.elementFromPoint(cx, cy) : null;
+    // `.className` de nó SVG é um SVGAnimatedString e imprime "[object …]" no
+    // detalhe do log — `getAttribute('class')` devolve texto nos dois casos.
+    const nomeDoTopo = topo
+      ? `${topo.tagName}${topo.getAttribute && topo.getAttribute('class') ? `.${topo.getAttribute('class')}` : ''}`
+      : null;
+    return {
+      sel, z: Number(cs.zIndex) || 0, noQuadro,
+      coberto: noQuadro ? !!(topo && topo.closest('.chegou-wrap')) : null,
+      topo: noQuadro ? String(nomeDoTopo || '').slice(0, 40) : null,
+    };
+  }).filter(Boolean)).flat();
+  return { existe: true, zChegou, cromo };
+};
+
+/** o veredito do cromo, do lado do Node: o que falta, o que ficou por cima. */
+function vereditoDoCromo(medida, familia) {
+  if (!medida || !medida.existe) return { motivo: 'cartão ausente', familia, temFamilia: false, acima: false };
+  const pintados = medida.cromo.map((x) => x.sel);
+  const faltando = familia.filter((sel) => pintados.indexOf(sel) < 0);
+  const abaixo = medida.cromo.filter((x) => !(medida.zChegou > x.z)).map((x) => `${x.sel}:z${x.z}`);
+  const furados = medida.cromo.filter((x) => x.noQuadro && !x.coberto).map((x) => `${x.sel}→${x.topo}`);
+  return {
+    temFamilia: faltando.length === 0,
+    // `pintados.length > 0`: cromo nenhum medido NÃO é "ficou acima de tudo".
+    acima: pintados.length > 0 && abaixo.length === 0 && furados.length === 0,
+    zChegou: medida.zChegou, pintados, faltando, abaixo, furados,
+  };
+}
+
+/* 🔴 (i) O CARTÃO SE MEDE PELO NÓ, NUNCA POR TEXTO SOLTO NO `body` (17/08). A
+   régua velha das duas cenas de abandono era `/Ademir/.test(body.textContent)`
+   como prova de que o cartão do 2º cliente não existia. Ela ficou VERMELHA por
+   mudança de DESENHO, não de comportamento: o item 6 do dono (*"mapa 2D:
+   aproximando aparece o número da parada; com mais zoom, o nome do cliente"*)
+   passou a desenhar o nome DENTRO do mapa —
+   `<div class="map-pino"><b class="n">2</b><i class="nome">Ademir</i></div>`.
+   Medido na bancada: `Ademir` está no `body` nos DOIS casos, com e sem defeito,
+   então aquela metade da régua era um vermelho fixo — não media nada.
+   O invariante é o NÓ: depois do abandono não existe cartão de chegada nenhum,
+   e em particular nenhum apontando pra 2ª parada. `paradaNoCartao` sai do
+   `data-parada` do botão da peça, que é o dado que diz DE QUEM é o cartão.
+   Os nomes dos pinos continuam MEDIDOS (vão pro detalhe) — como prova de que o
+   texto do mapa existe e mesmo assim não confunde mais a régua. */
+const LER_CARTAO_DE_CHEGADA = () => {
+  const wrap = document.querySelector('.chegou-wrap');
+  const botao = wrap ? wrap.querySelector('[data-acao="abrir-parada"]') : null;
+  return {
+    wrapExiste: !!wrap,
+    paradaNoCartao: botao ? (botao.dataset.parada || null) : null,
+    nomeNoCartao: wrap ? ((wrap.querySelector('.verbo') || {}).textContent || null) : null,
+    // MEDIDO, não asserção: é o nome desenhado no MAPA (item 6 do dono).
+    nomeNosPinos: [...document.querySelectorAll('.map-pino .nome')].map((n) => n.textContent).join('|'),
+  };
+};
+
 const TELA = () => { try { return atual; } catch (e) { return null; } };
 
 const ok = [];
@@ -537,18 +660,30 @@ async function legibilidadeSobreOMapa(p) {
       const contraste = cap.existe ? await p.evaluate(CONTRASTE) : null;
       const legibilidade = cap.existe ? await legibilidadeSobreOMapa(p) : null;
 
-      /* CAMADA (e) — medida NOS 2 PALCOS, com o cromo que EXISTE em cada um:
-         2D usa `.nav`/`.hdr`/`.tmx-dock`; no 3D nenhum dos três existe — quem
-         existe é `.gps-rodape` e `.status` (justamente o que o desenho manda
-         cobrir). Medir sempre os mesmos 3 seletores de 2D deixava o "fica
-         acima do dock" passar sozinho no 3D (`z > (zDock||0)` com zDock=null
-         vira `z>0`, verdade de graça) — cada elemento agora tem `existe`
-         próprio, e a régua reprova se o cromo esperado daquele palco não
-         estiver nem lá pra ser medido. */
+      /* CAMADA (e) — medida NOS 2 PALCOS e NOS 2 ESTADOS DE CROMO de cada um.
+         O que era `['.nav','.hdr','.tmx-dock']` cravado virou varredura do que
+         está PINTADO + toque, e o porquê está no bloco (h) grande, junto de
+         `MEDIR_CROMO` — resumo: régua com nome de peça dentro envelhece a cada
+         entrega de desenho; "acima de todo o cromo" não envelhece.
+         🔴 OS DOIS ESTADOS, NÃO UM: o interruptor da tela cheia (item 1 do
+         dono, 17/08) é o que decide se as abas e o cabeçalho estão na tela — e
+         o cartão tem que ganhar dos DOIS jeitos. Medir só o padrão (tela cheia)
+         deixaria o `.nav`, que é o cromo de MAIOR z-index de todo o app (45),
+         sem fiscal nenhum. A prova entra no 2º estado pelo SEAM
+         (`usarDados('rota',{telaCheia:false})`, § D7 do contrato: o mock lê
+         `DADOS`, nunca `localStorage`) e devolve o estado que achou. */
       let camada = null;
       if (cap.existe) {
-        const seletores = palco === 'mapa' ? ['.gps-rodape', '.status'] : ['.nav', '.hdr', '.tmx-dock'];
-        camada = await p.evaluate((sels) => {
+        camada = { cheio: null, abas: null, portao: null };
+        camada.cheio = await p.evaluate(MEDIR_CROMO, CROMO_TELA);
+        await p.evaluate(() => window.usarDados('rota', { telaCheia: false }));
+        await p.waitForTimeout(700);   // --mv-cheio é 520ms: deixa o cromo assentar
+        camada.abas = await p.evaluate(MEDIR_CROMO, CROMO_TELA);
+        await p.evaluate(() => window.usarDados('rota', { telaCheia: true }));
+        await p.waitForTimeout(700);
+        // o PORTÃO LEGÍTIMO fica por último: ele suja a tela (abre e remove um
+        // `.portao-wrap`) e não tem nada a ver com o interruptor acima.
+        camada.portao = await p.evaluate(() => {
           const wrap = document.querySelector('.chegou-wrap');
           const cartao = wrap.querySelector('.chegou-cartao');
           const r = cartao.getBoundingClientRect();
@@ -564,12 +699,8 @@ async function legibilidadeSobreOMapa(p) {
             return pw ? Number(getComputedStyle(pw).zIndex) : null;
           })();
           document.querySelectorAll('.portao-wrap').forEach((n) => n.remove()); // limpa pro resto da prova
-          const cromo = sels.map((sel) => {
-            const el = document.querySelector(sel);
-            return { sel, existe: !!el, z: el ? Number(getComputedStyle(el).zIndex) : null };
-          });
-          return { zChegou, zPortao, dentroAntes, dentroDepois, cromo };
-        }, seletores);
+          return { zChegou, zPortao, dentroAntes, dentroDepois };
+        });
       }
 
       /* REPINTE (a): sobrevive sem reanimar — a MESMA instância de nó, marcada
@@ -652,20 +783,36 @@ async function legibilidadeSobreOMapa(p) {
   }
 
   // ---- camada (e): acima do cromo de tela, abaixo de um portão legítimo —
-  //      medida NOS 2 PALCOS, cada um com o cromo que EXISTE nele -----------
+  //      medida NOS 2 PALCOS × NOS 2 ESTADOS DE CROMO (§ (h)) ---------------
   ['rota', 'mapa'].forEach((palco) => {
     const c = capturas[`escuro|${palco}`].camada;
-    eh(`z-index 56 (${palco})`, !!c && c.zChegou === 56, JSON.stringify(c));
-    const cromoEsperado = c ? c.cromo : [];
-    cromoEsperado.forEach((item) => {
-      eh(`cromo ${item.sel} existe pra medir (${palco})`, item.existe, JSON.stringify(c));
+    const pt = c && c.portao;
+    eh(`z-index 56 (${palco})`, !!pt && pt.zChegou === 56, JSON.stringify(pt));
+    ['cheio', 'abas'].forEach((estado) => {
+      const v = vereditoDoCromo(c && c[estado], FAMILIA_DO_CROMO[palco][estado]);
+      /* o cromo esperado deste estado está PINTADO pra ser medido — o anti-vácuo
+         (§ (h)): régua que mede lista vazia devolve verde de graça. */
+      eh(`o cromo de ${estado} está PINTADO pra medir (${palco})`, v.temFamilia, JSON.stringify(v));
+      /* O INVARIANTE: "abre na frente". Z-INDEX **e** TOQUE contra cada peça
+         pintada — o toque é o que reprova de verdade quando alguém empurra o
+         cartão pra baixo do rodapé (provado na bancada: `.chegou-wrap{z-index:10}`
+         derruba as 5 peças do 2D e as 4 do 3D nos dois estados). */
+      eh(`fica acima de TODO o cromo pintado — z e toque (${palco}/${estado})`, v.acima, JSON.stringify(v));
     });
-    const todosExistem = cromoEsperado.length > 0 && cromoEsperado.every((x) => x.existe);
-    const acima = todosExistem && cromoEsperado.every((x) => c.zChegou > x.z);
-    eh(`fica acima do cromo de tela (${palco})`, acima, JSON.stringify(c));
-    eh(`fica ABAIXO de um portão legítimo (${palco})`, !!c && c.zPortao != null && c.zChegou < c.zPortao,
-      JSON.stringify(c));
-    eh(`portão legítimo GANHA o toque (${palco})`, !!c && c.dentroAntes && !c.dentroDepois, JSON.stringify(c));
+    /* 🔴 O INTERRUPTOR TEM QUE TER MEXIDO DE VERDADE (17/08). Sem esta linha, um
+       `usarDados` que não pegasse (chave renomeada, seam mudado) faria a prova
+       medir o MESMO estado duas vezes e cantar "vale nos dois estados" sem ter
+       entrado no segundo. `.nav` é a assinatura do estado com abas: ele tem que
+       estar pintado com o interruptor DESLIGADO e ausente com ele LIGADO. */
+    const temNav = (m) => !!(m && m.cromo && m.cromo.some((x) => x.sel === '.nav'));
+    eh(`o interruptor da tela cheia de fato troca o cromo (${palco})`,
+      !temNav(c && c.cheio) && temNav(c && c.abas),
+      JSON.stringify({ cheio: c && c.cheio && c.cheio.cromo.map((x) => x.sel), abas: c && c.abas && c.abas.cromo.map((x) => x.sel) }));
+    eh(`fica ABAIXO de um portão legítimo (${palco})`, !!pt && pt.zPortao != null && pt.zChegou < pt.zPortao,
+      JSON.stringify(pt));
+    eh(`portão legítimo GANHA o toque (${palco})`, !!pt && pt.dentroAntes && !pt.dentroDepois, JSON.stringify(pt));
+    nota(`[cromo/${palco}] cheio=${JSON.stringify((c && c.cheio ? c.cheio.cromo : []).map((x) => `${x.sel}:z${x.z}`))}`
+      + ` · abas=${JSON.stringify((c && c.abas ? c.abas.cromo : []).map((x) => `${x.sel}:z${x.z}`))}`);
   });
 
   // ---- repinte não reencena nem derruba (a): mesmo nó, .remontado E zero
@@ -822,12 +969,22 @@ async function legibilidadeSobreOMapa(p) {
       if (voltar) voltar.click();
     });
     await p.waitForTimeout(600);
-    const depois = await p.evaluate(() => {
-      const corpo = (document.querySelector('.body') || {}).textContent || '';
-      return { wrapExiste: !!document.querySelector('.chegou-wrap'), temAdemir: /Ademir/.test(corpo) };
-    });
+    /* 🔴 MEDE O NÓ, NÃO TEXTO NO `body` (17/08 — ver o bloco (i) em
+       `LER_CARTAO_DE_CHEGADA`). Era `!temAdemir` sobre `body.textContent`, e o
+       item 6 do dono botou o nome do cliente DENTRO do mapa (`.map-pino .nome`)
+       — o texto passou a existir sempre, com e sem defeito, e a metade da régua
+       que dependia dele virou vermelho fixo. A pergunta agora: depois do
+       abandono não sobra cartão de chegada NENHUM, e nenhum apontando pra e2.
+       Dente provado na bancada pela porta REAL (injetar `.chegou-wrap` na mão
+       não serve: o apagador de `desenharChegada` remove cartão órfão no
+       repinte seguinte): uma chegada nova da e2 aqui devolve
+       `wrapExiste:true · paradaNoCartao:'e2' · nomeNoCartao:'Ademir'` e esta
+       linha reprova — que é exatamente o cartão que uma guarda apagada faria
+       nascer sozinho. */
+    const depois = await p.evaluate(LER_CARTAO_DE_CHEGADA);
     eh('2ª chegada não troca o cliente (estado sobrevive ao abandono)',
-      !depois.wrapExiste && !depois.temAdemir, JSON.stringify(depois));
+      depois.wrapExiste === false && depois.paradaNoCartao === null && depois.nomeNoCartao === null,
+      JSON.stringify(depois));
     await ctx.close();
   }
 
@@ -858,12 +1015,18 @@ async function legibilidadeSobreOMapa(p) {
       if (voltar) voltar.click();
     });
     await p.waitForTimeout(600);
-    const depois = await p.evaluate(() => {
-      const corpo = (document.querySelector('.body') || {}).textContent || '';
-      return { wrapExiste: !!document.querySelector('.chegou-wrap'), temAdemir: /Ademir/.test(corpo) };
-    });
+    /* 🔴 MEDE O NÓ, NÃO TEXTO NO `body` (17/08 — mesma cura da cena acima e o
+       porquê no bloco (i)). E de quebra esta linha passa a exigir que a cena
+       TENHA EXERCITADO o que promete: `telaAntes` tem que ser uma FOLHA. Sem
+       isso, um seletor quebrado (a folha da e1 nunca abrindo) deixaria a cena
+       inteira "passar" sem nunca ter havido folha aberta pra chegada ignorar —
+       o mesmo furo que as duas linhas do FURO 2(i) já tapam na cena delas.
+       Medido na bancada: `telaAntes=venda`. */
+    const depois = await p.evaluate(LER_CARTAO_DE_CHEGADA);
     eh('chegada com folha aberta segue ignorada (não ressurge sozinha depois)',
-      !depois.wrapExiste && !depois.temAdemir, JSON.stringify(depois));
+      /^(venda|folha)$/.test(String(telaAntes))
+      && depois.wrapExiste === false && depois.paradaNoCartao === null && depois.nomeNoCartao === null,
+      `telaAntes=${telaAntes} · ${JSON.stringify(depois)}`);
     await ctx.close();
   }
 

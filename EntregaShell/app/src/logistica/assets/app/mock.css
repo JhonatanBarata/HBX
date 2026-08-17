@@ -253,6 +253,27 @@ button,input{font:inherit;color:inherit}
   --mv-folha:380ms;   /* folha subindo */
   --mv-cheio:520ms;   /* entrar/sair de tela cheia (GPS) */
   --mv-passo:22ms;    /* intervalo do escalonado */
+  /* 🔴 A FILA DO MONTAR TEM DOIS TEMPOS QUE SÃO DA FOLHA (17/08 — ordem do dono:
+     *"escurece, preencher com cor do mapa, comece o efeito, desce até o ponto,
+     faz todos efeitos, ao concluir aparecem os botões"*). As outras duas fases
+     (`ruas` e `descida`) duram o que o MAPA levar e por isso não têm token: quem
+     as fecha é a ponte, e o relógio da casca é só o teto delas (§ `CENA_TETO`).
+     Estes dois são os que a folha manda de ponta a ponta — e é por isso que eles
+     nascem token: `escurece` é usado em DOIS lugares (a camada fundindo e o véu
+     enchendo) e tinha que ser o mesmo número nos dois; `pronto` é o orçamento
+     que a entrada do cromo inteiro tem que caber dentro. Quem mexer aqui mexe no
+     gêmeo `CENA_TETO` lá embaixo, que é o relógio de parede da mesma fila. */
+  --cena-escurece:420ms;
+  --cena-pronto:420ms;
+  /* 🔴 A TROCA 2D⇄3D VIROU SEQUÊNCIA (17/08 — dono: *"efeito de troca entre 2d e
+     3d tem q ser um pouco mais devagar, um pouco mais organizado"*). A tabela do
+     contrato em três linhas: quem SAI recolhe de 0 a 260 ms, a CÂMERA anda de
+     200 a 1020 (820 ms, é da ponte — § `TROCA_MS`) e quem ENTRA desce de 420 a
+     800 (`--troca-espera` + `--mv-folha`). Antes as três coisas partiam juntas
+     no quadro zero, e era exatamente isso que o dono via como travação: três
+     gestos somados parecem UM gesto engasgado. */
+  --troca-recolhe:260ms;
+  --troca-espera:420ms;
   --cv-entra:cubic-bezier(.16,1,.3,1);
   --cv-sai:cubic-bezier(.4,0,1,.6);
   --cv-mola:cubic-bezier(.34,1.42,.5,1);
@@ -530,13 +551,38 @@ button,input{font:inherit;color:inherit}
    ========================================================================== */
 /* 🔴 PASSADA A CENA, A TELA CHEIA FICA PARADA — e esta linha é o que garante
    isso. A camada guarda a marca `entra` pra sempre; quando a marca `cena` cai
-   (aos 900 ms), a regra da transição escolhida no seletor (`[data-tr] .tela.entra`)
-   voltava a alcançar a camada e a tela INTEIRA repiscava. MEDIDO no quadro de
-   950 ms: o mapa, a manobra e o rodapé apagavam e voltavam. Ela vem ANTES da
-   regra da cena de propósito: mesma especificidade, as duas `!important` —
-   quem está depois manda, então enquanto há `cena` quem manda é a cena. */
+   (no fim da fila, § `CENA_TETO`), a regra da transição escolhida no seletor
+   (`[data-tr] .tela.entra`) voltava a alcançar a camada e a tela INTEIRA
+   repiscava. MEDIDO no quadro de 950 ms: o mapa, a manobra e o rodapé apagavam e
+   voltavam. Ela vem ANTES da regra da cena de propósito: mesma especificidade,
+   as duas `!important` — quem está depois manda, então enquanto há `cena` quem
+   manda é a cena. */
 .tela.entra.cheio{animation:none!important}
-.tela.cena.cheio{animation:mvCheioEntra var(--mv-cheio) var(--cv-entra) both!important}
+/* 🔴 A FASE 1 DA FILA É A CAMADA VIRANDO A COR DO MAPA (17/08 — ordem do dono:
+   *"montou rota? Carregou? Escurece, preencher com cor do mapa, comece o
+   efeito"*). Era `mvCheioEntra`: opacidade E escala de 1,14 — e a escala levava o
+   MAPA junto, que é o mesmo "piscar tudo" que o item 4 já tinha tirado da troca
+   de modo (§ D5, o mapa é UM nó transplantado). Sobrou a OPACIDADE, e ela É o
+   escurecer: a camada nova entra sem cromo nenhum (§ "fase não invade fase"),
+   com o palco já na cor `--map-fundo` e o véu enchendo por cima no MESMO tempo —
+   o que o olho vê é a tela de montagem apagando dentro da cor do mapa.
+   Uma animação de opacidade, no compositor, os 420 ms da fase 1 inteira. */
+.tela.cena.cheio{animation:mvCenaEnche var(--cena-escurece) var(--cv-cena) both!important}
+@keyframes mvCenaEnche{from{opacity:0}to{opacity:1}}
+/* 🔴 E A CAMADA QUE SAI FICA PARADA DURANTE A FILA (mesma ordem: *"está travando
+   no celular, pq tem muita coisa acontecendo ao mesmo tempo"*). Quem saía rodava
+   `mvCheioSai` — escala .9 + `filter:brightness(.4)` na tela CHEIA por 520 ms —
+   em cima da montagem com 52 linhas, no mesmo quadro em que a camada nova funde e
+   o mapa sobe. Filtro animado é justamente o que esta tela já mediu e proibiu
+   (4,8 fps com filtro × 7,6 sem). Agora ela só ESPERA a cor cobri-la e morre aos
+   460 ms (§ `espera` no `pintar`) — ninguém a vê, então não há show pra cortar.
+   O gancho é a marca da RAIZ: enquanto existe fila, existe esta regra.
+   🔴 E ELA VENCE O TEMA CLARO SEM PRECISAR DE ESPECIFICIDADE. Lá embaixo,
+   `[data-luz="claro"] .tela.sai.cheio:not(.voltando)` troca só o `animation-name`
+   (por `mvCheioSaiClaro`) e ganha desta por ser mais específica — mas o que ela
+   NÃO troca é a duração, e o `animation:none` daqui a põe em 0s. Nos dois temas o
+   resultado é o mesmo: nenhum quadro de animação. */
+:root[data-cena] .tela.sai.cheio{animation:none!important}
 /* 🔴 A SAÍDA USAVA A CURVA DE QUEM CHEGA — e é ISSO que o dono chamou de
    "travação nojenta" no ir e vir entre o 2D e o 3D (16/08). A Lei 2 desta folha
    está escrita 300 linhas acima: quem ENTRA desacelera (`--cv-entra`), quem SAI
@@ -559,23 +605,82 @@ button,input{font:inherit;color:inherit}
    v3: `.tela.sai.cheio` tinha exatamente 1 animação (`mvCheioSai`) e zero de
    item — é esse número que esta linha preserva. */
 .tela.entra.cheio .anim-item,.tela.sai.cheio .anim-item{animation:none!important}
-@keyframes mvCheioEntra{from{opacity:0;transform:scale(1.14)}to{opacity:1;transform:none}}
 @keyframes mvCheioSai{to{opacity:0;transform:scale(.9);filter:brightness(.4)}}
 /* Voltando do GPS o gesto inverte: o mapa encolhe e a tela volta de trás. */
 .tela.entra.cheio.voltando{animation:mvCheioVolta var(--mv-cheio) var(--cv-entra) both!important}
 .tela.sai.cheio.voltando{animation:mvCheioVoltaSai var(--mv-cheio) var(--cv-sai) both!important}
 @keyframes mvCheioVolta{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
 @keyframes mvCheioVoltaSai{to{opacity:0;transform:scale(1.16)}}
-/* No GPS a informação chega DEPOIS do lugar, nunca junto: primeiro o mapa
-   assenta, aí a manobra desce do topo, o rodapé sobe e o carro aparece.
-   (Estes tempos são os da tela de CHEGOU — a de DIRIGINDO tem cena própria,
-   logo abaixo, e atrasa cada um deles.) */
-.tela.cena.cheio .gps-manobra{animation:mvDesce var(--mv-folha) var(--cv-entra) .18s both}
+/* ==========================================================================
+   🔴 FASE 4 — "AO CONCLUIR APARECEM OS BOTÕES" (17/08, ordem do dono na íntegra:
+   *"montou rota? Carregou? Escurece, preencher com cor do mapa, comece o efeito,
+   desce até o ponto, faz todos efeitos, ao concluir aparecem os botões"*).
+
+   O cromo desta tela — manobra, rodapé de 4 botões, coluna, velocímetro, bússola
+   — deixou de entrar JUNTO com a cena e passou a ser a ÚLTIMA fase dela. Antes
+   estas mesmas regras estavam penduradas só na marca `cena`, ou seja: partiam no
+   quadro zero, ao lado do véu abrindo (CSS), das ruas crescendo no mapa de
+   verdade (ponte, ~1,06 s) e da câmera descendo (`easeTo`, 1,8 s). Dezessete
+   animações e um WebGL desenhando no mesmo quadro — é o "muita coisa acontecendo
+   ao mesmo tempo" do dono, medido no g15.
+
+   🔴 A MARCA MORA NA RAIZ, NÃO NA CAMADA, e isso não é estilo: a camada é trocada
+   a cada repinte do seam (1×/s dirigindo), então marca de fase em camada morre no
+   meio da cena. `<html data-cena>` sobrevive ao repinte; a classe `cena` continua
+   na camada porque ela é o "esta camada ESTÁ em cena" (o escopo), não o relógio.
+
+   🔴 E É UM BLOCO SÓ PROS DOIS MODOS (item 4: *"ambos os estados têm q ser
+   idênticos"*). Eram duas listas de atraso — uma pendurada em `.dirigindo`, outra
+   em `.plano` — dizendo os mesmos .48/.50/.58 s duas vezes. Com a fase mandando
+   no tempo, o atraso é interno à fase e as duas telas leem a MESMA regra: o
+   rodapé sobe (0 → 380 ms), a peça do topo desce (40 → 420) e as redondas dão o
+   pop (100 → 380). Tudo dentro dos 420 ms de `--cena-pronto`.
+   ========================================================================== */
 @keyframes mvDesce{from{opacity:0;transform:translateY(-115%)}to{opacity:1;transform:none}}
-.tela.cena.cheio .gps-rodape{animation:mvFolha var(--mv-folha) var(--cv-entra) .14s both}
-.tela.cena.cheio .gps-vel,
-.tela.cena.cheio .gps-bussola,
-.tela.cena.cheio .gps-lado button{animation:mvPop var(--mv-normal) var(--cv-mola) .32s both}
+:root[data-cena="pronto"] .tela.cena.cheio .gps-rodape{animation:mvFolha var(--mv-folha) var(--cv-entra) both}
+:root[data-cena="pronto"] .tela.cena.cheio .gps-manobra,
+:root[data-cena="pronto"] .tela.cena.cheio .plano-topo{animation:mvDesce var(--mv-folha) var(--cv-entra) .04s both}
+:root[data-cena="pronto"] .tela.cena.cheio .gps-vel,
+:root[data-cena="pronto"] .tela.cena.cheio .gps-bussola,
+:root[data-cena="pronto"] .tela.cena.cheio .gps-lado button,
+:root[data-cena="pronto"] .tela.cena.cheio .plano-lado button{animation:mvPop var(--mv-normal) var(--cv-mola) .10s both}
+
+/* 🔴 E FASE NÃO INVADE FASE: nas TRÊS primeiras o cromo não existe na tela — nem
+   meio-transparente, nem com transição pendurada esperando a vez (lei 1 da fila).
+   Sem esta lista o rodapé e a manobra ficariam PARADOS e visíveis por cima do véu
+   (eles são z-index 20, o véu é 18) e a fase 4 não teria o que anunciar: o dono
+   pediu que os botões APAREÇAM no fim, e pra aparecer é preciso não estar lá.
+
+   Entram aqui também as peças que não são cromo de navegação mas somam trabalho
+   no mesmo quadro, e foi a SOMA delas que travou o g15: as empresas do prospector
+   (`.emp`, com até três nomes se digitando e três sublinhados de 1,9 s), o chip e
+   a linha de varredura (`.emp-scan`, que anima `top` sob um `blur`), o selo do
+   radar e o "Redirecionando…". Nenhuma delas é a notícia da vez enquanto a rota
+   está entrando em cena — todas esperam `pronto` e nascem depois, do quadro zero
+   delas, que é o certo (notícia não se herda no meio).
+
+   O `:not([data-cena="pronto"])` é o que faz isto ser as três primeiras fases sem
+   escrever três listas. E `[data-cena]` vazio não existe: quem fecha a cena APAGA
+   o atributo (§ `fecharCena`), justamente pra esta regra não sobreviver a ela. */
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .gps-manobra,
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .plano-topo,
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .gps-rodape,
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .gps-vel,
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .gps-bussola,
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .gps-lado,
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .plano-lado,
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .gps-radar,
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .gps-redir,
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .emp-chip,
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .emp-scan,
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .emp,
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .emp *,
+/* o pulso do radar do prospector mora DENTRO do puck (§ `.emp-radar`), então ele
+   não é filho de `.emp` e escapava desta lista — MEDIDO: duas animações de
+   `width`/`height`/`margin` (ou seja, LAYOUT, o pior tipo) vivas nas três
+   primeiras fases, inclusive na `descida`, onde a regra é "só a câmera se move". */
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .emp-radar,
+:root[data-cena]:not([data-cena="pronto"]) .tela.cena.cheio .emp-radar i{opacity:0;animation:none}
 
 /* ==========================================================================
    🔴 A TROCA 2D ⇄ 3D: O MAPA FICA PARADO E O CROMO SE MOVE (17/08 — itens 3 e 4
@@ -584,11 +689,11 @@ button,input{font:inherit;color:inherit}
    tudo, ambos os estados tem q ser identicos"*).
 
    O CAMINHO QUE JÁ FOI TENTADO E ESTÁ ERRADO (o histórico importa porque ele se
-   repete): (1) animar a CAMADA inteira nos dois lados — é o `mvCheioEntra`, uma
-   escala de 1,14 com brilho, e ela leva o MAPA junto: o mapa é o mesmo nó
-   transplantado, então escalá-lo é exatamente o "piscar tudo"; (2) matar a
-   coreografia e fazer troca SECA — foi o erro de 16/08 que apagou o efeito de
-   montar rota e o dono viu na hora.
+   repete): (1) animar a CAMADA inteira nos dois lados — era o `mvCheioEntra`, uma
+   escala de 1,14 com brilho (morto em 17/08, junto com a fila da cena), e ela leva
+   o MAPA junto: o mapa é o mesmo nó transplantado, então escalá-lo é exatamente o
+   "piscar tudo"; (2) matar a coreografia e fazer troca SECA — foi o erro de 16/08
+   que apagou o efeito de montar rota e o dono viu na hora.
    O certo é o meio: DUAS camadas no ar (é preciso ter o que sair), camada
    PARADA (nada de escala, nada de brilho, nada de fundo — § `so-cromo`) e o
    movimento nas PEÇAS que realmente mudam de um modo pro outro.
@@ -607,25 +712,55 @@ button,input{font:inherit;color:inherit}
    quadro — e ninguém vê, porque a peça nova está exatamente ali. Fundir dois
    vidros iguais por 520 ms escureceria o painel no meio da troca (duas camadas
    de `--glass` somadas), que é um pisca de tinta em vez de um pisca de forma. */
+/* 🔴 E ELA É UMA SEQUÊNCIA, NÃO UM ACORDE (17/08 — dono, depois do teste no g15:
+   *"efeito de troca entre 2d e 3d tem q ser um pouco mais devagar, um pouco mais
+   organizado"*). Todas as peças partiam do quadro ZERO: a que sai recolhendo, a
+   que entra descendo, a bússola nascendo, o ícone transmuxando — e a câmera do
+   mapa andando por baixo de tudo. Cinco gestos simultâneos de ~300 ms não são um
+   gesto rápido, são um borrão: o olho não tem o que seguir e lê como engasgo.
+   Agora cada um tem a SUA vez, na ordem da tabela do contrato:
+     0   → 260 ms  quem SAI recolhe e a bússola apaga (`--troca-recolhe`)
+     200 → 1020    a CÂMERA anda — 820 ms, e é da ponte (§ `TROCA_MS`)
+     420 → 800     quem ENTRA desce, a bússola nasce, o ícone transmuxa
+   A camada que sai vive 900 ms (§ `espera` no `pintar`, era 560): quem entra só
+   termina aos 800, e camada arrancada antes disso é o gesto cortado no fim. */
 .tela.modo-troca.cheio{animation:none!important}
 @keyframes mvRecolhe{to{opacity:0;transform:translateY(-115%)}}
 .tela.entra.modo-troca .gps-manobra,
-.tela.entra.modo-troca .plano-topo{animation:mvDesce var(--mv-folha) var(--cv-entra) .06s both}
+.tela.entra.modo-troca .plano-topo{animation:mvDesce var(--mv-folha) var(--cv-entra) var(--troca-espera) both}
 .tela.sai.modo-troca .gps-manobra,
-.tela.sai.modo-troca .plano-topo{animation:mvRecolhe var(--mv-folha) var(--cv-sai) both}
+.tela.sai.modo-troca .plano-topo{animation:mvRecolhe var(--troca-recolhe) var(--cv-sai) both}
 /* a foto 6 e o motorista: a bússola nasce com mola no 3D e sai apagando; a seta
-   pousa junto com ela (mesma cena da entrada, com o tempo do gesto). */
-.tela.entra.modo-troca .gps-bussola{animation:mvPop var(--mv-normal) var(--cv-mola) .14s both}
-.tela.sai.modo-troca .gps-bussola{animation:trApaga var(--mv-normal) var(--cv-sai) both}
-.tela.entra.modo-troca .gps-puck{animation:mvPuck .34s var(--cv-mola) .06s both}
+   pousa junto com ela (mesma cena da entrada, com o tempo do gesto). Ela sai NO
+   TEMPO DE QUEM SAI e nasce NO TEMPO DE QUEM ENTRA — as duas metades da mesma
+   troca, nunca no mesmo instante. */
+.tela.entra.modo-troca .gps-bussola{animation:mvPop var(--mv-folha) var(--cv-mola) var(--troca-espera) both}
+.tela.sai.modo-troca .gps-bussola{animation:trApaga var(--troca-recolhe) var(--cv-sai) both}
+.tela.entra.modo-troca .gps-puck{animation:mvPuck .34s var(--cv-mola) var(--troca-espera) both}
 /* 🔴 O BOTÃO DO MEIO TRANSMUXA (item 3). É a ÚNICA peça do rodapé que muda de
    trabalho entre os modos (Direção ⇄ Panorâmica), então é a única que anima
    dentro de um painel que, no resto, é o mesmo. O ícone gira e cresce; o rótulo
    entra atrás dele. Sem isto o painel trocaria de ícone no meio de um quadro —
-   o corte que o dono chama de travação, na menor escala possível. */
-.tela.entra.modo-troca .tmx-main button[data-modo] svg{animation:mvTransmux var(--mv-normal) var(--cv-mola) .04s both}
+   o corte que o dono chama de travação, na menor escala possível.
+   Ele entra com a peça que entra (420 ms), não antes: o painel é o mesmo objeto
+   nos dois modos, e trocar o miolo dele enquanto a câmera ainda anda seria pedir
+   pra o olho ler duas coisas de uma vez. */
+.tela.entra.modo-troca .tmx-main button[data-modo] svg{animation:mvTransmux var(--mv-folha) var(--cv-mola) var(--troca-espera) both}
 @keyframes mvTransmux{from{opacity:0;transform:rotate(-34deg) scale(.55)}to{opacity:1;transform:none}}
-.tela.entra.modo-troca .tmx-main small{animation:mvPop var(--mv-normal) var(--cv-mola) .10s both}
+.tela.entra.modo-troca .tmx-main small{animation:mvPop .34s var(--cv-mola) .46s both}
+/* 🔴 E QUEM SAI PARA DE TRABALHAR, NÃO SÓ DE APARECER (17/08). MEDIDO na bancada,
+   no toque do Panorâmica: a camada que sai levava 53 animações do prospector
+   (`fill`, `clip-path`, `opacity`, com atrasos de até 4 s) ainda tiquetaqueando —
+   e com a camada velha passando a viver 900 ms (era 560), elas agora tiquetaqueiam
+   340 ms A MAIS, no mesmo quadro em que a camada nova entra. `fill` e `clip-path`
+   são PAINT, não compositor: é trabalho de verdade num aparelho que o dono acabou
+   de dizer que trava. Apagar a peça é só metade do serviço; a outra é desligar.
+   O `!important` é obrigatório e é conta de especificidade, não preguiça: quem
+   liga estas animações é `.emp.escolhida.on .emp-luz` (0,4,0) e este seletor com
+   `*` vale (0,3,0) — sem ele a regra perde e a peça invisível continua animando. */
+.tela.sai.modo-troca .emp *,
+.tela.sai.modo-troca .emp-scan,
+.tela.sai.modo-troca .emp-radar i{animation:none!important}
 /* o que é IGUAL nos dois modos passa a vez sem cruzar */
 .tela.sai.modo-troca .gps-rodape,
 .tela.sai.modo-troca .plano-lado,
@@ -640,42 +775,58 @@ button,input{font:inherit;color:inherit}
 .tela.sai.modo-troca .rota-continuidades{opacity:0}
 
 /* ==========================================================================
-   A CENA DE ENTRAR NA ROTA (ordem do dono, 07/08) — só na tela de DIRIGINDO.
+   A CENA DE ENTRAR NA ROTA — A FILA (ordem do dono, 07/08 e refeita em 17/08).
 
-   Três tempos, nesta ordem e por este motivo:
-     1. A TELA ESCURECE. Um véu nasce por cima do mapa. No modo CLARO ele
-        CLAREIA — é o inverso, não o mesmo escurecer com outra cor (o token
-        `--veu` troca de lado e a tela que fica pra trás estoura em luz em vez
-        de apagar; ver o bloco do claro no fim da folha).
-     2. O PONTEIRO SURGE SOZINHO, em cima do véu, sem mapa nenhum atrás. Ele é
-        o primeiro a existir: a pergunta da tela é "onde eu estou".
-     3. A COBRA CRESCE. Ordem do dono, 07/08: *"uma cobra crescendo, acho q é
-        este o efeito"*. Uma LINHA sai debaixo do ponteiro, sobe a via
-        principal, vira a esquina e segue — com a ponta acesa viajando na
-        frente — e cada rua menor BROTA dela quando a ponta passa no
-        cruzamento. Depois as avenidas brotam da primeira rua, e as ruas do
-        horizonte brotam das avenidas: um labirinto se fechando. Só no fim a
-        rota acende por cima do leito, e só então o mapa de verdade assenta
-        por baixo. As EMPRESAS do corredor entram junto porque são parte do
-        mundo. Não há empresa perto? não entra nada, e a cena é exatamente a
-        mesma — o véu não depende de dado nenhum.
+   🔴 ELA VIROU FILA, E A FILA É A ORDEM DO DONO PALAVRA POR PALAVRA (17/08, com
+   as 8 fotos e o g15 na mão): *"Mesma coisa ao montar a rota, organize isso!
+   montou rota? Carregou? Escurece, preencher com cor do mapa, comece o efeito,
+   desce até o ponto, faz todos efeitos, ao concluir aparecem os botões. está
+   travando no celular, pq tem muita coisa acontecendo ao mesmo tempo!!"*
 
-   🔴 A CENA MORA NA CLASSE `cena`, NUNCA NA `entra`. A marca `entra` fica na
-   camada PRA SEMPRE (é dela que a Lei 10 herda o papel no repinte): pendurar
-   a cena ali fazia o véu RENASCER a cada repinte do seam — uma empresa
-   acendendo aos 5 s escurecia a tela inteira do motorista de novo. `cena` cai
-   aos 2.200 ms, exatamente o mesmo teto do relógio herdado (`currentTime`) do
-   repinte pra esta camada: antes disso o repinte CONTINUA a cena, depois não
-   há cena pra continuar. Dois problemas, um número só. E esse número é TETO,
-   não duração — a cena acaba sozinha em 1,36 s; o resto é a folga da travada
-   que o boot do mapa dá no aparelho (ver o comentário do `CENA_CHEIA`).
+   O diagnóstico é dele: as quatro coisas aconteciam JUNTAS. O véu abrindo (CSS,
+   0,22–0,62 s), as ruas crescendo no mapa de verdade (ponte, ~1,06 s), o cromo
+   entrando (CSS, 0,48–0,58 s) e a câmera descendo por cima de tudo (`easeTo`,
+   1,8 s). No g15 isso é um WebGL desenhando + 17 animações de cromo + um easeTo
+   no MESMO quadro. Não é lentidão de máquina: é falta de fila.
 
-   🔴 A CENA NÃO ESPERA O MAPA — e essa é a diferença entre cena e trava. Ela
-   é CSS puro, com hora marcada: mapa que não carrega (rede caída, estilo que
-   não sobe, maplibre que não vem) não segura o véu nem a cobra. Terminou,
-   sobra a tela honesta que houver — nunca um véu eterno. O contrário também
-   vale e é novo: o mapa que chega CEDO demais não corta o desenho no meio,
-   ele espera o mesmo relógio.
+     | fase       | quem manda   | o que acontece                                |
+     | escurece   | casca (CSS)  | a tela vira a COR DO MAPA, cheia. Nada mais.   |
+     | ruas       | ponte        | as ruas e a rota crescem com brilho no mapa    |
+     |            |              | de verdade; o clarão abre do ponto pra fora    |
+     | descida    | ponte        | a câmera desce até o ponto — e só isso se move |
+     | pronto     | ponte        | APARECEM OS BOTÕES (§ fase 4, lá em cima)      |
+
+   AS LEIS DELA, e cada uma paga uma queixa:
+   1. FASE NÃO INVADE FASE. Em `escurece`/`ruas`/`descida` o cromo não existe na
+      tela, nem meio-transparente. Quem entra é a fase 4.
+   2. QUEM ANUNCIA É QUEM SABE. A ponte é a única que sabe quando o tile chegou,
+      quando a última onda das ruas partiu (`mundoVoltou`) e quando o `easeTo`
+      terminou. A casca só VESTE — ela não adivinha mapa.
+   3. A MARCA MORA NA RAIZ (`<html data-cena>`), NUNCA NA CAMADA. A camada é
+      trocada a cada repinte do seam (1×/s dirigindo): marca em camada morre no
+      meio da cena. A classe `cena` continua na camada porque ela é o ESCOPO
+      ("esta camada está em cena"), não o relógio.
+   4. TETO OBRIGATÓRIO, SEMPRE. Se a ponte não anunciar (sem mapa, sem tile, rede
+      caída), um relógio da casca empurra a fila até `pronto` (§ `CENA_TETO`).
+      Cromo preso invisível é pior que cena nenhuma — a lei de 09/08 ("a cena não
+      espera o mapa") continua valendo, só que agora ela é um TETO e não o caminho
+      normal. É também o que mantém o MOCK sozinho demonstrável no navegador: sem
+      ponte, o teto é o único dono da fila.
+   5. POUSO NO 2D NÃO TEM `descida` (não há câmera pra descer): `ruas` → `pronto`.
+   6. NADA MAIS ANIMA DURANTE A FILA — as empresas do prospector, o selo do radar
+      e o "Redirecionando…" esperam `pronto`. Foi a SOMA delas que travou o g15.
+
+   O QUE A CENA CONTA, na ordem (o roteiro velho continua valendo por dentro):
+     1. A TELA ESCURECE na cor do mapa. No modo CLARO ela CLAREIA — é o inverso,
+        não o mesmo escurecer com outra cor (`--map-fundo` troca de lado sozinho).
+     2. O PONTEIRO SURGE, em cima do véu, sem mapa nenhum atrás: a pergunta da
+        tela é "onde eu estou", e o clarão nasce DELE.
+     3. AS RUAS CRESCEM. Ordem do dono, 07/08: *"uma cobra crescendo"*. Elas são
+        as ruas DE VERDADE dos tiles, crescendo por `line-gradient` dentro do mapa
+        (§ `cenaDasRuas`, na ponte) — a lei de 09/08, *"não remonte coisas, crie
+        DENTRO do mapa mesmo"*. As EMPRESAS do corredor entram DEPOIS, com o
+        cromo: elas são notícia, não são o palco.
+     4. A CÂMERA DESCE até o ponto, sozinha na tela.
    ========================================================================== */
 /* 1 — O VÉU. O raio do clarão (`--veu-r`) é propriedade REGISTRADA: sem o
    `@property` o navegador não sabe interpolar comprimento dentro de custom
@@ -694,20 +845,48 @@ button,input{font:inherit;color:inherit}
 .gps-veu{position:absolute;inset:0;z-index:18;pointer-events:none;opacity:0;--veu-r:1500px;
   background:radial-gradient(circle at 50% 68%,transparent 0,transparent var(--veu-r),
     var(--map-fundo) calc(var(--veu-r) * 1.25 + 56px))}
-/* 🔴 O CLARÃO ENCOLHEU DE PROPÓSITO (ordem do dono, 07/08: "uma cobra
-   crescendo"). Ele ia até 840 ms e COMIA o desenho: o mapa nascia todo de
-   dentro do clarão e o traço, que já existia, ninguém via. Agora ele é o
-   ACORDAR da cena — abre em 400 ms e sai aos 620 ms, deixando o palco escuro
-   e limpo pra cobra, que é o espetáculo, andar de 260 ms a 1,26 s por cima. */
-.tela.cena.cheio .gps-veu{animation:mvVeu .40s var(--cv-cena) .22s both}
+/* 🔴 FASE 1 — O VÉU PREENCHE ANTES DE ABRIR (17/08, e é o pedido literal:
+   *"Escurece, PREENCHER com cor do mapa, COMECE o efeito"* — três verbos, nesta
+   ordem). O que havia aqui era só o terceiro: o véu já nascia ABRINDO (`mvVeu`
+   dos 220 aos 620 ms), então ele nunca chegava a ser a tela inteira na cor do
+   mapa — era um clarão passando, não um escurecer. Pior: ele abria em cima de
+   tudo o mais que já estava acontecendo.
+   Agora a fase 1 é CHAPADA: `background` flat na cor do mapa (o gradiente não
+   serve aqui — com `--veu-r:0px` ele deixa um buraco macio de 56px no ponto, e
+   buraco na cortina mostra a tela de trás no meio do escurecer) e a opacidade
+   subindo nos MESMOS 420 ms da camada, com a MESMA curva: as duas fundem como
+   uma coisa só.
+   O `to` é obrigatório — a regra estática do véu é `opacity:0` (parado ele não
+   existe), então um `@keyframes` só com `from` levaria a fase 1 de volta ao
+   invisível, que é o contrário do que ela é. */
+:root[data-cena="escurece"] .tela.cena.cheio .gps-veu{--veu-r:0px;background:var(--map-fundo);
+  animation:mvVeuEnche var(--cena-escurece) var(--cv-cena) both}
+@keyframes mvVeuEnche{from{opacity:0}to{opacity:1}}
+/* 🔴 FASE 2 — E AGORA O CLARÃO É A VIRADA DE FASE, não a cena inteira. Ele abre
+   do ponto pra fora (o `--veu-r` crescendo) enquanto a opacidade cai: a cortina
+   que preencheu a tela se rasga a partir do ponteiro, e o que aparece por baixo é
+   o mapa DE VERDADE já com as ruas começando a crescer. É o "comece o efeito".
+   No primeiro quadro desta fase o `background` volta a ser o gradiente e nasce o
+   pé de 56px do clarão — o farol do ponteiro acendendo. Isso é de propósito e é o
+   único corte seco da fila: ele acontece EXATAMENTE onde o olho já está olhando
+   (o ponto), e é o que dá a ele o caráter de coisa que ACENDE em vez de sumir.
+   Sem atraso nenhum: a fase é o atraso. */
+:root[data-cena="ruas"] .tela.cena.cheio .gps-veu{animation:mvVeu .52s var(--cv-cena) both}
 @keyframes mvVeu{from{opacity:1;--veu-r:0px}}
 
 /* 2 — O PONTEIRO, sozinho e em cima do véu (por isso o `z-index` dele passa a
    19: o véu é 18). Sobe com mola e larga UM anel de pouso — o "achei você" do
-   GPS. Parado, o anel não existe. */
-.tela.cena.cheio .dirigindo .gps-puck{animation:mvPuck .44s var(--cv-mola) .06s both}
+   GPS. Parado, o anel não existe.
+   🔴 ELE É DA FASE 2, NÃO DA 1, e o motivo é o clarão: quem abre o véu é o farol
+   DELE (o gradiente nasce no ponto dele), então ele tem que estar lá quando a
+   cortina se rasga — mas na fase 1 a tela é só cor, sem cromo e sem ponteiro
+   (lei 1). Ele é o PRIMEIRO da fase 2, meio segundo antes das ruas terminarem.
+   E na fase 1 ele nem existe: sem esta linha ele ficaria parado por cima da cor
+   (z-index 19 contra os 18 do véu), estragando a única coisa que a fase 1 tem. */
+:root[data-cena="escurece"] .tela.cena.cheio .gps-puck{opacity:0}
+:root[data-cena="ruas"] .tela.cena.cheio .gps-puck{animation:mvPuck .44s var(--cv-mola) .06s both}
 @keyframes mvPuck{from{opacity:0;transform:scale(.28)}to{opacity:1;transform:none}}
-.tela.cena.cheio .dirigindo .gps-puck::after{animation:mvPouso .54s var(--cv-sai) .16s both}
+:root[data-cena="ruas"] .tela.cena.cheio .gps-puck::after{animation:mvPouso .54s var(--cv-sai) .16s both}
 @keyframes mvPouso{from{opacity:.8;transform:scale(.1)}}
 
 /* 3 — A COBRA. Ordem do dono (07/08): *"primeiro ir desenhando as ruas, tipo
@@ -749,10 +928,16 @@ button,input{font:inherit;color:inherit}
    app. MEDIDO na bancada: a cena inteira roda a 4,8 fps com o blur e o brilho
    ligados, e 7,6 fps sem os dois. A sensação de "mapa assentando" fica por
    conta da ESCALA, que o compositor faz de graça. Lei da casa: enfeite não
-   derruba a tela. */
-.tela.cena.cheio .dirigindo .mapa-palco{
-  animation:mvMapaFoco .52s var(--cv-cena) .20s both,
-            mvMapaAcende .20s linear .16s both}
+   derruba a tela.
+   🔴 E O PALCO ASSENTA NA FASE 2, JUNTO COM AS RUAS — um palco só pros DOIS modos
+   (17/08). Eram duas regras idênticas, uma em `.dirigindo` e outra em `.plano`,
+   com os mesmos dois `@keyframes` e os mesmos atrasos: a diferença entre pousar
+   no 3D e pousar no 2D nunca foi o palco, é a CÂMERA (e a câmera é da fase 3, que
+   é da ponte). Os atrasos internos saíram porque a fase JÁ é o atraso — quem
+   segurava o palco 200 ms era o véu, e hoje o véu é a fase anterior. */
+:root[data-cena="ruas"] .tela.cena.cheio .mapa-palco{
+  animation:mvMapaFoco .52s var(--cv-cena) both,
+            mvMapaAcende .20s linear both}
 @keyframes mvMapaFoco{from{transform:scale(1.1)}}
 @keyframes mvMapaAcende{from{opacity:0}}
 .m-corpo{stroke-dasharray:var(--l);stroke-dashoffset:0}
@@ -781,48 +966,32 @@ button,input{font:inherit;color:inherit}
    segura a tela em vez do preto do canvas. Sem `pronto` ele aparece; com
    `pronto`, as duas transições de sempre trocam um pelo outro. */
 
-/* 4 — E SÓ ENTÃO a informação. Enquanto o mapa não está legível a tela tem UM
-   assunto; a manobra descendo antes disso seria texto no vazio.
-   🔴 ELA NÃO ESPEROU A COBRA INTEIRA, e é ordem do dono: *"ponteiro e manobra
-   têm que estar legíveis cedo"*. A cena toda vai até 1,36 s, mas quem dirige
-   já tem a manobra aos 500 ms e o rodapé aos 480 ms — o labirinto termina de
-   se fechar POR BAIXO de uma tela que já serve. */
-.tela.cena.cheio .dirigindo .gps-manobra{animation-delay:.50s}
-.tela.cena.cheio .dirigindo .gps-rodape{animation-delay:.48s}
-.tela.cena.cheio .dirigindo .gps-vel,
-.tela.cena.cheio .dirigindo .gps-bussola,
-.tela.cena.cheio .dirigindo .gps-lado button{animation-delay:.58s}
-
 /* ==========================================================================
-   🔴 5 — A CENA VALE NO 2D TAMBÉM (17/08 — item 5 do dono: *"montar rota
-   acionado, tela de carregamento terminou? escurece a tela (da cor original do
-   mapa), entra em full screen, aí entra o efeito que já existe e vc tirou,
-   desenhar as rotas, efeitos brilho, depois descendo até o efeito 3d"*).
+   🔴 5 — A CENA VALE NOS DOIS MODOS, E AGORA COM UMA REGRA SÓ (17/08 — item 5 do
+   dono: *"montar rota acionado, tela de carregamento terminou? escurece a tela
+   (da cor original do mapa), entra em full screen, aí entra o efeito que já
+   existe e vc tirou, desenhar as rotas, efeitos brilho, depois descendo até o
+   efeito 3d"*).
 
    O efeito nunca foi apagado — ele ficou SEM PORTA. A coreografia inteira estava
    pendurada em `.dirigindo`, e o montar passou a pousar no 2D: a rota era
-   montada, a tela trocava, e nada acontecia. São as MESMAS animações, com os
-   mesmos tempos, agora também para o palco do 2D — e o pouso volta a obedecer o
-   modo em que a pessoa estava (§ `pousarNaRota`, na ponte).
+   montada, a tela trocava, e nada acontecia. A primeira cura (de manhã) foi
+   COPIAR o bloco pro `.plano`, com os mesmos `@keyframes` e os mesmos atrasos
+   escritos de novo — e peça copiada perde tudo o que a original ganha depois.
 
-   O que acontece no 2D, na ordem: o véu escurece na cor do mapa e abre em clarão
-   (`mvVeu`, a regra é comum aos dois modos e já valia); o mapa assenta vindo de
-   um palmo mais longe (`mvMapaFoco`, sem blur — medido: blur animado derruba
-   esta tela pra 4,8 fps no g15); e SÓ ENTÃO o cromo chega — o topo desce, o
-   painel sobe e a coluna aparece. Os atrasos são os mesmos do 3D (.48 / .50 /
-   .58 s): quem pousa nos dois modos tem que ver a mesma cena, com outra câmera.
+   O QUE FICOU NO LUGAR DAS DUAS CÓPIAS: nada aqui. As regras da cena subiram pra
+   fila e não citam mais o modo — o véu, o palco, o ponteiro e o cromo são os
+   MESMOS seletores pros dois pousos (`.gps-veu`, `.mapa-palco`, `.gps-puck`, e a
+   lista da fase 4). A diferença entre pousar no 3D e no 2D virou UMA coisa, e ela
+   não é da folha: no 2D não existe fase `descida` (não há câmera pra descer), a
+   fila vai de `ruas` direto pra `pronto` — quem decide isso é a ponte, que é quem
+   sabe se vai haver `easeTo` (§ lei 5 da fila).
 
    As RUAS crescendo com brilho não estão aqui: elas nascem no mapa DE VERDADE,
    por `line-gradient` (§ `cenaDasRuas`, na ponte, motivos 'rota' e 'navegar') —
    a lei de 09/08, *"não remonte coisas, crie DENTRO do mapa mesmo"*. O SVG desta
-   folha é só o palco de espera de quem ainda não tem tile. */
-.tela.cena.cheio .plano .mapa-palco{
-  animation:mvMapaFoco .52s var(--cv-cena) .20s both,
-            mvMapaAcende .20s linear .16s both}
-.tela.cena.cheio .plano-topo{animation:mvDesce var(--mv-folha) var(--cv-entra) .50s both}
-.tela.cena.cheio .plano .gps-rodape{animation:mvFolha var(--mv-folha) var(--cv-entra) .48s both}
-.tela.cena.cheio .plano .gps-vel,
-.tela.cena.cheio .plano-lado button{animation:mvPop var(--mv-normal) var(--cv-mola) .58s both}
+   folha é só o palco de espera de quem ainda não tem tile.
+   ========================================================================== */
 
 /* ==========================================================================
    🔴 A SAÍDA É A ENTRADA AO CONTRÁRIO — e é a MESMA folha (dono, 09/08: *"remova

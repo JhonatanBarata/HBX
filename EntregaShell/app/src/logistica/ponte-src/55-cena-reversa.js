@@ -36,6 +36,13 @@
     /* Uma cena por vez, sempre: se a de entrada ainda estiver no ar quando o
        motorista mandar fechar, ela sai SECA e a de volta assume. */
     if (cena) encerrarCena('saida', true);
+    /* 🔴 E A FILA DA CHEGADA NÃO SOBREVIVE À SAÍDA (17/08). A marca da raiz é
+       ESTADO, não evento: sem apagá-la aqui o app fecharia com o `data-cena` da
+       entrada pendurado, e quem voltasse — fechamento abortado, que a própria
+       `limparVolta` documenta logo abaixo — acharia a casca vestindo uma fase que
+       não tem cena nenhuma atrás. A saída é o inverso da entrada em TUDO,
+       inclusive nisto: aqui a fila não anda, ela deixa de existir. */
+    faseDaCena('');
     if (volta) return VOLTA_TETO;
     const mapa = casa.mapa;
     const ruas = ruasDaCena(mapa);

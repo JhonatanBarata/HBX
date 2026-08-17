@@ -116,6 +116,56 @@ dirigindo: { esq:Cancelar, meio:[Registrar, Finalizar], main:{ir:'rota',     gli
 | `32-verbos-montar-iniciar.js` | `pousarNaRota()` pousa no `modoUltimo` (item 5) |
 | `A0-chat-produtos.js` | o chat responde dentro do pop-up (item 9) |
 
+## 🔴 O ROTEIRO (17/08 ~01h — ordem do dono, depois do teste no g15)
+
+> *"efeito de troca entre 2d e 3d tem q ser um pouco mais devagar, um pouco mais
+> organizado. Mesma coisa ao montar a rota, organize isso! montou rota? Carregou?
+> Escurece, preencher com cor do mapa, comece o efeito, desce até o ponto, faz
+> todos efeitos, ao concluir aparecem os botões. Ficou claro? está travando no
+> celular, pq tem muita coisa acontecendo ao mesmo tempo!! FAÇA UM ROTEIRO, LEVE
+> SEU TEMPO"*
+
+**O diagnóstico é o dele:** hoje as três coisas acontecem JUNTAS — o véu abrindo
+(CSS, 0,22–0,62 s), as ruas crescendo no mapa real (ponte, ~1,06 s), o cromo
+entrando (CSS, 0,48–0,58 s) e, por cima, a descida da câmera (ponte, 1,8 s). No
+g15 isso é um mapa desenhando WebGL + 17 animações de cromo + um `easeTo` no mesmo
+quadro. Não é lentidão de máquina: é falta de FILA.
+
+### A fila do MONTAR — uma coisa por vez, anunciada pela ponte
+
+| # | marca (`<html data-cena>`) | quem manda | o que acontece | quando acaba |
+|---|---|---|---|---|
+| 1 | `escurece` | casca (CSS) | a tela vira a **cor do mapa**, cheia. Nada de cromo, nada de mapa. | 420 ms |
+| 2 | `ruas` | ponte | as ruas e a rota **crescem com brilho** no mapa de verdade; o clarão abre do ponto pra fora | quando a última onda parte (`mundoVoltou`) |
+| 3 | `descida` | ponte | a câmera **desce até o ponto** — e só isso se move | fim do `easeTo` |
+| 4 | `pronto` | ponte | **aparecem os botões**: manobra desce, rodapé sobe, coluna e velocímetro entram | 420 ms |
+
+**Leis desta fila:**
+1. **Fase não invade fase.** Em `escurece`/`ruas`/`descida` o cromo não existe na
+   tela (nem meio-transparente): quem entra é a fase 4.
+2. **Quem anuncia é quem SABE.** A ponte é a única que sabe quando o tile chegou,
+   quando a última onda partiu e quando o `easeTo` terminou. A casca só veste.
+3. **A marca mora na RAIZ (`<html>`), nunca na camada.** A camada é trocada a cada
+   repinte do seam (1×/s dirigindo); marca em camada morre no meio da cena.
+4. **Teto obrigatório, sempre.** Se a ponte não anunciar (sem mapa, sem tile, rede
+   caída), um relógio da casca empurra a fila até `pronto`. Cromo preso invisível
+   é pior que cena nenhuma — a lei de 09/08 ("a cena não espera o mapa") continua
+   valendo, só que agora ela é um TETO e não o caminho normal.
+5. **Pouso no 2D não tem fase 3** (não há descida): `ruas` → `pronto`.
+6. **Nada mais anima durante a fila** — as empresas do prospector, o selo do
+   radar e o "Redirecionando" esperam `pronto`. Foi a soma deles que travou o g15.
+
+### A troca 2D⇄3D — sequência, não sobreposição
+
+| tempo | o que |
+|---|---|
+| 0 → 260 ms | a peça que SAI recolhe (manobra no 3D→2D; topo no 2D→3D) e a bússola apaga |
+| 200 → 1020 ms | a **câmera anda** (subir/descer) — 820 ms, era 700 |
+| 420 → 800 ms | a peça que ENTRA desce, a bússola nasce, o ícone do botão transmuxa |
+
+A camada que sai vive 900 ms (era 560). O mapa continua sendo UM nó e a camada
+continua PARADA (§ D5) — o que mudou é o ritmo: cada peça tem a sua vez.
+
 ## Portões
 
 - Regenerar SEMPRE antes de medir: `node scripts/casca-injetar.js` (mock → `mock.js`/`mock.css`/

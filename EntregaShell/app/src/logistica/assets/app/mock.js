@@ -457,8 +457,15 @@ function transmux(estado){
      botão entre eles"*). `data-modo` é o que permite a folha animar a TROCA do
      ícone quando o mesmo botão muda de trabalho (Direção ⇄ Panorâmica) em vez de
      a peça inteira nascer de novo — é a mesma ideia do `data-vivo` do
-     velocímetro: marca o que muda, pra não derrubar o que ficou. */
-  const modo=c.main.ir==='rota'?'3d':c.main.acao==='navegar'?'2d':'';
+     velocímetro: marca o que muda, pra não derrubar o que ficou.
+     🔴 E O VALOR É O DESTINO, NÃO O ESTADO ATUAL (17/08). Esta marca virou também
+     o CONTRATO do modo lembrado: a ponte ouve o clique nela pra saber que o
+     motorista ESCOLHEU uma câmera, e é essa escolha que o Montar obedece no
+     pouso (§ `lembrarModo`, 45-troca-de-modo.js). Se o valor fosse "onde estou",
+     quem lê teria que inverter — e inverter em dois lugares é como os dois
+     discordam. Aqui e lá o vocabulário é o mesmo do `window.ir`: `rota` (2D) e
+     `mapa` (3D). */
+  const modo=c.main.ir==='rota'?'rota':c.main.acao==='navegar'?'mapa':'';
   return `<div class="transmux">${sat(c.esq,'esq')}${meio}
     <span class="tmx-main">
       ${c.main.nota
@@ -1626,10 +1633,11 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
   <div class="plano${(!comRota&&dock)?' com-dock':''}${cheio?' cheio':''}${comRota?' com-rodape':''}">
     ${mapa()}
     ${/* 🔴 O VÉU DA CENA EXISTE NO 2D TAMBÉM (item 5). Ele é nó permanente e
-         INERTE — não sabe se o mapa subiu e não guarda dado nenhum; quem o
-         acende é a marca `cena` da camada, e ela cai sozinha. Sem ele, montar a
-         rota e pousar no 2D não tinha o escurecimento que o dono pediu ("escurece
-         a tela da cor original do mapa"), e o efeito só existia descendo pro 3D.
+         INERTE — não sabe se o mapa subiu e não guarda dado nenhum; quem o acende
+         são a classe "cena" da camada e a fase na raiz, e as duas caem sozinhas
+         (§ a fila). Sem ele, montar a rota e pousar no 2D não tinha o
+         escurecimento que o dono pediu ("escurece a tela da cor original do
+         mapa"), e o efeito só existia descendo pro 3D.
          (Sem CRASE aqui dentro: este comentario mora num template literal.) */''}
     <div class="gps-veu"></div>
    <div class="plano-topo">
@@ -2056,9 +2064,11 @@ function telaGps(){
 
     <!-- O VÉU DA ENTRADA. Ele não guarda dado nenhum e não sabe se o mapa
          subiu: é só a cena de "entrar na rota", com hora pra começar e hora
-         pra acabar. Parado ele é invisível — quem o acende é a classe "cena"
-         da camada, e ela cai aos 900 ms. (Sem CRASE aqui dentro: este
-         comentário mora num template literal e a crase o fecharia.) -->
+         pra acabar. Parado ele é invisível — quem o acende são as duas marcas
+         juntas: a classe "cena" da camada (o escopo) e a fase na raiz (o
+         relógio, data-cena escurece/ruas). Nas duas primeiras fases ele é a
+         tela inteira; da terceira em diante não existe mais. (Sem CRASE aqui
+         dentro: este comentário mora num template literal.) -->
     <div class="gps-veu"></div>
 
     <!-- O SELO DO RETRAÇO: nó permanente e inerte como o véu. Quem o acende é
@@ -4115,13 +4125,27 @@ let limpezaTimer=null;
    folga cobre a travada, e quem termina continua sendo a própria animação
    (todo `@keyframes` daqui é `both`, o estado final fica).
 
-   🔴 CAIU DE 2200 PRA 1200 COM A COBRA (09/08). O teto era o da rota de
-   mentira se desenhando (1,36 s de animação + folga). Sem ela, o que sobra na
-   camada é o véu (fecha aos 620 ms) e as folhas (a última entra aos 580 ms):
-   1,2 s já é folga de quase o dobro. E este número é ORQUESTRA — a descida da
-   câmera espera esta marca cair (§ `entrarNaDescida` na ponte), então segurar
-   2,2 s aqui era 1 segundo de tela parada esperando um show que acabou. */
-const CENA_CHEIA=1200;
+   🔴 CAIU DE 2200 PRA 1200 COM A COBRA (09/08) E VOLTOU A SUBIR COM A FILA
+   (17/08). Enquanto a cena era um acorde de ~1,36 s, 1,2 s de parede era folga de
+   quase o dobro. Agora a cena é uma FILA de quatro fases e ela dura o que a soma
+   das fases durar — o teto tem que acompanhar, senão o repinte no meio da cena
+   perde a herança e a tela pisca (foi essa a conta que faltou nas duas primeiras
+   passadas de hoje).
+   A CONTA, fase por fase (é a soma de `CENA_TETO`, e é PAREDE, não duração):
+     escurece  420 ms   a folha manda de ponta a ponta (`--cena-escurece`)
+     ruas     1200 ms   1,06 s MEDIDO da cena das ruas + 140 de folga
+     descida  1900 ms   1,8 s do `easeTo` + 100 de folga
+     pronto    420 ms   a entrada do cromo (`--cena-pronto`)
+                = 3940
+   Com a ponte no ar a fila real fecha em ~3,7 s (cada fase acaba quando o mapa
+   avisa, não quando o relógio estoura); 3.940 é o pior caso, que é justamente o
+   que um TETO tem que cobrir.
+   🔴 E ELE DEIXOU DE SER ORQUESTRA. Até hoje a descida da câmera esperava esta
+   marca CAIR (§ `entrarNaDescida`, na ponte, com `emCena()` de 90 em 90 ms), o que
+   fazia deste número um maestro cego: encurtá-lo apressava a câmera, alongá-lo
+   parava a tela. Agora quem manda na descida é a fase `descida` — a ponte a
+   anuncia quando começa o `easeTo` e não pergunta mais nada à casca. */
+const CENA_CHEIA=3940;
 const ENTRADA_COMUM=900;
 /* 🔴 A ENTRADA DA TELA É DA CAMADA, NUNCA DA PEÇA (dono, 08/08: "clico em
    montar rota, ele pisca, parece que abre 2x").
@@ -4133,8 +4157,168 @@ const ENTRADA_COMUM=900;
    PRÓPRIA de peça (a empresa do corredor acendendo no mapa) continua nascendo
    do zero, que é o certo — ela é notícia, não entrada de tela. */
 const ENTRADA_DA_TELA=new Set(['trFundeEntra','trItem','trDesfoque','trMola','trZEntra','trXFade','trXItem','mvScrim']);
-let cenaTimer=null;
+/* 🔴 A ÚNICA ANIMAÇÃO DA CENA QUE É DA CAMADA, E NÃO DA FASE (17/08). Ela é a
+   fase 1 vista de fora: a camada fundindo na cor do mapa. Toca uma vez, no
+   começo, e é por isso que ela precisa ficar de fora do relógio de FASE lá
+   embaixo — carimbada com o tempo da fase 3 ela voltaria a 71% de opacidade no
+   meio da descida. Uma linha em vez de um `Set` porque é UMA, e um `Set` de um
+   item promete uma família que não existe. */
+const CENA_DA_CAMADA='mvCenaEnche';
+/* ==========================================================================
+   🔴 A FILA DA CENA DE MONTAR — QUATRO FASES, UMA MARCA, DOIS DONOS (17/08,
+   ordem do dono: *"FAÇA UM ROTEIRO, LEVE SEU TEMPO"*).
+
+   A marca é `<html data-cena>` e os valores andam nesta ordem:
+     escurece → ruas → descida → pronto   (ausente = não há cena nenhuma)
+
+   POR QUE NA RAIZ: a camada é trocada a cada repinte do seam (1×/s dirigindo).
+   Marca de fase em camada morre no meio da cena — foi o que matou a primeira
+   versão disto. A classe `cena` continua na camada porque ela responde outra
+   pergunta ("esta camada está em cena", o escopo dos seletores).
+
+   🔴 A DIVISÃO DE TRABALHO, e ela é de UMA linha da ponte: `if (emCena())
+   faseDaCena('escurece')` (§ `50-cena-ruas.js:204`). Ou seja:
+     · A CASCA ABRE A PORTA — põe a classe `cena` na camada que entra. É esse o
+       sinal de "há véu nesta tela, pode encenar".
+     · A PONTE ESCREVE AS FASES — todas as quatro, porque só ela sabe quando o
+       tile chegou, quando a última onda partiu (`mundoVoltou`) e quando o `easeTo`
+       terminou. E ela também RECUSA: cena já no ar, mapa sem estilo, movimento
+       desligado — nesses casos não sai marca nenhuma, e a lei da ponte é "ausência
+       de marca = cromo normal". Por isso a casca NÃO escreve `escurece` quando
+       existe ponte: forçar a marca seria vestir uma cena que o dono do assunto
+       acabou de recusar, e a tela ficaria escura à espera de um mapa que ninguém
+       vai desenhar.
+     · A CASCA VESTE E FECHA — lê a marca (é dela que sai o relógio de fase do
+       repinte) e tira a classe quando a fila acaba.
+
+   SEM PONTE (o mock aberto no navegador) quem anda com a fila é o relógio daqui,
+   com a tabela do contrato — é o que mantém o desenho demonstrável sem uma linha
+   de código escrita só pra ele. Nesse caso não existe câmera, logo não existe fase
+   `descida`: a fila é `escurece → ruas → pronto`.
+
+   E COM PONTE SOBRA UM SOCORRO SÓ: `CENA_SOCORRO`, que não é o teto das fases (a
+   ponte tem os dela, com números de tile e de onda que a casca não conhece) — é o
+   prazo de SILÊNCIO. Se a ponte não disser NADA por 7 s, a casca tira a classe e
+   devolve a tela honesta. Cromo preso invisível é pior que cena nenhuma.
+   ========================================================================== */
+const FILA=['escurece','ruas','descida','pronto'];
+/* a tabela do contrato, usada só quando a casca é a guia (mock sem ponte):
+   420 de véu + o que as ruas levam (1,06 s medido + folga) + os 420 do cromo. */
+const CENA_TETO={escurece:420,ruas:1200,descida:1900,pronto:420};
+/* 🔴 7 s É PRAZO DE SILÊNCIO, NÃO DURAÇÃO DE CENA — e o número tem que ser MAIOR
+   que o pior teto da ponte, senão o socorro da casca vira o caminho normal (a lei
+   que o próprio `50-cena-ruas.js` escreve no `FASE_TETO`). O pior deles é o da
+   fase `ruas`: 5,2 s. 7 s passa de folga por cima disso e ainda é menos da metade
+   do tempo que o motorista levaria pra achar que o app morreu. */
+const CENA_SOCORRO=7000;
+let cenaTimer=null, cenaTeto=null, cenaFase='', cenaEm=0, cenaRota=FILA, cenaGuia='';
+/* 🔴 ESCREVER A MARCA É APAGAR QUANDO ELA É VAZIA. `dataset.cena=''` deixa o
+   atributo NO AR, e a regra que esconde o cromo pergunta por `[data-cena]` sem
+   valor (§ folha, as três primeiras fases): a tela ficaria sem rodapé pra sempre.
+   Toda escrita da marca passa por aqui pra esse buraco não ter duas chances. */
+function cenaMarcar(f){
+  if(f) document.documentElement.dataset.cena=f;
+  else delete document.documentElement.dataset.cena;
+}
+/** há cena no ar? é a própria fila que responde — nunca um relógio à parte */
+const emCena=()=>!!cenaFase;
+/* a sonda das provas e do dono no console: a fase, a idade dela e o roteiro desta
+   cena. O atributo da raiz já é público e não mente; isto conta o que ele não sabe
+   — HÁ QUANTO TEMPO a fase está no ar (o número que uma prova de ritmo mede) e se
+   esta cena tem descida. */
+window.__cena=()=>({fase:cenaFase, desde:cenaFase?Math.round(performance.now()-cenaEm):0,
+  guia:cenaGuia, rota:cenaRota.slice(), teto:CENA_TETO});
+/* Lei 7 — quem pediu menos movimento não recebe fila nenhuma. Sem isto a folha
+   apagava as animações (o `@media` da Lei 7 é `!important`) mas o RELÓGIO
+   continuava: o cromo ficaria escondido 3,5 s por causa de uma cena que ninguém
+   ia ver, e a tela pareceria quebrada. Então a fila nasce direto em `pronto`. */
+const semMovimento=()=>{
+  try{ return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(_){ return false; }
+};
+/** a fila anda PRA FRENTE e uma fase por vez — o relógio da casca escreve por aqui */
+function cenaIr(fase){
+  if(FILA.indexOf(fase)<0) return;
+  if(cenaFase && FILA.indexOf(fase)<=FILA.indexOf(cenaFase)) return;
+  cenaMarcar(fase);
+  cenaVestir();
+}
+/* 🔴 QUEM É A PRÓXIMA FASE DEPENDE DE HAVER CÂMERA (lei 5 da fila: *"pouso no 2D
+   não tem fase 3"*). Sem ponte não existe `easeTo` nenhum, então a guia da casca
+   nunca passa por `descida` — 1,9 s de tela parada esperando um movimento que
+   ninguém vai fazer é o contrário do que o dono pediu.
+   A ORDEM continua sendo a da FILA inteira: se a ponte anunciar `descida`, isso é
+   pra frente e vale (senão o monotônico leria como fila voltando). E se ela
+   anunciar uma fase que o roteiro pulou, a conta segue de pé — `descida` acha o 3
+   na FILA e a próxima é `pronto`. O `||'pronto'` é o fim de linha obrigatório:
+   fila sem última fase é cromo preso invisível. */
+function cenaProxima(f){
+  let k=FILA.indexOf(f)+1;
+  while(FILA[k] && cenaRota.indexOf(FILA[k])<0) k+=1;
+  return FILA[k]||'pronto';
+}
+/* A cena ABRE aqui, e quem abre é sempre a casca (a classe `cena` é o sinal que a
+   ponte espera, § `50-cena-ruas.js:204`). O que muda é a GUIA:
+   · com ponte, ela anuncia as quatro fases e a casca só arma o prazo de silêncio —
+     inclusive o caso em que a ponte RECUSA a cena: aí não vem marca nenhuma, o
+     socorro tira a classe e a tela é a de sempre, que é a lei dela;
+   · sem ponte, o relógio daqui é a guia, com a tabela do contrato e sem `descida`.
+   Cena NOVA recomeça a fila: o monotônico vale DENTRO de uma cena, não entre duas. */
+function cenaAbrir(){
+  clearTimeout(cenaTimer); clearTimeout(cenaTeto);
+  cenaFase='';
+  cenaGuia = window.HBXCena ? 'ponte' : 'casca';
+  cenaRota = cenaGuia==='ponte' ? FILA : FILA.filter(f=>f!=='descida');
+  if(cenaGuia==='ponte'){ cenaMarcar(''); cenaSocorro(); return; }
+  cenaMarcar(semMovimento()?'pronto':'escurece');
+  cenaVestir();
+}
+/* o prazo de SILÊNCIO da ponte: passou e não veio fase nenhuma nova, a casca
+   devolve a tela honesta (tira a classe, apaga a marca). Ele se rearma a cada
+   anúncio, então o que ele mede é silêncio — nunca a duração da cena. */
+function cenaSocorro(){
+  clearTimeout(cenaTeto);
+  cenaTeto=setTimeout(()=>{ if(cenaFase!=='pronto') fecharCena(); },CENA_SOCORRO);
+}
+/* 🔴 A CASCA LÊ A MARCA, NÃO ESPERA SER CHAMADA. A ponte escreve o atributo
+   direto (é o contrato), e a casca precisa saber a HORA de cada virada — é dela
+   que sai o relógio herdado do repinte (`cenaEm`, lá embaixo) e o teto da fase
+   seguinte. Um observador de atributo resolve os dois caminhos com um código só:
+   escrita da ponte e escrita do teto entram pela mesma porta.
+   `cenaIr` chama isto na mão logo depois de escrever pra o acerto ser SÍNCRONO
+   (o observador só chega na microtarefa, e um repinte no mesmo tique leria a fase
+   velha); a segunda passada não faz nada, porque a primeira já igualou. */
+function cenaVestir(){
+  const f=document.documentElement.dataset.cena||'';
+  if(f===cenaFase) return;
+  const i=FILA.indexOf(f), j=FILA.indexOf(cenaFase);
+  /* Duas escritas se recusam aqui, e a marca volta pro que vale (o relógio da fase
+     atual segue de pé):
+     · FASE QUE NÃO EXISTE (`i<0`) — erro de digitação na ponte não pode virar tela
+       travada.
+     · FILA VOLTANDO (`i<=j`) — reencenar fase é o pisca que a fila veio matar. E é
+       o que impede o socorro da casca de brigar com um anúncio atrasado da ponte:
+       empurrada até `pronto`, a `descida` que chegar depois não desfaz mais nada. */
+  if(f && (i<0 || i<=j)){ cenaMarcar(cenaFase); return; }
+  cenaFase=f; cenaEm=performance.now();
+  clearTimeout(cenaTeto);
+  if(!f){ fecharCena(); return; }
+  // a última fase não empurra ninguém: ela ENCERRA a cena quando o cromo assenta.
+  if(f==='pronto'){ clearTimeout(cenaTimer); cenaTimer=setTimeout(fecharCena,CENA_TETO.pronto); return; }
+  // com ponte o relógio mede SILÊNCIO; sem ela, ele é a guia e empurra a fase.
+  if(cenaGuia==='ponte'){ cenaSocorro(); return; }
+  cenaTeto=setTimeout(()=>cenaIr(cenaProxima(f)),CENA_TETO[f]);
+}
+try{
+  new MutationObserver(cenaVestir)
+    .observe(document.documentElement,{attributes:true,attributeFilter:['data-cena']});
+}catch(_){}
+/* 🔴 FECHAR É APAGAR A MARCA (§ `cenaMarcar`), NÃO ESVAZIAR. E `cenaFase` cai
+   ANTES do atributo pra o observador ver "nada mudou" e não voltar aqui — fechar é
+   idempotente por construção, não por sorte. */
 function fecharCena(){
+  clearTimeout(cenaTimer); clearTimeout(cenaTeto);
+  cenaFase=''; cenaGuia='';
+  cenaMarcar('');
   document.querySelectorAll('#app .tela.cena').forEach(c=>c.classList.remove('cena'));
 }
 let entradaEm=0;
@@ -4287,8 +4471,19 @@ function pintar(animar,dir){
      sem as marcas, que é a cura nº1 aplicada também aqui. Vale igual pro
      pós-abertura: `abertura` fica na camada pra sempre (a remoção da troca
      não a tira) e todo repinte tardio da 1ª tela reencenava `mvScrim`+`trItem`. */
+  /* 🔴 NA CENA, QUEM DIZ SE A ENTRADA ESTÁ VIVA É A FILA — não um relógio à parte
+     (17/08). Aqui havia UM número (`CENA_CHEIA`) fazendo o papel de "quanto tempo
+     a cena dura", e ele era um palpite: a fila real acaba quando o mapa avisa, e
+     isso é 3,7 s num aparelho bom e mais num ruim. Palpite curto = a herança
+     morre no meio da cena e a camada nova nasce sem papel (o pisca de 08/08);
+     palpite longo = o relógio herdado carimba animação que já acabou.
+     `emCena()` é a verdade: enquanto existe fase na raiz, existe cena pra
+     continuar. O teto continua existindo, só que ele agora é o da FILA (é ela que
+     tem hora pra acabar, § `CENA_TETO`) — um dono, não dois. */
   const entradaViva = antiga
-    && (performance.now()-entradaEm) < (antiga.classList.contains('cena')?CENA_CHEIA:ENTRADA_COMUM);
+    && (antiga.classList.contains('cena')
+      ? emCena()
+      : (performance.now()-entradaEm) < ENTRADA_COMUM);
   const comSaidaViva = camadas.some(c=>c.classList.contains('sai'));
   const herdando = !animar && antiga && antiga.classList.contains('entra')
     && (entradaViva || ((antiga.classList.contains('cheio') || antiga.classList.contains('abertura')) && comSaidaViva));
@@ -4407,27 +4602,39 @@ function pintar(animar,dir){
        (17/08, item 4). Entrar na tela cheia é a camada TOMANDO o aparelho —
        escala, brilho, véu, cena. Trocar de câmera com a tela JÁ cheia é outro
        evento: aqui as duas camadas são a mesma tela com outro cromo, e o mapa é
-       o mesmo nó nas duas. Se este par vestisse o show da tela cheia, o
-       `mvCheioEntra` escalaria o MAPA em 1,14 — que é o "piscar tudo" do pedido.
+       o mesmo nó nas duas. Se este par vestisse o show da tela cheia, a camada
+       inteira escalaria e levaria o MAPA junto — que é o "piscar tudo" do pedido.
        Então a marca `modo-troca` desliga a animação de CAMADA (§ folha) e o
        movimento vai pras PEÇAS que mudam; `troca-sobe`/`troca-desce` guardam o
        SENTIDO, pra prova e pra ponte lerem sem adivinhar por nome de tela.
        `cena` NÃO entra aqui: a cena é de quem CHEGA na rota (o montar), não de
        quem troca de câmera dentro dela — foi a lição de 16/08, quando voltar da
-       Panorâmica reencenava a entrada inteira e o dono viu 3 s de tela parada. */
+       Panorâmica reencenava a entrada inteira e o dono viu 3 s de tela parada.
+       🔴 560 → 900 (17/08, dono: *"um pouco mais devagar, um pouco mais
+       organizado"*). A troca virou sequência e a peça que ENTRA só termina aos
+       800 ms (420 de espera + 380 de gesto, § `--troca-espera`): matar a camada
+       velha aos 560 arrancava o palco no meio do último gesto. 900 dá os 100 ms
+       de sobra que a casa sempre deu (o padrão desta função é `DUR+40`). */
     if(trocaDeModo){
       const sentido=atual==='mapa'?'troca-desce':'troca-sobe';
       nova.classList.add('modo-troca',sentido);
       antiga.classList.add('modo-troca',sentido);
-      espera=560;
+      espera=900;
     }
-    // A CENA (véu → ponteiro → mapa) só existe ENTRANDO na tela cheia, e por
-    // 900 ms. O relógio anterior morre aqui: entrar duas vezes seguidas não
-    // pode deixar o primeiro relógio apagar a cena do segundo.
+    /* A CENA só existe ENTRANDO na tela cheia. Aqui ela ABRE a fila (§ `cenaAbrir`)
+       e quem a fecha é a última fase, nunca este ponto — o relógio de cada fase
+       mora na fila, que é a única que sabe em qual delas a cena está.
+       🔴 580 → 460 NA CENA (17/08). A camada que sai não tem mais show nenhum
+       durante a fila (`:root[data-cena] .tela.sai.cheio{animation:none}`): ela só
+       espera a cor cobri-la, e a cor fecha aos 420 ms (`--cena-escurece`). Segurar
+       a montagem com 52 linhas viva por mais 120 ms atrás de uma cortina opaca era
+       trabalho de quadro pago à toa no g15 — e ainda atrasava a cena das ruas, que
+       na ponte só começa quando NÃO existe `.tela.sai` (§ `50-cena-ruas.js:119`).
+       Os 40 ms de sobra são o padrão da casa. */
     if(entrandoNoCheio && !trocaDeModo){
       nova.classList.add('cena');
-      clearTimeout(cenaTimer);
-      cenaTimer=setTimeout(fecharCena, CENA_CHEIA);
+      cenaAbrir();
+      espera=460;
     }
     app.appendChild(nova);
     // ABERTURA: mede o percurso do logo DEPOIS de a camada nova estar no ar —
@@ -4553,11 +4760,23 @@ function pintar(animar,dir){
     // animações da cena nasciam TERMINADAS — o motorista via o desfecho sem
     // nunca ver o prédio acender. Passada a entrada não existe o que
     // continuar, e carimbar vira só estrago. O teto é a ENTRADA DA CAMADA: a
-    // tela cheia carrega a marca `cena` e vale `CENA_CHEIA` (as folhas fecham
-    // aos 580 ms); qualquer outra vale `ENTRADA_COMUM`. É O MESMO NÚMERO que tira
-    // a marca `cena` lá em cima, e tem que continuar sendo: enquanto vale o
-    // relógio herdado existe cena pra continuar; passado ele, não existe.
+    // tela cheia carrega a marca `cena` e vale `CENA_CHEIA` (a soma das fases da
+    // fila); qualquer outra vale `ENTRADA_COMUM`.
+    /* 🔴 NA CENA O RELÓGIO É DA FASE, NÃO DA CAMADA (17/08) — e sem isto a fila
+       não sobreviveria ao primeiro repinte. As animações da cena não partem mais
+       junto com a camada: elas partem quando a FASE começa (`escurece` no instante
+       da entrada, mas `ruas` ~420 ms depois, `pronto` a três segundos e meio).
+       Carimbar nelas o tempo de vida da CAMADA jogaria cada uma direto pro fim —
+       é o mesmo defeito de 07/08 ("as 17 animações nasciam TERMINADAS"), só que
+       por outro caminho: dirigindo, o seam repinta 1×/s, então um fix do GPS
+       caindo dentro da cena entregaria o cromo já pousado.
+       `cenaEm` é o começo da fase que está no ar (§ `cenaVestir`); a ÚNICA
+       animação da camada em cena que não é da fase é a entrada dela mesma
+       (`mvCenaEnche`, que toca uma vez, no começo) — essa continua no relógio da
+       camada, senão ela reencena a 71% de opacidade no meio da fase seguinte. */
     const t=performance.now()-entradaEm;
+    const naCena=nova.classList.contains('cena') && emCena();
+    const tf=performance.now()-cenaEm;
     const teto=nova.classList.contains('cena')?CENA_CHEIA:ENTRADA_COMUM;
     if(nova.getAnimations && t<teto){
       // 🔴 SÓ CONTINUA QUEM TINHA O QUE CONTINUAR. O teto sozinho não basta:
@@ -4585,7 +4804,7 @@ function pintar(animar,dir){
         const resta=antes.get(n)||0;
         if(resta<=0 && !ENTRADA_DA_TELA.has(n)) return;
         if(resta>0) antes.set(n,resta-1);
-        try{ a.currentTime=t; }catch(_){}
+        try{ a.currentTime=(naCena && n!==CENA_DA_CAMADA)?tf:t; }catch(_){}
       });
     }
   }else{
@@ -4601,6 +4820,16 @@ function pintar(animar,dir){
     // idem ao ramo de cima: o foco volta por ÚLTIMO, com o portão já no lugar.
     herdarFoco(foco,nova);
   }
+  /* 🔴 SAIR DE CENA NO MEIO ENCERRA A FILA — e o teste é o DOM, não a intenção.
+     A marca da fase mora na RAIZ e sobrevive à troca de camada: sem esta linha,
+     quem cancela (ou toca Panorâmica) durante a cena deixava a fase pendurada no
+     `<html>` com o relógio ainda empurrando fases de uma cena que já saiu da tela.
+     Marca sem cena é exatamente o "cromo preso invisível" que a lei 4 da fila
+     proíbe. Fica DEPOIS dos três ramos porque os três podem matar a camada em
+     cena: a troca de tela (que remove a marca `cena` da que sai), o repinte que
+     não herda (`innerHTML=''`) e o herdeiro que não recebeu a marca. Perguntar ao
+     documento cobre os três com uma linha — enumerar os casos cobriria dois. */
+  if(emCena() && !document.querySelector('#app .tela.cena')) fecharCena();
   pintarRail();
   /* 🔴 O TOUR SE REMONTA NA CAMADA NOVA. O `.aula-wrap` mora DENTRO da camada,
      e a camada é trocada inteira a cada repinte do seam — sem esta linha a

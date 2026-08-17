@@ -154,13 +154,31 @@
   // o "Você chegou" agora é a peça `.chegou-wrap` por cima dela, nunca outra
   // tela.
   const naNavegacao = () => telaAtual() === 'mapa';
+  /* 🔴 O 2D COM ROTA MONTADA TAMBÉM É NAVEGAÇÃO (17/08 — item 2 do dono: a tira
+     `restante · distância · chegada` nos DOIS modos). A peça já existe na casca
+     desde hoje (§ `tiraDosIndicadores`), mas ela só nasce COM FONTE — e a fonte
+     é este seam. Enquanto `aoMover` voltava na porta fora da tela 'mapa', o 2D
+     era um mapa MUDO: pino, fita e posição, e nenhum número do dia. Quem achou
+     foi a prova nova (`prova-mapa-uma-tela`), medindo a tira num 2D FRIO — o
+     pouso do montar, que é exatamente onde o dono vai olhar primeiro.
+     `telaMapa` é a régua dos DOIS; `naNavegacao` continua sendo a de QUEM DIRIGE
+     — e é ela que manda no que é do 3D: a câmera inclinada, a VOZ e o radar. */
+  const telaMapa = () => naNavegacao() || telaAtual() === 'rota';
   function aoMover() {
-    if (!naNavegacao()) return;
+    if (!telaMapa()) return;
     pintarNavegacao();
-    if (telaAtual() === 'mapa') {
-      pedirRota(); pedirCamera();
+    /* a rota do roteador é a MESMA nos dois modos (é o dia, não a câmera): sem
+       ela não há restante, distância nem chegada — e é dela que a fita já vive.
+       Os freios de repetição são do próprio `pedirRota` (§ 7d): entrar no 2D não
+       compra pedido novo, ele reusa o mesmo que a navegação usaria. */
+    pedirRota();
+    if (naNavegacao()) {
+      pedirCamera();
       // a voz mora AQUI, no fix — não no repinte: quem entra na tela não pode
       // levar um "vire à direita" na cara só por ter aberto o mapa.
+      // 🔴 E ELA CONTINUA SÓ NO 3D: o 2D é a tela de OLHAR o dia. Falar a
+      // manobra pra quem abriu a panorâmica é o app gritando fora de hora —
+      // quem quer a voz está dirigindo, e dirigindo é a outra tela.
       vozDaManobra(manobraDaVez());
       // e o radar vem DEPOIS dela, sempre: a ordem das duas linhas é a
       // prioridade da manobra na voz (§ 6d).
@@ -545,7 +563,16 @@
          (§ tracoDoPlano): um pedido, na mesma porta com os mesmos freios, pra
          a tela principal não mostrar mais ponto solto. Se o GPS ainda não deu
          fix, o bilhete espera o primeiro — não há relógio nenhum atrás disto. */
-      if (tela === 'rota') { armarGpsSeConcedido(); planoQuerTraco = true; tracoDoPlano(); }
+      /* 🔴 E O 2D JÁ NASCE COM OS NÚMEROS DO DIA (17/08, item 2). Mesma lei do
+         `tela === 'mapa'` logo abaixo — "a navegação não espera o próximo fix":
+         entrar na tela pinta o que se sabe SEM GPS (o que falta, a distância, a
+         hora de chegada) e já pede a rota. Sem isto a tira só apareceria no
+         primeiro `watchPosition`, que numa garagem demora — e o pouso do montar
+         cai justamente aí. */
+      if (tela === 'rota') {
+        armarGpsSeConcedido(); planoQuerTraco = true; tracoDoPlano();
+        pintarNavegacao(); pedirRota();
+      }
       if (tela === 'chat') aoAbrirChat();
       // Cadastro NASCE EM BRANCO, sempre. Formulário que guarda o cliente
       // anterior é a receita de cadastrar duas vezes a mesma pessoa — e aqui

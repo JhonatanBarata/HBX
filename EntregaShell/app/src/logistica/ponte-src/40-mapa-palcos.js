@@ -350,6 +350,10 @@
     });
     acertarPinos(casa);
     pinosVisiveis(casa);
+    // e o "eu" junto dos pinos: esta função é o que o transplante de palco chama
+    // (§ 55-cena-reversa) quando a lista muda, e a lista muda ao Iniciar a rota —
+    // o mesmo tique em que a tela vira a de dirigir. Um estado, uma passada.
+    euVisivel(casa);
     // rota OUTRA = enquadramento outro. Aqui dentro é o único lugar automático
     // que reenquadra, e de propósito: este bloco só roda quando a lista muda.
     enquadrarGeral(casa);
@@ -482,8 +486,30 @@
     try { casa.mapa.easeTo(passo); } catch (_) { /* mapa saindo de cena */ }
   }
 
+  /* ---- O REALINHAR É UM GESTO, ENTÃO ELE ANDA -------------------------------
+     🔴 17/08 — dono, com o mapa na mão: *"ao clicar no 'realinhar' ou
+     re-centralizar, não é smooth os efeitos, ele simplesmente PISCA. Isso é
+     inaceitável, já falei q tem q ser regra esses efeitos, nada pisca, nada
+     APARECE DO NADA"*.
+
+     A causa estava numa linha: `enquadrarPlano` chamava `enquadrarGeral(casa)`
+     SEM duração, e `porNoPlano` traduz "sem duração" em `duration: 0` — que é um
+     `jumpTo` com outro nome. O dedo pedia a rota inteira e recebia um CORTE:
+     outra cidade na tela no quadro seguinte, sem nada tendo se movido.
+     O valor é o mesmo vocabulário de tempo que a troca de câmera já usa (700 ms
+     no `TROCA_MS` do 45-troca-de-modo, 900 ms no recentralizar do 3D): 620 ms com
+     a curva `suave` (cúbica nas duas pontas) — o bastante pra o olho SEGUIR o
+     movimento e curto o bastante pra não virar espetáculo num botão que o
+     motorista aperta o dia inteiro.
+
+     🔴 E SÓ O DEDO ANDA. As outras três portas que chegam ao `enquadrarGeral`
+     (mapa nascendo, 1º fix, rota mudou) continuam instantâneas de propósito: ali
+     não há de onde sair — o mapa acabou de nascer no centro padrão, e animar
+     seria uma viagem de continente na cara de quem abriu a tela. Gesto se anima;
+     nascimento se posiciona. */
+  const ENQUADRAR_MS = 620;
   /** o botão da beirada do mapa 2D: devolve a rota inteira pra tela */
-  function enquadrarPlano() { enquadrarGeral(GARAGEM.get(PALCO)); }
+  function enquadrarPlano() { enquadrarGeral(GARAGEM.get(PALCO), ENQUADRAR_MS); }
 
   /* 🔴 "ONDE EU ESTOU" NÃO É UM CARIMBO DE BOOT. O marcador do mapa 2D era
      criado UMA vez, no `load` do mapa, com a posição daquele instante — e nunca
@@ -541,6 +567,18 @@
     const temRumo = Number.isFinite(fix.rumoGraus);
     el.style.setProperty('--cone', temRumo ? '1' : '0');
     if (temRumo) el.style.setProperty('--rumo', `${Math.round(fix.rumoGraus)}deg`);
+    /* 🔴 A RÉGUA DO "UM SÍMBOLO SÓ" ENTRA AQUI PORQUE AQUI SÃO TRÊS PORTAS EM UMA
+       (17/08 — dono, com o print do 3D: *"esse símbolo tem q transmuxar entre 2d e
+       3d, não é para ter os 2 no mapa"*). `vestirEu` é o ÚNICO ponto do "eu" que
+       roda no NASCIMENTO do marcador, a CADA fix (§ `moverEuNoPlano`, 1×/s em
+       qualquer tela) e a cada evento de `zoom` do mapa (§ 55-cena-reversa) — e é o
+       zoom que cobre a entrada na navegação que NÃO passa pela troca de modo (app
+       subindo direto na tela de dirigir, § `entrarNaDescida`): a câmera desce, o
+       zoom muda, o ponto azul apaga sem esperar o próximo fix. Pendurar a régua
+       numa porta só faria ela valer às vezes, que é o mesmo que não valer.
+       A régua mora junto de `pinosVisiveis` (§ 45-troca-de-modo), de quem ela é
+       irmã: mesma pergunta (`naNavegacao()`), mesmo mecanismo (`visibility`). */
+    euVisivel(casa);
   }
 
   function moverEuNoPlano() {
@@ -561,8 +599,15 @@
          12. Sem isto o motorista ganhava o marcador dele num mapa apontado pra
          outro lugar — a seta existia e estava FORA DA TELA. Só na criação do
          marcador, nunca nos fixes seguintes: aí seria a câmera desfazendo o
-         arrasto uma vez por segundo, que é o defeito que a fase 'solta' curou. */
-      enquadrarGeral(casa);
+         arrasto uma vez por segundo, que é o defeito que a fase 'solta' curou.
+         🔴 E NUNCA DIRIGINDO (17/08). Com UM palco só (16/08), este primeiro fix
+         pode chegar com a tela de DIRIGIR na frente — o motorista fechou o app no
+         meio da rota e voltou direto pro 3D. Aí `enquadrarGeral` mandava
+         `porNoPlano` com `pitch:0/bearing:0/duration:0`: a câmera inclinada era
+         ACHATADA num quadro, sem ninguém ter pedido. É a lei "um dono por estado"
+         que o `acompanharNoPlano`, 20 linhas abaixo, já cumpria e esta porta não
+         cumpria. Dirigindo, quem manda na câmera é a navegação, e ponto. */
+      if (!naNavegacao()) enquadrarGeral(casa);
       return;
     }
     try { casa.eu.setLngLat([eu.lng, eu.lat]); } catch (_) { /* mapa saindo de cena */ }

@@ -10,6 +10,10 @@
  *      o ponto anda a cada fix, e NINGUÉM pede permissão fora de hora.
  *   B) "cadê os pontos, os checkpoints?" — os pinos numerados existem, estão
  *      DENTRO da tela, e o rebaixamento por zoom só vale pra dia CHEIO.
+ *   C) "e o NOME do cliente?" (item 6 do dono, 17/08: *"Mapa 2d ao se aproximar
+ *      exibe o numero, ao dar zoom + ainda exibe o nome do cliente"*) — o
+ *      terceiro degrau da MESMA régua de espaço, medido nos três lugares em que
+ *      ele pode mentir: no zoom que acende, no vizinho colado, e dirigindo.
  *
  * 🔴 POR QUE ELA MEDE POSIÇÃO, E NÃO SÓ EXISTÊNCIA. O defeito que originou este
  * arquivo passava em qualquer teste de "o marcador foi criado?": os três pinos
@@ -101,6 +105,31 @@ const paradaFalsa = (i) => ({
   },
 });
 
+/* ---- A SEMENTE DO 3º DEGRAU: ESPAÇAMENTO EM METROS ------------------------
+   🔴 EM METROS, E NÃO EM GRAUS, porque a régua do produto é em metros/pixel e
+   eu quero que a conta desta prova seja conferível NA MÃO contra a da ponte:
+   `mpp = 156543,03392 · cos(lat) / 2^zoom` (§ `metrosPorPixel`, 40-mapa-palcos).
+   Em Rio Claro (lat −22,41; cos = 0,9245) isso dá 144.720 m por "tela de zoom":
+     z=14 → 8,83 m/px   ·   z=15 → 4,42 m/px   ·   z=16 → 2,21 m/px
+   Com 1.100 m entre vizinhos o vão vale 124 px em z=14 e 249 px em z=15 — os
+   DOIS acima do rótulo de 96 px (`PINO_NOME_PX`). É essa a escolha do número:
+   ela deixa a faixa dos pixels APROVADA nos dois zooms, e aí a única coisa que
+   pode negar o nome em z=14 é o PISO DO GESTO (`PINO_NOME_ZOOM = 15`). Régua
+   isolada; se as duas condições estivessem apertadas juntas, um vermelho não
+   diria qual delas falou. */
+const VAO_M = 1100;
+const COLADO_M = 30;
+const BASE_LAT = -22.4126;
+const BASE_LNG = -47.5763;
+const paradaAoNorte = (i, metros) => {
+  const p = paradaFalsa(i);
+  p.cliente.lat = BASE_LAT + metros / 110540;
+  p.cliente.lng = BASE_LNG;
+  p.status = 'agendada';
+  p.mapStatus = 'pending';
+  return p;
+};
+
 const PONTE = (itens) => {
   window.__chamadas = [];
   window.__itens = itens;
@@ -182,8 +211,25 @@ const LER = () => {
     .map((el) => {
       const r = el.getBoundingClientRect();
       const s = getComputedStyle(el);
+      /* 🔴 O NÚMERO MUDOU DE ENDEREÇO — A PERGUNTA É A MESMA (17/08). Era
+         `txt: el.textContent`, do pino INTEIRO, e isso valia enquanto o pino era
+         um nó de texto só. O item 6 do dono deu dois filhos a ele — `<b class="n">`
+         (o sinal) e `<i class="nome">` (o cliente) — e o pai passou a devolver
+         "1Cliente 1". As réguas 2.2, 2b.3/4/5 e 3.2b ficaram vermelhas cobrando
+         um texto que NÃO EXISTE em pixel nenhum da tela: a prova reprovando a si
+         mesma, não o produto. O número mora no `.n`; o nome, no `.nome`; e cada
+         um se mede onde mora (a sonda `HBXTroca.pinos()` faz a mesma conta, com
+         o mesmo porquê escrito lá).
+         O FALLBACK PRO PRÓPRIO NÓ É DE PROPÓSITO: pino de camada anterior a este
+         APK não tem `.n`, e aí a régua volta a medir o pai — medir errado é ruim,
+         morrer com `null.textContent` é pior (erro não se lê como "reprovou"). */
+      const noN = el.querySelector('.n');
+      const noNome = el.querySelector('.nome');
       return {
-        id: el.dataset.parada, txt: el.textContent, min: el.classList.contains('min'),
+        id: el.dataset.parada, txt: (noN || el).textContent,
+        nome: noNome ? noNome.textContent : '',
+        comNome: el.classList.contains('com-nome'),
+        min: el.classList.contains('min'),
         classes: [...el.classList],
         w: Math.round(r.width), h: Math.round(r.height),
         y: Math.round(r.y), dentro: cai(r),
@@ -216,6 +262,49 @@ const LER = () => {
     alvoBuscando: !!document.querySelector('.plano-lado button.buscando'),
     pediuPermissao: window.__pediuPermissao,
   };
+};
+
+/* ---- O 3º DEGRAU, MEDIDO NA PEÇA -----------------------------------------
+   🔴 CLASSE NÃO É TELA, e por isso são TRÊS colunas e não uma. `com-nome` é o
+   que a ponte DECIDIU; `visivel` é o que a folha FEZ com a decisão (o rótulo
+   nasce `display:none` e só `.map-pino.com-nome .nome` o acende — § mock); e
+   `texto` é o que o motorista LÊ. Cobrar só a classe aprovaria uma decisão certa
+   com a folha morta calada, que é a lei nº1 desta casa ("CSS morre calado").
+   Este leitor é separado do `LER` de propósito: dirigindo, o `LER` mede a
+   posição contra o palco da tela de Rota e eu não quero que o degrau do nome
+   dependa de qual palco está no ar. */
+const LER_NOMES = () => [...document.querySelectorAll('.map-pino')].map((el) => {
+  const noNome = el.querySelector('.nome');
+  const r = noNome ? noNome.getBoundingClientRect() : null;
+  return {
+    id: el.dataset.parada || '',
+    num: (el.querySelector('.n') || el).textContent,
+    min: el.classList.contains('min'),
+    comNome: el.classList.contains('com-nome'),
+    // a peça EXISTE no DOM? (a ponte só a cria pra cliente com nome no cadastro)
+    tem: !!noNome,
+    visivel: !!noNome && getComputedStyle(noNome).display !== 'none',
+    texto: noNome ? noNome.textContent : '',
+    larg: r ? Math.round(r.width) : 0,
+    /* 🔴 A LARGURA DA CAIXA NÃO É A LARGURA DO QUE SE VÊ. O rótulo é
+       `max-width:96px` + `white-space:nowrap` e SEM `overflow:hidden` (§ mock):
+       texto mais comprido que o teto não encolhe a caixa nem é aparado pela
+       folha — ele TRANSBORDA, e o pixel que o motorista vê passa dos 96 px que o
+       degrau reservou. Medir só o `getBoundingClientRect` daria 96 px eternos e
+       aprovaria exatamente o defeito que a lei de acoplamento existe pra evitar
+       (nome encostando em nome). Quem responde isso é o `scrollWidth`. */
+    vaza: noNome ? noNome.scrollWidth > noNome.clientWidth + 1 : false,
+    tinta: noNome ? noNome.scrollWidth : 0,
+  };
+});
+
+/** o zoom na mão, no mapa VIVO (é UM só; todo palco que já o hospedou aponta
+    pro mesmo objeto, então qualquer um serve de porta) */
+const ZOOMAR = (n) => {
+  const palco = [...document.querySelectorAll('.mapa-palco[data-mapa]')].find((el) => el.__hbxMapaObj);
+  if (!palco) return null;
+  palco.__hbxMapaObj.setZoom(n);
+  return Number(palco.__hbxMapaObj.getZoom().toFixed(2));
 };
 
 /** resolve uma cor de token (var(--x)) pro rgb() que o navegador calculou */
@@ -427,7 +516,12 @@ const RESOLVER = (valor) => {
       await window.HBXRota.carregar();
       await new Promise((resolve) => setTimeout(resolve, 700));
       const depois = document.querySelector('.map-pino[data-parada="e1"]');
-      return !!(depois && depois.__provaMesmoNo && depois.textContent === '✓');
+      // 🔴 MESMA MUDANÇA DE ENDEREÇO DO `LER` (17/08): o sinal mora no `.n`.
+      // Aqui ela morde mais fundo — o que esta régua prova é que o repinte TROCA
+      // o sinal sem recriar o nó, e `depois.textContent` (com o rótulo do cliente
+      // dentro) nunca seria "✓" nem no cenário certo.
+      const sinal = depois && (depois.querySelector('.n') || depois);
+      return !!(depois && depois.__provaMesmoNo && sinal.textContent === '✓');
     });
     eh('2b.6 mudança de estado repinta o mesmo pino por id', reaproveitou);
     await ctx.close();
@@ -752,6 +846,167 @@ const RESOLVER = (valor) => {
       temSonda ? `antes=${zAntesDoDedo.toFixed(3)} depois=${zDepoisDoDedo.toFixed(3)}` : 'sem freio de dedo no palco 2D');
 
     eh('7.5 nenhum erro de pagina no caminho todo', erros.length === 0, erros[0] || 'limpo');
+    await ctx.close();
+  }
+
+  /* ===== CASO 8 — O TERCEIRO DEGRAU: O NOME DO CLIENTE ======================
+     Item 6 do dono (17/08): *"Mapa 2d ao se aproximar exibe o numero, ao dar
+     zoom + ainda exibe o nome do cliente"*.
+
+     🔴 POR QUE ISTO NÃO É "MAIS UMA ASSERÇÃO DO PINO" E VIROU CASO PRÓPRIO. O
+     nome é a TERCEIRA saída da mesma régua de espaço que já decidia ponto ×
+     número (§ `acertarPinos`, 45-troca-de-modo), e régua de três degraus tem
+     três jeitos de mentir — cada um invisível pelos outros dois:
+       1. acender no zoom ERRADO (nome flutuando a quilômetros da porta que ele
+          descreve: o "cadê os pontos" do dono ao contrário);
+       2. acender no vizinho COLADO (nome escrevendo por cima de nome — e a
+          exceção "até 12 paradas nunca rebaixa" NÃO vale pro nome, porque tarja
+          de 96 px não é bola de 30);
+       3. acender DIRIGINDO (rótulo de cadastro competindo com a manobra, a 60
+          km/h — "enfeite não derruba rota").
+     Os três medidos na MESMA sessão, na mesma semente, porque o defeito de
+     qualquer um deles sai VERDE nas provas dos outros dois.
+
+     E a semente é uma só (§ `paradaAoNorte`): três paradas com 1.100 m de rua
+     sozinha e DUAS coladas a 30 m no fim da fila. Um dia real tem os dois — o
+     centro apertado e o bairro vazio — e é justamente essa mistura que a régua
+     antiga (de conjunto: mediana do dia) apagava inteira.
+     ====================================================================== */
+  {
+    const itens = [
+      paradaAoNorte(0, 400),
+      paradaAoNorte(1, 400 + VAO_M),
+      paradaAoNorte(2, 400 + VAO_M * 2),
+      paradaAoNorte(3, 400 + VAO_M * 3),
+      paradaAoNorte(4, 400 + VAO_M * 3 + COLADO_M),
+    ];
+    /* 🔴 UM NOME COMPRIDO NA SEMENTE, e ele não é enfeite de fixture: os 96 px do
+       degrau SÃO a largura do rótulo aparado em 16 letras (`PINO_NOME_MAX`), e a
+       ponte declara isso como LEI DE ACOPLAMENTO ("quem mexer na fonte do rótulo
+       refaz os DOIS números juntos"). Lei acoplada sem régua que a meça é lei que
+       vai quebrar calada no primeiro que trocar a fonte do mock. */
+    itens[1].cliente.nome = 'Distribuidora Aguas Claras do Vale';
+    const { ctx, p, erros } = await abrir(navegador, pele, porta, {
+      itens, permissao: true, routeStatus: 'ACTIVE',
+    });
+    const zoomar = async (z) => {
+      const visto = await p.evaluate(ZOOMAR, z);
+      await p.waitForTimeout(800);
+      return visto;
+    };
+    const ESPALHADOS = ['e0', 'e1', 'e2'];
+    const COLADOS = ['e3', 'e4'];
+    const so = (lista, ids) => lista.filter((x) => ids.includes(x.id));
+    const resumo = (lista) => lista.map((x) => `${x.id}:${x.comNome ? 'nome' : x.min ? 'ponto' : 'num'}`).join(' ');
+
+    /* Guarda de sonda, mesma lei do caso 7: medir contra um código que ainda não
+       tem o degrau tem que REPROVAR dizendo isso, nunca morrer de TypeError —
+       erro não se lê como "reprovou". */
+    const temSonda = await p.evaluate(() => !!(window.HBXTroca && window.HBXTroca.pinos));
+
+    // ---- 1º: o zoom em que o nome DEVE aparecer (piso do gesto = 15) -------
+    const z15 = await zoomar(15);
+    const a = await p.evaluate(LER_NOMES);
+    const espalhados = so(a, ESPALHADOS);
+    const colados = so(a, COLADOS);
+    eh('8.0 a semente subiu inteira (5 pinos) no zoom do piso', a.length === 5 && z15 === 15,
+      `${a.length} pinos · zoom=${z15}`);
+    eh('8.1 z15, 1.100 m de vizinho (249 px): a ponte manda `com-nome`',
+      espalhados.length === 3 && espalhados.every((x) => x.comNome),
+      resumo(a));
+    eh('8.2 e a FOLHA acende o rotulo (display deixa de ser none)',
+      espalhados.length === 3 && espalhados.every((x) => x.visivel && x.larg > 0),
+      espalhados.map((x) => `${x.id} vis=${x.visivel} ${x.larg}px`).join(' · '));
+    eh('8.3 o rotulo diz o NOME do cliente, nao o numero',
+      !!a.find((x) => x.id === 'e0' && x.texto === 'Cliente 1')
+      && !!a.find((x) => x.id === 'e2' && x.texto === 'Cliente 3'),
+      espalhados.map((x) => `${x.id}="${x.texto}"`).join(' · '));
+    /* 🔴 A DUPLA COLADA É A RÉGUA DA EXCEÇÃO, NÃO UM CASO A MAIS. Com 5 paradas o
+       dia está DENTRO da faixa dos 12 ("nunca rebaixa"), então `min` é falso pros
+       dois — eles continuam numerados, como devem. O que se cobra aqui é que a
+       faixa dos 12 NÃO os deixe passar pelo degrau do nome: 30 m em z=15 são 6,8
+       px, e dois rótulos de 96 px a 6,8 px de distância é um nome escrito por
+       cima do outro. Se um dia esta linha ficar vermelha com `min=true`, o
+       defeito é o oposto (a faixa dos 12 morreu) e a medida diz qual dos dois. */
+    eh('8.4 os dois colados a 30 m NAO ganham nome — e seguem NUMERADOS',
+      colados.length === 2 && colados.every((x) => !x.comNome && !x.visivel && !x.min)
+      && colados.map((x) => x.num).sort().join(',') === '4,5',
+      colados.map((x) => `${x.id} nome=${x.comNome} min=${x.min} n="${x.num}"`).join(' · '));
+    const longo = a.find((x) => x.id === 'e1');
+    /* 🔴 E ELA COBRA O RÓTULO INTEIRO, NÃO A CAIXA DELE. Os 96 px do degrau são
+       uma PROMESSA de espaço vazio ao lado do pino; se a tinta do nome passa dos
+       96, o degrau garantiu um vão que a peça não respeita e dois nomes voltam a
+       encostar mesmo com a régua toda certa. `aparado` mede a ponte
+       (`PINO_NOME_MAX`), `larg`/`vaza` medem a folha — a lei de acoplamento é
+       entre os dois, então a régua tem que ter as duas pontas. */
+    eh('8.5 nome comprido e APARADO em 16 letras e cabe no vao reservado (96px)',
+      !!longo && longo.texto.length <= 16 && /…$/.test(longo.texto)
+      && longo.larg <= 96 && !longo.vaza,
+      longo ? `"${longo.texto}" (${longo.texto.length} letras) caixa=${longo.larg}px tinta=${longo.tinta}px vaza=${longo.vaza}` : 'sem e1');
+
+    // ---- 2º: o PISO DO GESTO, isolado (o vão continua folgado em z=14) -----
+    const z14 = await zoomar(14);
+    const b = await p.evaluate(LER_NOMES);
+    eh('8.6 z14: com 124 px de vao LIVRE, ninguem tem nome (manda o piso do gesto)',
+      z14 === 14 && b.length === 5 && b.every((x) => !x.comNome && !x.visivel),
+      `zoom=${z14} · ${resumo(b)}`);
+
+    // ---- 3º: DIRIGINDO, nunca ---------------------------------------------
+    await p.evaluate(() => window.ir('mapa'));
+    await p.waitForTimeout(3200);
+    const zDir = await zoomar(16);
+    const c = await p.evaluate(LER_NOMES);
+    /* 🔴 A TELA ENTRA NA MEDIDA. Sem ela, esta régua tem DOIS jeitos de ficar
+       vermelha e a mesma cara nos dois: "está dirigindo e o portão do nome
+       quebrou" (defeito de produto) e "o `ir('mapa')` não pegou nesta bancada"
+       (defeito meu) — e a diferença entre os dois é o que decide quem conserta o
+       quê. `atual` é o identificador NU do mock (a lição do depurador de 08/08,
+       já usada nos casos 5 e 6): a ponte e a prova leem o mesmo escopo global. */
+    const tela = await p.evaluate(() => { try { return atual; } catch (_) { return null; } });
+    eh('8.7 DIRIGINDO nao existe nome, nem no zoom mais fechado de todos',
+      tela === 'mapa' && c.length === 5 && c.every((x) => !x.comNome && !x.visivel),
+      `zoom=${zDir} tela="${tela || '(nao li)'}" · ${resumo(c)}`);
+    /* 🔴 E A PEÇA NÃO PODE TER SIDO DESTRUÍDA PRA "SUMIR" (lei 6 desta frente:
+       peça que existe se TROCA, não se recria). Dirigindo repinta 1×/s com o fix
+       do GPS; se o rótulo nascesse e morresse a cada passada, o 2D receberia um
+       rótulo recém-criado — com a animação `mvPop` disparando de novo — em vez do
+       mesmo nó de sempre. O `tem` (o nó no DOM) tem que continuar de pé com o
+       `visivel` desligado: quem apaga é a CLASSE, não a tesoura. */
+    eh('8.8 e o rotulo continua EXISTINDO (quem apaga e a classe, nao a tesoura)',
+      so(c, ESPALHADOS).every((x) => x.tem),
+      so(c, ESPALHADOS).map((x) => `${x.id} no=${x.tem}`).join(' · '));
+
+    // ---- 4º: a VOLTA — dirigir não mata o rótulo pra sempre ---------------
+    await p.evaluate(() => window.ir('rota'));
+    await p.waitForTimeout(3600);
+    const zVolta = await zoomar(16);
+    const d = await p.evaluate(LER_NOMES);
+    // mesma razão da 8.7: a tela é parte da medida, senão o vermelho não diz quem errou
+    const telaVolta = await p.evaluate(() => { try { return atual; } catch (_) { return null; } });
+    eh('8.9 de volta no 2D, aproximar devolve o nome (o 3D nao o mata pra sempre)',
+      telaVolta === 'rota' && zVolta === 16 && so(d, ESPALHADOS).length === 3
+      && so(d, ESPALHADOS).every((x) => x.comNome && x.visivel),
+      `zoom=${zVolta} tela="${telaVolta || '(nao li)'}" · ${resumo(d)}`);
+
+    /* ---- A SONDA, medindo a MESMA cena por dentro -------------------------
+       Ela não repete o DOM: ela devolve o `espaco` em METROS, que é o dado de
+       onde toda a régua sai. É o único jeito de a prova afirmar que a semente
+       que EU plantei é a que o produto MEDIU — sem isto, um erro meu de conta de
+       grau sairia como "o produto decidiu certo pelo motivo errado". */
+    const pinosSonda = temSonda ? await p.evaluate(() => window.HBXTroca.pinos()) : null;
+    eh('8.10 a sonda ve o mesmo nome que o DOM (e le o numero no `.n`)',
+      !!pinosSonda && pinosSonda.length === 5
+      && pinosSonda.filter((x) => x.comNome).map((x) => x.id).sort().join(',') === 'e0,e1,e2'
+      && pinosSonda.every((x) => /^[1-5]$/.test(String(x.texto))),
+      pinosSonda ? pinosSonda.map((x) => `${x.id} n="${x.texto}" nome="${x.nome}"`).join(' · ') : 'sem sonda HBXTroca.pinos');
+    const metros = (ids) => (pinosSonda || []).filter((x) => ids.includes(x.id)).map((x) => Math.round(x.espaco));
+    eh('8.11 e o ESPACO medido pelo produto e o que a semente plantou (1.100 m / 30 m)',
+      !!pinosSonda && metros(ESPALHADOS).every((m) => Math.abs(m - VAO_M) <= 2)
+      && metros(COLADOS).every((m) => Math.abs(m - COLADO_M) <= 2),
+      pinosSonda ? `espalhados=${metros(ESPALHADOS).join('/')} m · colados=${metros(COLADOS).join('/')} m` : 'sem sonda');
+
+    eh('8.12 nenhum erro de pagina no caminho todo (2D -> 3D -> 2D)',
+      erros.length === 0, erros[0] || 'limpo');
     await ctx.close();
   }
 

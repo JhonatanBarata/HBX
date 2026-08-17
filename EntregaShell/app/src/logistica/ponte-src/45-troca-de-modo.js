@@ -175,10 +175,35 @@
      cada toque de Panorâmica seria a tela piscando por uma preferência que só
      vai ser lida no dia seguinte. Aparelho guarda no aparelho (`HBX.cache`). */
   function lembrarModo(modo) {
+    if (modo !== 'rota' && modo !== 'mapa') return;
     try {
       if (window.HBX && window.HBX.cache) window.HBX.cache.set('mapa-modo', modo);
     } catch (_) { /* sem cache: o pouso cai no default do montar */ }
   }
+
+  /* 🔴 QUEM CARIMBA O MODO É O DEDO, NUNCA A CÂMERA (17/08 — dono, com o
+     aparelho na mão: *"ficou combinado de: se eu estou na rota em 3d, eu continuo
+     no 3d ao montar. Não está acontecendo isso"*).
+
+     A 1ª escrita deste carimbo morava dentro do `subirNoPlano`/`descerDoPlano` —
+     e ISSO ESTAVA ERRADO, porque essas duas funções não são o gesto: elas são a
+     CÂMERA, e a câmera roda em toda virada de tela, inclusive nas que o motorista
+     não pediu. MEDIDO no g15: cancelar a rota estando no 3D leva o app pro 2D
+     (`ir('rota')` do cancelar) → o observador chama `subirNoPlano` → carimbava
+     `'rota'`. Ou seja: o gesto de CANCELAR reescrevia a preferência de CÂMERA, e
+     o Montar seguinte pousava no 2D contra a ordem do dono. Voltar de uma folha,
+     abrir a lista, subir o app na tela da rota: tudo escrevia.
+
+     A cura é ler a INTENÇÃO, e a intenção tem um lugar só na tela: o botão do
+     meio do rodapé, o que transmuxa entre Panorâmica e Direção (§ `transmux` no
+     mock, marca `data-modo` com o DESTINO). Um ouvinte em captura, no documento,
+     porque a camada é trocada a cada repinte — ouvinte pendurado no nó morre com
+     ele. O clique continua o caminho normal (`data-ir`/`data-estado`); aqui só se
+     anota que ele existiu. */
+  document.addEventListener('click', (ev) => {
+    const alvo = ev.target && ev.target.closest ? ev.target.closest('[data-modo]') : null;
+    if (alvo) lembrarModo(alvo.dataset.modo);
+  }, true);
 
   /* SUBIR — o 3D vira 2D NO MESMO MAPA: a inclinação cai, o rumo volta ao norte
      e a câmera abre até o pouso da Panorâmica, tudo num `easeTo` só.
@@ -187,9 +212,10 @@
      não existe mais "o mapa que entra" chegando frio de outra câmera — a imagem
      na tela é a mesma, e o movimento acontece nela. */
   function subirNoPlano() {
-    // o carimbo é a PRIMEIRA linha, antes de qualquer saída pelo caminho curto:
-    // o modo mudou de verdade mesmo quando a câmera não tem pra onde ir.
-    lembrarModo('rota');
+    /* 🔴 SEM CARIMBO AQUI. Esta função é a CÂMERA subindo, e ela roda em toda
+       virada pra tela 'rota' — cancelar, voltar de folha, app subindo no 2D.
+       Quem carimba é o dedo no botão que transmuxa (§ o ouvinte de `data-modo`,
+       logo acima do `lembrarModo`). */
     const casa = GARAGEM.get(PALCO);
     if (!casa || !casa.mapa) return;
     travarGestos2D(casa.mapa, true);
@@ -200,6 +226,11 @@
        subiu e voltou sem tocar na pinça) deixaria o 2D sem nome nenhum até o
        próximo gesto. Uma passada de classe em 51 pinos, aqui, resolve. */
     acertarPinos(casa);
+    /* 🔴 E O PONTO AZUL VOLTA AQUI, PELO MESMO MOTIVO DA LINHA DE CIMA: o ESTADO
+       virou sem o zoom mexer um milímetro, e quem desfaz o esconde do 3D é uma
+       chamada explícita. Esperar o próximo fix seria até 1 s de mapa 2D sem
+       motorista nenhum na tela — o defeito espelhado do print de 17/08. */
+    euVisivel(casa);
     const alvo = alvoDaPanoramica(casa);
     // a régua dos 30 m recomeça daqui: o pouso é o novo ponto de partida.
     rearmarPlanoZoom();
@@ -210,13 +241,17 @@
 
   /** DESCER — a volta da Panorâmica: o movimento primeiro, a cena no pouso */
   function descerDoPlano() {
-    lembrarModo('mapa');
+    // (o carimbo do modo é do DEDO, não da câmera — ver `subirNoPlano`)
     const casa = GARAGEM.get(PALCO);
     if (!casa || !casa.mapa) { entrarNaDescida(); return; }
     travarGestos2D(casa.mapa, false);
     // o nome sai ANTES do movimento: rótulo de cadastro descendo junto com a
     // câmera é enfeite viajando por cima da manobra que está nascendo.
     acertarPinos(casa);
+    /* 🔴 O PONTO AZUL SAI ANTES DO MOVIMENTO, pela mesma razão do rótulo acima: a
+       descida dura 700 ms, e nem por um quadro o dono pode ver os dois símbolos
+       juntos (*"não é para ter os 2 no mapa"*). Quem sai de cena sai primeiro. */
+    euVisivel(casa);
     // limpa vigias, relógio da vista de cima e o estado 'solta' — é o mesmo
     // desarme da saída, e sem ele a descida nasce morta (ver `pararDescida`).
     pararDescida();
@@ -251,6 +286,40 @@
       const dentro = p && p.x >= -18 && p.x <= larg + 18 && p.y >= 0 && p.y <= alt + 18;
       marcador.getElement().style.visibility = dentro ? '' : 'hidden';
     });
+  }
+
+  /* ---- UM SÍMBOLO POR ESTADO: O "EU" TRANSMUXA -----------------------------
+     🔴 DUAS PEÇAS DIZIAM "VOCÊ ESTÁ AQUI" NA MESMA TELA (17/08 — dono, com o
+     print da tela de dirigir na mão: *"esse símbolo tem q transmuxar entre 2d e
+     3d, não é para ter os 2 no mapa"*).
+
+     A CAUSA é a MESMA economia que curou a piscada de 16/08: 2D e 3D dividem um
+     palco só (`PALCO`) e um maplibre só (`GARAGEM`) — o nó do mapa apenas muda de
+     pai. O ponto azul do motorista (`casa.eu`, § `moverEuNoPlano` em
+     40-mapa-palcos) é peça do MAPA, então ele ATRAVESSA a troca de modo e fica na
+     tela de dirigir colado na seta verde do desenho (`.gps-puck`, com o facho da
+     manobra), que é quem representa o motorista ali. Nenhuma das duas está errada
+     no lugar dela; erradas são as duas JUNTAS — e no print elas estão a poucos
+     pixels uma da outra, o que é pior que longe: lê como falha de render.
+
+     "Transmuxar" é exatamente isto: uma peça por estado, sem nada nascer nem
+     morrer. Dirigindo, o ponto do mapa fica INVISÍVEL — não removido. Recriar
+     marcador na troca de modo é o mapa remontando peça, e é a lei que
+     `sincronizarPinos` e `acertarPinos` já escrevem nesta casa: quem já existe
+     muda de classe.
+
+     🔴 E ELE TEM QUE VOLTAR — a mesma armadilha que `pinosVisiveis` documenta
+     logo acima. Esconder num estado sem DESFAZER no outro deixaria o 2D sem o
+     "você está aqui" pra sempre, e no 2D ele é a peça mais importante da tela:
+     dia sem rota montada é "mapa com MINHA SETA na minha localização", literal
+     (§ `paradasDoMapa`). Fora da navegação a régua não é "some": é "aparece". */
+  function euVisivel(casa) {
+    if (!casa || !casa.eu) return;
+    let el;
+    try { el = casa.eu.getElement(); } catch (_) { return; }
+    // mesmo mecanismo do `pinosVisiveis`: `visibility` guarda o lugar da peça no
+    // mapa (o vendor continua escrevendo `transform` nela) e não custa layout.
+    el.style.visibility = naNavegacao() ? 'hidden' : '';
   }
 
   /* ---- O PINO SÓ PERDE O NÚMERO QUANDO O NÚMERO NÃO CABE -------------------
@@ -384,6 +453,17 @@
       return (casa && casa.mapa) ? poseDoMapa(casa.mapa) : null;
     },
     palco() { return PALCO; },
+    /* 🔴 `existe` E `visivel` SÃO PERGUNTAS DIFERENTES, DE PROPÓSITO (17/08). A
+       cura do "dois símbolos no mapa" é ESCONDER, nunca remover — uma prova que
+       só olhasse `existe` daria verde justamente pra quem quebrasse a lei da casa
+       (marcador recriado a cada troca de modo). Então a sonda devolve os dois:
+       dirigindo espera-se `{existe:true, visivel:false}`; no 2D, os dois `true`. */
+    eu() {
+      const casa = GARAGEM.get(PALCO);
+      let el = null;
+      try { el = (casa && casa.eu) ? casa.eu.getElement() : null; } catch (_) { el = null; }
+      return { existe: !!el, visivel: !!el && el.style.visibility !== 'hidden' };
+    },
     pinos(nome) {
       const casa = GARAGEM.get(PALCO);
       if (!casa || !casa.pinos.size) return null;

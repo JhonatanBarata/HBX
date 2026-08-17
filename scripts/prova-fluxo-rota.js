@@ -751,7 +751,14 @@ const SO_MEDIR = process.argv.includes('--antes');
     // (`.plano-lado` no 2D, `.gps-lado` no 3D). O escopo acompanha o botao —
     // continua escopado pela mesma razao, so que no lugar onde ele mora hoje.
     temEncerrarDia: document.querySelectorAll(
-      '.plano-lado [data-acao="fechar-dia"], .gps-lado [data-acao="fechar-dia"]').length,
+      /* 🔴 O CADEADO MUDOU DE FILEIRA DE NOVO EM 17/08, e agora e o "Finalizar"
+         do RODAPE (item 8 do dono: *"os botoes de navegacao vao precisar incluir
+         +1, q e o finalizar... painel de 4 botoes"*). Em 16/08 ele tinha ido pra
+         COLUNA porque o dock tinha 3 lugares e o Registrar ficou com a vaga do
+         satelite; com QUATRO lugares nao ha disputa. O escopo acompanha o botao:
+         o cru `[data-acao="fechar-dia"]` casaria tambem no portao do fim do dia,
+         e o primeiro do DOM nem sempre e o que a cena quer tocar. */
+      '.gps-rodape [data-acao="fechar-dia"]').length,
     // O `dock` acima lê só o botão do MEIO; o rótulo do satélite mora no <small>
     // ao lado dele, e é ele que o dono lê na tela.
     satelites: [...document.querySelectorAll('.tmx-sat small')].map((e) => e.textContent.trim()),
@@ -1460,6 +1467,16 @@ const SO_MEDIR = process.argv.includes('--antes');
   eh('M1 · escolher o dia continua sem gravar nada', (await posts()).length === 0, (await posts()).join(','));
 
   await zerar();
+  /* 🔴 A PREMISSA DESTA CENA É O APARELHO SEM MODO LEMBRADO (17/08). O `cache`
+     do dublê é localStorage (espelho fiel do native.js) e SOBREVIVE ao `goto`
+     de cada cena — se uma cena anterior tivesse gravado `mapa-modo`, esta aqui
+     mediria o pouso de uma decisão que não é dela. Premissa de cena se DECLARA;
+     prova que herda estado de vizinho não mede o app, mede a ordem do arquivo.
+     A chave é lida logo depois de propósito: ela entra na asserção do pouso, e
+     é o que separa "pousou no 3D porque é o default" de "pousou no 3D por
+     acaso". */
+  await p.evaluate(() => window.HBX.cache.remove('mapa-modo'));
+  const modoLembradoM = await p.evaluate(() => window.HBX.cache.get('mapa-modo', null));
   await p.waitForSelector('.pe-montagem [data-acao="montar-agora"], .pe-montagem [data-acao="iniciar-rota"]', { timeout: 8000 });
   await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="montar-agora"], .pe-montagem [data-acao="iniciar-rota"]').click());
   await p.waitForTimeout(4000);
@@ -1481,16 +1498,32 @@ const SO_MEDIR = process.argv.includes('--antes');
   const iniciarNoMontarM = await postsDe('/logistica/rota/iniciar');
   nota(`[M] veu por chamada ate o iniciar: ${ateIniciarM.map((c) => `${c[0]}=${c[1]}`).join(' ') || '(nenhuma)'}`);
   nota(`    pouso: tela=${tMr.tela} · status=${tMr.routeStatus} · dock="${tMr.dock}" · POSTs de iniciar=${iniciarNoMontarM.length}`);
+  nota(`    modo lembrado no aparelho no instante do toque: ${JSON.stringify(modoLembradoM)} (null = default 3D)`);
   /* 🔴 A LEI NOVA (16/08) SUBSTITUI A DE 11/08 ("montar pousa na rota com o
      dock Iniciar"). O "um status só" continua de pé — o que mudou é QUAL: o
      dono decidiu que o pouso já é o dia RODANDO, e o 2D é o modo iniciado
      (ordem dele no mesmo dia: *"eu já montei a rota, não tenho q clicar em
      iniciar se o 2d já é um modo iniciado"*). Dock de rota na rua =
      Cancelar · Dirigindo · Encerrar dia; "Iniciar" ali seria o segundo toque
-     que este lote matou. */
-  eh('M7a · montar POUSA na rota com o dia JA RODANDO (o 2o carregamento morreu)',
-    tMr.tela === 'rota' && tMr.routeStatus === 'ACTIVE' && !/Iniciar/i.test(tMr.dock),
-    `tela=${tMr.tela} status=${tMr.routeStatus} dock="${tMr.dock}"`);
+     que este lote matou.
+     🔴 E EM 17/08 MUDOU A ALTURA DO POUSO: a pergunta "pousou na tela 'rota'
+     (2D)?" virou "pousou no MODO LEMBRADO?" — aqui, o default. Queixa do dono
+     com as 8 fotos do g15 na mão: *"vc removeu o efeito ao montar a rota"*. O
+     efeito nunca foi removido, ficou SEM PORTA: a coreografia inteira
+     (escurece na cor do mapa → tela cheia → ruas desenhando com brilho →
+     câmera DESCENDO) mora no caminho de `ir('mapa')` — quem a toca é o
+     `entrarNaDescida` (§ 80-gps-rotas-salvas.js), e pousando sempre no 2D ele
+     nunca corria. Hoje `pousarNaRota` (§ 32-verbos-montar-iniciar.js) lê
+     `mapa-modo` do aparelho com DEFAULT 'mapa' (3D), e quem nunca trocou de
+     modo é exatamente o dono da queixa.
+     NADA AFROUXOU — a asserção ganhou régua e passou a cobrar as duas metades:
+     a premissa (aparelho sem modo lembrado, lida acima) e o pouso no 3D. O
+     resto da regra tem cena própria logo abaixo: 2D lembrado ⇒ 2D (MD1), e dia
+     que NÃO ficou na rua ⇒ 2D sempre (MD2/MD3). O "um carregamento só" continua
+     inteiro nesta mesma linha (ACTIVE + dock sem "Iniciar"). */
+  eh('M7a · sem modo lembrado, o montar POUSA NO 3D com o dia JA RODANDO (o efeito que o dono cobrou)',
+    modoLembradoM === null && tMr.tela === 'mapa' && tMr.routeStatus === 'ACTIVE' && !/Iniciar/i.test(tMr.dock),
+    `mapa-modo=${JSON.stringify(modoLembradoM)} tela=${tMr.tela} status=${tMr.routeStatus} dock="${tMr.dock}"`);
   eh('M7b · quem iniciou foi o PROPRIO montar — um toque, um POST de iniciar',
     iniciarNoMontarM.length === 1, `POSTs de iniciar no montar=${iniciarNoMontarM.length}`);
   eh('M7c · UM carregamento so: nenhuma ida ao servidor com a tela livre, ate a rota sair',
@@ -1562,6 +1595,83 @@ const SO_MEDIR = process.argv.includes('--antes');
      reprovam por herdarem uma tela que nunca foi delas. Estado de tela não é
      do teste, é do app: quem acende, apaga. */
   await tocarChip(DIA_B);
+
+  /* ===================================================================
+     CENA MD — O POUSO DO MONTAR OBEDECE O MODO LEMBRADO (17/08).
+
+     Queixa do dono, com as 8 fotos do g15 na mão: *"vc removeu o efeito ao
+     montar a rota"*. A cena M acima mede o DEFAULT (aparelho sem modo lembrado
+     ⇒ desce pro 3D, que é a porta da coreografia inteira). Aqui ficam as duas
+     metades que o default não alcança — e as duas são FREIO, não enfeite:
+
+     · quem escolheu o 2D (Panorâmica) POUSA NO 2D. O modo é do dono da mão, e
+       `lembrarModo` (§ 45-troca-de-modo.js) grava a escolha no aparelho; um
+       Montar que ignorasse isso desfaria a decisão dele a cada rota nova — e o
+       dono voltaria com a queixa espelhada ("por que ele me joga no 3D?").
+     · dia que NÃO FICOU NA RUA pousa no 2D SEMPRE, mesmo com o 3D lembrado. O
+       3D é a tela de DIRIGIR (manobra, velocímetro, e o rodapé de
+       Cancelar/Registrar/Finalizar): entregá-la sobre uma rota que ninguém
+       começou é o BECO de 14/08 vestido de efeito, com quatro verbos apontando
+       pra um dia que não existe. E o pouso do fracasso é o mesmo gesto do
+       sucesso no código (`pousarNaRota` é chamado nos 4 desfechos), então sem
+       esta metade a regra do beco não tem quem a segure.
+
+     🔴 O CACHE É ESTADO DO APARELHO E SOBREVIVE ENTRE CENAS (localStorage no
+     dublê, espelho do native.js). Por isso cada metade GRAVA a premissa dela
+     antes do toque e DEVOLVE a chave como encontrou depois de medir: cena que
+     deixa modo lembrado pra trás faz a cena seguinte medir outra coisa — é a
+     mesma lição do chip aceso, logo acima ("quem acende, apaga").
+     =================================================================== */
+  const MD_CENA = (extra) => cena(Object.assign({
+    entregas: [{ id: 'ag1', status: 'agendada', rotaOrdem: null, origem: 'recorrente', cliente: CLI_C5 }],
+    agendaHoje: AGENDA_HOJE, mesmaBase: true, custoComoServidor: true,
+  }, extra || {}));
+  /** grava o modo lembrado (ou apaga, pra medir o default), monta pelo chip de
+   *  outro dia — o mesmo gesto da cena M — e devolve o pouso + a chave. */
+  const MD_MONTAR = async (modo) => {
+    await p.evaluate((m) => (m
+      ? window.HBX.cache.set('mapa-modo', m)
+      : window.HBX.cache.remove('mapa-modo')), modo || '');
+    await irPara('montagem', 2200);
+    await tocarChip(DIA_B);
+    await zerar();
+    await p.waitForSelector('.pe-montagem [data-acao="montar-agora"]', { timeout: 8000 });
+    await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="montar-agora"]').click());
+    await p.waitForTimeout(4000);
+    const t = await espiar();
+    // a chave é lida DEPOIS do pouso: pousar não é trocar de modo, e o Montar
+    // que reescrevesse `mapa-modo` estaria decidindo pelo dono.
+    const lembrado = await p.evaluate(() => window.HBX.cache.get('mapa-modo', null));
+    await p.evaluate(() => window.HBX.cache.remove('mapa-modo'));
+    // devolve o chip como encontrou (mesma razão da linha acima da cena M)
+    await irPara('montagem', 2200);
+    await tocarChip(DIA_B);
+    return { t, lembrado };
+  };
+
+  // MD1 — o 2D LEMBRADO ganha: a rota sai pra rua igual, o pouso é o 2D.
+  await MD_CENA();
+  const md1 = await MD_MONTAR('rota');
+  nota(`[MD1] 2D lembrado: tela=${md1.t.tela} · status=${md1.t.routeStatus} · dock="${md1.t.dock}" · mapa-modo depois=${JSON.stringify(md1.lembrado)}`);
+  eh('MD1 · com o 2D lembrado (Panoramica) o montar POUSA NO 2D, e a rota sai pra rua igual',
+    md1.t.tela === 'rota' && md1.t.routeStatus === 'ACTIVE' && md1.lembrado === 'rota',
+    `tela=${md1.t.tela} status=${md1.t.routeStatus} mapa-modo=${JSON.stringify(md1.lembrado)}`);
+
+  /* MD2/MD3 — o dia que NÃO SAIU: saldo curto trava o Iniciar depois do
+     planejar, a rota fica MONTADA e PARADA, e o 3D está lembrado. É o pior caso
+     da regra nova, porque o modo lembrado empurra pro 3D e a verdade do dia
+     empurra pro 2D — e a verdade do dia manda. */
+  await MD_CENA({
+    custo: { blocosTotais: 2, blocosJaDebitados: 0, creditosAIniciar: 0.8, saldoAtual: 0, saldoCobre: false },
+  });
+  const md2 = await MD_MONTAR('mapa');
+  nota(`[MD2] sem saldo com o 3D lembrado: tela=${md2.t.tela} · status=${md2.t.routeStatus} · portao="${md2.t.portao || '(nenhum)'}" · mapa-modo depois=${JSON.stringify(md2.lembrado)}`);
+  eh('MD2 · a premissa aconteceu: a rota NAO ficou na rua e a trava de credito apareceu',
+    md2.t.routeStatus !== 'ACTIVE' && /insuficiente/i.test(md2.t.portao),
+    `status=${md2.t.routeStatus} portao="${md2.t.portao}"`);
+  eh('MD3 · com o 3D LEMBRADO, o dia que nao comecou pousa no 2D — tela de dirigir nao se entrega sobre rota parada',
+    md2.t.tela === 'rota' && md2.lembrado === 'mapa',
+    `tela=${md2.t.tela} mapa-modo=${JSON.stringify(md2.lembrado)}`);
 
   /* ===================================================================
      CENA P — A PORTA SUJA: o Iniciar do MAPA não é o da MONTAGEM (10/08).
@@ -1898,12 +2008,30 @@ const SO_MEDIR = process.argv.includes('--antes');
      gancho que ENCERRA —, mas agora tambem cobra que ele nao ficou nos DOIS
      lugares: dock e coluna ao mesmo tempo e o "botao repetido a 60px de si
      mesmo" que o proprio mock ja proibiu. */
-  eh('V1 · o Encerrar dia mora na COLUNA (uma vez so) e usa o gancho que ENCERRA',
-    tV0.temEncerrarDia === 1
-      && !tV0.satelites.some((s) => /Encerrar dia|Finalizar/i.test(s)),
-    `temEncerrarDia=${tV0.temEncerrarDia} satelites=${JSON.stringify(tV0.satelites)}`);
-  eh('V1a · e o satelite que ele deixou vago virou o Registrar',
-    tV0.satelites.some((s) => /Registrar/i.test(s)),
+  /* 🔴 E EM 17/08 ELE VOLTOU PRA FILEIRA, COM O NOME QUE O DONO DEU: "Finalizar"
+     (item 8). A pergunta desta linha NAO mudou desde 16/08 — o verbo existe UMA
+     vez e no gancho que ENCERRA (`fechar-dia`, o unico que manda
+     `POST /logistica/rota/encerrar`) —, so o ENDERECO mudou: rodape, nao coluna.
+     E ela continua cobrando que ele nao ficou nos DOIS lugares: cadeado no dock
+     E na coluna e o "botao repetido a 60px de si mesmo" que esta casa proibiu em
+     12/08. A metade nova e justamente essa — a coluna tem que estar LIMPA. */
+  const cadeadoNaColuna = await p.evaluate(() => document.querySelectorAll(
+    '.plano-lado [data-acao="fechar-dia"], .gps-lado [data-acao="fechar-dia"]').length);
+  eh('V1 · o Finalizar mora no RODAPE (uma vez so), usa o gancho que ENCERRA e a coluna ficou limpa',
+    tV0.temEncerrarDia === 1 && cadeadoNaColuna === 0,
+    `noRodape=${tV0.temEncerrarDia} naColuna=${cadeadoNaColuna} satelites=${JSON.stringify(tV0.satelites)}`);
+  /* 🔴 V1a MUDOU DE PERGUNTA COM O PAINEL DE 4 (17/08). Ela cobrava que a vaga
+     deixada pelo cadeado tinha virado o Registrar — vaga que deixou de existir
+     quando a fileira passou a ter QUATRO lugares. Hoje o que se cobra e a
+     FILEIRA INTEIRA na ordem do dono: Cancelar (esquerda) · Registrar e
+     Finalizar (centro) · o verbo de trocar de camera (direita). Ordem e a regua:
+     "esquerda cancelar, no centro registrar e finalizar, na direita Panoramica e
+     direcao" — palavra por palavra. */
+  eh('V1a · e a fileira e a do dono: Cancelar · Registrar · Finalizar · trocar de camera',
+    tV0.satelites.length === 3
+      && /Cancelar/i.test(tV0.satelites[0])
+      && /Registrar/i.test(tV0.satelites[1])
+      && /Finalizar/i.test(tV0.satelites[2]),
     `satelites=${JSON.stringify(tV0.satelites)}`);
   /* O verbo do meio nao pode voltar a prometer navegacao que ja esta
      acontecendo ("Navegar" era `ir('mapa')` e mais nada). "Direcao" e o rotulo
@@ -1912,7 +2040,8 @@ const SO_MEDIR = process.argv.includes('--antes');
     /Dire[çc][ãa]o/i.test(tV0.dock) && !/Navegar/i.test(tV0.dock), `dock="${tV0.dock}"`);
   await zerar();
   const achouFimV = await p.evaluate(() => {
-    const x = document.querySelector('.plano-lado [data-acao="fechar-dia"]');
+    // ESCOPADO no rodape (17/08): e onde o Finalizar mora desde o painel de 4.
+    const x = document.querySelector('.gps-rodape [data-acao="fechar-dia"]');
     if (x) { x.click(); return true; }
     return false;
   });
@@ -1930,14 +2059,15 @@ const SO_MEDIR = process.argv.includes('--antes');
      hoje ele PERGUNTA e nao navega — o dia so acaba depois do "Encerrar dia" do
      portao. O que continua igual e a promessa de dinheiro: nenhum POST de fim
      de dia sai do primeiro toque. */
-  eh('V2 · o Encerrar dia da coluna ABRE O PORTAO e nao fecha nada sozinho',
+  eh('V2 · o Finalizar do rodape ABRE O PORTAO e nao fecha nada sozinho',
     achouFimV && /Encerrar o dia\?/i.test(tV1.portao) && !postsV1.some((x) => FIM_DO_DIA.indexOf(x) >= 0),
     `tela=${tV1.tela} portao="${tV1.portao}" posts=${postsV1.join(',')}`);
   await zerar();
   await p.evaluate(() => {
-    // ESCOPADO na coluna: `[data-acao="fechar-dia"]` cru casa em dois lugares
-    // desde 16/08, e o primeiro do DOM nem sempre e o que a cena quer tocar.
-    const x = document.querySelector('.plano-lado [data-acao="fechar-dia"]');
+    // ESCOPADO no rodape: `[data-acao="fechar-dia"]` cru casa em dois lugares
+    // (a fileira e o portao do fim do dia), e o primeiro do DOM nem sempre e o
+    // que a cena quer tocar. Desde 17/08 o botao e o "Finalizar" do painel de 4.
+    const x = document.querySelector('.gps-rodape [data-acao="fechar-dia"]');
     if (x) x.click();
   });
   await p.waitForTimeout(600);
@@ -2115,6 +2245,11 @@ const SO_MEDIR = process.argv.includes('--antes');
   const Y_ABRIR = async () => {
     await irPara('montagem', 2200);
     await tocarChip(DIA_B);
+    /* 🔴 A CENA DECLARA O APARELHO SEM MODO LEMBRADO (17/08). O pouso do Montar
+       agora obedece `mapa-modo` (§ `pousarNaRota`), e o cache é localStorage —
+       sobrevive ao `goto` de cada cena. Sem esta linha, quem mede o pouso aqui
+       ficaria à mercê do que a cena anterior gravou. Ver a cena MD. */
+    await p.evaluate(() => window.HBX.cache.remove('mapa-modo'));
     await zerar();
     await p.waitForSelector('.pe-montagem [data-acao="montar-agora"]', { timeout: 8000 });
   };
@@ -2148,13 +2283,27 @@ const SO_MEDIR = process.argv.includes('--antes');
   const yPlanejar = contar(postsY, '/logistica/rota/planejar');
   const yEntregas = contar(postsY, '/logistica/entregas');
   const tY = await espiar();
-  nota(`[Y] DOIS toques no Montar: sincrono=${yToque.noMesmoQuadro} semDedo=${yToque.semDedo} · planejar=${yPlanejar} · entregas=${yEntregas} · tela=${tY.tela}`);
+  const modoY = await p.evaluate(() => window.HBX.cache.get('mapa-modo', null));
+  nota(`[Y] DOIS toques no Montar: sincrono=${yToque.noMesmoQuadro} semDedo=${yToque.semDedo} · planejar=${yPlanejar} · entregas=${yEntregas} · tela=${tY.tela} · mapa-modo=${JSON.stringify(modoY)}`);
   eh('Y1 · o botao ganha o estado "aguarde" NO MESMO quadro do toque', yToque.noMesmoQuadro);
   eh('Y2 · e o proprio no ja nao aceita segundo dedo (pointer-events)', yToque.semDedo);
   eh('Y3 · dois toques rapidos = UM montar (POSTs iguais ao controle de 1 toque)',
     yPlanejar === y0Planejar && yEntregas === y0Entregas,
     `2 toques: planejar=${yPlanejar}/${y0Planejar} entregas=${yEntregas}/${y0Entregas}`);
-  eh('Y4 · e o montar pousou na Rota normalmente', tY.tela === 'rota', `tela=${tY.tela}`);
+  /* 🔴 O DESTINO DO POUSO SUBIU PRO 3D (17/08) — mesma queixa do dono das 8
+     fotos: *"vc removeu o efeito ao montar a rota"*. Esta cena fala de DOIS
+     DEDOS, não de altura de pouso; mas o pouso é a última coisa que ela vê, e a
+     pergunta tinha que acompanhar a regra: sem modo lembrado o Montar desce pro
+     3D (`pousarNaRota`, default 'mapa' — § 32-verbos-montar-iniciar.js), que é
+     por onde a coreografia da entrada acontece. A premissa (aparelho sem modo
+     lembrado) é declarada no `Y_ABRIR`.
+     E A ASSERÇÃO GANHOU A SEGUNDA METADE, que é o que interessa a ESTA cena:
+     dedo ansioso não pode mudar o MODO LEMBRADO do aparelho. Se o caminho do
+     duplo toque escrevesse `mapa-modo` (por exemplo pousando "pelo modo atual"
+     em vez de ler o lembrado), o dono perderia a escolha dele por ter tocado
+     duas vezes — e nenhuma outra prova olha pra isso. */
+  eh('Y4 · o montar pousou no 3D, e os dois dedos NAO mexeram no modo lembrado',
+    tY.tela === 'mapa' && modoY === null, `tela=${tY.tela} mapa-modo=${JSON.stringify(modoY)}`);
 
   /* ===================================================================
      CENA Z — ERRO SOLTA A TRAVA: o botao volta inteiro pra tentar de novo.

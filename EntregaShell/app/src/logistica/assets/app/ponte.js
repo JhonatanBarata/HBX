@@ -4062,6 +4062,15 @@
         try { modo = String(window.HBX.cache.get('mapa-modo', 'mapa') || 'mapa'); }
         catch (_) { /* sem cache: 3D, que é o efeito completo */ }
         if (modo !== 'rota') modo = 'mapa';   // chave estranha cai no default
+        /* 🔴 SÓ SE DESCE PRA UM DIA QUE ESTÁ NA RUA (17/08). O 3D é a tela de
+           DIRIGIR: manobra, velocímetro, bússola e o rodapé de quem está andando.
+           Este pouso também é o desfecho dos FRACASSOS — sem saldo, erro no
+           custo, erro no iniciar — e nesses a rota fica MONTADA e PARADA. Descer
+           ali entregaria a tela de dirigir sobre um dia que ninguém começou, com
+           "Cancelar/Registrar/Finalizar" pra uma rota que não saiu: é o beco de
+           14/08 vestido de efeito. Sem estar na rua, pousa no 2D — que é onde o
+           "Iniciar" do dock mora, a saída depois da recarga. */
+        if (modo === 'mapa' && !(typeof rotaNaRua === 'function' ? rotaNaRua() : true)) modo = 'rota';
         const viaja = telaAtual() === 'montagem' && typeof window.ir === 'function';
         if (!viaja || modo === 'rota') pedirCena('rota');
         devolverEstado();        // o "Montando…" sai com o dado já na tela
@@ -5019,6 +5028,10 @@
     });
     acertarPinos(casa);
     pinosVisiveis(casa);
+    // e o "eu" junto dos pinos: esta função é o que o transplante de palco chama
+    // (§ 55-cena-reversa) quando a lista muda, e a lista muda ao Iniciar a rota —
+    // o mesmo tique em que a tela vira a de dirigir. Um estado, uma passada.
+    euVisivel(casa);
     // rota OUTRA = enquadramento outro. Aqui dentro é o único lugar automático
     // que reenquadra, e de propósito: este bloco só roda quando a lista muda.
     enquadrarGeral(casa);
@@ -5151,8 +5164,30 @@
     try { casa.mapa.easeTo(passo); } catch (_) { /* mapa saindo de cena */ }
   }
 
+  /* ---- O REALINHAR É UM GESTO, ENTÃO ELE ANDA -------------------------------
+     🔴 17/08 — dono, com o mapa na mão: *"ao clicar no 'realinhar' ou
+     re-centralizar, não é smooth os efeitos, ele simplesmente PISCA. Isso é
+     inaceitável, já falei q tem q ser regra esses efeitos, nada pisca, nada
+     APARECE DO NADA"*.
+
+     A causa estava numa linha: `enquadrarPlano` chamava `enquadrarGeral(casa)`
+     SEM duração, e `porNoPlano` traduz "sem duração" em `duration: 0` — que é um
+     `jumpTo` com outro nome. O dedo pedia a rota inteira e recebia um CORTE:
+     outra cidade na tela no quadro seguinte, sem nada tendo se movido.
+     O valor é o mesmo vocabulário de tempo que a troca de câmera já usa (700 ms
+     no `TROCA_MS` do 45-troca-de-modo, 900 ms no recentralizar do 3D): 620 ms com
+     a curva `suave` (cúbica nas duas pontas) — o bastante pra o olho SEGUIR o
+     movimento e curto o bastante pra não virar espetáculo num botão que o
+     motorista aperta o dia inteiro.
+
+     🔴 E SÓ O DEDO ANDA. As outras três portas que chegam ao `enquadrarGeral`
+     (mapa nascendo, 1º fix, rota mudou) continuam instantâneas de propósito: ali
+     não há de onde sair — o mapa acabou de nascer no centro padrão, e animar
+     seria uma viagem de continente na cara de quem abriu a tela. Gesto se anima;
+     nascimento se posiciona. */
+  const ENQUADRAR_MS = 620;
   /** o botão da beirada do mapa 2D: devolve a rota inteira pra tela */
-  function enquadrarPlano() { enquadrarGeral(GARAGEM.get(PALCO)); }
+  function enquadrarPlano() { enquadrarGeral(GARAGEM.get(PALCO), ENQUADRAR_MS); }
 
   /* 🔴 "ONDE EU ESTOU" NÃO É UM CARIMBO DE BOOT. O marcador do mapa 2D era
      criado UMA vez, no `load` do mapa, com a posição daquele instante — e nunca
@@ -5210,6 +5245,18 @@
     const temRumo = Number.isFinite(fix.rumoGraus);
     el.style.setProperty('--cone', temRumo ? '1' : '0');
     if (temRumo) el.style.setProperty('--rumo', `${Math.round(fix.rumoGraus)}deg`);
+    /* 🔴 A RÉGUA DO "UM SÍMBOLO SÓ" ENTRA AQUI PORQUE AQUI SÃO TRÊS PORTAS EM UMA
+       (17/08 — dono, com o print do 3D: *"esse símbolo tem q transmuxar entre 2d e
+       3d, não é para ter os 2 no mapa"*). `vestirEu` é o ÚNICO ponto do "eu" que
+       roda no NASCIMENTO do marcador, a CADA fix (§ `moverEuNoPlano`, 1×/s em
+       qualquer tela) e a cada evento de `zoom` do mapa (§ 55-cena-reversa) — e é o
+       zoom que cobre a entrada na navegação que NÃO passa pela troca de modo (app
+       subindo direto na tela de dirigir, § `entrarNaDescida`): a câmera desce, o
+       zoom muda, o ponto azul apaga sem esperar o próximo fix. Pendurar a régua
+       numa porta só faria ela valer às vezes, que é o mesmo que não valer.
+       A régua mora junto de `pinosVisiveis` (§ 45-troca-de-modo), de quem ela é
+       irmã: mesma pergunta (`naNavegacao()`), mesmo mecanismo (`visibility`). */
+    euVisivel(casa);
   }
 
   function moverEuNoPlano() {
@@ -5230,8 +5277,15 @@
          12. Sem isto o motorista ganhava o marcador dele num mapa apontado pra
          outro lugar — a seta existia e estava FORA DA TELA. Só na criação do
          marcador, nunca nos fixes seguintes: aí seria a câmera desfazendo o
-         arrasto uma vez por segundo, que é o defeito que a fase 'solta' curou. */
-      enquadrarGeral(casa);
+         arrasto uma vez por segundo, que é o defeito que a fase 'solta' curou.
+         🔴 E NUNCA DIRIGINDO (17/08). Com UM palco só (16/08), este primeiro fix
+         pode chegar com a tela de DIRIGIR na frente — o motorista fechou o app no
+         meio da rota e voltou direto pro 3D. Aí `enquadrarGeral` mandava
+         `porNoPlano` com `pitch:0/bearing:0/duration:0`: a câmera inclinada era
+         ACHATADA num quadro, sem ninguém ter pedido. É a lei "um dono por estado"
+         que o `acompanharNoPlano`, 20 linhas abaixo, já cumpria e esta porta não
+         cumpria. Dirigindo, quem manda na câmera é a navegação, e ponto. */
+      if (!naNavegacao()) enquadrarGeral(casa);
       return;
     }
     try { casa.eu.setLngLat([eu.lng, eu.lat]); } catch (_) { /* mapa saindo de cena */ }
@@ -5894,10 +5948,35 @@
      cada toque de Panorâmica seria a tela piscando por uma preferência que só
      vai ser lida no dia seguinte. Aparelho guarda no aparelho (`HBX.cache`). */
   function lembrarModo(modo) {
+    if (modo !== 'rota' && modo !== 'mapa') return;
     try {
       if (window.HBX && window.HBX.cache) window.HBX.cache.set('mapa-modo', modo);
     } catch (_) { /* sem cache: o pouso cai no default do montar */ }
   }
+
+  /* 🔴 QUEM CARIMBA O MODO É O DEDO, NUNCA A CÂMERA (17/08 — dono, com o
+     aparelho na mão: *"ficou combinado de: se eu estou na rota em 3d, eu continuo
+     no 3d ao montar. Não está acontecendo isso"*).
+
+     A 1ª escrita deste carimbo morava dentro do `subirNoPlano`/`descerDoPlano` —
+     e ISSO ESTAVA ERRADO, porque essas duas funções não são o gesto: elas são a
+     CÂMERA, e a câmera roda em toda virada de tela, inclusive nas que o motorista
+     não pediu. MEDIDO no g15: cancelar a rota estando no 3D leva o app pro 2D
+     (`ir('rota')` do cancelar) → o observador chama `subirNoPlano` → carimbava
+     `'rota'`. Ou seja: o gesto de CANCELAR reescrevia a preferência de CÂMERA, e
+     o Montar seguinte pousava no 2D contra a ordem do dono. Voltar de uma folha,
+     abrir a lista, subir o app na tela da rota: tudo escrevia.
+
+     A cura é ler a INTENÇÃO, e a intenção tem um lugar só na tela: o botão do
+     meio do rodapé, o que transmuxa entre Panorâmica e Direção (§ `transmux` no
+     mock, marca `data-modo` com o DESTINO). Um ouvinte em captura, no documento,
+     porque a camada é trocada a cada repinte — ouvinte pendurado no nó morre com
+     ele. O clique continua o caminho normal (`data-ir`/`data-estado`); aqui só se
+     anota que ele existiu. */
+  document.addEventListener('click', (ev) => {
+    const alvo = ev.target && ev.target.closest ? ev.target.closest('[data-modo]') : null;
+    if (alvo) lembrarModo(alvo.dataset.modo);
+  }, true);
 
   /* SUBIR — o 3D vira 2D NO MESMO MAPA: a inclinação cai, o rumo volta ao norte
      e a câmera abre até o pouso da Panorâmica, tudo num `easeTo` só.
@@ -5906,9 +5985,10 @@
      não existe mais "o mapa que entra" chegando frio de outra câmera — a imagem
      na tela é a mesma, e o movimento acontece nela. */
   function subirNoPlano() {
-    // o carimbo é a PRIMEIRA linha, antes de qualquer saída pelo caminho curto:
-    // o modo mudou de verdade mesmo quando a câmera não tem pra onde ir.
-    lembrarModo('rota');
+    /* 🔴 SEM CARIMBO AQUI. Esta função é a CÂMERA subindo, e ela roda em toda
+       virada pra tela 'rota' — cancelar, voltar de folha, app subindo no 2D.
+       Quem carimba é o dedo no botão que transmuxa (§ o ouvinte de `data-modo`,
+       logo acima do `lembrarModo`). */
     const casa = GARAGEM.get(PALCO);
     if (!casa || !casa.mapa) return;
     travarGestos2D(casa.mapa, true);
@@ -5919,6 +5999,11 @@
        subiu e voltou sem tocar na pinça) deixaria o 2D sem nome nenhum até o
        próximo gesto. Uma passada de classe em 51 pinos, aqui, resolve. */
     acertarPinos(casa);
+    /* 🔴 E O PONTO AZUL VOLTA AQUI, PELO MESMO MOTIVO DA LINHA DE CIMA: o ESTADO
+       virou sem o zoom mexer um milímetro, e quem desfaz o esconde do 3D é uma
+       chamada explícita. Esperar o próximo fix seria até 1 s de mapa 2D sem
+       motorista nenhum na tela — o defeito espelhado do print de 17/08. */
+    euVisivel(casa);
     const alvo = alvoDaPanoramica(casa);
     // a régua dos 30 m recomeça daqui: o pouso é o novo ponto de partida.
     rearmarPlanoZoom();
@@ -5929,13 +6014,17 @@
 
   /** DESCER — a volta da Panorâmica: o movimento primeiro, a cena no pouso */
   function descerDoPlano() {
-    lembrarModo('mapa');
+    // (o carimbo do modo é do DEDO, não da câmera — ver `subirNoPlano`)
     const casa = GARAGEM.get(PALCO);
     if (!casa || !casa.mapa) { entrarNaDescida(); return; }
     travarGestos2D(casa.mapa, false);
     // o nome sai ANTES do movimento: rótulo de cadastro descendo junto com a
     // câmera é enfeite viajando por cima da manobra que está nascendo.
     acertarPinos(casa);
+    /* 🔴 O PONTO AZUL SAI ANTES DO MOVIMENTO, pela mesma razão do rótulo acima: a
+       descida dura 700 ms, e nem por um quadro o dono pode ver os dois símbolos
+       juntos (*"não é para ter os 2 no mapa"*). Quem sai de cena sai primeiro. */
+    euVisivel(casa);
     // limpa vigias, relógio da vista de cima e o estado 'solta' — é o mesmo
     // desarme da saída, e sem ele a descida nasce morta (ver `pararDescida`).
     pararDescida();
@@ -5970,6 +6059,40 @@
       const dentro = p && p.x >= -18 && p.x <= larg + 18 && p.y >= 0 && p.y <= alt + 18;
       marcador.getElement().style.visibility = dentro ? '' : 'hidden';
     });
+  }
+
+  /* ---- UM SÍMBOLO POR ESTADO: O "EU" TRANSMUXA -----------------------------
+     🔴 DUAS PEÇAS DIZIAM "VOCÊ ESTÁ AQUI" NA MESMA TELA (17/08 — dono, com o
+     print da tela de dirigir na mão: *"esse símbolo tem q transmuxar entre 2d e
+     3d, não é para ter os 2 no mapa"*).
+
+     A CAUSA é a MESMA economia que curou a piscada de 16/08: 2D e 3D dividem um
+     palco só (`PALCO`) e um maplibre só (`GARAGEM`) — o nó do mapa apenas muda de
+     pai. O ponto azul do motorista (`casa.eu`, § `moverEuNoPlano` em
+     40-mapa-palcos) é peça do MAPA, então ele ATRAVESSA a troca de modo e fica na
+     tela de dirigir colado na seta verde do desenho (`.gps-puck`, com o facho da
+     manobra), que é quem representa o motorista ali. Nenhuma das duas está errada
+     no lugar dela; erradas são as duas JUNTAS — e no print elas estão a poucos
+     pixels uma da outra, o que é pior que longe: lê como falha de render.
+
+     "Transmuxar" é exatamente isto: uma peça por estado, sem nada nascer nem
+     morrer. Dirigindo, o ponto do mapa fica INVISÍVEL — não removido. Recriar
+     marcador na troca de modo é o mapa remontando peça, e é a lei que
+     `sincronizarPinos` e `acertarPinos` já escrevem nesta casa: quem já existe
+     muda de classe.
+
+     🔴 E ELE TEM QUE VOLTAR — a mesma armadilha que `pinosVisiveis` documenta
+     logo acima. Esconder num estado sem DESFAZER no outro deixaria o 2D sem o
+     "você está aqui" pra sempre, e no 2D ele é a peça mais importante da tela:
+     dia sem rota montada é "mapa com MINHA SETA na minha localização", literal
+     (§ `paradasDoMapa`). Fora da navegação a régua não é "some": é "aparece". */
+  function euVisivel(casa) {
+    if (!casa || !casa.eu) return;
+    let el;
+    try { el = casa.eu.getElement(); } catch (_) { return; }
+    // mesmo mecanismo do `pinosVisiveis`: `visibility` guarda o lugar da peça no
+    // mapa (o vendor continua escrevendo `transform` nela) e não custa layout.
+    el.style.visibility = naNavegacao() ? 'hidden' : '';
   }
 
   /* ---- O PINO SÓ PERDE O NÚMERO QUANDO O NÚMERO NÃO CABE -------------------
@@ -6103,6 +6226,17 @@
       return (casa && casa.mapa) ? poseDoMapa(casa.mapa) : null;
     },
     palco() { return PALCO; },
+    /* 🔴 `existe` E `visivel` SÃO PERGUNTAS DIFERENTES, DE PROPÓSITO (17/08). A
+       cura do "dois símbolos no mapa" é ESCONDER, nunca remover — uma prova que
+       só olhasse `existe` daria verde justamente pra quem quebrasse a lei da casa
+       (marcador recriado a cada troca de modo). Então a sonda devolve os dois:
+       dirigindo espera-se `{existe:true, visivel:false}`; no 2D, os dois `true`. */
+    eu() {
+      const casa = GARAGEM.get(PALCO);
+      let el = null;
+      try { el = (casa && casa.eu) ? casa.eu.getElement() : null; } catch (_) { el = null; }
+      return { existe: !!el, visivel: !!el && el.style.visibility !== 'hidden' };
+    },
     pinos(nome) {
       const casa = GARAGEM.get(PALCO);
       if (!casa || !casa.pinos.size) return null;
@@ -6165,6 +6299,107 @@
      Enquanto houver alguém saindo de cena, a cena espera. */
   const telaSaindo = () => !!document.querySelector('#app .tela.sai');
 
+  /* 🔴 A CASCA ESTÁ EM CENA? A marca `cena` da camada é o gatilho de "há véu na
+     tela", e quem a põe é o mock ENTRANDO na tela cheia — nunca na troca de modo
+     (o mock proíbe isso de propósito desde 17/08). Ela morava em
+     `70-traco-camera` porque quem esperava por ela era a câmera; mudou de casa
+     hoje porque quem PERGUNTA agora é a fila, e a fila é assunto da cena. */
+  const emCena = () => !!document.querySelector('#app .tela.cena');
+
+  /* ==========================================================================
+     🔴 A FILA DA CENA — UMA COISA POR VEZ, ANUNCIADA POR QUEM SABE (17/08).
+
+     Ordem do dono, com o g15 na mão: *"efeito de troca entre 2d e 3d tem q ser
+     um pouco mais devagar, um pouco mais organizado. Mesma coisa ao montar a
+     rota, organize isso! montou rota? Carregou? Escurece, preencher com cor do
+     mapa, comece o efeito, desce até o ponto, faz todos efeitos, ao concluir
+     aparecem os botões. está travando no celular, pq tem muita coisa
+     acontecendo ao mesmo tempo!! FAÇA UM ROTEIRO, LEVE SEU TEMPO"*.
+
+     O diagnóstico é dele, e é de ORQUESTRA e não de máquina: o véu abrindo
+     (casca, 0,22–0,62 s), as ruas crescendo no mapa de verdade (aqui, ~1,06 s),
+     o cromo entrando (casca, 0,48–0,58 s) e a descida da câmera (§ 70, 1,8 s)
+     caíam todos no mesmo punhado de quadros. No g15 isso é WebGL desenhando +
+     17 animações de cromo + um `easeTo` no mesmo frame.
+
+     São QUATRO fases, nesta ordem, e a marca mora na RAIZ (`<html data-cena>`):
+
+         escurece → ruas → descida → pronto        ('' = não há cena nenhuma)
+
+     Na RAIZ e não na camada porque a camada é TROCADA a cada repinte do seam
+     (1×/s dirigindo): marca em camada morre no meio da cena.
+
+     QUEM ESCREVE É A PONTE, e o motivo é que só ela sabe — quando o tile chegou,
+     quando a última onda partiu, quando o `easeTo` terminou. Quem VESTE é a
+     casca, em `:root[data-cena="…"]`. E o anúncio sai no EVENTO, nunca no
+     relógio: relógio aqui é só socorro (`FASE_TETO`).
+
+     🔴 AUSÊNCIA DE MARCA = CROMO NORMAL, e esta é a trava de segurança do
+     contrato inteiro. Cena recusada (`prefers-reduced-motion`, cena já no ar,
+     mapa sem estilo, troca de modo) não marca fase nenhuma — e nesse caso a tela
+     tem que ser a de sempre. Cromo preso invisível é pior que cena nenhuma: é a
+     lei de 09/08 ("a cena não espera o mapa"), agora escrita como TETO.
+     ========================================================================== */
+  const FASE_ORDEM = ['escurece', 'ruas', 'descida', 'pronto'];
+  /* quanto o véu leva pra encher a tela na cor do mapa (§ a folha). A 1ª onda
+     não parte antes disso — "escurece, preencher com cor do mapa, COMECE o
+     efeito" é uma ordem, e era exatamente esse cruzamento que travava o g15. */
+  const FASE_ESCURECE_MS = 420;
+  /* 🔴 O TETO VENCE DEPOIS DO CAMINHO NORMAL, SEMPRE — senão ele PASSA A SER o
+     caminho normal (a lei que a medição de 16/08 deixou no `quandoEstiloPronto`).
+     · `escurece` espera o CHÃO: `quandoEstiloPronto` gasta até 1,2 s e o
+       `esperarChao` até `CENA_TETO_TILE` — os dois somados, mais folga.
+     · `ruas` acaba na ÚLTIMA onda: 1,16 s no ritmo da rota e 0,66 s no do
+       navegar (§ `CENA_PASSO`/`CENA_ONDA`) — 5,2 s é folga de 4×.
+     · `descida` é o `easeTo` de `DESCIDA_MS` (1,8 s, § 70-traco-camera) + folga.
+       Número literal e não a constante: ela nasce num arquivo POSTERIOR da
+       costura, e ler `const` de arquivo posterior aqui no topo é TDZ na cara. */
+  const FASE_TETO = { escurece: CENA_TETO_TILE + 1600, ruas: 5200, descida: 2600 };
+  /* e o `pronto` é TETO, não duração: os 420 ms de entrada do cromo mais a folga
+     da travada de thread — a mesma folga que o `CENA_CHEIA` do mock documenta. */
+  const FASE_PRONTO_MS = 1400;
+
+  let cenaFase = '';           // a fase no ar — o espelho do que está na raiz
+  let cenaFaseEm = 0;          // quando ela foi escrita (o piso do véu lê daqui)
+  let cenaFaseRelogio = null;  // o socorro
+  let cenaFilaAberta = false;  // 🔴 só o `escurece` abre; só o `pronto` fecha
+
+  /** o ÚNICO lugar que escreve a marca da fila na raiz */
+  function faseDaCena(nome) {
+    const fase = nome || '';
+    /* 🔴 `escurece` ABRE A FILA, `pronto` FECHA, e no meio ela só anda PRA
+       FRENTE. Sem este latch o teto não seria teto: empurrada a fila até
+       `pronto`, um `descida` atrasado (o `easeTo` que ainda ia sair) esconderia
+       de novo o cromo que acabou de entrar — o socorro virando o defeito.
+       E fase repetida não se escreve: reescrever a raiz reencena a animação da
+       casca no meio dela (a mesma lei da marca `entra`, no mock). */
+    if (fase === 'escurece') cenaFilaAberta = true;
+    else if (fase && !cenaFilaAberta) return;
+    else if (fase && FASE_ORDEM.indexOf(fase) <= FASE_ORDEM.indexOf(cenaFase)) return;
+    if (fase === cenaFase) return;
+    cenaFase = fase;
+    cenaFaseEm = (window.performance && performance.now) ? performance.now() : Date.now();
+    if (cenaFaseRelogio) { clearTimeout(cenaFaseRelogio); cenaFaseRelogio = null; }
+    try {
+      const raiz = document.documentElement;
+      if (fase) raiz.dataset.cena = fase; else delete raiz.dataset.cena;
+    } catch (_) { /* documento indo embora: a fila não é dona de ninguém */ }
+    /* a outra metade do latch: a fila fecha no `pronto` E no vazio. Depois de
+       qualquer um dos dois, anúncio atrasado não veste mais nada. */
+    if (!fase || fase === 'pronto') cenaFilaAberta = false;
+    const teto = FASE_TETO[fase];
+    if (teto) {
+      cenaFaseRelogio = setTimeout(() => { cenaFaseRelogio = null; faseDaCena('pronto'); }, teto);
+      return;
+    }
+    /* 🔴 E O `pronto` TAMBÉM SAI DA RAIZ. Fase que fica pendurada é fase que a
+       casca pode reencenar no repinte seguinte, e "não há cena nenhuma" é um
+       estado de verdade desta tela — o mais comum deles, na maior parte do dia. */
+    if (fase === 'pronto') {
+      cenaFaseRelogio = setTimeout(() => { cenaFaseRelogio = null; faseDaCena(''); }, FASE_PRONTO_MS);
+    }
+  }
+
   /** de qual palco é cada cena — 'navegar' mora na tela de dirigir */
   /* 🔴 UM PALCO SÓ (16/08): as cenas continuam DUAS ('navegar' na tela de
      dirigir, 'rota'/'entrada' no 2D) — o que deixou de existir são dois lugares
@@ -6187,8 +6422,11 @@
   function esquecerCenaPedida() { cenaPedido = null; }
   /* a sonda da prova (`prova-fluxo-rota`): `cenaPedido` é fechadura de IIFE e
      sem isto a asserção "cancelar não deixa pedido vivo" não teria o que ler.
-     Mesmo precedente do `window.HBXRota`. */
-  window.HBXCena = { pendente: () => !!cenaPedido };
+     Mesmo precedente do `window.HBXRota`.
+     🔴 `fase()` ENTRA JUNTO (17/08): a fila é uma ORDEM de quatro tempos, e ordem
+     só se prova lendo o tempo em que ela está. A prova pode ler a raiz direto,
+     mas aí ela mediria a SAÍDA e não a decisão — e é a decisão que tem dono. */
+  window.HBXCena = { pendente: () => !!cenaPedido, fase: () => cenaFase };
 
   function atenderCena(casa) {
     const p = cenaPedido;
@@ -6214,9 +6452,23 @@
     cena = {
       casa, motivo, mundo: null, t0: 0, ondas: [], nomes: [],
       cartao: null, eu: null, raf: 0, dedo: null, onda: CENA_ONDA,
-      mundoVoltou: false, nomesSairam: false,
+      mundoVoltou: false, nomesSairam: false, ruasPartiram: false,
     };
     const daVez = cena;
+    /* 🔴 A FILA COMEÇA AQUI, NO INSTANTE EM QUE A CENA É ACEITA — e ela só nasce
+       onde existe VÉU (§ `emCena`). "Aceita" e não "mundo escondido": o
+       `quandoEstiloPronto` logo abaixo pode gastar até 1,2 s, e escurecer DEPOIS
+       de esconder a cidade seria mostrar o mapa sumindo na cara do motorista.
+       Assim a ordem é a que o dono ditou — escurece na cor do mapa, ENTÃO o mundo
+       sai por trás do véu, ENTÃO as ruas nascem.
+       As outras duas cenas que este arquivo toca NÃO são fila, e não por
+       esquecimento:
+       · a da TROCA DE MODO (`aoAssentar` → `pedirCena`, § 45-troca-de-modo) — o
+         mock proíbe a marca `cena` no `modo-troca` de propósito, e o cromo que a
+         fila esconderia é justamente a peça que o gesto está mostrando;
+       · a da ENTRADA do app — ela roda num palco fantasma atrás do splash, onde
+         véu não existe; quem manda no ritmo ali é a abertura (§ 7a-ter). */
+    if (emCena()) faseDaCena('escurece');
     /* O mundo sai de cena assim que o estilo existir — ANTES do primeiro tile
        pintar. Escondê-lo no `load` deixaria a cidade aparecer por um quadro e
        sumir, que é a piscada que esta casa passou o dia 09/08 matando. */
@@ -6369,6 +6621,18 @@
     let ruasEm = CENA_RUAS_ROTA;
     if (daVez.motivo === 'entrada') ruasEm = CENA_RUAS_ENTRADA;
     else if (nav) ruasEm = CENA_RUAS_NAV;
+    /* 🔴 A 1ª ONDA ESPERA O VÉU ENCHER — e só o que FALTA dele (17/08, ordem do
+       dono: *"Escurece, preencher com cor do mapa, comece o efeito"*, nesta
+       ordem). Com o tile já na mão o `esperarChao` chega aqui ~300 ms depois da
+       marca, e as ruas nasciam com a tela AINDA escurecendo: são as "muitas
+       coisas acontecendo ao mesmo tempo" no ponto exato. Fila é ORDEM, não pausa
+       inventada — véu já cheio, este piso é zero e nada atrasa.
+       (O relógio da cena, `t0`, nasce poucas linhas abaixo: a diferença entre
+       ler o tempo aqui e lá é o custo do cartão, abaixo de um quadro.) */
+    if (cenaFase === 'escurece') {
+      const agora = (window.performance && performance.now) ? performance.now() : Date.now();
+      ruasEm = Math.max(ruasEm, Math.round(FASE_ESCURECE_MS - (agora - cenaFaseEm)));
+    }
     daVez.ondas.forEach((o, i) => { o.em = ruasEm + (i * passo); });
     daVez.nomes = nomes.map((r) => ({
       nome: r.nome,
@@ -6463,6 +6727,16 @@
     const corpo = daVez.corpo || (daVez.corpo = tinta('--map-cena-rua', '#59677a'));
     const cabeca = daVez.cabeca || (daVez.cabeca = tinta('--map-cabeca', '#e8f4ff'));
 
+    /* 🔴 `ruas` SE ANUNCIA QUANDO A 1ª ONDA PARTE DE VERDADE, e não quando a cena
+       começa: entre uma coisa e outra corre o `ruasEm`, que carrega o piso do véu
+       (§ `comecarCena`) — é ele que faz a fase 1 ACABAR antes de a fase 2 começar.
+       A régua é a MESMA que o laço abaixo usa pra acender a onda (`p > 0`): duas
+       réguas pro mesmo instante divergem caladas. */
+    if (!daVez.ruasPartiram && daVez.ondas.length && t > daVez.ondas[0].em) {
+      daVez.ruasPartiram = true;
+      faseDaCena('ruas');
+    }
+
     /* 🔴 O RESTO DO MUNDO VOLTA ENQUANTO A CENA AINDA CRESCE (10/08 — dono:
        *"não pode ter a impressão de pisca e pula de tela… acende as coisas,
        preenche os nomes e PARA NO ESTADO"*).
@@ -6480,6 +6754,11 @@
         daVez.mundoVoltou = true;
         devolverMundo(mapa, fatiaDoMundo(daVez.mundo, false), CENA_VOLTA_RESTO);
         apagarNomesDaCena(mapa, CENA_VOLTA_RESTO, daVez);
+        /* 🔴 O POUSO NO 2D NÃO TEM FASE 3 (contrato de 17/08): não existe descida
+           nenhuma pra esperar ali, então a última onda É o fim da fila e o cromo
+           entra aqui. No 3D quem fecha é o `descer` — a câmera ainda tem 1,8 s de
+           trabalho, e *"ao concluir aparecem os botões"* quer dizer AO CONCLUIR. */
+        if (daVez.motivo !== 'navegar') faseDaCena('pronto');
       }
     }
 
@@ -6559,6 +6838,14 @@
     const c = cena;
     if (!c) return;
     cena = null;
+    /* 🔴 E A FILA NÃO MORRE PRESA (17/08). Todo desfecho passa por aqui — fim,
+       dedo, teto, erro no meio, tela que trocou, `sem-rua`, `sem-estilo`,
+       `sem-fonte` — e em NENHUM deles o cromo pode ficar invisível esperando um
+       anúncio que não vem mais. Vem antes do trabalho todo lá embaixo de
+       propósito: exceção no meio da devolução do mundo não pode levar a fila.
+       A única saída que não fecha é o fim natural da cena do 3D: ali a fase 3
+       ainda VAI acontecer, e quem fecha é ela (§ `descer`, 70-traco-camera). */
+    if (!(motivo === 'fim' && c.motivo === 'navegar')) faseDaCena('pronto');
     if (c.raf) { try { cancelAnimationFrame(c.raf); } catch (_) { /* já passou */ } }
     const mapa = c.casa && c.casa.mapa;
     /* 🔴 O DEDO TEM PRESSA E O FIM NÃO. Quem tocou o mapa quer o mapa agora — um
@@ -6748,6 +7035,13 @@
     /* Uma cena por vez, sempre: se a de entrada ainda estiver no ar quando o
        motorista mandar fechar, ela sai SECA e a de volta assume. */
     if (cena) encerrarCena('saida', true);
+    /* 🔴 E A FILA DA CHEGADA NÃO SOBREVIVE À SAÍDA (17/08). A marca da raiz é
+       ESTADO, não evento: sem apagá-la aqui o app fecharia com o `data-cena` da
+       entrada pendurado, e quem voltasse — fechamento abortado, que a própria
+       `limparVolta` documenta logo abaixo — acharia a casca vestindo uma fase que
+       não tem cena nenhuma atrás. A saída é o inverso da entrada em TUDO,
+       inclusive nisto: aqui a fila não anda, ela deixa de existir. */
+    faseDaCena('');
     if (volta) return VOLTA_TETO;
     const mapa = casa.mapa;
     const ruas = ruasDaCena(mapa);
@@ -9208,7 +9502,12 @@
      justamente onde os prédios do prospector ficavam mais visíveis (a tela sem
      movimento é onde o olho vai procurar o que se mexe). A vista de cima agora
      é lida DURANTE a cena das ruas, que dura 1,06 s e acontece nela: o que
-     falta depois é só o respiro entre um movimento e o outro. */
+     falta depois é só o respiro entre um movimento e o outro.
+     🔴 E COM A FILA (17/08) ELE VIROU EXATAMENTE ISSO: A RESPIRAÇÃO DELA. É o vão
+     entre a fase 2 (`ruas`, que fecha na última onda) e a fase 3 (`descida`) —
+     o único lugar do roteiro em que nada se move, e é de propósito. O dono pediu
+     *"um pouco mais devagar, um pouco mais organizado"*: organizado é isto, uma
+     coisa por vez com um respiro entre elas, não a mesma pressa embaralhada. */
   const GERAL_MS = 400;
   /* a curva do V4, `suave` — cúbica nas duas pontas: sai devagar, ganha corpo
      no meio e assenta sem batida. É ela que faz "descer" em vez de "cortar". */
@@ -9234,7 +9533,8 @@
      encostou sem querer dirige o resto do dia com a câmera parada num
      quarteirão que ficou pra trás. 12 s é o repouso padrão do mercado. */
   const VOLTA_MS = 12000;
-  const emCena = () => !!document.querySelector('#app .tela.cena');
+  /* (`emCena` mudou de casa em 17/08: ela é a pergunta "a casca abriu véu?" e
+     agora quem a faz é a FILA — mora em `50-cena-ruas`, ao lado da cena.) */
   /* a cidade ainda está nascendo no mapa de dirigir? (§ 7a-bis, motivo 'navegar')
      🔴 A PERGUNTA ERA OUTRA (16/08). O comentário sempre prometeu medir "a
      cidade ainda está nascendo"; o código media "o objeto `cena` ainda existe" —
@@ -9391,7 +9691,20 @@
      bem na hora. Sem argumento, é a entrada de sempre. */
   function descer(ms, mapaDado) {
     const mapa = mapaDado || mapaDaNavegacao();
-    if (!mapa || telaAtual() !== 'mapa') { camFase = 'dirigindo'; return; }
+    /* 🔴 A DESCIDA DA FILA É A QUE NÃO PEDE DURAÇÃO (17/08). Esta função serve
+       dois donos: a ENTRADA na rota (sem argumento, 1,8 s — é a fase 3 da fila do
+       montar) e o GESTO da Panorâmica (`descer(TROCA_MS, mapa)`, 700 ms,
+       § 45-troca-de-modo). O gesto tem coreografia PRÓPRIA na casca
+       (`modo-troca`/`troca-desce`) e o cromo dele acabou de entrar de cima:
+       marcar `descida` ali esconderia justamente a peça que o gesto mostra. */
+    const daFila = !(Number(ms) > 0);
+    if (!mapa || telaAtual() !== 'mapa') {
+      camFase = 'dirigindo';
+      /* sem mapa (ou já fora da tela de dirigir) não existe descida pra esperar:
+         a fila fecha AQUI, senão o cromo ficaria invisível pelo resto do dia. */
+      if (daFila) faseDaCena('pronto');
+      return;
+    }
     camFase = 'descendo';
     poseGeral = null;               // a próxima entrada remede a moldura do dia
     const dur = Number(ms) > 0 ? Number(ms) : DESCIDA_MS;
@@ -9403,10 +9716,21 @@
     if (eu) passo.center = [eu.lng, eu.lat];
     const rumo = rumoDaTela();
     if (rumo != null) passo.bearing = rumo;
-    try { mapa.easeTo(passo); } catch (_) { camFase = 'dirigindo'; return; }
+    try { mapa.easeTo(passo); } catch (_) { camFase = 'dirigindo'; if (daFila) faseDaCena('pronto'); return; }
+    // a fase entra com o movimento JÁ mandado: anunciar antes seria a casca
+    // vestindo uma descida que o mapa podia recusar (estilo trocando, mapa morto).
+    if (daFila) faseDaCena('descida');
     // o relógio é o dono do fim, não o evento do mapa: `moveend` não chega se
     // o dedo arrastar o mapa no meio, e a câmera ficaria presa em "descendo".
-    setTimeout(() => { if (camFase === 'descendo') camFase = 'dirigindo'; }, dur + 80);
+    setTimeout(() => {
+      if (camFase === 'descendo') camFase = 'dirigindo';
+      /* 🔴 *"AO CONCLUIR APARECEM OS BOTÕES"* — a ordem do dono, na letra. Quem
+         já era dono do fim da descida é este relógio (o `moveend` não chega se o
+         dedo pegar o mapa no meio), então é ele que fecha a fila. Um segundo
+         relógio pra dizer a mesma coisa é o jeito clássico de os dois
+         discordarem no aparelho lento. */
+      if (daFila) faseDaCena('pronto');
+    }, dur + 80);
   }
 
   /* A cena da cobra dura até 2,2 s e a marca `cena` cai no relógio do mock —
@@ -9442,12 +9766,31 @@
         if (telaAtual() !== 'mapa') camFase = 'dirigindo';
         return;
       }
-      /* 🔴 SÃO DUAS CENAS ESPERANDO, E ELAS TERMINAM QUASE JUNTAS: a da CAMADA
-         (o véu e as folhas entrando, marca `cena`, teto de 1,2 s) e a das RUAS
-         crescendo DENTRO do mapa (~1,06 s). Descer com a cidade ainda nascendo
-         seria a câmera se mexendo por cima de um desenho em curso — o cruzamento
-         que esta leva inteira existe pra matar. Quem chegar por último manda. */
-      if ((emCena() || cenaDasRuasNoAr()) && Date.now() < desistirEm) return;
+      /* 🔴 A DESCIDA ESPERA A FILA, NÃO A CASCA (17/08). Ela esperava a marca
+         `cena` da CAMADA (`emCena`) — e essa marca agora acompanha a fila
+         INTEIRA (véu + ruas + descida + cromo), então esperar por ela seria a
+         descida esperando por si mesma: represaria a fase 3 pra sempre e o teto
+         de 3 s viraria o caminho normal.
+         E não pode esperar SÓ `cenaDasRuasNoAr`: com o pedido de cena ainda na
+         fila (tile por chegar) não existe objeto `cena` nenhum, a resposta seria
+         "pode descer" e a câmera andaria ANTES das ruas — o cruzamento que esta
+         leva inteira existe pra matar.
+         A pergunta certa é a FASE: a descida é a 3, e a 3 espera a 1 e a 2.
+         O `emCena() && !cenaFase` cobre o vão em que a casca já abriu o véu e a
+         cena ainda não foi aceita (transplante que não veio na mesma passada). */
+      const filaNaFrente = cenaFase === 'escurece' || cenaFase === 'ruas'
+        || (emCena() && !cenaFase) || cenaDasRuasNoAr();
+      if (filaNaFrente) {
+        if (Date.now() < desistirEm) return;
+        /* 🔴 QUEM DESISTE, DESISTE POR TODOS (17/08). Vencidos os 3 s a cena não
+           manda mais na tela — é a lei de 09/08 ("a cena não espera o mapa") — e
+           isso vale pra fila INTEIRA: descer com ela presa em `escurece` (tile que
+           não chegou) deixaria o cromo invisível pelo resto do roteiro, porque a
+           fase 3 nunca ia poder anunciar o fim de uma fase 2 que não aconteceu.
+           Dois relógios de desistência com números diferentes é exatamente como
+           eles discordam no aparelho lento. */
+        faseDaCena('pronto');
+      }
       clearInterval(vigiaCena); vigiaCena = null;
       // 🔴 A CENA SAIU: SÓ AGORA A VISTA DE CIMA É VISÍVEL. Descer aqui era o
       // defeito — a moldura vivia inteira atrás do véu e o motorista só via o
@@ -9477,6 +9820,13 @@
     if (vigiaCena) { clearInterval(vigiaCena); vigiaCena = null; }
     if (geralTimer) { clearTimeout(geralTimer); geralTimer = null; }
     if (voltaTimer) { clearTimeout(voltaTimer); voltaTimer = null; }
+    /* 🔴 CORTAR A DESCIDA FECHA A FILA (17/08). No caminho normal quem devolve o
+       cromo é a fase 3; se ela NÃO vai acontecer — dedo, troca de tela, gesto de
+       modo por cima da cena — quem fecha é quem cortou. Sem isto o cromo ficava
+       esperando o teto de socorro (5,2 s) por um `easeTo` que ninguém ia mandar,
+       e cromo preso invisível é o pior desfecho desta tela. Fora de fila isto é
+       uma linha morta: `faseDaCena` só escreve com fila aberta. */
+    faseDaCena('pronto');
     if (Number(msSubida) > 0) {
       const casa = GARAGEM.get(PALCO);
       if (casa && casa.mapa) { poseGeral = null; vistaGeral(Number(msSubida), casa.mapa); }
@@ -9792,13 +10142,31 @@
   // o "Você chegou" agora é a peça `.chegou-wrap` por cima dela, nunca outra
   // tela.
   const naNavegacao = () => telaAtual() === 'mapa';
+  /* 🔴 O 2D COM ROTA MONTADA TAMBÉM É NAVEGAÇÃO (17/08 — item 2 do dono: a tira
+     `restante · distância · chegada` nos DOIS modos). A peça já existe na casca
+     desde hoje (§ `tiraDosIndicadores`), mas ela só nasce COM FONTE — e a fonte
+     é este seam. Enquanto `aoMover` voltava na porta fora da tela 'mapa', o 2D
+     era um mapa MUDO: pino, fita e posição, e nenhum número do dia. Quem achou
+     foi a prova nova (`prova-mapa-uma-tela`), medindo a tira num 2D FRIO — o
+     pouso do montar, que é exatamente onde o dono vai olhar primeiro.
+     `telaMapa` é a régua dos DOIS; `naNavegacao` continua sendo a de QUEM DIRIGE
+     — e é ela que manda no que é do 3D: a câmera inclinada, a VOZ e o radar. */
+  const telaMapa = () => naNavegacao() || telaAtual() === 'rota';
   function aoMover() {
-    if (!naNavegacao()) return;
+    if (!telaMapa()) return;
     pintarNavegacao();
-    if (telaAtual() === 'mapa') {
-      pedirRota(); pedirCamera();
+    /* a rota do roteador é a MESMA nos dois modos (é o dia, não a câmera): sem
+       ela não há restante, distância nem chegada — e é dela que a fita já vive.
+       Os freios de repetição são do próprio `pedirRota` (§ 7d): entrar no 2D não
+       compra pedido novo, ele reusa o mesmo que a navegação usaria. */
+    pedirRota();
+    if (naNavegacao()) {
+      pedirCamera();
       // a voz mora AQUI, no fix — não no repinte: quem entra na tela não pode
       // levar um "vire à direita" na cara só por ter aberto o mapa.
+      // 🔴 E ELA CONTINUA SÓ NO 3D: o 2D é a tela de OLHAR o dia. Falar a
+      // manobra pra quem abriu a panorâmica é o app gritando fora de hora —
+      // quem quer a voz está dirigindo, e dirigindo é a outra tela.
       vozDaManobra(manobraDaVez());
       // e o radar vem DEPOIS dela, sempre: a ordem das duas linhas é a
       // prioridade da manobra na voz (§ 6d).
@@ -10183,7 +10551,16 @@
          (§ tracoDoPlano): um pedido, na mesma porta com os mesmos freios, pra
          a tela principal não mostrar mais ponto solto. Se o GPS ainda não deu
          fix, o bilhete espera o primeiro — não há relógio nenhum atrás disto. */
-      if (tela === 'rota') { armarGpsSeConcedido(); planoQuerTraco = true; tracoDoPlano(); }
+      /* 🔴 E O 2D JÁ NASCE COM OS NÚMEROS DO DIA (17/08, item 2). Mesma lei do
+         `tela === 'mapa'` logo abaixo — "a navegação não espera o próximo fix":
+         entrar na tela pinta o que se sabe SEM GPS (o que falta, a distância, a
+         hora de chegada) e já pede a rota. Sem isto a tira só apareceria no
+         primeiro `watchPosition`, que numa garagem demora — e o pouso do montar
+         cai justamente aí. */
+      if (tela === 'rota') {
+        armarGpsSeConcedido(); planoQuerTraco = true; tracoDoPlano();
+        pintarNavegacao(); pedirRota();
+      }
       if (tela === 'chat') aoAbrirChat();
       // Cadastro NASCE EM BRANCO, sempre. Formulário que guarda o cliente
       // anterior é a receita de cadastrar duas vezes a mesma pessoa — e aqui

@@ -498,7 +498,12 @@
      justamente onde os prédios do prospector ficavam mais visíveis (a tela sem
      movimento é onde o olho vai procurar o que se mexe). A vista de cima agora
      é lida DURANTE a cena das ruas, que dura 1,06 s e acontece nela: o que
-     falta depois é só o respiro entre um movimento e o outro. */
+     falta depois é só o respiro entre um movimento e o outro.
+     🔴 E COM A FILA (17/08) ELE VIROU EXATAMENTE ISSO: A RESPIRAÇÃO DELA. É o vão
+     entre a fase 2 (`ruas`, que fecha na última onda) e a fase 3 (`descida`) —
+     o único lugar do roteiro em que nada se move, e é de propósito. O dono pediu
+     *"um pouco mais devagar, um pouco mais organizado"*: organizado é isto, uma
+     coisa por vez com um respiro entre elas, não a mesma pressa embaralhada. */
   const GERAL_MS = 400;
   /* a curva do V4, `suave` — cúbica nas duas pontas: sai devagar, ganha corpo
      no meio e assenta sem batida. É ela que faz "descer" em vez de "cortar". */
@@ -524,7 +529,8 @@
      encostou sem querer dirige o resto do dia com a câmera parada num
      quarteirão que ficou pra trás. 12 s é o repouso padrão do mercado. */
   const VOLTA_MS = 12000;
-  const emCena = () => !!document.querySelector('#app .tela.cena');
+  /* (`emCena` mudou de casa em 17/08: ela é a pergunta "a casca abriu véu?" e
+     agora quem a faz é a FILA — mora em `50-cena-ruas`, ao lado da cena.) */
   /* a cidade ainda está nascendo no mapa de dirigir? (§ 7a-bis, motivo 'navegar')
      🔴 A PERGUNTA ERA OUTRA (16/08). O comentário sempre prometeu medir "a
      cidade ainda está nascendo"; o código media "o objeto `cena` ainda existe" —
@@ -681,7 +687,20 @@
      bem na hora. Sem argumento, é a entrada de sempre. */
   function descer(ms, mapaDado) {
     const mapa = mapaDado || mapaDaNavegacao();
-    if (!mapa || telaAtual() !== 'mapa') { camFase = 'dirigindo'; return; }
+    /* 🔴 A DESCIDA DA FILA É A QUE NÃO PEDE DURAÇÃO (17/08). Esta função serve
+       dois donos: a ENTRADA na rota (sem argumento, 1,8 s — é a fase 3 da fila do
+       montar) e o GESTO da Panorâmica (`descer(TROCA_MS, mapa)`, 700 ms,
+       § 45-troca-de-modo). O gesto tem coreografia PRÓPRIA na casca
+       (`modo-troca`/`troca-desce`) e o cromo dele acabou de entrar de cima:
+       marcar `descida` ali esconderia justamente a peça que o gesto mostra. */
+    const daFila = !(Number(ms) > 0);
+    if (!mapa || telaAtual() !== 'mapa') {
+      camFase = 'dirigindo';
+      /* sem mapa (ou já fora da tela de dirigir) não existe descida pra esperar:
+         a fila fecha AQUI, senão o cromo ficaria invisível pelo resto do dia. */
+      if (daFila) faseDaCena('pronto');
+      return;
+    }
     camFase = 'descendo';
     poseGeral = null;               // a próxima entrada remede a moldura do dia
     const dur = Number(ms) > 0 ? Number(ms) : DESCIDA_MS;
@@ -693,10 +712,21 @@
     if (eu) passo.center = [eu.lng, eu.lat];
     const rumo = rumoDaTela();
     if (rumo != null) passo.bearing = rumo;
-    try { mapa.easeTo(passo); } catch (_) { camFase = 'dirigindo'; return; }
+    try { mapa.easeTo(passo); } catch (_) { camFase = 'dirigindo'; if (daFila) faseDaCena('pronto'); return; }
+    // a fase entra com o movimento JÁ mandado: anunciar antes seria a casca
+    // vestindo uma descida que o mapa podia recusar (estilo trocando, mapa morto).
+    if (daFila) faseDaCena('descida');
     // o relógio é o dono do fim, não o evento do mapa: `moveend` não chega se
     // o dedo arrastar o mapa no meio, e a câmera ficaria presa em "descendo".
-    setTimeout(() => { if (camFase === 'descendo') camFase = 'dirigindo'; }, dur + 80);
+    setTimeout(() => {
+      if (camFase === 'descendo') camFase = 'dirigindo';
+      /* 🔴 *"AO CONCLUIR APARECEM OS BOTÕES"* — a ordem do dono, na letra. Quem
+         já era dono do fim da descida é este relógio (o `moveend` não chega se o
+         dedo pegar o mapa no meio), então é ele que fecha a fila. Um segundo
+         relógio pra dizer a mesma coisa é o jeito clássico de os dois
+         discordarem no aparelho lento. */
+      if (daFila) faseDaCena('pronto');
+    }, dur + 80);
   }
 
   /* A cena da cobra dura até 2,2 s e a marca `cena` cai no relógio do mock —
@@ -732,12 +762,31 @@
         if (telaAtual() !== 'mapa') camFase = 'dirigindo';
         return;
       }
-      /* 🔴 SÃO DUAS CENAS ESPERANDO, E ELAS TERMINAM QUASE JUNTAS: a da CAMADA
-         (o véu e as folhas entrando, marca `cena`, teto de 1,2 s) e a das RUAS
-         crescendo DENTRO do mapa (~1,06 s). Descer com a cidade ainda nascendo
-         seria a câmera se mexendo por cima de um desenho em curso — o cruzamento
-         que esta leva inteira existe pra matar. Quem chegar por último manda. */
-      if ((emCena() || cenaDasRuasNoAr()) && Date.now() < desistirEm) return;
+      /* 🔴 A DESCIDA ESPERA A FILA, NÃO A CASCA (17/08). Ela esperava a marca
+         `cena` da CAMADA (`emCena`) — e essa marca agora acompanha a fila
+         INTEIRA (véu + ruas + descida + cromo), então esperar por ela seria a
+         descida esperando por si mesma: represaria a fase 3 pra sempre e o teto
+         de 3 s viraria o caminho normal.
+         E não pode esperar SÓ `cenaDasRuasNoAr`: com o pedido de cena ainda na
+         fila (tile por chegar) não existe objeto `cena` nenhum, a resposta seria
+         "pode descer" e a câmera andaria ANTES das ruas — o cruzamento que esta
+         leva inteira existe pra matar.
+         A pergunta certa é a FASE: a descida é a 3, e a 3 espera a 1 e a 2.
+         O `emCena() && !cenaFase` cobre o vão em que a casca já abriu o véu e a
+         cena ainda não foi aceita (transplante que não veio na mesma passada). */
+      const filaNaFrente = cenaFase === 'escurece' || cenaFase === 'ruas'
+        || (emCena() && !cenaFase) || cenaDasRuasNoAr();
+      if (filaNaFrente) {
+        if (Date.now() < desistirEm) return;
+        /* 🔴 QUEM DESISTE, DESISTE POR TODOS (17/08). Vencidos os 3 s a cena não
+           manda mais na tela — é a lei de 09/08 ("a cena não espera o mapa") — e
+           isso vale pra fila INTEIRA: descer com ela presa em `escurece` (tile que
+           não chegou) deixaria o cromo invisível pelo resto do roteiro, porque a
+           fase 3 nunca ia poder anunciar o fim de uma fase 2 que não aconteceu.
+           Dois relógios de desistência com números diferentes é exatamente como
+           eles discordam no aparelho lento. */
+        faseDaCena('pronto');
+      }
       clearInterval(vigiaCena); vigiaCena = null;
       // 🔴 A CENA SAIU: SÓ AGORA A VISTA DE CIMA É VISÍVEL. Descer aqui era o
       // defeito — a moldura vivia inteira atrás do véu e o motorista só via o
@@ -767,6 +816,13 @@
     if (vigiaCena) { clearInterval(vigiaCena); vigiaCena = null; }
     if (geralTimer) { clearTimeout(geralTimer); geralTimer = null; }
     if (voltaTimer) { clearTimeout(voltaTimer); voltaTimer = null; }
+    /* 🔴 CORTAR A DESCIDA FECHA A FILA (17/08). No caminho normal quem devolve o
+       cromo é a fase 3; se ela NÃO vai acontecer — dedo, troca de tela, gesto de
+       modo por cima da cena — quem fecha é quem cortou. Sem isto o cromo ficava
+       esperando o teto de socorro (5,2 s) por um `easeTo` que ninguém ia mandar,
+       e cromo preso invisível é o pior desfecho desta tela. Fora de fila isto é
+       uma linha morta: `faseDaCena` só escreve com fila aberta. */
+    faseDaCena('pronto');
     if (Number(msSubida) > 0) {
       const casa = GARAGEM.get(PALCO);
       if (casa && casa.mapa) { poseGeral = null; vistaGeral(Number(msSubida), casa.mapa); }
