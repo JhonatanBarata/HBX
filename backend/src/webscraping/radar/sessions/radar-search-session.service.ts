@@ -25,6 +25,16 @@ export type RadarSessionCity = {
   runId?: string | null;
   foundCount?: number;
   message?: string | null;
+  // LOTE 4 (17/08 — PR17082026-FAXINA-DA-BUSCA-RFB-PRIMEIRO): quanto desta cidade veio da
+  // Receita e quanto veio da web. Campos OPCIONAIS de propósito: sessão em voo no momento do
+  // deploy tem `citiesJson` sem eles, e AUSENTE ≠ ZERO — escrever 0 por falta de dado faria o
+  // relatório mentir na direção oposta ("Receita 0" numa cidade que ninguém mediu).
+  rfbCount?: number;
+  webCount?: number;
+  // Quantas empresas a Receita TEM nesta cidade (`metricsJson.rfbDrain.available`, medido pelo
+  // Lote 2). É daqui que sai o motivo honesto "sem base na Receita" — sem ele, a cidade zerada
+  // volta a ser um 0 mudo que não diz se a base é pobre ou se a busca falhou.
+  rfbAvailable?: number;
 };
 
 type StartSessionInput = {
@@ -230,7 +240,9 @@ export class RadarSearchSessionService implements OnModuleInit, OnModuleDestroy 
       if (currentRunId) {
         const run = await this.prisma.webscrapingSearchRun.findFirst({
           where: { id: currentRunId, companyId: session.companyId },
-          select: { id: true, status: true, foundCount: true, errorMessage: true },
+          // LOTE 4: `metricsJson` entra no MESMO select — o relatório por cidade não paga uma
+          // segunda ida ao banco por cidade fechada.
+          select: { id: true, status: true, foundCount: true, errorMessage: true, metricsJson: true },
         });
         const runStatus = String(run?.status || '');
         if (run && !RUN_TERMINAL_STATUSES.has(runStatus)) return; // em voo — nada a fazer
@@ -242,6 +254,13 @@ export class RadarSearchSessionService implements OnModuleInit, OnModuleDestroy 
             ? 'failed'
             : runStatus === 'canceled' ? 'canceled' : 'completed';
           entry.message = run?.errorMessage || null;
+          // LOTE 4: o breakdown do run vira o relatório por cidade. Só carimba NÚMERO — run
+          // antigo/sem métrica deixa o campo ausente e a tela mostra apenas o total, em vez de
+          // inventar "Receita 0 · Web 0" pra uma cidade que nunca foi medida.
+          const medidas = this.parseRunLaneMetrics((run as any)?.metricsJson);
+          if (medidas.rfb != null) entry.rfbCount = medidas.rfb;
+          if (medidas.web != null) entry.webCount = medidas.web;
+          if (medidas.rfbAvailable != null) entry.rfbAvailable = medidas.rfbAvailable;
         }
         const gained = Number(run?.foundCount || 0);
         foundTotal += gained;
@@ -303,11 +322,18 @@ export class RadarSearchSessionService implements OnModuleInit, OnModuleDestroy 
       }
       if (cursorIndex >= cities.length) {
         const anyOk = cities.some((c) => c.status === 'completed');
+        // LOTE 4 (17/08): "Busca concluída: 3 lead(s) em 6 cidade(s)" escondia 5 cidades mortas
+        // atrás da média — era exatamente a "pesquisa suja" que o dono via. Cidade `pending` (a
+        // sessão nem chegou nela, por pausa/cancelamento) NÃO é cidade zerada: só conta quem
+        // rodou e voltou sem card, senão a frase mente de novo, agora pra cima.
+        const zeradas = cities.filter((c) => c.status !== 'pending' && Number(c.foundCount || 0) === 0).length;
         await persistProgress({
           status: anyOk ? 'completed' : 'failed',
           finishedAt: new Date(),
           message: anyOk
-            ? `Busca concluída: ${foundTotal} lead(s) em ${cities.length} cidade(s).`
+            ? (zeradas > 0
+              ? `Busca concluída: ${foundTotal} lead(s) em ${cities.length} cidade(s) — ${zeradas} ${zeradas === 1 ? 'cidade' : 'cidades'} sem resultado.`
+              : `Busca concluída: ${foundTotal} lead(s) em ${cities.length} cidade(s).`)
             : 'Nenhuma cidade completou a busca. Tente novamente ou ajuste os filtros.',
         });
         return;
@@ -457,6 +483,38 @@ export class RadarSearchSessionService implements OnModuleInit, OnModuleDestroy 
       return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
+    }
+  }
+
+  /**
+   * LOTE 4 (17/08): lê do `metricsJson` do run SÓ o que o relatório por cidade precisa —
+   * `laneBreakdown` (quem ENTREGOU: rfb/web) e `rfbDrain.available` (quanto a Receita TEM na
+   * cidade, medido pelo Lote 2). Reusa o namespace que já existe; nada de campo novo.
+   * Parse tolerante no mesmo estilo do `parseCities`/`parseFilters`: métrica quebrada nunca pode
+   * derrubar o tick da sessão (o tick é quem faz a fila multi-cidade andar). Campo ausente volta
+   * `null` — e `null` é o que impede a tela de escrever "Receita 0" por falta de dado.
+   */
+  private parseRunLaneMetrics(json: unknown): { rfb: number | null; web: number | null; rfbAvailable: number | null } {
+    const vazio = { rfb: null, web: null, rfbAvailable: null };
+    // `Number(null)` é 0 e `Number('')` também — sem este guarda, chave ausente viraria zero e o
+    // relatório mentiria na direção oposta (o furo que este lote existe pra fechar).
+    const inteiro = (value: unknown): number | null => {
+      if (value == null || value === '') return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+    };
+    try {
+      const bruto: any = typeof json === 'string' ? JSON.parse(json) : json;
+      if (!bruto || typeof bruto !== 'object') return vazio;
+      const lanes = bruto.laneBreakdown && typeof bruto.laneBreakdown === 'object' ? bruto.laneBreakdown : null;
+      const drenagem = bruto.rfbDrain && typeof bruto.rfbDrain === 'object' ? bruto.rfbDrain : null;
+      return {
+        rfb: lanes ? inteiro(lanes.rfb) : null,
+        web: lanes ? inteiro(lanes.web) : null,
+        rfbAvailable: drenagem ? inteiro(drenagem.available) : null,
+      };
+    } catch {
+      return vazio;
     }
   }
 

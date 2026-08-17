@@ -30,6 +30,41 @@ export type CnpjPublicSearchInput = {
   records?: CnpjPublicCompanyRecord[];
 };
 
+/**
+ * LOTE 2 (17/08 — PR17082026-FAXINA-DA-BUSCA-RFB-PRIMEIRO): a Receita passou a DRENAR a base
+ * antes de a web entrar, e drenagem sem cursor é bug garantido (a fonte repetiria a MESMA
+ * primeira página a cada lote, tudo viraria duplicata e o run morreria por lote vazio).
+ *
+ * O cursor tem DUAS FASES porque o SELECT do dump também tem: primeiro quem TEM canal de
+ * contato (`with_contact`), depois o resto (`without_contact`) — cada fase com âncora própria,
+ * porque a segunda usa outro WHERE e outra ordenação. `cnpj` é a âncora porque é a única
+ * coluna `@unique` útil da CnpjPublicCompany (o `id` é cuid, sem ordem).
+ */
+export type CnpjPublicDrainPhase = 'with_contact' | 'without_contact';
+
+export type CnpjPublicDrainCursor = {
+  phase: CnpjPublicDrainPhase;
+  cnpj: string | null;
+};
+
+/**
+ * Página do dump. `rawCount` é o número de linhas que o Postgres devolveu ANTES do filtro fino
+ * em memória — medir seca por `records.length` seria mentira: o matcher de segmento zera páginas
+ * inteiras enquanto a base ainda tem milhões de linhas pra oferecer.
+ *
+ * `phase` (17/08) é a fase de ONDE ESTA PÁGINA VEIO, e não se deduz do `nextCursor`: numa página
+ * curta o `nextCursor` já vem com a fase VIRADA. A fonte precisa da fase de origem pra re-ancorar
+ * o cursor quando o provider para no meio da página (meta batida) — re-ancorar na fase errada
+ * abandonaria o rabo da fase atual, que é exatamente o defeito que a `phase` fecha.
+ */
+export type CnpjPublicDatasetPage = {
+  records: CnpjPublicCompanyRecord[];
+  rawCount: number;
+  phase: CnpjPublicDrainPhase;
+  nextCursor: CnpjPublicDrainCursor | null;
+  exhausted: boolean;
+};
+
 export type CnpjPublicProviderResult = {
   status: 'completed' | 'skipped' | 'partial_error';
   retryable: boolean;
@@ -37,6 +72,17 @@ export type CnpjPublicProviderResult = {
   foundCount: number;
   acceptedCount: number;
   rejectedCount: number;
+  /**
+   * ATÉ ONDE O PROVIDER PERCORREU a página (17/08 — a cura do "a drenagem joga fora a cauda da
+   * página"): índice onde o laço parou, NÃO quantos aceitou. Registro rejeitado foi avaliado e
+   * conta aqui; o que ficou depois do `break` do limite não conta e continua devendo.
+   *
+   * Existe porque o cursor da drenagem só pode andar até o último registro CONSUMIDO. Enquanto
+   * o provider só sabia dizer `acceptedCount`, a fonte adivinhava "percorreu a página inteira" e
+   * virava a página por cima do que ninguém tinha olhado — com página de 500 e meta 20, até 480
+   * linhas viravam inalcançáveis no run.
+   */
+  consumedCount: number;
   results: WebscrapingContactResult[];
   issue?: {
     message: string;

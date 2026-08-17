@@ -290,6 +290,77 @@
   line-height: 1.45;
 }
 
+/* LOTE 4 (17/08 — PR17082026-FAXINA-DA-BUSCA-RFB-PRIMEIRO): o relatório por cidade.
+   Até aqui a sessão fechava com "Busca concluída: 4 lead(s) em 6 cidade(s)" e as 5 cidades
+   mortas sumiam atrás da média — o dono só descobria abrindo log de servidor. Agora cada cidade
+   é uma linha: nome, total e de onde vieram os cards; a zerada fica APAGADA, nunca ausente
+   (lei do desaparecer vale pra tela também).
+   Espaçamento/tipografia só por token: o vizinho `.radar-viewer__feedback` usa `padding: 9px 11px`
+   por DÍVIDA legada — não é licença pra copiar (catraca R9). */
+.leads-page .radar-viewer__cidades {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+  /* A sessão aceita até 100 cidades (MAX_CITIES_PER_SESSION) e este card mora no aside de
+     232px: sem teto a lista empurra a página inteira pra rolagem em 1366×768 (lei do ZERO
+     SCROLL). É `max-height`, NUNCA `height` em px — a caixa tem que crescer junto quando o
+     usuário aumenta a letra no painel de tipografia (catraca R10). */
+  max-height: min(30vh, 220px);
+  overflow-y: auto;
+  margin: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface-soft);
+  list-style: none;
+}
+
+.leads-page .radar-viewer__cidade {
+  display: flex;
+  /* O par da Lei 3: quem hospeda dado-que-não-encurta precisa poder descer de linha, senão o
+     corte vira transbordo. É por aqui que o motivo da cidade zerada ganha a linha de baixo. */
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  /* `min-width: 0` não é enfeite: sem ele o `.hbx-1linha` do nome nunca reticencia — só empurra
+     o número pra fora da caixa. */
+  min-width: 0;
+  font-size: var(--fz-m1);
+  line-height: 1.4;
+}
+
+.leads-page .radar-viewer__cidade-nome {
+  color: var(--text-strong);
+}
+
+.leads-page .radar-viewer__cidade-total {
+  margin-left: auto;
+  color: color-mix(in srgb, var(--radar-state-color) 78%, var(--text-strong));
+  font-family: var(--font-mono);
+  font-weight: 780;
+}
+
+.leads-page .radar-viewer__cidade-lanes {
+  color: var(--text-muted);
+  font-size: var(--hbx-font-min);
+}
+
+.leads-page .radar-viewer__cidade-motivo {
+  /* Ocupa a linha inteira: "sem base na Receita, web sem sinal local" não disputa espaço com o
+     número numa caixa de 232px. */
+  flex-basis: 100%;
+  color: var(--text-muted);
+  font-size: var(--hbx-font-min);
+  line-height: 1.35;
+}
+
+/* Cidade zerada aparece APAGADA — presente e legível, sem roubar o olho de quem entregou. É
+   justamente ela que a média escondia. */
+.leads-page .radar-viewer__cidade[data-vazia="1"] .radar-viewer__cidade-nome,
+.leads-page .radar-viewer__cidade[data-vazia="1"] .radar-viewer__cidade-total {
+  color: var(--text-muted);
+}
+
 /* Indicador compacto da imagem 1: usa o mesmo estado operacional do radar. */
 .vnd-supcard--funcionando { --radar-color: var(--hbx-info); }
 .vnd-supcard--pausado { --radar-color: var(--hbx-warning); }

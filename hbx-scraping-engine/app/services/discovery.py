@@ -21,7 +21,13 @@ SOCIAL_DISCOVERY_MIN_TARGET = 80
 SOCIAL_DISCOVERY_LIMIT_MULTIPLIER = 12
 SOCIAL_DISCOVERY_MAX_RESULTS_PER_QUERY = 50
 SOCIAL_DISCOVERY_FORCED_QUERY_LIMIT_PER_CHANNEL = 3
-DISCOVERY_QUERY_BACKEND = "bing"
+# 17/08 (L3 da faxina da busca) — "bing" NUNCA foi backend de texto do ddgs (os validos sao
+# brave/duckduckgo/google/grokipedia/mojeek/startpage/wikipedia/yahoo/yandex). Chave invalida faz
+# o ddgs cair no rodizio "auto", que promove WIKIPEDIA/GROKIPEDIA pra frente da fila — e como
+# enciclopedia volta NAO-vazia, o retorno suprimia o scraper do Bing. So vale se alguem religar o
+# ddgs por HBX_DISCOVERY_DDGS_ENABLED; a ordem padrao de hoje e searxng -> Bing scraper.
+# 'brave' fica FORA da lista de proposito: a palavra esta na geladeira por decisao do dono.
+DISCOVERY_QUERY_BACKEND = os.getenv("HBX_DISCOVERY_QUERY_BACKEND", "google,startpage,yahoo")
 PJ_DISCOVERY_TIMEOUT_SECONDS = 8
 SOCIAL_DISCOVERY_TIMEOUT_SECONDS = 12
 DISCOVERY_SEARCH_TIMEOUT_SECONDS = 4
@@ -101,14 +107,26 @@ def build_queries(segment: str, city: str, state: str, target_type: str = "pj", 
         ]
     if location:
         segment_variants = discovery_segment_variants(segment)
+        # 17/08 (L3 da faxina da busca) — cidade entre ASPAS ancora o Bing na cidade: medido 10/10
+        # resultados locais com '"Valinhos" ... telefone' contra 0/10 sem aspas (sem aspas o Bing
+        # ancorava na 1a palavra e devolvia Wikipedia "Agua" + Sabesp). Variavel NOVA dentro do
+        # ramo pj de proposito: pf/agenda_pf retornam antes daqui e a linha do `location` original
+        # continua servindo de fallback quando a cidade vem vazia.
+        city_text = " ".join(str(city or "").split())
+        state_text = " ".join(str(state or "").split())
+        # O guarda de cidade vazia e obrigatorio: `if location:` tambem passa com SO o estado
+        # preenchido, e um f'"{city}"' direto emitiria um token `""` solto na query.
+        quoted_location = " ".join(part for part in [f'"{city_text}"' if city_text else "", state_text] if part).strip() or location
         queries: list[str] = []
         for variant in segment_variants:
             queries.extend([
-                f"{variant} {location} telefone",
-                f"{variant} {location} contato",
-                f"{variant} {location} whatsapp",
-                f"{variant} em {location}",
-                f"{variant} {location} site oficial",
+                # A 1a forma reproduz o experimento que mediu 10/10 (cidade entre aspas NA FRENTE)
+                # e tem que continuar sendo a primeira: HBX_PJ_DISCOVERY_MAX_QUERIES corta em 4.
+                f"{quoted_location} {variant} telefone",
+                f"{variant} {quoted_location} contato",
+                f"{variant} {quoted_location} whatsapp",
+                f"{variant} em {quoted_location}",
+                f"{variant} {quoted_location} site oficial",
             ])
         return list(dict.fromkeys(queries))
     return [
@@ -399,6 +417,15 @@ def search_discovery_rows(query: str, deadline: float, max_results: int = 8) -> 
     searx_rows = search_searxng_rows(query, deadline, max_results)
     if searx_rows:
         return searx_rows
+    # 17/08 (L3 da faxina da busca) — DISCOVERY_QUERY_BACKEND="bing" nunca foi backend de texto
+    # valido do ddgs, entao o ddgs caia no rodizio "auto", que promove WIKIPEDIA/GROKIPEDIA pra
+    # frente da fila. Como enciclopedia volta NAO-vazia, o retorno do ddgs SUPRIMIA o scraper do
+    # Bing (26 de ~50 lotes com approved=0) — e HBX_BING_FALLBACK_ON_EMPTY nao salvava, porque so
+    # age quando o ddgs devolve lista VAZIA. DDG e Mojeek continuam TCP-mortos da VPS. Ordem nova:
+    # searxng (so se HBX_SEARXNG_URL existir) -> Bing scraper. O ddgs NAO morre e nao e apagado:
+    # volta inteiro com HBX_DISCOVERY_DDGS_ENABLED=1, pra medir de novo sem reescrever nada.
+    if os.getenv("HBX_DISCOVERY_DDGS_ENABLED", "").lower() not in {"1", "true", "yes", "on"}:
+        return search_bing_rows(query, deadline, max_results)
     rows = search_ddgs_rows(query, deadline, max_results)
     if rows is not None and (rows or os.getenv("HBX_BING_FALLBACK_ON_EMPTY", "").lower() not in {"1", "true", "yes", "on"}):
         return rows

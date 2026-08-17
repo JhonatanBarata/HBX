@@ -174,7 +174,7 @@ import {
   splitRadarDiscoveryFromEnrichment,
   tagRadarDiscoverySnapshot,
 } from '../shared/radar-source-lanes';
-import { findRadarSegmentExclusionMatch } from '../shared/radar-segment-exclusion.util';
+import { findRadarSegmentExclusionMatchWithEvidence } from '../shared/radar-segment-exclusion.util';
 
 // sourceChain (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md; reformado
 // 03/07): a tabela de lanes agora é ÚNICA em shared/radar-source-lanes.ts (antes triplicada e
@@ -344,13 +344,22 @@ export class RadarCoreQualityEnrichmentMixin {
     const name = this.normalizeQualityText(candidate.name);
     if (!requestedSegment) return false;
     if (this.nameConflictsWithRequestedSegment(name, requestedSegment)) return true;
-    return Boolean(findRadarSegmentExclusionMatch(
-      requestedSegment,
-      name,
-      candidate.cnaeDescription,
-      candidate.businessCategory,
-      candidate.category,
-    ));
+    // LOTE 1 (17/08): anda JUNTO com o quality gate (radar-quality-gate.service.ts) — se o
+    // CNAE da allowlist curada desarma a exclusão lá e não desarma aqui, o card passa o gate e
+    // morre logo depois com `segment_mismatch`. Sem CNAE conhecido nada muda: a allowlist só
+    // fala quando existe o CÓDIGO oficial.
+    // A RAZÃO SOCIAL ENTRA NO TEXTO (17/08): mesma correção do quality gate. O sinal textual
+    // que a allowlist exige (4723700 pede 'agua') mora na razão social — `razaoSocial` na lane
+    // web (cnpj-rfb-reconcile.applyOutcomeToCandidate) e `legalName` na lane Receita
+    // (cnpj-public-provider.toContactResult) — e o `name` não o carrega: "Ricci Distribuidora"
+    // na web, "FERREIRAGUA" na Receita. Sem isso o card passava o gate e morria aqui com
+    // `segment_mismatch`, que é exatamente o que o comentário acima promete não acontecer.
+    return Boolean(findRadarSegmentExclusionMatchWithEvidence({
+      segment: requestedSegment,
+      cnae: candidate.cnae,
+      city: candidate.city,
+      texts: [name, candidate.razaoSocial, candidate.legalName, candidate.cnaeDescription, candidate.businessCategory, candidate.category],
+    }));
   }
 
   private nameConflictsWithRequestedSegment(name: unknown, segment: unknown) {

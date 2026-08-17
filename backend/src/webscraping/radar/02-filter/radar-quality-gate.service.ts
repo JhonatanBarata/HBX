@@ -3,7 +3,7 @@ import type { LeadQualityV2 } from '../../lead-quality-v2';
 import { looksLikeNonBusinessName, isRealisticBrPhone, RADAR_MARKETPLACE_HOST_HINTS } from '../shared/radar-core-shared';
 import type { LeadQualityResult } from '../shared/radar-core-shared';
 import type { NormalizedRadarFilters, NormalizedSearchInput } from '../shared/radar-types';
-import { findRadarSegmentExclusionMatch } from '../shared/radar-segment-exclusion.util';
+import { findRadarSegmentExclusionMatchWithEvidence } from '../shared/radar-segment-exclusion.util';
 
 export type RadarQualityGateResult = {
   deliverable: boolean;
@@ -214,7 +214,26 @@ export class RadarQualityGateService {
     // nameConflictsWithRequestedSegment — checado ANTES dele, e vale mesmo se o nome "parece"
     // bater por token (ex.: "Distribuidora de Energia X" não entra em "distribuidora").
     if (!isCnpjPublic && requestedSegment) {
-      const exclusionMatch = findRadarSegmentExclusionMatch(requestedSegment, name, candidate.cnaeDescription, candidate.category);
+      // LOTE 1 (17/08): a MESMA evidência positiva da porta da Receita vale aqui — "ÁGUA
+      // MINERAL DISTRIBUIDORA RICCI" veio da lane WEB e morreu na mesma trava `varejo_puro`.
+      // Funciona porque a reconciliação RFB roda ANTES deste gate e já preencheu
+      // `candidate.cnae` (cnpj-rfb-reconcile.service.ts). Candidato web SEM reconciliação
+      // continua sem CNAE → matchesRadarSegmentCnaeAllowlist devolve false e o comportamento
+      // é idêntico ao de hoje: nada afrouxa por falta de código.
+      // A RAZÃO SOCIAL ENTRA NO TEXTO (17/08): a porta da Receita sempre varreu
+      // [nomeFantasia, razaoSocial, cnae, cnaeDescription] — aqui a razão social ficava de fora
+      // e a reconciliação RFB nunca toca no `name` (na web ele é o título raspado do
+      // diretório). "Ricci Distribuidora" chegava com cnae 4723700 e razão "RICCI & RICCI
+      // COMERCIO DE AGUA MINERAL LTDA": o sinal 'agua' que a entrada 4723700 EXIGE existia só
+      // na razão, a evidência não desarmava e o lead morria em `varejo_puro`. O texto também
+      // alimenta a busca das exclusões, e isso é correto — razão social é evidência legítima de
+      // ramo ("X TRANSPORTES LTDA" deve mesmo cair em transporte_carga).
+      const exclusionMatch = findRadarSegmentExclusionMatchWithEvidence({
+        segment: requestedSegment,
+        cnae: candidate.cnae,
+        city: (filters as any)?.city,
+        texts: [name, candidate.razaoSocial, candidate.cnaeDescription, candidate.category],
+      });
       if (exclusionMatch) {
         hardBlockers.push(`segment_excluded_${exclusionMatch.code}`);
         return buildReject({ reason: `Segmento excluido: ${exclusionMatch.label}.`, qualityScore, missing, hardBlockers, positiveSignals, weakSignals });

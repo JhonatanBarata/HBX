@@ -7,6 +7,11 @@ import {
 } from '../03-enrichment/radar-enrichment-job-pipeline.service';
 import type { RadarSearchRunMetrics, RadarSearchRunMetricsPatch, SearchExecutionContext, WebscrapingSearchRunItemStatus } from '../shared/radar-types';
 import { normalizeLookupValue } from '../04-socials/radar-social-matching';
+// LOTE 4 (17/08): o mapa rfb/web é ÚNICO (radar-source-lanes) desde o conserto do sourceChain de
+// 03/07. Recontar lane com um `if (source === 'cnpj_public')` local aqui seria a QUARTA cópia da
+// mesma tabela — e a primeira a desconhecer os rótulos que o motor Python emite de verdade
+// (`hbx_scraping:free_pj`, `hbx_agenda:*`), que cairiam calados em "outros".
+import { radarSourceLaneOf } from '../shared/radar-source-lanes';
 
 function safeInteger(value: unknown, fallback = 0) {
   const parsed = Number(value);
@@ -401,12 +406,31 @@ export class RadarRunRepositoryService {
       }),
       this.prisma.webscrapingSearchRunItem.findMany({
         where: { runId },
-        select: { status: true },
+        // LOTE 4 (17/08): `source` entra de carona na query que JÁ lê todos os itens do run a
+        // cada lote. Uma coluna `String?` a mais na mesma ida ao banco — um `groupBy` extra
+        // custaria uma SEGUNDA viagem no caminho quente, a cada attempt.
+        select: { status: true, source: true },
       }),
     ]);
     const foundCount = rows.filter((row) => row.status === 'found').length;
     const duplicateCount = rows.filter((row) => row.status === 'duplicate').length;
     const skippedCount = rows.filter((row) => row.status === 'skipped' || row.status === 'invalid').length;
+    // LOTE 4 — "o relatório para de mentir": é AQUI que nasce quanto veio da Receita e quanto
+    // veio da web. Conta CARD SALVO (`status='found'`, o que o dono vê na tela), nunca candidato
+    // oferecido pela lane. Número ABSOLUTO por run, recontado do banco: retry ou lote repetido
+    // não infla, e uma escrita de métrica perdida se auto-cura no lote seguinte.
+    const laneBreakdown = { rfb: 0, web: 0, outros: 0 };
+    for (const row of rows) {
+      if (row.status !== 'found') continue;
+      const lane = radarSourceLaneOf(row.source);
+      if (lane === 'rfb') laneBreakdown.rfb += 1;
+      else if (lane === 'web') laneBreakdown.web += 1;
+      // `outros` = source nulo, `radar_database`, `company_history` e rótulos de corrida: banco
+      // relembra e corrida processa, nenhum dos dois DESCOBRE. Por isso `rfb + web` pode ser
+      // MENOR que foundCount — o total que a tela mostra é sempre o foundCount, e `outros` fica
+      // fora da copy (só no metricsJson e no log [radar-cadeia]).
+      else laneBreakdown.outros += 1;
+    }
     await this.prisma.webscrapingSearchRun.update({
       where: { id: runId },
       data: {
@@ -416,7 +440,9 @@ export class RadarRunRepositoryService {
         ...(foundCount > safeInteger(currentRun?.foundCount) ? { lastFoundCountChangeAt: new Date() } : {}),
       },
     });
-    return { foundCount, duplicateCount, skippedCount };
+    // O update acima só toca coluna escalar; quem grava o breakdown no `metricsJson` é o
+    // call-site do loop (ele decide o MOMENTO — a última escrita de métrica do lote).
+    return { foundCount, duplicateCount, skippedCount, laneBreakdown };
   }
 
   emptyMetrics(status = 'queued'): RadarSearchRunMetrics {

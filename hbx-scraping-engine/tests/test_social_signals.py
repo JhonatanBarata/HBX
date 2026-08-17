@@ -26,6 +26,17 @@ def _isolate_enrich_lead_from_live_providers(monkeypatch) -> None:
     monkeypatch.setattr(SearchService, "enrich_identity_lookup", lambda *args, **kwargs: {"stats": {"rows": 0}})
 
 
+def _liga_a_lane_do_ddgs(monkeypatch) -> None:
+    """17/08 (L3 da faxina da busca): a ordem padrao de `search_discovery_rows` virou
+    searxng -> Bing scraper, e o ddgs passou a rodar SO com `HBX_DISCOVERY_DDGS_ENABLED`
+    (o backend invalido "bing" fazia o ddgs cair no rodizio "auto" e devolver
+    wikipedia/grokipedia, suprimindo o scraper do Bing). Os testes abaixo injetam o fake no
+    CLIENTE DDGS -- o nivel mais baixo da lane -- entao precisam religar a lane pra continuar
+    medindo exatamente o que sempre mediram (selecao de URL/perfil social, nao o provedor).
+    O ddgs nao foi apagado: e essa env que o traz de volta inteiro."""
+    monkeypatch.setenv("HBX_DISCOVERY_DDGS_ENABLED", "1")
+
+
 def test_instagram_is_social_signal_not_blocked_lead_source() -> None:
     assert is_social_signal_domain("https://instagram.com/oficina")
     assert not is_blocked_lead_source_domain("https://instagram.com/oficina")
@@ -312,6 +323,7 @@ def test_discovery_recognizes_social_signal_but_does_not_use_as_primary_source(m
                 {"href": "https://instagram.com/p/abc"},
             ]
 
+    _liga_a_lane_do_ddgs(monkeypatch)
     monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
 
     urls = discover_urls(
@@ -371,6 +383,7 @@ def test_discover_social_profiles_returns_requested_instagram(monkeypatch) -> No
                 }
             ]
 
+    _liga_a_lane_do_ddgs(monkeypatch)
     monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
 
     profiles = discover_social_profiles("Campinas", "SP", "barbearia", 10, required_channels=["instagram"])
@@ -405,6 +418,7 @@ def test_discover_social_profiles_honors_forced_target_without_returning_empty(m
                 {"href": "https://instagram.com/farmaciasocial2", "title": "Farmácia Social 2"},
             ]
 
+    _liga_a_lane_do_ddgs(monkeypatch)
     monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
 
     profiles = discover_social_profiles("São Paulo", "SP", "farmacia", 1, required_channels=["instagram"], target_override=1)
@@ -430,6 +444,7 @@ def test_discover_urls_keeps_social_out_but_social_discovery_returns_it(monkeypa
                 {"href": "https://barbeariacampinas.example.com", "title": "Barbearia Campinas", "body": "Contato"},
             ]
 
+    _liga_a_lane_do_ddgs(monkeypatch)
     monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
 
     urls = discover_urls("Campinas", "SP", "barbearia", 10, 30, required_channels=["instagram"])
@@ -458,6 +473,7 @@ def test_discover_social_profiles_does_not_stop_at_twenty(monkeypatch) -> None:
                 for i in range(50)
             ]
 
+    _liga_a_lane_do_ddgs(monkeypatch)
     monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
 
     profiles = discover_social_profiles("Campinas", "SP", "barbearia", 20, required_channels=["instagram"])
@@ -479,6 +495,7 @@ def test_discover_urls_with_required_social_uses_aggressive_max_results(monkeypa
             calls.append({"query": query, **kwargs})
             return [{"href": "https://barbeariacampinas.example.com"}]
 
+    _liga_a_lane_do_ddgs(monkeypatch)
     monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
 
     urls = discover_urls("Campinas", "SP", "barbearia", 20, 500, required_channels=["instagram"])
@@ -503,6 +520,7 @@ def test_required_website_prioritizes_official_search_before_directory(monkeypat
             calls.append(query)
             return [{"href": "https://barbeariacampinas.com.br"}]
 
+    _liga_a_lane_do_ddgs(monkeypatch)
     monkeypatch.setattr("app.services.discovery.DDGS", FakeDDGS)
 
     urls = discover_urls("Campinas", "SP", "barbearia", 10, 30, required_channels=["website"])

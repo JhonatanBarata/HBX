@@ -99,8 +99,39 @@ export class RadarSearchRunConfigService {
     return `Ultimo lote falhou com ${statusText}, tentando novamente...${suffix}`;
   }
 
-  buildSearchRunInsufficientMessage(foundCount: number, attempts: number) {
-    return `Busca parcial: ${foundCount} contatos encontrados. O motor tentou ${attempts} lotes, mas nao atingiu a meta.`;
+  /**
+   * LOTE 2 item 5 (17/08 — PR17082026-FAXINA-DA-BUSCA-RFB-PRIMEIRO): a frase dizia só o número
+   * entregue, então o dono não conseguia separar "cidade pobre na Receita" de "a busca falhou" —
+   * e era exatamente essa a leitura de "pesquisa suja". Agora cita o disponível real da base e o
+   * que cada lane somou.
+   *
+   * `lanes` é o 3º parâmetro OPCIONAL de propósito: quem chama com 2 argumentos
+   * (06-presentation/radar-run-presenter.service.ts:363 e o host de radar-webscraping-core:630,
+   * que não têm as lanes na mão) continua recebendo EXATAMENTE a frase de antes, byte por byte.
+   */
+  buildSearchRunInsufficientMessage(
+    foundCount: number,
+    attempts: number,
+    lanes?: {
+      rfbDisponivel?: number | null;
+      rfbEntregues?: number | null;
+      webEntregues?: number | null;
+    } | null,
+  ) {
+    const base = `Busca parcial: ${foundCount} contatos encontrados. O motor tentou ${attempts} lotes, mas nao atingiu a meta.`;
+    if (!lanes) return base;
+    // Cada número é opcional por conta própria: o count da base tem orçamento de 8s e degrada
+    // pra `null`, e a contagem por lane depende do delegate de itens existir. Número ausente
+    // some da frase — nunca vira "null" nem 0 inventado na tela do dono.
+    const disponivel = lanes.rfbDisponivel == null ? null : Math.max(0, safeInteger(lanes.rfbDisponivel));
+    const daReceita = lanes.rfbEntregues == null ? null : Math.max(0, safeInteger(lanes.rfbEntregues));
+    const daWeb = lanes.webEntregues == null ? null : Math.max(0, safeInteger(lanes.webEntregues));
+    const partes: string[] = [];
+    if (disponivel != null) partes.push(`A Receita tem ${disponivel} nessa cidade`);
+    if (daReceita != null) partes.push(disponivel != null ? `entreguei ${daReceita}` : `A Receita entregou ${daReceita}`);
+    if (daWeb != null) partes.push(`a web completou +${daWeb}`);
+    if (!partes.length) return base;
+    return `${base} ${partes.join('; ')}.`;
   }
 
   buildSearchRunNoCardsMessage(attempts: number, lastQuery: string | null | undefined) {

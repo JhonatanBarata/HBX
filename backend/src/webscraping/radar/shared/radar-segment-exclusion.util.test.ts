@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findRadarSegmentExclusionMatch, resolveSegmentExclusionRules } from './radar-segment-exclusion.util';
+import {
+  findRadarSegmentExclusionMatch,
+  findRadarSegmentExclusionMatchWithEvidence,
+  resolveSegmentExclusionRules,
+} from './radar-segment-exclusion.util';
 
 test('resolveSegmentExclusionRules: "distribuidora" tem mapa de exclusao (varias categorias)', () => {
   const rules = resolveSegmentExclusionRules('distribuidora');
@@ -181,4 +185,87 @@ test('a distribuidora de ÁGUA de verdade continua passando', () => {
   assert.equal(findRadarSegmentExclusionMatch('distribuidora de agua', 'Tagliagua Atacadao das Aguas',
     'Comércio atacadista de água mineral'), null);
   assert.equal(findRadarSegmentExclusionMatch('distribuidora de agua', 'JOBEMA Distribuidora de Agua Mineral'), null);
+});
+
+// ── LOTE 1 (17/08 — PR17082026): EVIDÊNCIA POSITIVA DE CNAE VENCE A EXCLUSÃO GENÉRICA ──────
+// A regra `varejo_puro` (token 'comercio varejista') matava o CNAE 4723-7/00 — que é EXATAMENTE
+// onde a distribuidora de água mora na Receita. Medido em Valinhos: FERREIRAGUA, VALINAGUA,
+// ACQUARELLA, RICCI e RINAGUA rejeitadas como "varejo puro" numa busca por distribuidora de
+// água. A allowlist curada (radar-segment-cnae-map.util) desarma a exclusão — e só ela.
+
+test('LOTE 1 — CNAE 4723700 (varejista de bebidas) com sinal de agua vence a regra varejo_puro', () => {
+  const textos = ['FERREIRAGUA COMERCIO DE AGUAS LTDA', '4723700', 'Comercio varejista de bebidas'];
+  // Sem a evidência (a função antiga, que segue viva pros outros call-sites) o card morre.
+  assert.equal(findRadarSegmentExclusionMatch('distribuidora de agua', ...textos)?.code, 'varejo_puro');
+  assert.equal(
+    findRadarSegmentExclusionMatchWithEvidence({
+      segment: 'distribuidora de agua', cnae: '4723700', city: 'Valinhos', texts: textos,
+    }),
+    null,
+    'com o CNAE da allowlist do pedido, a exclusao generica perde',
+  );
+});
+
+test('LOTE 1 — a evidencia e o CODIGO: nome cheio de agua com CNAE de ROUPA nao desarma nada', () => {
+  assert.equal(
+    findRadarSegmentExclusionMatchWithEvidence({
+      segment: 'distribuidora de agua',
+      cnae: '4781400',
+      city: 'Valinhos',
+      texts: ['AGUA VIVA MODAS LTDA', '4781400', 'Comercio varejista de artigos do vestuario'],
+    })?.code,
+    'varejo_puro',
+  );
+});
+
+test('LOTE 1 — as regressoes duras continuam matando MESMO com o CNAE em maos', () => {
+  const comCnae = (cnae: string, ...texts: unknown[]) =>
+    findRadarSegmentExclusionMatchWithEvidence({ segment: 'distribuidora de agua', cnae, city: 'Valinhos', texts });
+  // Saneamento (SANASA & cia): 3600601 é VIZINHO do 3600602 da allowlist e continua fora.
+  assert.equal(comCnae('3600601', 'SANASA', 'Captacao, tratamento e distribuicao de agua')?.code, 'energia_agua_combustivel');
+  assert.equal(comCnae('3600602', 'Servico Municipal', 'Gestao de redes de esgoto'), null, 'o 3600602 E o pedido');
+  assert.equal(comCnae('3513100', 'CPFL Distribuidora de Energia', 'Comercio atacadista de energia eletrica')?.code, 'energia_agua_combustivel');
+  assert.equal(comCnae('4930202', 'Transvale Transportes Rapidos', 'Transporte rodoviario de carga')?.code, 'transporte_carga');
+  assert.equal(comCnae('4644301', 'Suplefar', 'Comercio atacadista de medicamentos e drogas de uso humano')?.code, 'farma_hospitalar');
+  assert.equal(comCnae('6821801', 'Imobiliaria Central', 'Atividades imobiliarias')?.code, 'imobiliaria');
+  assert.equal(comCnae('6422100', 'Banco Comercial Y', 'Banco multiplo')?.code, 'servicos_financeiros');
+  // Mercadinho de bairro: varejo puro sem CNAE nenhum da allowlist da água.
+  assert.equal(comCnae('4711302', 'Mercadinho do Ze', 'Comercio varejista de mercadorias em geral')?.code, 'varejo_puro');
+});
+
+// O outro lado do 4784900 (GLP) na allowlist da água: sem o sinal 'agua' o botijão puro segue
+// morto. Sem este caso a allowlist reabriria calada o furo do noturno de 30/07.
+test('LOTE 1 — GLP (4784900) na allowlist da agua so vale COM o sinal de agua', () => {
+  assert.equal(
+    findRadarSegmentExclusionMatchWithEvidence({
+      segment: 'distribuidora de agua', cnae: '4784900', city: 'Valinhos',
+      texts: ['FERREIRAGUA COMERCIO DE AGUAS E GAS LTDA', '4784900', 'Comercio varejista de gas liquefeito de petroleo'],
+    }),
+    null,
+  );
+  assert.ok(
+    findRadarSegmentExclusionMatchWithEvidence({
+      segment: 'distribuidora de agua', cnae: '4784900', city: 'Valinhos',
+      texts: ['ULTRAGAZ REVENDA DE BOTIJOES LTDA', '4784900', 'Comercio varejista de gas liquefeito de petroleo'],
+    }),
+    'revendedor de botijao sem sinal de agua continua morto',
+  );
+});
+
+test('LOTE 1 — sem CNAE, a versao com evidencia e IDENTICA a antiga (nada afrouxa na lane web)', () => {
+  const casos: Array<[string, unknown[]]> = [
+    ['distribuidora de agua', ['Gas e Agua do Ze']],
+    ['distribuidora de agua', ['Companhia de Saneamento', 'Captacao, tratamento e distribuicao de agua']],
+    ['distribuidora', ['Energias do Brasil SA']],
+    ['distribuidora', ['Transportes Rapidos Ltda']],
+    ['distribuidora de agua', ['JOBEMA Distribuidora de Agua Mineral']],
+    ['padaria', ['Distribuidora de Energia X']],
+  ];
+  for (const [segment, texts] of casos) {
+    assert.equal(
+      findRadarSegmentExclusionMatchWithEvidence({ segment, texts })?.code ?? null,
+      findRadarSegmentExclusionMatch(segment, ...texts)?.code ?? null,
+      `${segment} / ${String(texts[0])}`,
+    );
+  }
 });

@@ -5,6 +5,12 @@ import { RadarCoreSearchLoopMixin } from './radar-core-search-loop.mixin';
 // Instancia o mixin isolado e injeta os stubs que o bloco aditivo de fonte Receita
 // (cnpj_public soldada no run de cliente) usa: getRadarCnpjPublicSource, saveSearchRunResults,
 // prisma e logger. Espelha o padrão de radar-core-factory-admin.abandon.test.ts.
+//
+// LOTE 2 (17/08 — PR17082026): o estado da drenagem deixou de morar num Map de processo e passou
+// a viver no `metricsJson` do run (durável, sobrevive ao restart do publish). Por isso o stub
+// agora precisa de um metricsJson DE VERDADE: `updateSearchRunMetrics` grava e o findUnique do
+// prisma devolve — igual ao repositório real, que faz `{...rawMetrics, ...patch}`. Sem esse
+// espelho, seca gravada num lote não seria vista no lote seguinte.
 function makeLoop(sourceRunImpl: (input: any) => Promise<any>) {
   const instance: any = new (RadarCoreSearchLoopMixin as any)();
   const logs: string[] = [];
@@ -13,7 +19,20 @@ function makeLoop(sourceRunImpl: (input: any) => Promise<any>) {
     log: (msg: string) => logs.push(msg),
     warn: (msg: string) => warns.push(msg),
   };
-  instance.prisma = {};
+  const metricasPorRun = new Map<string, Record<string, any>>();
+  instance.updateSearchRunMetrics = async (runId: string, patch: Record<string, any>) => {
+    const atual = metricasPorRun.get(runId) || {};
+    const { increment: _increment, ...semIncrement } = patch || {};
+    metricasPorRun.set(runId, { ...atual, ...semIncrement });
+    return metricasPorRun.get(runId);
+  };
+  instance.prisma = {
+    webscrapingSearchRun: {
+      findUnique: async ({ where }: any) => ({
+        metricsJson: JSON.stringify(metricasPorRun.get(where?.id) || {}),
+      }),
+    },
+  };
   const savedCalls: any[] = [];
   instance.saveSearchRunResults = async (
     _context: any,
@@ -30,7 +49,14 @@ function makeLoop(sourceRunImpl: (input: any) => Promise<any>) {
     sourceInstantiated = true;
     return { run: sourceRunImpl };
   };
-  return { instance, logs, warns, savedCalls, wasSourceInstantiated: () => sourceInstantiated };
+  return {
+    instance,
+    logs,
+    warns,
+    savedCalls,
+    metricasPorRun,
+    wasSourceInstantiated: () => sourceInstantiated,
+  };
 }
 
 function baseNormalized(overrides: any = {}) {
@@ -152,6 +178,8 @@ test('fonte lancando erro: nao propaga (batch do engine segue intacto)', async (
   });
 });
 
+// LOTE 2: este teste virou a prova do MARCADOR DE SECA. Zero aceito é o fim da linha da Receita
+// naquele run — o que mudou é só onde o marcador mora (metricsJson, não mais Map de processo).
 test('fonte 0 aceitos: segunda chamada do mesmo run nao re-executa', async () => {
   await withFlag('true', async () => {
     let callCount = 0;
@@ -187,7 +215,10 @@ test('fonte 0 aceitos: segunda chamada do mesmo run nao re-executa', async () =>
   });
 });
 
-test('maximo 1x por batch: dois batches distintos do mesmo run so chamam a fonte 1x quando a primeira aceitou registros', async () => {
+// VACINA DO LOTE 2 (17/08): este teste codificava a trava A4 (`ranThisRun` — a Receita rodava UMA
+// vez por run e o resto do run era só web). A encomenda do dono é o contrário: enquanto a base
+// não secou, a RFB repete A CADA LOTE. Por isso a asserção foi INVERTIDA de 1 pra 2.
+test('a RFB repete a cada lote enquanto nao secou: dois batches do mesmo run chamam a fonte 2x', async () => {
   await withFlag('true', async () => {
     let callCount = 0;
     const { instance } = makeLoop(async () => {
@@ -217,6 +248,6 @@ test('maximo 1x por batch: dois batches distintos do mesmo run so chamam a fonte
       10,
     );
 
-    assert.equal(callCount, 1, 'ranThisRun deveria travar novas execucoes no mesmo run');
+    assert.equal(callCount, 2, 'sem seca, a RFB repete a cada lote (a trava ranThisRun morreu no Lote 2)');
   });
 });

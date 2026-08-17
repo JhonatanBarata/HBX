@@ -1,4 +1,8 @@
 import type { CnpjBaseQueryInput } from './cnpj-base-query.service';
+import {
+  resolveRadarSegmentCnaeEntries,
+  resolveRadarSegmentCnaeSignalKeyword,
+} from '../../shared/radar-segment-cnae-map.util';
 
 // VENDAS-REFAB S3 — ponte ÚNICA entre os filtros que o Vendas/Radar já expõe
 // (NormalizedRadarFilters, ver radar/shared/radar-types.ts) e o WHERE da base 28M
@@ -37,7 +41,30 @@ export function buildCnpjBaseQueryInputFromRadarFilters(
   if (cnaeCode) {
     input.cnaes = [cnaeCode];
   } else if (segment) {
-    input.keyword = segment;
+    // LOTE 1 (17/08): a contagem TEM de falar a mesma língua da porta da Receita, senão a
+    // frase honesta do relatório ("a Receita tem N nessa cidade") mente na direção oposta da
+    // entrega. Com o mapa curado, a porta passou a aceitar por CÓDIGO de CNAE — se a contagem
+    // continuasse só com `keyword = segmento`, ela exigiria 'distribuidora' E 'agua' no texto
+    // (a trava A1) e prometeria 15 onde a busca entrega 86.
+    //
+    // O sinal textual das entradas amplas (4723700/4784900) vira `keyword`, não a frase toda:
+    // o WHERE do cnpj-base-query soma cnaes E keyword em AND, então "CNAE do mapa + palavra
+    // 'agua' no texto" é a tradução mais próxima possível da regra da porta. Entradas SEM
+    // sinal já carregam 'agua' na própria descrição do CNAE, então nada se perde nelas.
+    // Resíduo conhecido e aceito: `contains` é substring e a contagem não tira o nome da
+    // cidade do texto (a porta tira) — cidade chamada "Águas de ..." conta a mais.
+    const entries = resolveRadarSegmentCnaeEntries(segment);
+    if (entries.length) {
+      input.cnaes = entries.map((entry) => entry.cnae);
+      // Só o CNAE PRINCIPAL, porque é só ele que a porta olha (`cnae: { startsWith }` no WHERE
+      // do dataset). Contar CNAE secundário aqui prometeria empresa que a busca não entrega —
+      // secundário é decisão à parte, ainda sem GO do dono.
+      input.cnaePrincipalOnly = true;
+      const sinal = resolveRadarSegmentCnaeSignalKeyword(segment);
+      if (sinal) input.keyword = sinal;
+    } else {
+      input.keyword = segment;
+    }
   }
 
   const contato: CnpjBaseQueryInput['contato'] = {};

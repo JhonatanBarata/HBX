@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { WebscrapingContactResult } from '../shared/radar-core-shared';
+import { isDistinctiveCompanyNameCore, normalizeCompanyName } from '../shared/radar-company-name.util';
+import { resolveStrongCnpjIdentity } from '../../lead-quality-v2-resolver';
 
 function normalizeLookupValue(value: string | null | undefined) {
   return String(value || '')
@@ -17,6 +19,24 @@ function normalizePhoneDigits(raw: string | null | undefined) {
 function normalizeCnpjDigits(raw: unknown) {
   const digits = String(raw || '').replace(/\D/g, '');
   return digits.length === 14 ? digits : '';
+}
+
+/**
+ * CNPJ do card ONDE ELE ESTIVER. O card restaurado do pool (`restoreRadarPoolResults`,
+ * radar-core-presentation.mixin) mapeia campo a campo e NÃO carrega `cnpj`: a identidade fiscal
+ * dele viaja dentro do placeId, no formato `cnpj_public:<14 dígitos>`. Ler só `result.cnpj`
+ * deixava a guarda "CNPJ diferente nunca funde" INERTE justamente no pool — e, com o nome casando
+ * por núcleo (LOTE 5), duas empresas distintas da mesma cidade colavam pela chave fraca
+ * `name_city:`. Ordem: campo direto (comportamento de sempre) → placeId → metadataJson/
+ * evidenceJson via `resolveStrongCnpjIdentity`, a mesma lei já usada pelo dedup
+ * (radar-duplicate-filter.service) e pela entrega (radar-core-delivery.mixin).
+ */
+function resolveResultCnpjIdentity(result: unknown): string {
+  const direct = normalizeCnpjDigits((result as any)?.cnpj);
+  if (direct) return direct;
+  const fromPlaceId = String((result as any)?.placeId || '').match(/cnpj_public:(\d{14})\b/)?.[1] || '';
+  if (fromPlaceId) return fromPlaceId;
+  return resolveStrongCnpjIdentity(result) || '';
 }
 
 function normalizeExactPhone(raw: string | null | undefined) {
@@ -309,7 +329,10 @@ export class RadarResultMergerService {
    *   6. nome normalizado + cidade/endereço (conservador: igualdade exata pós-normalização).
    */
   buildKeys(result: WebscrapingContactResult) {
-    const name = normalizeLookupValue(result.name || '');
+    // LOTE 5: nome vira NÚCLEO (sem pontuação e sem sufixo societário). Era daqui que saía o trio
+    // "Água em Valinhos"/"AGUA EM VALINHOS LTDA" nascendo como 3 cards — a chave `name_city:` só
+    // batia com igualdade exata pós-normalização, e "ltda." nunca era igual a nada.
+    const name = normalizeCompanyName(result.name || '');
     const cnpj = normalizeCnpjDigits((result as any).cnpj);
     const phone = phoneCanonicalKey(result.phoneDigits || result.phone);
     const website = normalizeWebsiteKey(result.website);
@@ -340,6 +363,15 @@ export class RadarResultMergerService {
    * website, nome+cidade) já é evidência forte o bastante e dispensa esse desempate.
    */
   private isSafeMatch(candidateKeys: string[], existingKeys: string[], matchedKeys: string[], candidate: WebscrapingContactResult, existing: WebscrapingContactResult) {
+    // LOTE 5 — CNPJ é chave absoluta NOS DOIS SENTIDOS: se as duas pontas carregam CNPJ e eles são
+    // DIFERENTES, são empresas diferentes e nenhuma chave fraca pode colar. Virou trava explícita
+    // quando o nome passou a casar por núcleo: "AGUA MINERAL LTDA" e "AGUA MINERAL ME" na mesma
+    // cidade têm o mesmo núcleo de propósito, e sem isto virariam um card só.
+    // O CNPJ vem por `resolveResultCnpjIdentity` (não pelo campo cru): card do POOL só tem a
+    // identidade fiscal dentro do placeId, e lendo só `.cnpj` esta trava nascia inerte lá.
+    const candidateCnpj = resolveResultCnpjIdentity(candidate);
+    const existingCnpj = resolveResultCnpjIdentity(existing);
+    if (candidateCnpj && existingCnpj && candidateCnpj !== existingCnpj) return false;
     const strongKinds = ['cnpj:', 'place:', 'website:', 'domain:', 'instagram:', 'facebook:', 'name_city:', 'name_location:', 'name_phone:'];
     const hasStrongMatch = matchedKeys.some((key) => strongKinds.some((kind) => key.startsWith(kind)));
     if (hasStrongMatch) return true;
@@ -426,6 +458,23 @@ export class RadarResultMergerService {
         normalizeLookupValue(String((rfb as any).razaoSocial || '')),
       ].filter(Boolean));
       if (webName && rfbNames.has(webName)) reasons.push('name_city_state_exact');
+
+      // LOTE 5 — o `fused=0` do RINAGUA morava exatamente aqui: a Receita manda "RINAGUA LTDA."
+      // e a web manda "Rinágua"; a igualdade acima é EXATA, então o ponto e o sufixo societário
+      // matavam o par. O núcleo (radar-company-name.util) casa os dois, e a razão vai SEPARADA
+      // ('..._core') porque `canonicalMatch.rules` é persistido — o dono audita por que fundiu.
+      // Continua valendo sob geo igual (cidade+UF) e com o mesmo rigor de igualdade: nada de fuzzy.
+      const webNameCore = normalizeCompanyName(web.name || '');
+      const rfbNameCores = new Set([
+        normalizeCompanyName(rfb.name || ''),
+        normalizeCompanyName(String((rfb as any).legalName || '')),
+        normalizeCompanyName(String((rfb as any).razaoSocial || '')),
+      ].filter(Boolean));
+      if (!reasons.includes('name_city_state_exact')
+        && isDistinctiveCompanyNameCore(webNameCore)
+        && rfbNameCores.has(webNameCore)) {
+        reasons.push('name_city_state_core');
+      }
 
       const rfbAddress = normalizeAddressStreet(rfb.address);
       const webAddress = normalizeAddressStreet(web.address);

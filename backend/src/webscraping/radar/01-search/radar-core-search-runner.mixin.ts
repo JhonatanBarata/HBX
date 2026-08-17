@@ -300,18 +300,10 @@ export class RadarCoreSearchRunnerMixin {
     return this.getRadarSearchRunConfig().getHbxRunMaxStalledPartialBatches();
   }
 
-  private getHbxSearchRunRestDelayMs() {
-    return this.getRadarSearchRunConfig().getHbxSearchRunRestDelayMs();
-  }
-
-  private getHbxSearchRunMaxRestCycles() {
-    return this.getRadarSearchRunConfig().getHbxSearchRunMaxRestCycles();
-  }
-
-  private getHbxSearchRunRestThresholdRatio() {
-    return this.getRadarSearchRunConfig().getHbxSearchRunRestThresholdRatio();
-  }
-
+  // FAXINA 17/08 (Lote 6): os 3 atalhos do repouso (getHbxSearchRunRestDelayMs,
+  // getHbxSearchRunMaxRestCycles, getHbxSearchRunRestThresholdRatio) só tinham chamador dentro
+  // do `restSearchRunIfEligible` apagado — sem ele, viravam parede. As envs e os getters
+  // continuam em radar-search-run-config.service.ts, intactos.
   private getRadarCampaignMaxEmptyBatches() {
     return this.getRadarSearchRunConfig().getRadarCampaignMaxEmptyBatches();
   }
@@ -723,74 +715,36 @@ export class RadarCoreSearchRunnerMixin {
     return this.getRadarSearchRunConfig().buildSearchRunRetryMessage(errorMessage, httpStatus, foundCount);
   }
 
-  private buildSearchRunInsufficientMessage(foundCount: number, attempts: number) {
-    return this.getRadarSearchRunConfig().buildSearchRunInsufficientMessage(foundCount, attempts);
+  // LOTE 2 item 5 (17/08): repassa o 3º argumento OPCIONAL com as lanes (o que a Receita tem na
+  // cidade, o que ela entregou e o que a web somou). Sem ele o texto continua o de sempre — por
+  // isso os outros dois callers do repo, que chamam com 2 argumentos, não precisaram mudar.
+  private buildSearchRunInsufficientMessage(
+    foundCount: number,
+    attempts: number,
+    lanes?: { rfbDisponivel?: number | null; rfbEntregues?: number | null; webEntregues?: number | null } | null,
+  ) {
+    return this.getRadarSearchRunConfig().buildSearchRunInsufficientMessage(foundCount, attempts, lanes);
   }
 
   private buildSearchRunNoCardsMessage(attempts: number, lastQuery: string | null | undefined) {
     return this.getRadarSearchRunConfig().buildSearchRunNoCardsMessage(attempts, lastQuery);
   }
 
-  private buildSearchRunRestMessage(foundCount: number, targetQuantity: number, nextRetryAt: Date) {
-    return this.getRadarSearchRunConfig().buildSearchRunRestMessage(foundCount, targetQuantity, nextRetryAt);
-  }
-
+  // FAXINA 17/08 (Lote 6): `buildSearchRunRestMessage` e `getSearchRunRestCount` eram atalhos
+  // usados SÓ dentro do `restSearchRunIfEligible` apagado logo abaixo — ficaram órfãos, saíram.
+  // Os métodos originais continuam em radar-search-run-config.service.ts (serviço compartilhado,
+  // com outros usos vivos): a receita do repouso não foi perdida, só parou de ser chamada aqui.
   private buildSearchRunFilterReviewMessage(foundCount: number, targetQuantity: number) {
     return this.getRadarSearchRunConfig().buildSearchRunFilterReviewMessage(foundCount, targetQuantity);
   }
 
-  private getSearchRunRestCount(run: any) {
-    return this.getRadarSearchRunConfig().getSearchRunRestCount(
-      run?.metricsJson,
-      (value) => this.parseMaybeJsonObject(value),
-    );
-  }
-
-  private shouldRestSearchRun(run: any, foundCount: number, targetQuantity: number) {
-    // Manual Radar must not wake up later and deliver cached cards after the Vendas stock target is reached.
-    void run;
-    void foundCount;
-    void targetQuantity;
-    return false;
-  }
-
-  private async restSearchRunIfEligible(
-    runId: string,
-    current: any,
-    foundCount: number,
-    targetQuantity: number,
-    reason: string,
-  ) {
-    if (!this.shouldRestSearchRun(current, foundCount, targetQuantity)) return false;
-    const nextRetryAt = new Date(Date.now() + this.getHbxSearchRunRestDelayMs());
-    const nextRestCount = this.getSearchRunRestCount(current) + 1;
-    await this.updateSearchRunMetrics(runId, {
-      radarRestCount: nextRestCount,
-      radarRestReason: reason,
-      radarRestThresholdRatio: this.getHbxSearchRunRestThresholdRatio(),
-      radarRestMaxCycles: this.getHbxSearchRunMaxRestCycles(),
-      radarRestNextRetryAt: nextRetryAt.toISOString(),
-      status: 'sleeping',
-    }).catch(() => null);
-    await this.prisma.webscrapingSearchRun.update({
-      where: { id: runId },
-      data: {
-        status: 'sleeping',
-        lastBatchStatus: 'radar_resting',
-        errorMessage: this.buildSearchRunRestMessage(foundCount, targetQuantity, nextRetryAt),
-        nextRetryAt,
-        assignedEngineId: null,
-        assignedEngineUrl: null,
-        assignedEngineIndex: null,
-        attemptCount: 0,
-        consecutiveEmptyBatchCount: 0,
-        consecutiveEngineErrorCount: 0,
-        finishedAt: null,
-      },
-    });
-    return true;
-  }
-
+  // FAXINA 17/08 (Lote 6, PR17082026): `shouldRestSearchRun`/`restSearchRunIfEligible` foram
+  // apagados daqui. A LEI que eles guardavam continua de pé e é esta: o Radar manual NÃO dorme
+  // ('sleeping' + lastBatchStatus 'radar_resting') pra acordar depois entregando card velho —
+  // por isso o `shouldRestSearchRun` já retornava `false` sempre e o corpo inteiro era
+  // inalcançável. A vacina viva é webscraping.service.test.ts (assevera status != 'sleeping').
+  // O status 'sleeping' NÃO saiu do vocabulário: segue legítimo na pausa por cota
+  // (05-delivery/radar-core-delivery.mixin.ts) e em shared/radar-core-shared.ts.
   private logHbxBatch(data: {
     runId: string;
     attempt: number;

@@ -32,6 +32,33 @@ test('mapper: withWebsite/noWebsite NUNCA entram no WHERE (base fria nao tem web
   assert.equal((input as any).noWebsite, undefined);
 });
 
+// ── LOTE 1 (17/08 — PR17082026): a contagem fala a mesma lingua da porta ────────────────────
+// A frase honesta do relatório ("a Receita tem N nessa cidade") só serve se o N nascer da MESMA
+// regra que a porta usa pra entregar. Com o mapa curado a porta passou a aceitar por CÓDIGO de
+// CNAE; se a contagem continuasse só com `keyword = segmento`, ela exigiria 'distribuidora' E
+// 'agua' no texto — a trava A1 — e prometeria 15 onde a busca entrega 86.
+test('LOTE 1 — segmento do mapa curado vira cnaes (nao a frase inteira como keyword)', () => {
+  const input = buildCnpjBaseQueryInputFromRadarFilters({ segment: 'distribuidoras de água' });
+  assert.deepEqual([...(input.cnaes || [])].sort(), ['3600602', '4635401', '4723700', '4784900']);
+  // O sinal das entradas amplas (4723700/4784900) segue exigido — senão a contagem promete
+  // todo bar/adega da cidade.
+  assert.equal(input.keyword, 'agua');
+  // A porta só olha o CNAE principal; contar secundário prometeria quem a busca não entrega.
+  assert.equal(input.cnaePrincipalOnly, true);
+});
+
+test('LOTE 1 — segmento do mapa SEM sinal a exigir nao carrega keyword nenhuma', () => {
+  const input = buildCnpjBaseQueryInputFromRadarFilters({ segment: 'distribuidora de gas' });
+  assert.deepEqual([...(input.cnaes || [])].sort(), ['4682600', '4784900']);
+  assert.equal(input.keyword, undefined);
+});
+
+test('LOTE 1 — segmento fora do mapa continua keyword pura (comportamento intacto)', () => {
+  const input = buildCnpjBaseQueryInputFromRadarFilters({ segment: 'Lanchonetes' });
+  assert.equal(input.keyword, 'Lanchonetes');
+  assert.equal(input.cnaes, undefined);
+});
+
 test('mapper: filtros vazios devolvem input vazio (sem chaves fantasma)', () => {
   const input = buildCnpjBaseQueryInputFromRadarFilters({});
   assert.deepEqual(input, {});

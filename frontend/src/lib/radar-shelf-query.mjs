@@ -123,3 +123,64 @@ export function deriveRadarBackendMessage({ sessionStatus, sessionMessage, runOp
   const liveSessionMessage = alive ? String(sessionMessage || "") : "";
   return liveSessionMessage || String(runOperationalMessage || "") || String(runMessage || "");
 }
+
+// ── LOTE 4 (17/08, PR17082026-FAXINA-DA-BUSCA-RFB-PRIMEIRO): o relatório por cidade ─────────
+// `SessionResponse.cities` viaja até o navegador desde a refundação F2 (28/07) e NUNCA foi
+// desenhado: a sessão fechava com "Busca concluída: 4 lead(s) em 6 cidade(s)" e as cidades
+// mortas sumiam atrás da média — a "pesquisa suja" que o dono viu. Aqui a lista vira linha de
+// tela, com a ORIGEM de cada card (Receita × web) e o motivo honesto da cidade zerada.
+
+function numeroOuNulo(value) {
+  // `Number(null)`/`Number("")` são 0 — sem este guarda, campo AUSENTE viraria zero e o
+  // relatório mentiria na direção oposta (pior que hoje: hoje ele só omite).
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
+}
+
+// Motivo da cidade que voltou vazia. A mensagem do servidor (o `errorMessage` do run) TEM
+// PRECEDÊNCIA: é o que ele sabe de concreto. Sem ela, o motivo é DERIVADO do que o run já
+// mediu — `rfbDrain.available === 0` (a Receita não tem ninguém nessa cidade) e
+// `laneBreakdown.web === 0` (a descoberta web não achou página local). Nenhum campo novo.
+function motivoDaCidadeVazia(entry) {
+  const doServidor = String(entry.message || "").trim();
+  if (doServidor) return doServidor;
+  const motivos = [];
+  if (numeroOuNulo(entry.rfbAvailable) === 0) motivos.push("sem base na Receita");
+  if (numeroOuNulo(entry.webCount) === 0) motivos.push("web sem sinal local");
+  return motivos.length > 0 ? motivos.join(", ") : null;
+}
+
+export function buildRadarCityReport(cities) {
+  const linhas = (Array.isArray(cities) ? cities : [])
+    // Cidade `pending` fica FORA: a sessão nem chegou nela (pausa/cancelamento), então ela não é
+    // "zerada" — entrar aqui com 0 seria a mesma mentira, só que na lista.
+    .filter(entry => entry && String(entry.status || "") !== "pending")
+    .map((entry, index) => {
+      const uf = String(entry.state || "").trim();
+      const nome = `${String(entry.city || "").trim()}${uf ? `/${uf}` : ""}`;
+      const total = numeroOuNulo(entry.foundCount) || 0;
+      const rfb = numeroOuNulo(entry.rfbCount);
+      const web = numeroOuNulo(entry.webCount);
+      // A lane só fala quando pelo menos UM dos dois lados é número: sessão em voo no momento do
+      // deploy não tem os campos, e "Receita 0 · Web 0" por ausência é mentira nova.
+      // `outros` (source sem lane mapeada) NÃO entra na copy — vive no metricsJson e no log
+      // [radar-cadeia]. Por isso o TOTAL da linha é sempre o foundCount, nunca rfb+web.
+      const lanes = rfb === null && web === null
+        ? null
+        : `Receita ${rfb === null ? 0 : rfb} · Web ${web === null ? 0 : web}`;
+      const vazia = total === 0;
+      return {
+        key: `${nome}|${String(entry.runId || index)}`,
+        nome,
+        total,
+        lanes,
+        vazia,
+        motivo: vazia ? motivoDaCidadeVazia(entry) : null,
+      };
+    });
+  // A lista só aparece quando tem informação NOVA: lane ou cidade zerada (vale até com 1
+  // cidade — "(Receita 8 · Web 3)" é dado que o cabeçalho do card não mostra). Sessão antiga,
+  // sem lane e sem zerada, repetiria o número que já está ali em cima.
+  return linhas.some(linha => linha.lanes || linha.vazia) ? linhas : [];
+}

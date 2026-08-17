@@ -2,8 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { WebscrapingContactResult } from '../../shared/radar-core-shared';
 import { cleanRfbLegalName, normalizeLegacyBrCellphone } from './cnpj-public-types';
 import type { CnpjPublicCompanyRecord, CnpjPublicProviderResult, CnpjPublicSearchInput } from './cnpj-public-types';
-import { findRadarSegmentExclusionMatch } from '../../shared/radar-segment-exclusion.util';
+import { findRadarSegmentExclusionMatchWithEvidence } from '../../shared/radar-segment-exclusion.util';
 import { buildSegmentTextMatcher } from '../../shared/radar-segment-match.util';
+import { buildRadarSegmentCnaeMatcher } from '../../shared/radar-segment-cnae-map.util';
 
 // Log dos rejeitados da porta receita (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md,
 // tarefa 7): cada registro rejeitado pelos filtros (DV inválido, situação não-ativa, cidade/UF
@@ -76,17 +77,24 @@ function segmentMatches(
   record: CnpjPublicCompanyRecord,
   segment: unknown,
   matcher: (haystack: unknown) => boolean,
+  cnaeAllowed?: (input: { cnae: unknown; haystack: unknown }) => boolean,
 ) {
   const requested = normalizeText(segment);
   if (!requested) return true;
   const cnaeCode = (requested.match(/\b\d{4,7}\b/) || [])[0] || null;
   if (cnaeCode && String(record.cnae || '').replace(/\D/g, '').startsWith(cnaeCode)) return true;
-  return matcher([
+  const haystack = [
     record.nomeFantasia,
     record.razaoSocial,
     record.cnae,
     record.cnaeDescription,
-  ].filter(Boolean).join(' '));
+  ].filter(Boolean).join(' ');
+  // LOTE 1 (17/08): a MESMA trava textual do WHERE se repetia aqui. Vencer a exclusão não
+  // bastava — ACQUARELLA/VEGAS/RICCI não dizem 'distribuidora' nem 'agua' e morriam nesta
+  // linha com `segmento_sem_match_cnae`. CNAE do mapa curado do pedido é evidência positiva:
+  // o código JÁ É o pedido, mesma lei do código CNAE digitado logo acima.
+  if (cnaeAllowed?.({ cnae: record.cnae, haystack })) return true;
+  return matcher(haystack);
 }
 
 function locationMatches(record: CnpjPublicCompanyRecord, city: unknown, state: unknown) {
@@ -99,6 +107,24 @@ function locationMatches(record: CnpjPublicCompanyRecord, city: unknown, state: 
   return true;
 }
 
+/**
+ * A7 (LOTE 1, 17/08): "a base não respondeu" e "a base respondeu ZERO linha" eram o MESMO
+ * motivo mentiroso (`cnpj_public_provider_sem_base_configurada`) — e o motivo honesto da linha
+ * de baixo (`cnpj_public_sem_registros_compativeis`, que significa "a base entregou linhas e
+ * TODAS morreram na porta") era inalcançável pelo early-return.
+ *
+ * `datasetQueried = true` significa: o dataset FOI consultado nesta chamada e respondeu, ainda
+ * que com zero linha. Ausente/false = ninguém consultou a base (registros injetados por teste
+ * ou por caller, ou processo sem prisma) — só aí "sem base configurada" é verdade.
+ *
+ * Mora AQUI, e não no `CnpjPublicSearchInput` de cnpj-public-types.ts, porque aquele arquivo
+ * está fora do recorte deste lote (edição paralela). O campo é aditivo e opcional: quem chama
+ * sem ele compila e se comporta exatamente como antes.
+ */
+export type CnpjPublicSearchInputComRastroDeConsulta = CnpjPublicSearchInput & {
+  datasetQueried?: boolean;
+};
+
 @Injectable()
 export class CnpjPublicProviderService {
   private readonly logger = new Logger(CnpjPublicProviderService.name);
@@ -110,16 +136,24 @@ export class CnpjPublicProviderService {
     );
   }
 
-  async search(input: CnpjPublicSearchInput): Promise<CnpjPublicProviderResult> {
+  async search(input: CnpjPublicSearchInputComRastroDeConsulta): Promise<CnpjPublicProviderResult> {
     const records = Array.isArray(input.records) ? input.records : [];
     if (!records.length) {
       return {
         status: 'skipped',
         retryable: false,
-        reason: 'cnpj_public_provider_sem_base_configurada',
+        // A7 (17/08): a base de 23 GB estava DE PÉ e respondeu ZERO linha — dizer "sem base
+        // configurada" mandava o operador caçar problema de infra que não existe (deu isso em
+        // Pinhal e Estiva Gerbi). Agora 'sem_base_configurada' só quando a base NÃO foi
+        // consultada. `status: 'skipped'` fica nos dois casos de propósito: mexer no status
+        // mudaria retryable/classificação do run item, que é outro assunto.
+        reason: input.datasetQueried
+          ? 'cnpj_public_sem_match_na_base'
+          : 'cnpj_public_provider_sem_base_configurada',
         foundCount: 0,
         acceptedCount: 0,
         rejectedCount: 0,
+        consumedCount: 0,
         results: [],
       };
     }
@@ -127,9 +161,17 @@ export class CnpjPublicProviderService {
     const limit = Math.max(1, Math.min(100, Number(input.limit || 20) || 20));
     // Matcher compilado UMA vez pro lote inteiro (regex por grupo de palavra do segmento).
     const segmentMatcher = buildSegmentTextMatcher(input.normalized.segment, input.normalized.city);
+    // Idem pro mapa curado segmento→CNAE (LOTE 1): uma compilação por lote, não por registro.
+    const cnaeAllowlistMatcher = buildRadarSegmentCnaeMatcher(input.normalized.segment, input.normalized.city);
     const accepted: WebscrapingContactResult[] = [];
     let rejectedCount = 0;
+    // ATÉ ONDE ESTE LAÇO CHEGOU (17/08 — cura de "a drenagem joga fora a cauda da página"). O
+    // `break` do limite lá embaixo abandona o resto de `records` sem avaliar; quem drena precisa
+    // saber DISSO pra não ancorar o cursor depois de linha que ninguém olhou. Conta no topo do
+    // laço porque o registro que estoura o limite TAMBÉM foi consumido — é ele a âncora.
+    let percorridos = 0;
     for (const record of records) {
+      percorridos += 1;
       if (!isValidCnpjCheckDigits(record.cnpj)) {
         rejectedCount += 1;
         this.logRejected(record, 'dv_invalido');
@@ -149,19 +191,25 @@ export class CnpjPublicProviderService {
         // Exclusão vence similaridade (S2, 25/07): checa PRIMEIRO, independente do resultado
         // do match por token — "Distribuidora de Energia X" tem "distribuidora" no nome, mas
         // é do segmento excluído energia/água/combustível, não entra em "distribuidora".
-        const exclusionMatch = findRadarSegmentExclusionMatch(
-          input.normalized.segment,
-          record.nomeFantasia,
-          record.razaoSocial,
-          record.cnae,
-          record.cnaeDescription,
-        );
+        //
+        // MENOS quando o CNAE oficial do registro está na allowlist curada do pedido (LOTE 1,
+        // 17/08): 4723-7/00 "Comércio varejista de bebidas" é onde a distribuidora de água
+        // REALMENTE mora, e era a regra varejo_puro que matava justamente ela. O CNAE vai em
+        // campo PRÓPRIO, nunca no blob de texto — nome que diz "água" não desarma exclusão.
+        // Saneamento/energia/roupa/transporte continuam fora porque o CNAE deles NÃO está na
+        // allowlist de nenhum segmento.
+        const exclusionMatch = findRadarSegmentExclusionMatchWithEvidence({
+          segment: input.normalized.segment,
+          cnae: record.cnae,
+          city: input.normalized.city,
+          texts: [record.nomeFantasia, record.razaoSocial, record.cnae, record.cnaeDescription],
+        });
         if (exclusionMatch) {
           rejectedCount += 1;
           this.logRejected(record, `segmento_excluido_${exclusionMatch.code}`);
           continue;
         }
-        if (!segmentMatches(record, input.normalized.segment, segmentMatcher)) {
+        if (!segmentMatches(record, input.normalized.segment, segmentMatcher, cnaeAllowlistMatcher)) {
           rejectedCount += 1;
           this.logRejected(record, 'segmento_sem_match_cnae');
           continue;
@@ -184,6 +232,7 @@ export class CnpjPublicProviderService {
       foundCount: records.length,
       acceptedCount: accepted.length,
       rejectedCount,
+      consumedCount: percorridos,
       results: accepted,
     };
   }

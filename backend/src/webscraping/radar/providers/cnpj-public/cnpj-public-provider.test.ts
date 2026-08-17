@@ -215,6 +215,138 @@ test('provider.toContactResult: MEI sem fantasia entrega nome LIMPO (sem o CNPJ 
   assert.equal((mapped as any)?.legalName, 'MARIA HELENA NOVAES SOARES');
 });
 
+// ── LOTE 1 (17/08 — PR17082026-FAXINA-DA-BUSCA-RFB-PRIMEIRO) ────────────────────────────────
+// A CENA DE ACEITE, com os nomes REAIS medidos em Valinhos/SP: o CNAE onde a distribuidora de
+// água mora na Receita é 4723-7/00 "Comércio varejista de bebidas" — e a regra `varejo_puro`
+// matava justamente ele (token 'comercio varejista'). Somado a isso, o match textual exigia
+// 'distribuidora' E 'agua' como palavra inteira no nome, e ACQUARELLA/VEGAS/RICCI não dizem
+// nenhuma das duas. Resultado medido: 6 dos 9 registros morriam na porta. Depois do lote, o
+// CNAE da allowlist curada do pedido é EVIDÊNCIA POSITIVA e vence a exclusão genérica.
+const valinhosNormalized = { city: 'Valinhos', state: 'SP', segment: 'distribuidoras de água' } as any;
+
+function valinhosRecords(): CnpjPublicCompanyRecord[] {
+  const base = { city: 'Valinhos', state: 'SP', situacao: 'ativa', phone: '19999990001' };
+  return [
+    // ── Os 6 que hoje morrem e têm de voltar ──
+    { ...base, cnpj: '11222333000181', nomeFantasia: 'FERREIRAGUA', razaoSocial: 'FERREIRAGUA COMERCIO DE AGUAS E GAS LTDA', cnae: '4784-9/00', cnaeDescription: 'Comercio varejista de gas liquefeito de petroleo (GLP)' },
+    { ...base, cnpj: '11222333000262', nomeFantasia: 'VALINAGUA', razaoSocial: 'VALINAGUA DISTRIBUIDORA DE AGUA LTDA', cnae: '4723-7/00', cnaeDescription: 'Comercio varejista de bebidas' },
+    { ...base, cnpj: '11222333000343', nomeFantasia: 'ACQUARELLA', razaoSocial: 'ACQUARELLA COMERCIO DE AGUAS LTDA', cnae: '4723-7/00', cnaeDescription: 'Comercio varejista de bebidas' },
+    { ...base, cnpj: '11222333000424', nomeFantasia: 'RICCI & RICCI', razaoSocial: 'RICCI & RICCI COMERCIO DE AGUA MINERAL LTDA', cnae: '4723-7/00', cnaeDescription: 'Comercio varejista de bebidas' },
+    { ...base, cnpj: '11222333000505', nomeFantasia: 'RINAGUA', razaoSocial: 'RINAGUA COMERCIO DE AGUAS LTDA', cnae: '4723-7/00', cnaeDescription: 'Comercio varejista de bebidas' },
+    // VEGAS: nome MUDO (não diz 'agua' nem 'distribuidora') — só o CÓDIGO do CNAE prova o ramo.
+    { ...base, cnpj: '11222333000696', nomeFantasia: 'VEGAS', razaoSocial: 'VEGAS LTDA', cnae: '4635-4/01', cnaeDescription: 'Comercio atacadista de agua mineral' },
+    // ── Os 3 que continuam fora (regressão dentro da MESMA cena) ──
+    { ...base, cnpj: '11222333000777', nomeFantasia: 'SANASA', razaoSocial: 'SANASA SANEAMENTO DE VALINHOS SA', cnae: '3600-6/01', cnaeDescription: 'Captacao, tratamento e distribuicao de agua' },
+    { ...base, cnpj: '11222333000858', nomeFantasia: 'CPFL', razaoSocial: 'CPFL DISTRIBUIDORA DE ENERGIA SA', cnae: '3513-1/00', cnaeDescription: 'Comercio atacadista de energia eletrica' },
+    { ...base, cnpj: '11222333000939', nomeFantasia: 'TRANSVALE', razaoSocial: 'TRANSVALE TRANSPORTES RAPIDOS LTDA', cnae: '4930-2/02', cnaeDescription: 'Transporte rodoviario de carga' },
+  ];
+}
+
+test('LOTE 1 — porta da Receita entrega as 6 distribuidoras de agua REAIS de Valinhos', async () => {
+  const result = await provider.search({
+    normalized: valinhosNormalized,
+    records: valinhosRecords(),
+  });
+  const nomes = result.results.map((item: any) => item.name).sort();
+  assert.deepEqual(nomes, ['ACQUARELLA', 'FERREIRAGUA', 'RICCI & RICCI', 'RINAGUA', 'VALINAGUA', 'VEGAS']);
+  assert.equal(result.acceptedCount, 6);
+});
+
+test('LOTE 1 — saneamento/energia/transporte continuam FORA da mesma cena (a exclusao nao afrouxou)', async () => {
+  const result = await provider.search({
+    normalized: valinhosNormalized,
+    records: valinhosRecords(),
+  });
+  const nomes = result.results.map((item: any) => item.name);
+  assert.ok(!nomes.includes('SANASA'), 'saneamento (CNAE 3600601) nao esta na allowlist da agua');
+  assert.ok(!nomes.includes('CPFL'), 'energia continua excluida');
+  assert.ok(!nomes.includes('TRANSVALE'), 'transportadora continua excluida');
+  assert.equal(result.rejectedCount, 3);
+});
+
+// O outro lado do 4784900 (GLP) na allowlist da água: o revendedor de botijão que NÃO fala em
+// água segue morrendo em gas_glp. Sem este teste, a allowlist do GLP reabriria calada o furo do
+// noturno de 30/07 ("13,8% da entrega de distribuidora de água com CARA DE GÁS").
+test('LOTE 1 — revendedor de GLP SEM sinal de agua continua morto em "distribuidora de agua"', async () => {
+  const result = await provider.search({
+    normalized: valinhosNormalized,
+    records: [{
+      cnpj: '11222333001072', nomeFantasia: 'ULTRAGAZ VALINHOS', razaoSocial: 'ULTRAGAZ REVENDA DE BOTIJOES LTDA',
+      city: 'Valinhos', state: 'SP', situacao: 'ativa', phone: '19999990002',
+      cnae: '4784-9/00', cnaeDescription: 'Comercio varejista de gas liquefeito de petroleo (GLP)',
+    }],
+  });
+  assert.equal(result.acceptedCount, 0);
+  assert.equal(result.rejectedCount, 1);
+});
+
+// ── LOTE 1 / A7 — O MOTIVO HONESTO ─────────────────────────────────────────────────────────
+// Três estados DIFERENTES do mesmo silêncio, com três motivos diferentes. Antes, os dois
+// primeiros diziam a mesma coisa e mandavam o operador caçar problema de infra que não existia
+// (a base de 23 GB estava de pé; ela é que não tinha match — deu isso em Pinhal e Estiva Gerbi).
+test('LOTE 1 — base NAO consultada continua "sem_base_configurada"', async () => {
+  const result = await provider.search({ normalized: baseNormalized, records: [] });
+  assert.equal(result.reason, 'cnpj_public_provider_sem_base_configurada');
+  assert.equal(result.status, 'skipped');
+});
+
+test('LOTE 1 — base consultada que respondeu ZERO linha diz "sem_match_na_base"', async () => {
+  const result = await provider.search({ normalized: baseNormalized, records: [], datasetQueried: true });
+  assert.equal(result.reason, 'cnpj_public_sem_match_na_base');
+  assert.equal(result.status, 'skipped');
+});
+
+test('LOTE 1 — base que entregou linhas e perdeu TODAS na porta segue "sem_registros_compativeis"', async () => {
+  const result = await provider.search({
+    normalized: baseNormalized,
+    datasetQueried: true,
+    records: [baseRecord({ cnpj: '11222333000180' })], // DV errado: entrou, morreu na porta
+  });
+  assert.equal(result.reason, 'cnpj_public_sem_registros_compativeis');
+  assert.equal(result.foundCount, 1);
+  assert.equal(result.rejectedCount, 1);
+});
+
+// ── DRENAGEM (17/08 — LOTE 2) — o provider tem de dizer ATÉ ONDE PERCORREU ──────────────────
+// O cursor da drenagem é ancorado no último registro CONSUMIDO. Enquanto o provider só contava
+// quantos ACEITOU, a fonte tinha de adivinhar — e adivinhava "a página inteira", virando a
+// página por cima do que ele nem chegou a olhar (86 na base com meta 20 → 66 inalcançáveis no
+// resto do run). `consumedCount` é o ÍNDICE ONDE PAROU, não o número de aceitos: registro
+// rejeitado foi avaliado e não pode segurar o cursor.
+const cincoValidos = ['11222333000181', '11222333000262', '11222333000343', '11222333000424', '11222333000505'];
+
+test('provider: limite alcancado no meio da pagina — consumedCount para junto, no indice onde parou', async () => {
+  const result = await provider.search({
+    normalized: baseNormalized,
+    datasetQueried: true,
+    limit: 2,
+    records: cincoValidos.map((cnpj, i) => baseRecord({ cnpj, nomeFantasia: `Padaria ${i}` })),
+  });
+  assert.equal(result.acceptedCount, 2, 'o limite pedido continua sendo respeitado');
+  assert.equal((result as any).consumedCount, 2, 'parou no 2o registro: do 3o em diante ninguem olhou');
+});
+
+test('provider: pagina percorrida ate o fim diz consumedCount = pagina inteira (rejeitado tambem foi olhado)', async () => {
+  const result = await provider.search({
+    normalized: baseNormalized,
+    datasetQueried: true,
+    limit: 50,
+    records: [
+      baseRecord({ cnpj: '11222333000180' }), // dv_invalido: rejeitado, mas avaliado
+      baseRecord({ cnpj: cincoValidos[0] }),
+      baseRecord({ cnpj: cincoValidos[1], situacao: 'baixada' }), // rejeitado, mas avaliado
+    ],
+  });
+  assert.equal(result.acceptedCount, 1);
+  assert.equal(result.rejectedCount, 2);
+  assert.equal((result as any).consumedCount, 3, 'ninguem ficou por avaliar: o cursor pode virar a pagina');
+});
+
+test('provider: pagina vazia consome zero (nao ha registro pra ancorar cursor nenhum)', async () => {
+  const result = await provider.search({ normalized: baseNormalized, datasetQueried: true, records: [] });
+  assert.equal((result as any).consumedCount, 0);
+});
+
 test('provider: 4 motivos de rejeicao (dv/ativa/cidade-uf/segmento-sem-match) somam rejectedCount sem lancar excecao', async () => {
   const result = await provider.search({
     normalized: baseNormalized,

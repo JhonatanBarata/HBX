@@ -19,6 +19,9 @@ import { LocalDirectoryProviderService } from './radar/providers/local-directori
 import { VerticalSourceProviderService } from './radar/providers/vertical-sources/vertical-source-provider.service';
 import { WebsiteCrawlProviderService } from './radar/providers/website-crawl/website-crawl-provider.service';
 import { isOfficialWebsiteUrl } from './radar/providers/website-crawl/website-crawl-link-extractor';
+// Faxina Lote 6 (17/08): a ORDEM perde lane morta, o VOCABULÁRIO não. Importado aqui pro
+// portão anti-regressão logo abaixo do teste da ordem (card histórico ainda traduz o rótulo).
+import { radarSourceLaneOf, buildRadarSourceChainFromEngines } from './radar/shared/radar-source-lanes';
 
 const baseInput: any = {
   city: 'Rio Claro',
@@ -293,11 +296,14 @@ test('radar strategy fast/quality: cnpj_public entra qdo HBX_RADAR_CNPJ_PUBLIC_E
   );
 }));
 
-test('radar strategy deep inclui stubs como skipped explicito (HBX_LEGACY_SOURCES=true traz local_directory/vertical_source de volta)', () => withEnv({
+test('radar strategy deep: lane morta fica FORA da ORDEM mesmo com HBX_LEGACY_SOURCES=true (faxina 17/08) — rótulo continua no vocabulário', () => withEnv({
   // C1 (01/07): cnpj_public só entra no plano com a flag ligada (em qualquer modo).
   HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'true',
-  // local_directory/vertical_source são fontes legadas (P1) — precisam da flag ligada pra
-  // aparecerem em deep, que também é rota de cliente.
+  // Faxina Lote 6 (17/08, PR17082026): antes deste teste a flag legada LIGADA trazia
+  // local_directory/vertical_source/google_textual de volta pro plano de deep. Elas saíram do
+  // `byStrategy` porque o motor delas está morto (google_textual desde o cutover de 02/07) ou
+  // é stub sem caller (local_directory/vertical_source). Ligar a flag NÃO ressuscita mais
+  // nenhuma: HBX_LEGACY_SOURCES continua viva só pro `radar_database`.
   HBX_LEGACY_SOURCES: 'true',
 }, () => {
   const orchestrator = new RadarSearchOrchestratorService(
@@ -310,12 +316,28 @@ test('radar strategy deep inclui stubs como skipped explicito (HBX_LEGACY_SOURCE
   assert.equal(plan.strategy.mode, 'deep');
   assert.equal(plan.activeSources.includes('website_crawl_light'), true);
   assert.equal(plan.activeSources.includes('cnpj_public'), true);
-  assert.equal(plan.activeSources.includes('local_directory'), true);
-  assert.equal(plan.activeSources.includes('vertical_source'), true);
+  assert.equal(plan.activeSources.includes('local_directory'), false);
+  assert.equal(plan.activeSources.includes('vertical_source'), false);
+  assert.equal(plan.activeSources.includes('google_textual'), false);
   assert.equal(plan.diagnostics.every((item) => item.status === 'skipped'), true);
-  assert.equal(plan.implementedSources.includes('local_directory'), true);
-  assert.equal(plan.implementedSources.includes('vertical_source'), true);
+  assert.equal(plan.implementedSources.includes('local_directory'), false);
+  assert.equal(plan.implementedSources.includes('vertical_source'), false);
+  // Trava da ORDEM inteira: se alguém devolver lane morta pro `byStrategy`, o diff do teste
+  // mostra na hora (deep = RFB → web → crawl leve, nada mais).
+  assert.deepEqual(plan.activeSources, ['cnpj_public', 'hbx_engine', 'website_crawl_light']);
 }));
+
+test('faxina 17/08 (Lote 6): lane fora da ORDEM mantém o RÓTULO pro card histórico', () => {
+  // Lei do desaparecer: tirar do `byStrategy` é faxina de MAPA. Card salvo em 2026 com
+  // sourceEngines ['cnpj_public','google_textual'] tem que continuar sendo lido como 'rfb+web'
+  // na tela — se alguém apagar o rótulo junto com a ordem, este teste fecha a porta.
+  assert.equal(radarSourceLaneOf('google_textual'), 'web');
+  assert.equal(radarSourceLaneOf('local_directory'), 'web');
+  assert.equal(radarSourceLaneOf('vertical_source'), 'web');
+  assert.equal(radarSourceLaneOf('local_directories_stub'), 'web');
+  assert.equal(radarSourceLaneOf('cnpj_public_stub'), 'rfb');
+  assert.equal(buildRadarSourceChainFromEngines(['cnpj_public', 'google_textual']), 'rfb+web');
+});
 
 test('radar strategy deep com HBX_LEGACY_SOURCES default OFF: local_directory/vertical_source/google_textual fora da rota', () => withEnv({
   HBX_RADAR_CNPJ_PUBLIC_ENABLED: 'true',
@@ -439,22 +461,27 @@ test('fonte opcional nao altera deliveryStatus para blocked ou error', () => {
 
 test('executor executa google_textual e preserva origem real', async () => withEnv({
   HBX_RADAR_GOOGLE_TEXTUAL_ENABLED: 'true',
-  // google_textual e fonte legada (P1) — precisa da flag ligada pro planner habilitar.
-  HBX_LEGACY_SOURCES: 'true',
 }, async () => {
+  // Faxina Lote 6 (17/08): o executor CONTINUA sabendo rodar google_textual — quem parou de
+  // pedir foi o planner (a lane saiu do `byStrategy`). Por isso o step vem LITERAL aqui, como
+  // nos demais testes de executor: derivar do planner devolveria [] e o teste mediria nada.
   const executor = new RadarSourceExecutorService();
   const liveInput = { ...baseInput, freshness: 'live' as const };
-  const plan = new RadarSourcePlannerService().plan(
-    liveInput,
-    new RadarSearchStrategyService().resolve(liveInput, { purpose: 'manual' }),
-  );
   const result = await executor.execute({
     context: { companyId: 7, userId: 9, user: {} },
     normalized: liveInput,
     currentResults: [],
     seenPhones: new Set<string>(),
     options: {},
-    sourcePlan: plan.filter((source) => source.source === 'google_textual'),
+    sourcePlan: [{
+      source: 'google_textual',
+      priority: 10,
+      enabled: true,
+      implemented: true,
+      optional: true,
+      stopWhenEnough: false,
+      reason: 'test',
+    }],
     remainingQuantity: 3,
     purpose: 'manual',
     host: createExecutorHost({

@@ -35,6 +35,7 @@ import { RADAR_SEGMENT_CATEGORIES } from "@/lib/radar-segments";
 // junção de respostas multi-cidade e a legenda de status viraram módulo PURO
 // testável com node --test (frontend/scripts/radar-shelf-query.test.mjs).
 import {
+  buildRadarCityReport,
   buildShelfGeoTargets,
   buildShelfRequests,
   deriveRadarBackendMessage,
@@ -203,6 +204,12 @@ type SessionCityEntry = {
   status: string;
   runId?: string | null;
   foundCount?: number;
+  message?: string | null;
+  // LOTE 4 (17/08): a origem por cidade (Receita × web) e quanto a Receita TEM na cidade.
+  // Opcionais dos DOIS lados: sessão em voo no deploy chega sem eles, e ausente ≠ zero.
+  rfbCount?: number;
+  webCount?: number;
+  rfbAvailable?: number;
 };
 type SessionResponse = {
   id?: string;
@@ -2931,6 +2938,11 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
       localLabel,
       ...activeChips().map(chip => chip.label),
     ].filter(Boolean);
+    // LOTE 4 (17/08): o array `cities` da sessão chega até aqui desde a refundação F2 (28/07)
+    // com uso ZERO — a sessão fechava com "Busca concluída: 4 lead(s) em 6 cidade(s)" e as
+    // cidades mortas sumiam na média. Quem decide o que vira linha é o módulo PURO (testado com
+    // node --test); a tela só desenha.
+    const cityReport = buildRadarCityReport(session?.cities);
     // A mensagem da SESSÃO (server-side) vence a do run — é ela que explica o
     // trabalho inteiro ("cidade 3 de 8", "pausa automática após 50 leads"...).
     // Mas SÓ enquanto a sessão está VIVA (módulo puro decide): sessão terminal
@@ -3007,6 +3019,21 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
           <div className="radar-showoff__chips radar-viewer__chips">
             {activeSummary.map((text, index) => <span key={index} className="radar-showoff__chip">{text}</span>)}
           </div>
+        )}
+
+        {cityReport.length > 0 && (
+          <ul className="radar-viewer__cidades" aria-label="Resultado por cidade">
+            {cityReport.map(linha => (
+              <li key={linha.key} className="radar-viewer__cidade" data-vazia={linha.vazia ? "1" : undefined}>
+                {/* nome pode ser longo ("Santo Antônio de Posse/SP") numa caixa estreita: Lei 1
+                    do corte. O total e as lanes DECIDEM — Lei 3, nunca encurtam. */}
+                <span className="radar-viewer__cidade-nome hbx-1linha">{linha.nome}</span>
+                <span className="radar-viewer__cidade-total hbx-inteiro">{fmtInt(linha.total)}</span>
+                {linha.lanes && <span className="radar-viewer__cidade-lanes hbx-inteiro">({linha.lanes})</span>}
+                {linha.motivo && <span className="radar-viewer__cidade-motivo hbx-2linhas">{linha.motivo}</span>}
+              </li>
+            ))}
+          </ul>
         )}
 
         {!searchInProgress && hasSearched && items.length === 0 && searchMsg && (

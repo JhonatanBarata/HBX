@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RadarWebSourceGateService } from './radar-web-source-gate.service';
+import { RadarQualityGateService } from './radar-quality-gate.service';
+import { RadarWebscrapingCoreService } from '../radar-webscraping-core.service';
 
 const gate = new RadarWebSourceGateService();
 
@@ -506,6 +508,191 @@ test('E3 geo-evidencia: segmento de CATEGORIA depois da UF nao vira cidade por e
     filters: { city: 'Analândia', state: 'SP' } as any,
   });
   assert.equal(result.passed, true);
+});
+
+// ── LOTE 1 (17/08 — PR17082026): a evidência positiva de CNAE também vale na LANE WEB ───────
+// "ÁGUA MINERAL DISTRIBUIDORA RICCI" veio da web e morreu na MESMA trava da porta da Receita:
+// a regra `varejo_puro` mata o CNAE 4723-7/00, que é onde a distribuidora de água mora. Aqui o
+// CNAE existe porque a reconciliação RFB roda ANTES deste gate. Sem CNAE nada muda.
+const qualityGate = new RadarQualityGateService();
+const hostDePassagem = {
+  isGenericDirectoryName: () => false,
+  nameConflictsWithRequestedSegment: () => false,
+  hasUsablePublicContactChannel: () => true,
+  isBlockedLeadOfficialWebsite: () => false,
+};
+const filtrosValinhos = { city: 'Valinhos', state: 'SP', segment: 'distribuidoras de água' } as any;
+
+function avaliarNaLaneWeb(candidate: Record<string, any>) {
+  return qualityGate.evaluate({ candidate, filters: filtrosValinhos, host: hostDePassagem as any });
+}
+
+test('LOTE 1 lane web: RICCI reconciliada com CNAE 4723700 nao morre mais em varejo_puro', () => {
+  const result = avaliarNaLaneWeb({
+    source: 'hbx_engine',
+    name: 'ÁGUA MINERAL DISTRIBUIDORA RICCI',
+    city: 'Valinhos',
+    state: 'SP',
+    phoneDigits: '19999990001',
+    cnae: '4723-7/00',
+    cnaeDescription: 'Comercio varejista de bebidas',
+  });
+  assert.ok(!result.hardBlockers.some((item) => item.startsWith('segment_excluded_')), result.reason);
+});
+
+test('LOTE 1 lane web: CNAE fora da allowlist continua morrendo (roupa segue roupa)', () => {
+  const result = avaliarNaLaneWeb({
+    source: 'hbx_engine',
+    name: 'AGUA VIVA MODAS',
+    city: 'Valinhos',
+    state: 'SP',
+    phoneDigits: '19999990002',
+    cnae: '4781-4/00',
+    cnaeDescription: 'Comercio varejista de artigos do vestuario',
+  });
+  assert.ok(result.hardBlockers.includes('segment_excluded_varejo_puro'));
+});
+
+test('LOTE 1 lane web: candidato SEM CNAE tem o comportamento de hoje, intacto', () => {
+  const result = avaliarNaLaneWeb({
+    source: 'hbx_engine',
+    name: 'Distribuidora de Energia Alfa',
+    city: 'Valinhos',
+    state: 'SP',
+    phoneDigits: '19999990003',
+    cnaeDescription: 'Distribuicao de energia eletrica',
+  });
+  assert.ok(result.hardBlockers.includes('segment_excluded_energia_agua_combustivel'));
+});
+
+// ── LOTE 1 · O SINAL TEXTUAL DA ALLOWLIST NÃO ENXERGAVA A RAZÃO SOCIAL (17/08) ──────────────
+// Na porta da Receita a evidência positiva varre [nomeFantasia, razaoSocial, cnae,
+// cnaeDescription] (cnpj-public-provider.service.ts). Na lane WEB o gate varria
+// [name, cnaeDescription, category] e o mixin de qualidade [name, cnaeDescription,
+// businessCategory, category] — a razão social ficava de fora nos DOIS. E a reconciliação RFB
+// (cnpj-rfb-reconcile.service.ts) preenche `cnae`, `cnaeDescription` e `razaoSocial` no
+// candidato, mas NUNCA o `name` (na web ele é o título raspado do diretório).
+//
+// Entrada real de Valinhos: name "Ricci Distribuidora" (sem 'agua'), cnae 4723700, razão social
+// "RICCI & RICCI COMERCIO DE AGUA MINERAL LTDA". A entrada 4723700 do mapa EXIGE o sinal
+// 'agua' — o sinal existia, só que na razão social. A evidência não desarmava e o lead morria
+// em `varejo_puro`, exatamente o que o Lote 1 nasceu pra consertar na lane web.
+const nucleoDeQualidade = new RadarWebscrapingCoreService({
+  hasTable: async () => true,
+  hasColumn: async () => true,
+} as any) as any;
+
+function avaliarQualidadeNoMixin(candidate: Record<string, any>) {
+  return nucleoDeQualidade.evaluateLeadQuality(candidate, {
+    requestedSegment: 'distribuidoras de água',
+    requestedCity: 'Valinhos',
+    requestedState: 'SP',
+    targetType: 'pj',
+  });
+}
+
+// Candidato da lane web DEPOIS da reconciliação RFB: CNAE e razão social vieram da Receita, o
+// nome continua sendo o título raspado ("Ricci Distribuidora", sem a palavra 'agua').
+const RICCI_RECONCILIADA = {
+  source: 'hbx_engine',
+  name: 'Ricci Distribuidora',
+  city: 'Valinhos',
+  state: 'SP',
+  phoneDigits: '19999990004',
+  cnae: '4723700',
+  cnaeDescription: 'Comercio varejista de bebidas',
+  businessCategory: 'Comercio varejista de bebidas',
+  razaoSocial: 'RICCI & RICCI COMERCIO DE AGUA MINERAL LTDA',
+};
+
+test('LOTE 1 lane web: sinal "agua" SO na razao social desarma a exclusao (Ricci Distribuidora)', () => {
+  const result = avaliarNaLaneWeb({ ...RICCI_RECONCILIADA });
+  assert.ok(
+    !result.hardBlockers.some((item) => item.startsWith('segment_excluded_')),
+    `esperava sobreviver, morreu com: ${result.hardBlockers.join(', ')} (${result.reason})`,
+  );
+});
+
+test('LOTE 1 mixin de qualidade: RICCI reconciliada nao vira segment_mismatch', () => {
+  const quality = avaliarQualidadeNoMixin({ ...RICCI_RECONCILIADA });
+  assert.notEqual(quality.status, 'segment_mismatch', quality.reasons.join(' · '));
+});
+
+test('LOTE 1 mixin de qualidade: candidato da Receita fala por legalName (FERREIRAGUA)', () => {
+  // Na lane RFB o campo é `legalName` (cnpj-public-provider.service.ts:246), não `razaoSocial`.
+  // "FERREIRAGUA" não casa 'agua' por palavra inteira — quem carrega o sinal é a razão.
+  const quality = avaliarQualidadeNoMixin({
+    source: 'cnpj_public',
+    name: 'FERREIRAGUA',
+    city: 'Valinhos',
+    state: 'SP',
+    phoneDigits: '19999990005',
+    cnae: '4723700',
+    cnaeDescription: 'Comercio varejista de bebidas',
+    businessCategory: 'Comercio varejista de bebidas',
+    legalName: 'FERREIRA & CIA COMERCIO DE AGUA MINERAL LTDA',
+  });
+  assert.notEqual(quality.status, 'segment_mismatch', quality.reasons.join(' · '));
+});
+
+test('LOTE 1 lane web: SEM CNAE a razao social nao afrouxa nada (varejo_puro segue matando)', () => {
+  const { cnae, ...semCnae } = RICCI_RECONCILIADA;
+  const result = avaliarNaLaneWeb({ ...semCnae, phoneDigits: '19999990006' });
+  assert.ok(result.hardBlockers.includes('segment_excluded_varejo_puro'), result.reason);
+  const quality = avaliarQualidadeNoMixin({ ...semCnae, phoneDigits: '19999990006' });
+  assert.equal(quality.status, 'segment_mismatch');
+});
+
+test('LOTE 1 lane web: razao social nao e curinga — CNAE fora da allowlist continua morrendo', () => {
+  const result = avaliarNaLaneWeb({
+    source: 'hbx_engine',
+    name: 'Agua Viva Modas',
+    city: 'Valinhos',
+    state: 'SP',
+    phoneDigits: '19999990007',
+    cnae: '4781-4/00',
+    cnaeDescription: 'Comercio varejista de artigos do vestuario',
+    razaoSocial: 'AGUA VIVA COMERCIO DE AGUA E CONFECCOES LTDA',
+  });
+  assert.ok(result.hardBlockers.includes('segment_excluded_varejo_puro'), result.reason);
+});
+
+test('LOTE 1 lane web: razao social de TRANSPORTE mata (evidencia legitima de outro ramo)', () => {
+  const result = avaliarNaLaneWeb({
+    source: 'hbx_engine',
+    name: 'Ricci Distribuidora',
+    city: 'Valinhos',
+    state: 'SP',
+    phoneDigits: '19999990008',
+    razaoSocial: 'RICCI & RICCI TRANSPORTES LTDA',
+  });
+  assert.ok(result.hardBlockers.includes('segment_excluded_transporte_carga'), result.reason);
+});
+
+test('LOTE 1 lane web: saneamento e energia continuam mortos com CNAE fora da allowlist', () => {
+  const saneamento = avaliarNaLaneWeb({
+    source: 'hbx_engine',
+    name: 'Aguas de Valinhos',
+    city: 'Valinhos',
+    state: 'SP',
+    phoneDigits: '19999990009',
+    cnae: '3600601',
+    cnaeDescription: 'Captacao, tratamento e distribuicao de agua',
+    razaoSocial: 'COMPANHIA DE SANEAMENTO DE VALINHOS SA',
+  });
+  assert.ok(saneamento.hardBlockers.includes('segment_excluded_energia_agua_combustivel'), saneamento.reason);
+
+  const energia = avaliarNaLaneWeb({
+    source: 'hbx_engine',
+    name: 'Alfa Distribuidora',
+    city: 'Valinhos',
+    state: 'SP',
+    phoneDigits: '19999990010',
+    cnae: '3514000',
+    cnaeDescription: 'Distribuicao de energia eletrica',
+    razaoSocial: 'ALFA DISTRIBUIDORA DE ENERGIA ELETRICA SA',
+  });
+  assert.ok(energia.hardBlockers.includes('segment_excluded_energia_agua_combustivel'), energia.reason);
 });
 
 test('E3 geo-evidencia: nome COMPLETO do estado no caminho tambem conta (/sao-paulo/rio-claro)', () => {

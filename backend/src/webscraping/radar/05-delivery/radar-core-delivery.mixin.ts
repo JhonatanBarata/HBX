@@ -177,6 +177,9 @@ import { RadarCnpjL4EnrichmentService } from '../03-enrichment/radar-cnpj-l4-enr
 import { LeadContactWriteService } from '../persistence/lead-contact-write.service';
 import { buildRankedRadarContacts } from '../persistence/radar-ranked-contacts';
 import { radarDiscoveryEnginesOf } from '../shared/radar-source-lanes';
+// LOTE 5 (PR17082026): mesma lei de identidade forte por CNPJ já usada no dedup de lote
+// (radar-duplicate-filter.service.ts) — valida dígito verificador antes de virar chave de busca.
+import { resolveStrongCnpjIdentity } from '../../lead-quality-v2-resolver';
 import { findRadarSegmentExclusionMatch } from '../shared/radar-segment-exclusion.util';
 import { buildRadarLeadInclusionReasons } from '../shared/radar-inclusion-reasons.util';
 
@@ -2458,11 +2461,20 @@ export class RadarCoreDeliveryMixin {
         ? (result as any).rejectReasons
         : parseJsonArray((result as any).rejectReasons);
       const qualityV2 = this.extractLeadQualityV2FromObject(result as any);
+      // LOTE 5 (PR17082026) — "uma empresa = um card". O lookup anti-duplicata só olhava fone e
+      // placeId do candidato: o mesmo CNPJ chegando pela web (fone/placeId diferentes) nascia como
+      // card NOVO — é a origem do "Água em Valinhos" 3x no pool. A lane RFB grava
+      // placeId = `cnpj_public:<cnpj>`, então o CNPJ do candidato (validado por dígito) vira a
+      // terceira perna do OR SEM coluna nova e SEM migration. Duplicata que já existe no pool não
+      // é apagada nem fundida (lei do desaparecer) — isto só impede duplicata NOVA.
+      const cnpjDigits = resolveStrongCnpjIdentity(result as any);
+      const cnpjPlaceId = cnpjDigits ? `cnpj_public:${cnpjDigits}` : null;
       const existing = await delegate.findFirst({
         where: {
           OR: [
             ...(phoneDigits ? [{ phoneDigits }] : []),
             ...(placeId ? [{ placeId }] : []),
+            ...(cnpjPlaceId && cnpjPlaceId !== placeId ? [{ placeId: cnpjPlaceId }] : []),
           ],
         },
       }).catch(() => null);
@@ -2647,9 +2659,16 @@ export class RadarCoreDeliveryMixin {
         socialStatus: mergedSocialStatus,
         socialConfidence: mergedSocialConfidence,
       };
+      // O placeId `cnpj_public:<cnpj>` é a ÂNCORA da Receita no card. Como o dedup do LOTE 5 agora
+      // acha o card por essa âncora, um candidato web caindo em cima dele regravaria o placeId
+      // social por cima — apagaria a âncora e ainda podia bater no @unique de placeId.
+      const existingPlaceId = String(existing?.placeId || '');
+      const placeIdToPersist = existingPlaceId.startsWith('cnpj_public:')
+        ? existingPlaceId
+        : (placeId || existingPlaceId || null);
       const data = {
         companyId: existing?.companyId || null,
-        placeId: placeId || existing?.placeId || null,
+        placeId: placeIdToPersist,
         name: result.name || existing?.name || 'Empresa sem nome',
         phone: result.phone || existing?.phone || phoneDigits || null,
         phoneDigits: phoneDigits || existing?.phoneDigits || null,
@@ -2805,10 +2824,29 @@ export class RadarCoreDeliveryMixin {
       });
       let savedId: string | null = existing?.id || null;
       if (existing?.id) {
-        await delegate.update({
+        // `.catch(() => null)` cego aqui era trava que engole em silêncio: com o dedup do LOTE 5 o
+        // card achado pode ter placeId diferente do candidato, e regravar identidade pode colidir
+        // com o @unique de placeId (P2002). Na colisão a gente regrava TUDO menos o placeId — o
+        // card sobrevive com o dado desta rodada e o motivo fica no log, nunca some calado.
+        const updateError = await delegate.update({
           where: { id: existing.id },
           data,
-        }).catch(() => null);
+        }).then(() => null).catch((error: any) => error);
+        if (updateError) {
+          const dataSemPlaceId = { ...(data as any) };
+          delete dataSemPlaceId.placeId;
+          const isPlaceIdConflict = String(updateError?.code || '') === 'P2002';
+          this.logger.warn(`[radar-pool] update do card ${existing.id} falhou (${isPlaceIdConflict ? 'placeId já usado por outro card' : String(updateError?.message || updateError)})`);
+          if (isPlaceIdConflict) {
+            await delegate.update({
+              where: { id: existing.id },
+              data: dataSemPlaceId,
+            }).catch((retryError: any) => {
+              this.logger.warn(`[radar-pool] card ${existing.id} não aceitou nem o update sem placeId: ${String(retryError?.message || retryError)}`);
+              return null;
+            });
+          }
+        }
         savedId = existing.id;
       } else {
         const created = await delegate.create({

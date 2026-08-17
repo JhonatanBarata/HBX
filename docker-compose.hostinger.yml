@@ -11,6 +11,11 @@ x-hbx-engine-common: &hbx-engine-common
     HBX_SCRAPING_MAX_DISCOVERY_RESULTS: ${HBX_SCRAPING_MAX_DISCOVERY_RESULTS:-120}
     HBX_AGENDA_MAX_PAGES: ${HBX_AGENDA_MAX_PAGES:-20}
     HBX_AGENDA_REQUEST_DELAY_MS: ${HBX_AGENDA_REQUEST_DELAY_MS:-700}
+    # L3 da faxina da busca (17/08) — alavanca do ddgs na mao do dono. Sem esta linha o anchor
+    # so passava 7 variaveis e a escotilha ficava INALCANCAVEL em producao. Default `false`:
+    # a ordem de descoberta e searxng -> Bing scraper; o ddgs so volta com `true`, e volta
+    # inteiro (o codigo nao foi apagado — descarte aqui e tirar da ORDEM, nunca do vocabulario).
+    HBX_DISCOVERY_DDGS_ENABLED: ${HBX_DISCOVERY_DDGS_ENABLED:-false}
   networks:
     - hbx_net
   healthcheck:
@@ -71,6 +76,12 @@ services:
       HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS: ${HBX_RADAR_CLIENT_REQUEST_TIMEOUT_MS:-25000}
       HBX_RADAR_CLIENT_FALLBACK_TO_POOL: ${HBX_RADAR_CLIENT_FALLBACK_TO_POOL:-true}
       HBX_RADAR_WHATSAPP_CHECK_MODE: ${HBX_RADAR_WHATSAPP_CHECK_MODE:-enrich}
+      # L3 da faxina da busca (17/08) — freio curto de lote web vazio (era default 5 e nao estava
+      # setado em lugar NENHUM do repo). Quem le e o BACKEND (radar-search-run-config.service.ts).
+      # Com a RFB drenando primeiro (L2), lote web vazio ficou barato de abandonar: cidade sem
+      # base morre em ~2 lotes em vez de queimar ~90s em wikipedia. Versionado aqui de proposito,
+      # e nao como linha crua no .env da VPS, pra o valor ser rastreavel no git.
+      HBX_SEARCH_RUN_MAX_EMPTY_BATCHES: ${HBX_SEARCH_RUN_MAX_EMPTY_BATCHES:-3}
       # Socket + CLI ligam o caminho "docker local" do governor de motores (hbx-engine-docker-adapter.service.ts):
       # na VPS não existe ops-control, então start/stop/restart de hbx-engine-1..20 passa a ir direto no socket.
       HBX_ENGINE_DOCKER_CLI_PATH: /usr/local/bin/docker
@@ -129,6 +140,10 @@ services:
       HBX_SCRAPING_MAX_DISCOVERY_RESULTS: ${HBX_SCRAPING_MAX_DISCOVERY_RESULTS:-120}
       HBX_AGENDA_MAX_PAGES: ${HBX_AGENDA_MAX_PAGES:-20}
       HBX_AGENDA_REQUEST_DELAY_MS: ${HBX_AGENDA_REQUEST_DELAY_MS:-500}
+      # L3 da faxina da busca (17/08) — mesma alavanca do anchor dos hbx-engine-*: este motor
+      # roda o MESMO discovery.py, entao a flag tem que existir aqui tambem, senao o motor
+      # sozinho e a frota poderiam divergir de provedor de descoberta.
+      HBX_DISCOVERY_DDGS_ENABLED: ${HBX_DISCOVERY_DDGS_ENABLED:-false}
     volumes:
       - ./hbx-scraping-engine/data:/app/data
     networks:

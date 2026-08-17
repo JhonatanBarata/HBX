@@ -1,3 +1,5 @@
+import { matchesRadarSegmentCnaeAllowlist } from './radar-segment-cnae-map.util';
+
 // S2 LEAD-CENTRICO (25/07 — docs/PLANEJAMENTOS/PR25072026-LEAD-CENTRICO/02-radar-limpo.md):
 // exclusões vencem similaridade de nome. Quando o cliente pede um segmento explícito
 // ("distribuidora"), um candidato cujo nome/CNAE cai numa atividade EXCLUÍDA daquele segmento
@@ -262,4 +264,35 @@ export function findRadarSegmentExclusionMatch(
     }
   }
   return null;
+}
+
+// LOTE 1 (17/08 — PR17082026-FAXINA-DA-BUSCA-RFB-PRIMEIRO): EVIDÊNCIA POSITIVA DE CNAE VENCE A
+// EXCLUSÃO GENÉRICA.
+//
+// Até aqui a exclusão vencia TUDO. Só que a regra `varejo_puro` (token 'comercio varejista')
+// matava o CNAE 4723-7/00 — que é exatamente onde a distribuidora de água mora na Receita.
+// Medido em Valinhos/SP: FERREIRAGUA, VALINAGUA, ACQUARELLA, RICCI e RINAGUA rejeitadas como
+// "varejo puro" numa busca por distribuidora de água.
+//
+// A evidência é o CÓDIGO do CNAE (campo estruturado da Receita), NUNCA texto: nome que diz
+// "água" não desarma nada — senão qualquer "Água & Gás do Zé" reabriria o furo do noturno de
+// 30/07. E como a allowlist é curada e estreita (radar-segment-cnae-map.util), as regras
+// existentes seguem inteiras: saneamento (3600601), energia (3513100/3514000), roupa (4781400),
+// transporte (4930202) e farma não estão em allowlist nenhuma e morrem como antes.
+//
+// A função ANTIGA fica intacta byte a byte (4 call-sites + ~25 asserts dependem da assinatura
+// varargs) — esta é aditiva.
+export function findRadarSegmentExclusionMatchWithEvidence(input: {
+  segment: unknown;
+  cnae?: unknown;
+  city?: unknown;
+  texts: unknown[];
+}): RadarSegmentExclusionRule | null {
+  if (matchesRadarSegmentCnaeAllowlist({
+    segment: input.segment,
+    cnae: input.cnae,
+    city: input.city,
+    texts: input.texts,
+  })) return null;
+  return findRadarSegmentExclusionMatch(input.segment, ...input.texts);
 }

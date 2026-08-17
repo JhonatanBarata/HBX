@@ -97,6 +97,11 @@ import {
   formatCityWithState,
 } from '../radar-core-method-imports';
 import { RadarCnpjPublicSourceService } from './radar-cnpj-public-source.service';
+// LOTE 2 item 5 (17/08): a frase honesta ("A Receita tem N nessa cidade") tem de contar pela
+// MESMA lei que a porta da Receita usa pra aceitar — este util é a ponte filtros→WHERE da base
+// 28M e já foi corrigido pelo Lote 1 com o mapa segmento→CNAE. Contar por outra régua faria a
+// mensagem prometer o que a busca não entrega.
+import { buildCnpjBaseQueryInputFromRadarFilters } from '../providers/cnpj-public/radar-base-availability.util';
 
 import type {
   AutonomousMassDataCandidate,
@@ -163,21 +168,95 @@ import type {
 } from '../radar-core-method-imports';
 
 // Furo 01/07 (docs/PLANEJAMENTOS/PR01072026/60-receita-no-run-cliente.md): run de cliente só
-// falava com o motor web — a fonte cnpj_public (Receita) era inalcançável nesse fluxo. Marca em
-// memória (por runId) quando a fonte já rodou 1x neste batch OU devolveu 0 aceitos no run, pra
-// não repetir discovery/dataset a cada batch. Sem hook de "run concluiu" disponível sem tocar no
-// loop de elasticidade (fora de escopo aqui) — limpeza best-effort por TTL: entradas mais velhas
-// que RADAR_CNPJ_PUBLIC_STATE_TTL_MS são descartadas na próxima leitura/escrita do mesmo runId,
-// e o Map nunca cresce sem limite porque cada leitura varre e descarta o que expirou.
-const RADAR_CNPJ_PUBLIC_STATE_TTL_MS = 2 * 60 * 60 * 1000;
-const radarCnpjPublicClientRunState = new Map<string, { ranThisRun: boolean; zeroAccepted: boolean; updatedAt: number }>();
+// falava com o motor web — a fonte cnpj_public (Receita) era inalcançável nesse fluxo. O estado
+// dessa fonte morava num Map de processo (`ranThisRun`/`zeroAccepted`, TTL 2h).
+//
+// LOTE 2 (17/08 — PR17082026-FAXINA-DA-BUSCA-RFB-PRIMEIRO): o Map SAIU DE CENA. Dois motivos:
+//   1. `ranThisRun` era a trava A4 — a Receita rodava UMA vez por run e o resto era só web. A
+//      encomenda do dono é o contrário: a RFB repete a cada lote ATÉ SECAR.
+//   2. Map é memória de processo: morre no `npm run publish` (que reinicia o backend). No meio
+//      de um run, o cursor da drenagem voltaria a zero e a Receita re-entregaria o que já
+//      entregou — tudo duplicata, lote queimado.
+// Agora a verdade é o `metricsJson` do run: durável, sem migration (o updateMetrics faz
+// `{...rawMetrics, ...metrics, ...patch}` e preserva chave desconhecida — ver
+// radar-run-repository.service.ts:512-516). Namespace combinado com o Lote 4:
+//   metricsJson.rfbDrain = { cursor, exhausted, delivered, available }
+// ATENÇÃO: `parseSearchRunMetrics` normaliza pro shape conhecido e DESCARTA chave extra — por
+// isso a leitura abaixo é crua, direto do JSON.
+type RadarRfbDrainState = {
+  cursor: { phase: string; cnpj: string | null } | null;
+  exhausted: boolean;
+  delivered: number;
+  available: number | null;
+};
 
-function pruneRadarCnpjPublicClientRunState(now: number) {
-  for (const [key, value] of radarCnpjPublicClientRunState) {
-    if (now - value.updatedAt > RADAR_CNPJ_PUBLIC_STATE_TTL_MS) {
-      radarCnpjPublicClientRunState.delete(key);
+function extrairEstadoDrenagemRfb(metricsJson: unknown): RadarRfbDrainState | null {
+  let bruto: any = null;
+  if (typeof metricsJson === 'string') {
+    try {
+      bruto = JSON.parse(metricsJson);
+    } catch {
+      bruto = null;
     }
+  } else if (metricsJson && typeof metricsJson === 'object') {
+    bruto = metricsJson;
   }
+  const drenagem = bruto?.rfbDrain;
+  if (!drenagem || typeof drenagem !== 'object') return null;
+  const cursorBruto = drenagem.cursor;
+  const cursor = cursorBruto && typeof cursorBruto === 'object'
+    ? {
+      phase: String(cursorBruto.phase || 'with_contact'),
+      cnpj: cursorBruto.cnpj ? String(cursorBruto.cnpj) : null,
+    }
+    : null;
+  const disponivel = Number(drenagem.available);
+  return {
+    cursor,
+    exhausted: drenagem.exhausted === true,
+    delivered: safeInteger(drenagem.delivered),
+    available: drenagem.available == null || !Number.isFinite(disponivel) ? null : disponivel,
+  };
+}
+
+const ACENTOS_COMBINANTES_RFB = new RegExp('[\\u0300-\\u036f]', 'g');
+
+/**
+ * Cidade do jeito que o dump da RFB gravou: minúscula e SEM acento (coluna `normalizedCity`).
+ * O WHERE do cnpj-base-query só faz `.toLowerCase()` na cidade que recebe — mandar "Águas de
+ * Lindóia" com acento devolve 0 e a frase honesta mentiria na direção oposta ("a Receita não
+ * tem ninguém" numa cidade cheia).
+ */
+function normalizarCidadeParaBaseRfb(city: unknown) {
+  return String(city || '')
+    .normalize('NFD')
+    .replace(ACENTOS_COMBINANTES_RFB, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * LOTE 2 item 4 (17/08): no lote em que a web é PULADA ninguém fala com o motor, mas o resto do
+ * fluxo (fusão canônica, persistência única do `deferPersistence`, contadores, desfecho) continua
+ * exatamente igual — então ele precisa de uma resposta no shape de HbxEngineSearchOutput
+ * (radar-core-shared.ts:322-337). O shape vai COMPLETO de propósito: o arquivo é `@ts-nocheck`,
+ * e campo numérico faltando aqui viraria NaN silencioso nos contadores de lote (urlsDiscovered,
+ * pagesFetched, rejectedCount, duplicateCount).
+ */
+function respostaVaziaDoMotorPulado() {
+  return {
+    results: [],
+    status: 'running',
+    message: null,
+    httpStatus: null,
+    rawErrorMessage: null,
+    urlsDiscovered: 0,
+    pagesFetched: 0,
+    parsedContacts: 0,
+    rejectedCount: 0,
+    duplicateCount: 0,
+  };
 }
 
 function sanitizeRadarPostSaveInput(input: NormalizedSearchInput) {
@@ -250,41 +329,157 @@ export class RadarCoreSearchLoopMixin {
   }
 
   /**
+   * Lê o estado da drenagem direto do run (fallback de quem chama sem passar `persistedState`).
+   * Falha de leitura devolve `null` — estado desconhecido faz a Receita tentar de novo, que é
+   * o lado barato do erro (duplicata) contra o caro (deixar a base parada).
+   */
+  private async lerEstadoDrenagemRfb(runId: string) {
+    try {
+      const row = await this.prisma?.webscrapingSearchRun?.findUnique?.({
+        where: { id: runId },
+        select: { metricsJson: true },
+      });
+      return extrairEstadoDrenagemRfb(row?.metricsJson);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Quanto a Receita TEM na cidade do pedido, pela mesma régua da porta (mapa segmento→CNAE do
+   * Lote 1). Só é chamado no FECHAMENTO do run: `countBase` tem orçamento de 8s e devolve
+   * `{available:false,count:null}` quando estoura — no caminho quente do lote isso custaria
+   * segundos por attempt. Falha/indisponível devolve `null` e a frase simplesmente omite o
+   * número, nunca imprime "null".
+   */
+  private async contarDisponivelNaReceita(normalized: NormalizedSearchInput) {
+    const baseQuery = (this as any).cnpjBaseQuery;
+    if (typeof baseQuery?.countBase !== 'function') return null;
+    try {
+      const contagem = await baseQuery.countBase(buildCnpjBaseQueryInputFromRadarFilters({
+        // Cidade SEM acento e minúscula: o WHERE do cnpj-base-query só faz `.toLowerCase()` e a
+        // coluna `normalizedCity` do dump não tem acento — mandar "Águas de Lindóia" devolveria
+        // 0 numa cidade cheia e a frase mentiria na direção oposta.
+        city: normalizarCidadeParaBaseRfb(normalized?.city),
+        state: normalized?.state,
+        segment: normalized?.segment,
+      }));
+      if (!contagem?.available) return null;
+      const total = Number(contagem.count);
+      return Number.isFinite(total) ? Math.max(0, safeInteger(total)) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * LOTE 2 item 5 (17/08): "Entreguei 4 de 100" não dizia se a cidade é pobre na Receita ou se a
+   * busca falhou. Aqui nascem os dois números que faltavam, cada um de onde já é verdade:
+   *   - o que a Receita TEM: `metricsJson.rfbDrain.available` (medido uma vez por run) e, quando
+   *     ainda não foi medido, o `countBase` da base 28M;
+   *   - o que cada lane ENTREGOU: contagem dos itens SALVOS do run (card que o dono vê), não
+   *     candidato oferecido — item fundido rfb↔web mantém `source='cnpj_public'` (a Receita é a
+   *     canônica na fusão), então o resto é web de verdade.
+   * Qualquer falha cai na frase de sempre: mensagem incompleta é ruim, mensagem errada é pior.
+   */
+  private async buildInsufficientMessageWithLanes(
+    runId: string,
+    normalized: NormalizedSearchInput,
+    foundCount: number,
+    attempt: number,
+  ) {
+    try {
+      const estado = await this.lerEstadoDrenagemRfb(runId);
+      const disponivel = estado?.available ?? await this.contarDisponivelNaReceita(normalized);
+      const itens = (this.prisma as any)?.webscrapingSearchRunItem;
+      let rfbEntregues: number | null = null;
+      let webEntregues: number | null = null;
+      if (typeof itens?.count === 'function') {
+        const total = safeInteger(await itens.count({ where: { runId, status: 'found' } }));
+        const daReceita = safeInteger(await itens.count({ where: { runId, status: 'found', source: 'cnpj_public' } }));
+        rfbEntregues = Math.max(0, Math.min(daReceita, total));
+        webEntregues = Math.max(0, total - rfbEntregues);
+      }
+      // Espelha o número medido no run pra o relatório por cidade não pagar o count de novo (e
+      // pra o dono ver a mesma verdade na mensagem e no metricsJson). Só quando o estado existe
+      // e o campo ainda está vazio — nunca sobrescreve cursor/seca já gravados.
+      if (estado && estado.available == null && disponivel != null) {
+        await this.updateSearchRunMetrics(runId, {
+          rfbDrain: {
+            cursor: estado.cursor ?? null,
+            exhausted: estado.exhausted === true,
+            delivered: safeInteger(estado.delivered),
+            available: disponivel,
+          },
+        }).catch(() => null);
+      }
+      return this.buildSearchRunInsufficientMessage(foundCount, attempt, {
+        rfbDisponivel: disponivel,
+        rfbEntregues,
+        webEntregues,
+      });
+    } catch (error) {
+      // Degradar calado esconderia count quebrado por semanas: a frase volta ao texto de sempre,
+      // mas o motivo fica no log.
+      this.logger?.warn?.(
+        `[radar-cadeia] run ${runId}: mensagem sem as lanes (${String((error as any)?.message || error)})`,
+      );
+      return this.buildSearchRunInsufficientMessage(foundCount, attempt);
+    }
+  }
+
+  /**
    * Fonte Receita (cnpj_public) soldada no run de cliente — aditivo, flag-gated
    * (docs/PLANEJAMENTOS/PR01072026/60-receita-no-run-cliente.md).
    *
    * CUTOVER ORDEM FIXA (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md):
-   * a lane do cliente é semente → RFB → web → fusão. Este método agora é chamado ANTES do
-   * batch do motor web (ver processSearchRun) — RFB roda primeiro na ordem fixa 1→8 da árvore
-   * mestra. Continua rodando no MÁXIMO 1x por run (ranThisRun/zeroAccepted); erro aqui NUNCA
-   * bloqueia o batch web que vem depois (degrade gracioso).
+   * a lane do cliente é semente → RFB → web → fusão. Este método é chamado ANTES do batch do
+   * motor web (ver processSearchRun) — RFB roda primeiro na ordem fixa 1→8 da árvore mestra.
+   * Erro aqui NUNCA bloqueia o batch web que vem depois (degrade gracioso).
+   *
+   * LOTE 2 (17/08): deixou de rodar "no máximo 1x por run" (trava A4). Agora repete A CADA
+   * LOTE até a base SECAR, continuando do cursor gravado no metricsJson. Só o marcador de seca
+   * (`exhausted`) corta a fonte — e ele é definitivo dentro do run.
    */
   private async runCnpjPublicSourceForClientRunIfEligible(
     context: SearchExecutionContext,
     normalized: NormalizedSearchInput,
     runId: string,
     remainingQuantity: number,
-    options: { deferPersistence?: boolean } = {},
-  ): Promise<{ accepted: number; ran: boolean; results: WebscrapingContactResult[] }> {
-    if (String(process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED).trim().toLowerCase() !== 'true') return { accepted: 0, ran: false, results: [] };
-    if (normalized?.targetType !== 'pj') return { accepted: 0, ran: false, results: [] };
-    if (remainingQuantity <= 0) return { accepted: 0, ran: false, results: [] };
+    options: { deferPersistence?: boolean; persistedState?: RadarRfbDrainState | null } = {},
+  ): Promise<{
+    accepted: number;
+    ran: boolean;
+    exhausted: boolean;
+    cursor: { phase: string; cnpj: string | null } | null;
+    results: WebscrapingContactResult[];
+  }> {
+    // Sem Receita neste pedido (flag off / não-pj / meta já batida) a resposta é "seca": não há
+    // nada a esperar, e a lane web segue na hora.
+    if (String(process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED).trim().toLowerCase() !== 'true') return { accepted: 0, ran: false, exhausted: true, cursor: null, results: [] };
+    if (normalized?.targetType !== 'pj') return { accepted: 0, ran: false, exhausted: true, cursor: null, results: [] };
+    if (remainingQuantity <= 0) return { accepted: 0, ran: false, exhausted: true, cursor: null, results: [] };
 
-    const now = Date.now();
-    pruneRadarCnpjPublicClientRunState(now);
-    const state = radarCnpjPublicClientRunState.get(runId);
-    if (state?.ranThisRun || state?.zeroAccepted) return { accepted: 0, ran: false, results: [] };
-    radarCnpjPublicClientRunState.set(runId, { ranThisRun: true, zeroAccepted: state?.zeroAccepted || false, updatedAt: now });
+    // O call-site do run já carrega o metricsJson (findFirst sem select) e passa aqui — zero
+    // query extra no caminho quente. Quem chama sem o campo cai na leitura direta.
+    const estado = Object.prototype.hasOwnProperty.call(options, 'persistedState')
+      ? options.persistedState ?? null
+      : await this.lerEstadoDrenagemRfb(runId);
+    if (estado?.exhausted) return { accepted: 0, ran: false, exhausted: true, cursor: null, results: [] };
 
     try {
       const source = this.getRadarCnpjPublicSource
         ? this.getRadarCnpjPublicSource()
         : new RadarCnpjPublicSourceService();
-      const limit = Math.max(1, Math.min(remainingQuantity, 20));
+      // TETO A3 (LOTE 2): era `min(remaining, 20)` — busca de 100 recebia no máximo 20 da
+      // Receita, por construção. `remaining` já vem clampado pela meta no call-site e o
+      // provider tem teto próprio de 100 por passada.
+      const limit = Math.max(1, remainingQuantity);
       const sourceResult = await source.run({
         normalized,
         limit,
         prisma: this.prisma,
+        cursor: estado?.cursor ?? null,
       });
       const results = Array.isArray(sourceResult?.results) ? sourceResult.results : [];
       let accepted = 0;
@@ -309,18 +504,32 @@ export class RadarCoreSearchLoopMixin {
         // do motor para permitir a fusão canônica rfb↔web antes de nascer qualquer card.
         accepted = results.length;
       }
-      if (accepted === 0) {
-        radarCnpjPublicClientRunState.set(runId, { ranThisRun: true, zeroAccepted: true, updatedAt: now });
-      }
+      // MARCADOR DE SECA. Duas portas pro mesmo estado: a fonte avisou que virou a última
+      // página (`exhausted`), ou o lote inteiro (até 6 páginas de 500) não rendeu UM aceito —
+      // insistir na Receita depois disso só queima attempt que a web precisa.
+      const secou = Boolean(sourceResult?.exhausted) || accepted === 0;
+      const cursor = secou ? null : (sourceResult?.cursor ?? null);
+      const entregues = safeInteger(estado?.delivered) + accepted;
+      await this.updateSearchRunMetrics(runId, {
+        rfbDrain: {
+          cursor,
+          exhausted: secou,
+          delivered: entregues,
+          available: estado?.available ?? null,
+        },
+      }).catch(() => null);
       this.logger?.log?.(
-        `[radar-cadeia] run ${runId}: 1=rfb found=${sourceResult?.foundCount ?? results.length} accepted=${accepted} reason=${sourceResult?.reason || '-'}`,
+        `[radar-cadeia] run ${runId}: 1=rfb found=${sourceResult?.foundCount ?? results.length} accepted=${accepted} `
+        + `exhausted=${secou} cursor=${cursor?.cnpj || '-'} fase=${cursor?.phase || '-'} reason=${sourceResult?.reason || '-'}`,
       );
-      return { accepted, ran: true, results };
+      return { accepted, ran: true, exhausted: secou, cursor, results };
     } catch (error) {
       this.logger?.warn?.(
         `[radar-cnpj] fonte receita falhou sem derrubar o batch run=${runId}: ${String((error as any)?.message || error)}`,
       );
-      return { accepted: 0, ran: true, results: [] };
+      // Fail-open: erro da Receita marca seca NO RETORNO (não no metricsJson) só pra a web
+      // rodar agora. O estado durável fica intacto — o lote seguinte tenta a drenagem de novo.
+      return { accepted: 0, ran: true, exhausted: true, cursor: null, results: [] };
     }
   }
 
@@ -1137,7 +1346,9 @@ export class RadarCoreSearchLoopMixin {
             : 'completed_insufficient_results';
           const finalMessage = finalStatus === 'completed'
             ? null
-            : this.buildSearchRunInsufficientMessage(safeInteger(current.foundCount), attempt);
+            // LOTE 2 item 5: desfecho parcial fala a verdade das duas lanes (ver
+            // buildInsufficientMessageWithLanes). É fechamento de run, não caminho quente.
+            : await this.buildInsufficientMessageWithLanes(runId, normalized, safeInteger(current.foundCount), attempt);
         await this.persistSearchRunHistoryIfPossible(runId, normalized, context);
         await this.prisma.webscrapingSearchRun.update({
           where: { id: runId },
@@ -1161,16 +1372,10 @@ export class RadarCoreSearchLoopMixin {
         const finalStatus: WebscrapingSearchRunStatus = counters.foundCount > 0
           ? 'completed_insufficient_results'
           : 'failed';
-        if (counters.foundCount > 0 && !hasRequiredEnrichmentGate) {
-          const rested = await this.restSearchRunIfEligible(
-            runId,
-            current,
-            counters.foundCount,
-            normalized.quantity,
-            'max_attempts_before_batch',
-          );
-          if (rested) return;
-        }
+        // FAXINA 17/08 (Lote 6): saiu daqui o `restSearchRunIfEligible('max_attempts_before_batch')`.
+        // O Radar manual não dorme e acorda entregando card velho — `shouldRestSearchRun` já
+        // devolvia `false` sempre, então este bloco só custava uma chamada e um `if` que nunca
+        // disparava. O run vai direto ao desfecho (completed_insufficient_results/failed).
         const finalMessage = counters.foundCount > 0
           ? this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
           : this.buildSearchRunNoCardsMessage(safeInteger(current.attemptCount), current.lastQueryUsed);
@@ -1247,7 +1452,8 @@ export class RadarCoreSearchLoopMixin {
             lastBatchStatus: requiredChannelMatches >= safeInteger(liveRun.targetQuantity) ? 'completed' : 'completed_insufficient_results',
             errorMessage: requiredChannelMatches >= safeInteger(liveRun.targetQuantity)
               ? null
-              : this.buildSearchRunInsufficientMessage(safeInteger(liveRun.foundCount), attempt),
+              // LOTE 2 item 5: mesmo desfecho parcial do bloco acima, ramo do `liveRun`.
+              : await this.buildInsufficientMessageWithLanes(runId, normalized, safeInteger(liveRun.foundCount), attempt),
             nextRetryAt: null,
             assignedEngineId: null,
             assignedEngineUrl: null,
@@ -1281,12 +1487,29 @@ export class RadarCoreSearchLoopMixin {
         runId,
         Math.max(0, safeInteger(normalized.quantity) - safeInteger(current.foundCount)),
         { deferPersistence: true },
-      ).catch(() => ({ accepted: 0, ran: false, results: [] }));
+      ).catch(() => (
+        // Fallback do erro com `exhausted: true` de propósito: erro da Receita LIBERA a web (o
+        // degrade gracioso do cutover). Sem esse campo, `cnpjOutcome.exhausted` sairia
+        // `undefined` no caminho de erro e a lane web ficaria esperando uma drenagem que não vem.
+        { accepted: 0, ran: false, exhausted: true, cursor: null, results: [] }
+      ));
 
+      // LOTE 2 item 4 (17/08 — a encomenda literal do dono: "a pesquisa tem q vir depois q a RFB
+      // entregou tudo"): enquanto a Receita ainda tem página pra virar E entregou gente NESTE
+      // lote, o motor web não roda. O attempt fecha com o que a Receita deu, persiste, conta e
+      // volta pro próximo lote continuando do cursor gravado no metricsJson.
+      // As duas condições são obrigatórias:
+      //   - `exhausted === false` estrito: flag-off, erro e "base secou" chegam como `true`, e
+      //     `undefined` (caller antigo) nunca prende a web;
+      //   - `results.length > 0`: lote em que a Receita não trouxe ninguém SEMPRE chama a web,
+      //     senão o run morreria de fome sem ter tentado a única lane que restou.
+      const pularWeb = cnpjOutcome.exhausted === false && cnpjOutcome.results.length > 0;
       const sendExplicitQuery = !this.hasIntentSensitiveDiscovery(batchInput) || this.isSocialDiscoveryQuery(queryUsed);
       let batchResponse;
       try {
-        batchResponse = await this.searchHbxEngine(
+        // O try/catch continua envolvendo tudo (é ele que guarda o retry/attempt e o resgate da
+        // Receita quando o motor cai): pular a web é não fazer a chamada, não desviar do fluxo.
+        batchResponse = pularWeb ? respostaVaziaDoMotorPulado() : await this.searchHbxEngine(
           engineBatchInput,
           excludePhoneDigits,
           engineUrl,
@@ -1323,9 +1546,14 @@ export class RadarCoreSearchLoopMixin {
       }).catch(() => null);
       if (!runAfterEngine || runAfterEngine.status === 'canceled') return;
       await this.updateSearchRunMetrics(runId, {
-        engineId: lease?.engineId || current.assignedEngineId || null,
-        engineIndex: lease?.engineIndex ?? current.assignedEngineIndex ?? null,
-        sourceEngine: 'hbx',
+        // Medidor honesto (LOTE 2): no lote sem web, carimbar `sourceEngine:'hbx'` daria ao motor
+        // o crédito do que a Receita entregou. engineId/engineIndex também ficam de fora — o
+        // motor está com lease, mas não trabalhou neste lote.
+        ...(pularWeb ? { sourceEngine: 'cnpj_public' } : {
+          engineId: lease?.engineId || current.assignedEngineId || null,
+          engineIndex: lease?.engineIndex ?? current.assignedEngineIndex ?? null,
+          sourceEngine: 'hbx',
+        }),
         cacheHit: false,
         status: 'running',
         increment: {
@@ -1358,29 +1586,55 @@ export class RadarCoreSearchLoopMixin {
         savedCounts?.savedWebEnrichmentLeadIds,
         engineUrl,
       );
-      if (lease) {
+      // `!pularWeb`: marcar "sucesso de batch" num motor que não rodou polui a saúde do pool (é
+      // por essa métrica que o rodízio escolhe motor). O lease segue liberado no finally.
+      if (lease && !pularWeb) {
         await this.getEnginePool().markEngineBatchSuccess(lease.engineId).catch(() => null);
       }
 
       const counters = await this.recalculateSearchRunCounters(runId);
+      // LOTE 4 (17/08): ÚLTIMA escrita de métrica do lote, de propósito. `updateMetrics` é
+      // read-modify-write SEM CAS (radar-run-repository:497-529) e neste mesmo lote já correram a
+      // do motor e a do save — quem grava por último não perde a chave. O valor é ABSOLUTO
+      // (recontado do banco), então até uma escrita perdida se conserta sozinha no lote seguinte.
+      if (counters?.laneBreakdown) {
+        await this.updateSearchRunMetrics(runId, { laneBreakdown: counters.laneBreakdown }).catch(() => null);
+      }
       const approvedCount = savedCounts.found;
       const rejectedCount = batchResponse.rejectedCount + savedCounts.invalid + savedCounts.skipped;
       const duplicateCount = batchResponse.duplicateCount + savedCounts.duplicate;
 
       // Log da cadeia executada NA ORDEM (aceite do P1): mostra exatamente os motores e a
       // ordem real desta tentativa — RFB (se rodou) sempre antes do web.
+      // LOTE 2: nasceu a ordem `rfb` (SÓ Receita — web pulada porque a base ainda não secou) e os
+      // campos da drenagem. Sem eles não dá pra medir na VPS se a cidade está drenando ou parada.
+      const ordemDaCadeia = pularWeb ? 'rfb' : (cnpjOutcome.ran ? 'rfb->web' : 'web');
       this.logger?.log?.(
-        `[radar-cadeia] run ${runId} attempt ${attempt}: ordem=${cnpjOutcome.ran ? 'rfb->web' : 'web'} `
-        + `rfb_candidates=${cnpjOutcome.accepted} fused=${canonicalBatch.matchedCount} `
-        + `ambiguous=${canonicalBatch.ambiguousCount} web_unmatched=${canonicalBatch.unmatchedWebCount} accepted=${approvedCount}`,
+        `[radar-cadeia] run ${runId} attempt ${attempt}: ordem=${ordemDaCadeia} `
+        + `rfb_candidates=${cnpjOutcome.accepted} rfb_exhausted=${cnpjOutcome.exhausted} `
+        + `rfb_cursor=${cnpjOutcome.cursor?.cnpj || '-'} fase=${cnpjOutcome.cursor?.phase || '-'} `
+        + `fused=${canonicalBatch.matchedCount} `
+        + `ambiguous=${canonicalBatch.ambiguousCount} web_unmatched=${canonicalBatch.unmatchedWebCount} accepted=${approvedCount} `
+        // LOTE 4: as lanes ACUMULADAS do run (card salvo, não candidato). `lane_outros` só
+        // existe aqui e no metricsJson — fica fora da copy da tela, mas sem ele o log mentiria
+        // quando `lane_rfb + lane_web < found` (radar_database, company_history, source nulo).
+        + `lane_rfb=${counters?.laneBreakdown?.rfb ?? '-'} lane_web=${counters?.laneBreakdown?.web ?? '-'} `
+        + `lane_outros=${counters?.laneBreakdown?.outros ?? '-'}`,
       );
 
       if (approvedCount > 0) {
         if (await autoImportAndStopIfPaused('incremental')) return;
       }
-      const consecutiveEmptyBatchCount = approvedCount === 0
-        ? safeInteger(current.consecutiveEmptyBatchCount) + 1
-        : 0;
+      // LOTE 2: lote em que a web foi PULADA não é lote vazio DA WEB. O freio de
+      // HBX_SEARCH_RUN_MAX_EMPTY_BATCHES existe pra matar cidade onde o motor não acha nada —
+      // aqui o motor nem foi chamado. Se a Receita entregou mas tudo virou duplicata
+      // (approved=0), o contador fica PARADO no que a web já tinha: nem sobe (mataria a cidade
+      // por um lote que não aconteceu) nem zera (apagaria lote web vazio de verdade).
+      const consecutiveEmptyBatchCount = approvedCount > 0
+        ? 0
+        : pularWeb
+          ? safeInteger(current.consecutiveEmptyBatchCount)
+          : safeInteger(current.consecutiveEmptyBatchCount) + 1;
       const requiredChannelMatches = hasRequiredEnrichmentGate && counters.foundCount >= normalized.quantity
         ? await this.countExistingRequiredChannelMatchesForRun(context, runId, normalized)
         : counters.foundCount;
@@ -1446,16 +1700,10 @@ export class RadarCoreSearchLoopMixin {
         const finalStatus: WebscrapingSearchRunStatus = counters.foundCount > 0
           ? 'completed_insufficient_results'
           : 'failed';
-        if (counters.foundCount > 0 && !hasRequiredEnrichmentGate && !reachedRequiredCandidateWindow) {
-          const rested = await this.restSearchRunIfEligible(
-            runId,
-            current,
-            counters.foundCount,
-            normalized.quantity,
-            reachedStalledPartialTarget ? 'stalled_partial_target' : reachedMaxEmptyBatches ? 'max_empty_batches' : 'max_attempts',
-          );
-          if (rested) return;
-        }
+        // FAXINA 17/08 (Lote 6): saiu daqui o `restSearchRunIfEligible` dos motivos
+        // stalled_partial_target/max_empty_batches/max_attempts — código morto pelo mesmo
+        // motivo (o `shouldRestSearchRun` retornava `false` sempre). O desfecho do run não
+        // muda: era `if (rested) return;` que nunca retornava.
         const finalMessage = counters.foundCount > 0
           ? this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
           : this.buildSearchRunNoCardsMessage(attempt, queryUsed);
@@ -1503,7 +1751,14 @@ export class RadarCoreSearchLoopMixin {
         foundCount: 0,
         duplicateCount: 0,
         skippedCount: 0,
+        laneBreakdown: null,
       }));
+      // LOTE 4 (17/08): motor caído NÃO pode zerar o relatório. Este é o caminho do resgate da
+      // Receita (linha ~1526: o lote da RFB é salvo mesmo quando o engine cai) — sem esta
+      // gravação a cidade fechava com card na tela e "Receita —" no relatório por cidade.
+      if (counters?.laneBreakdown) {
+        await this.updateSearchRunMetrics(runId, { laneBreakdown: counters.laneBreakdown }).catch(() => null);
+      }
       const httpStatus = this.extractHbxHttpStatus(error);
       const errorMessage = this.extractHbxErrorMessage(error);
       const retryable = this.isRetryableHbxError(error);
@@ -1552,16 +1807,9 @@ export class RadarCoreSearchLoopMixin {
       const finalStatus: WebscrapingSearchRunStatus = counters.foundCount > 0
         ? 'completed_insufficient_results'
         : 'failed';
-      if (counters.foundCount > 0 && !hasRequiredEnrichmentGate) {
-        const rested = await this.restSearchRunIfEligible(
-          runId,
-          current,
-          counters.foundCount,
-          normalized.quantity,
-          reachedMaxAttempts ? 'error_max_attempts' : reachedMaxFailedBatches ? 'error_max_failed_batches' : 'engine_error',
-        );
-        if (rested) return;
-      }
+      // FAXINA 17/08 (Lote 6): saiu daqui o `restSearchRunIfEligible` do caminho de erro do
+      // motor (error_max_attempts/error_max_failed_batches/engine_error). Mesmo código morto:
+      // nunca dormia. Erro de motor continua fechando o run com a mensagem de sempre.
       const finalMessage = counters.foundCount > 0
         ? this.buildSearchRunFilterReviewMessage(counters.foundCount, normalized.quantity)
         : reachedMaxAttempts

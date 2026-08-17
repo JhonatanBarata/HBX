@@ -115,6 +115,97 @@ test('fetchRecords: lixo de cidade-com-agua-no-nome e CNAE "agua doce" nao passa
   assert.deepEqual(records.map((r) => r.razaoSocial), ['MR DISTRIBUIDORA DE AGUA MINERAL']);
 });
 
+// ── LOTE 1 (17/08 — PR17082026-FAXINA-DA-BUSCA-RFB-PRIMEIRO): a porta da Receita ────────────
+// A1 medido em Valinhos: o WHERE exigia 'distribuidora' E 'agua' no texto, mas o CNAE onde a
+// distribuidora de água mora é 4723-7/00 "Comércio varejista de bebidas" — descrição que não
+// tem nenhuma das duas palavras. O mapa curado segmento→CNAE entra como OR ADICIONAL, e o
+// sinal textual das entradas amplas viaja DENTRO do SQL: o `take` corta antes do filtro fino,
+// então 4723700 cru traria todo bar/adega da cidade e expulsaria as distribuidoras reais.
+
+/** Igual ao makeMockPrisma, mas guarda o `where` de cada findMany pra o teste inspecionar. */
+function makeMockPrismaCapturandoWhere(rows: any[]) {
+  const wheres: any[] = [];
+  const hasContact = (r: any) => Boolean(
+    (r.phone && String(r.phone).trim()) || (r.email && String(r.email).trim()),
+  );
+  return {
+    wheres,
+    prisma: {
+      cnpjPublicCompany: {
+        findMany: async (args: any = {}) => {
+          wheres.push(args?.where);
+          const isFill = JSON.stringify(args?.where || {}).includes('"NOT"');
+          return rows.filter((r) => (isFill ? !hasContact(r) : hasContact(r)));
+        },
+      },
+    },
+  };
+}
+
+test('LOTE 1 — WHERE ganha o OR do mapa curado, com o sinal textual DENTRO do SQL', async () => {
+  const service = new CnpjPublicDatasetService();
+  const captura = makeMockPrismaCapturandoWhere([]);
+  await service.fetchRecords({
+    prisma: captura.prisma,
+    normalized: { city: 'Valinhos', state: 'SP', segment: 'distribuidoras de água' } as any,
+  });
+  // O where da consulta principal é { AND: [ <where do segmento>, { OR: <tem contato> } ] }.
+  const ors: any[] = captura.wheres[0]?.AND?.[0]?.OR || [];
+  const serializado = JSON.stringify(ors);
+  assert.match(serializado, /"startsWith":"4635401"/, 'atacado de agua mineral entra no WHERE');
+  assert.match(serializado, /"startsWith":"3600602"/, 'distribuicao por caminhoes entra no WHERE');
+  // 4723700 e 4784900 são amplos: só entram acompanhados do sinal 'agua' no MESMO AND.
+  // (o match textual do segmento também é um `AND`, por isso o filtro olha o cnae do 1º termo)
+  const comSinal = ors.filter((item) => Array.isArray(item?.AND) && item.AND[0]?.cnae?.startsWith);
+  const codigosComSinal = comSinal.map((item) => item.AND[0]?.cnae?.startsWith).sort();
+  assert.deepEqual(codigosComSinal, ['4723700', '4784900']);
+  assert.match(JSON.stringify(comSinal), /"searchText":\{"contains":"agua"\}/);
+});
+
+test('LOTE 1 — filtro fino da memoria da passe-livre a quem entrou pelo CNAE do mapa', async () => {
+  const service = new CnpjPublicDatasetService();
+  const valinhos = { city: 'Valinhos', state: 'SP', segment: 'distribuidoras de água' } as any;
+  const prisma = makeMockPrisma([
+    // Nome não diz 'distribuidora': hoje o segmentMatcher matava depois do SELECT.
+    { cnpj: '11222333000343', razaoSocial: 'ACQUARELLA COMERCIO DE AGUAS LTDA', cnae: '4723700', phone: '1999990001', searchText: 'acquarella comercio de aguas ltda 4723700 comercio varejista de bebidas' },
+    // Mesmo CNAE amplo, SEM sinal de água: continua fora (senão vira todo bar da cidade).
+    { cnpj: '11222333000424', razaoSocial: 'ADEGA DO JOAO LTDA', cnae: '4723700', phone: '1999990002', searchText: 'adega do joao ltda 4723700 comercio varejista de bebidas' },
+    // Nome MUDO + CNAE exclusivo de água: o código já É o pedido, não precisa de texto.
+    { cnpj: '11222333000505', razaoSocial: 'VEGAS LTDA', cnae: '4635401', phone: '1999990003', searchText: 'vegas ltda 4635401 comercio atacadista de agua mineral' },
+  ]);
+  const records = await service.fetchRecords({ prisma, normalized: valinhos });
+  assert.deepEqual(
+    records.map((r) => r.razaoSocial).sort(),
+    ['ACQUARELLA COMERCIO DE AGUAS LTDA', 'VEGAS LTDA'],
+  );
+});
+
+// ── DRENAGEM (17/08 — LOTE 2): a página tem de dizer DE QUAL FASE ela veio ──────────────────
+// A fonte re-ancora o cursor quando o provider para no meio da página (meta batida). Pra
+// re-ancorar ela precisa saber em que fase estava lendo — e não pode DEDUZIR isso do
+// `nextCursor`, porque o nextCursor de uma página curta já vem com a fase VIRADA. Sem este
+// campo, a re-âncora cairia na fase 2 e o rabo da fase 1 sumia igual ao defeito original.
+test('DRENAGEM — fetchRecordsPage diz de qual fase a pagina veio (nao se deduz do nextCursor)', async () => {
+  const service = new CnpjPublicDatasetService();
+  const prisma = makeMockPrisma([
+    { cnpj: '11222333000181', nomeFantasia: 'Pizzaria Com Fone', phone: '6292617022' },
+    { cnpj: '11222333000262', nomeFantasia: 'Pizzaria Sem Fone', phone: null, email: null },
+  ]);
+
+  const primeira = await service.fetchRecordsPage({ prisma, normalized: baseNormalized });
+  assert.equal(primeira.phase, 'with_contact', 'sem cursor, a leitura comeca por quem TEM contato');
+  // Página curta: o nextCursor já aponta pra fase 2 — mas a página LIDA foi a 1.
+  assert.deepEqual(primeira.nextCursor, { phase: 'without_contact', cnpj: null });
+
+  const segunda = await service.fetchRecordsPage({
+    prisma,
+    normalized: baseNormalized,
+    cursor: { phase: 'without_contact', cnpj: null },
+  });
+  assert.equal(segunda.phase, 'without_contact');
+  assert.equal(segunda.exhausted, true, 'fase 2 curta e o fim da drenagem');
+});
+
 test('fetchRecords: codigo CNAE explicito no segmento nao passa pelo filtro textual', async () => {
   const service = new CnpjPublicDatasetService();
   const porCnae = { city: 'Águas de Lindóia', state: 'SP', segment: '4635' } as any;

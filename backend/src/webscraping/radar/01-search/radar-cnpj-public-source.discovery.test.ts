@@ -29,8 +29,23 @@ function baseNormalized() {
   } as any;
 }
 
+// LOTE 2 (17/08 — PR17082026): a fonte parou de pedir "a base inteira de uma vez"
+// (`fetchRecords`) e passou a virar PÁGINAS (`fetchRecordsPage`). O stub segue o contrato novo
+// com uma página só, já seca — que é o cenário destes testes: o discovery só entra DEPOIS de a
+// Receita secar.
 function makeDatasetStub(records: any[]) {
-  return { fetchRecords: async () => records } as any;
+  return {
+    fetchRecordsPage: async () => ({
+      records,
+      rawCount: records.length,
+      // `phase` (17/08) faz parte do contrato da página: é por ela que a fonte re-ancora o
+      // cursor quando o provider para no meio. Aqui a página é única e já seca, mas o stub
+      // responde o contrato inteiro — stub que omite campo é o berço do próximo furo.
+      phase: 'with_contact',
+      nextCursor: null,
+      exhausted: true,
+    }),
+  } as any;
 }
 
 function makeProviderStub() {
@@ -133,7 +148,7 @@ test('dataset indisponivel: marca partial_error e nao mascara a falha com discov
   process.env.HBX_RADAR_CNPJ_PUBLIC_ENABLED = 'true';
   process.env.HBX_RADAR_CNPJ_DISCOVERY_ENABLED = 'true';
   let discoveryCalled = false;
-  const dataset = { fetchRecords: async () => { throw new Error('delegate indisponivel'); } } as any;
+  const dataset = { fetchRecordsPage: async () => { throw new Error('delegate indisponivel'); } } as any;
   const discovery = { discover: async () => { discoveryCalled = true; return []; } } as any;
   const service = new RadarCnpjPublicSourceService(makeProviderStub(), dataset, discovery);
 

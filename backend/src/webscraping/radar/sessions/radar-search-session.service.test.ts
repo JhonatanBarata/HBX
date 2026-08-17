@@ -75,7 +75,9 @@ function makeFakeWebscraping(prisma: ReturnType<typeof makeFakePrisma>) {
       if (this.failNextStart) { this.failNextStart = false; throw new Error('motor indisponível'); }
       startCalls.push(input);
       const id = `run-${++runSeq}`;
-      prisma.runs.set(id, { id, status: 'running', foundCount: 0, errorMessage: null });
+      // `metricsJson` nasce NULO como em produção (run recém-criado ainda não mediu nada): é
+      // justamente esse estado que não pode virar "Receita 0 · Web 0" na tela (LOTE 4).
+      prisma.runs.set(id, { id, status: 'running', foundCount: 0, errorMessage: null, metricsJson: null });
       return { id, status: 'running' };
     },
     async getRadarSearchRunForUser(_user: any, runId: string) {
@@ -214,6 +216,90 @@ test('cancel manual: sessão canceled + run vivo cancelado', async () => {
   assert.equal(result.status, 'canceled');
   assert.deepEqual(webscraping.cancelCalls, ['run-1']);
   assert.equal(prisma.sessions.get(created.id)!.status, 'canceled');
+});
+
+// ── LOTE 4 (17/08): o relatório por cidade para de mentir ───────────────────────────────────
+// A cena do dono: "Valinhos: 11 (Receita 8 · Web 3)" e a zerada VISÍVEL, não escondida atrás
+// da média de uma sessão de 6 cidades.
+
+test('tick copia o laneBreakdown do run pro citiesJson (é assim que a tela vê a origem)', async () => {
+  const { prisma, service } = makeService();
+  const created: any = await service.startSessionForUser(USER, TWO_CITIES);
+  const run = prisma.runs.get('run-1')!;
+  run.status = 'completed';
+  run.foundCount = 11;
+  run.metricsJson = JSON.stringify({
+    laneBreakdown: { rfb: 8, web: 3, outros: 0 },
+    rfbDrain: { cursor: null, exhausted: true, delivered: 8, available: 86 },
+  });
+  await service.tick(created.id);
+  const cities = JSON.parse(prisma.sessions.get(created.id)!.citiesJson);
+  assert.equal(cities[0].foundCount, 11);
+  assert.equal(cities[0].rfbCount, 8);
+  assert.equal(cities[0].webCount, 3);
+  // O disponível da Receita vem do MESMO metricsJson do Lote 2 — é dele que sai o motivo
+  // honesto "sem base na Receita" na cidade zerada.
+  assert.equal(cities[0].rfbAvailable, 86);
+});
+
+test('run sem métrica NÃO inventa zero: campo ausente continua ausente', async () => {
+  const { prisma, service } = makeService();
+  const created: any = await service.startSessionForUser(USER, TWO_CITIES);
+  const run = prisma.runs.get('run-1')!;
+  run.status = 'completed';
+  run.foundCount = 4;
+  run.metricsJson = null; // sessão em voo no deploy / run velho
+  await service.tick(created.id);
+  const cities = JSON.parse(prisma.sessions.get(created.id)!.citiesJson);
+  assert.equal(cities[0].foundCount, 4);
+  // "Receita 0 · Web 0" numa cidade que ninguém mediu é pior que omitir: mente na direção
+  // oposta e faz o dono desligar a Receita achando que ela não entregou nada.
+  assert.equal(cities[0].rfbCount, undefined);
+  assert.equal(cities[0].webCount, undefined);
+  assert.equal(cities[0].rfbAvailable, undefined);
+});
+
+test('métrica quebrada não derruba o tick da sessão (a fila multi-cidade tem que andar)', async () => {
+  const { prisma, webscraping, service } = makeService();
+  const created: any = await service.startSessionForUser(USER, TWO_CITIES);
+  const run = prisma.runs.get('run-1')!;
+  run.status = 'completed';
+  run.foundCount = 2;
+  run.metricsJson = '{isso não é json';
+  await service.tick(created.id);
+  const session = prisma.sessions.get(created.id)!;
+  assert.equal(session.cursorIndex, 1);
+  assert.equal(webscraping.startCalls.length, 2, 'a cidade 2 começou mesmo com métrica podre');
+  const cities = JSON.parse(session.citiesJson);
+  assert.equal(cities[0].rfbCount, undefined);
+});
+
+test('sessão com cidade zerada NÃO fecha como "Busca concluída" seca', async () => {
+  const { prisma, service } = makeService();
+  const created: any = await service.startSessionForUser(USER, TWO_CITIES);
+  prisma.runs.get('run-1')!.status = 'completed';
+  prisma.runs.get('run-1')!.foundCount = 3;
+  await service.tick(created.id);
+  prisma.runs.get('run-2')!.status = 'completed_insufficient_results';
+  prisma.runs.get('run-2')!.foundCount = 0; // Estiva Gerbi: a cidade que a média escondia
+  await service.tick(created.id);
+  const session = prisma.sessions.get(created.id)!;
+  assert.equal(session.status, 'completed');
+  assert.match(session.message, /1 cidade sem resultado/);
+  assert.match(session.message, /3 lead\(s\) em 2 cidade\(s\)/);
+});
+
+test('sessão sem nenhuma cidade zerada mantém a frase de sempre (nada de ruído novo)', async () => {
+  const { prisma, service } = makeService();
+  const created: any = await service.startSessionForUser(USER, TWO_CITIES);
+  prisma.runs.get('run-1')!.status = 'completed';
+  prisma.runs.get('run-1')!.foundCount = 3;
+  await service.tick(created.id);
+  prisma.runs.get('run-2')!.status = 'completed';
+  prisma.runs.get('run-2')!.foundCount = 2;
+  await service.tick(created.id);
+  const session = prisma.sessions.get(created.id)!;
+  assert.equal(session.message, 'Busca concluída: 5 lead(s) em 2 cidade(s).');
 });
 
 test('getActiveSession devolve a sessão viva com o run atual embutido (re-hidratação de 1 GET)', async () => {
