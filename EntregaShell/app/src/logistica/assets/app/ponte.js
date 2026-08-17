@@ -2766,7 +2766,15 @@
          escolhido entregando HOJE a promessa é verdadeira — e cobrar um 2º
          toque depois da rota montada é o "botão que muda de nome" que o dono
          mandou matar no mesmo dia. */
-      pronta: previaAlvo > 0 ? (montadaNaTela ? 1 : 0) : 1,
+      /* 🔴 …e com a rota JÁ NA RUA o pé não oferece verbo nenhum de saída
+         (16/08). Desde que o Montar leva o dia até o fim num carregamento só
+         (ver `montarRota`), voltar aqui com a rota ACTIVE encontrava um
+         "Iniciar rota" verde sobre um dia que já começou — botão que mente, a
+         doença que esta casa persegue. Rodando, o que sobra pra fazer com esta
+         lista é REMONTAR, e esse é o "Montar rota". */
+      pronta: (estadoRota === 'rodando' || estadoRota === 'pausada')
+        ? 0
+        : (previaAlvo > 0 ? (montadaNaTela ? 1 : 0) : 1),
       // Hoje: quem vem primeiro, que é pra onde ele vai agora. Dia futuro: o
       // DIA, porque é ele que responde "montar o quê?".
       iniciarSub: previaAlvo > 0
@@ -3857,19 +3865,52 @@
      resto de 30-verbos-rota.js continuam no MESMO escopo lexico — nada aqui
      precisa de import/export, so a ORDEM DO NOME (32 depois de 30) importa.
      ------------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------------
+     🔴 MONTAR É UM CARREGAMENTO SÓ, E ELE ENTREGA A ROTA NA RUA (dono, 16/08,
+     com as duas fotos na mão: *"clicou em montar rota, já carrega tudo q tem q
+     carregar no loading; quando entrar no mapa, já é a visão 2d. não vou
+     discutir sobre, TUDO TEM Q SER CARREGADO ALI"*).
+
+     Eram DOIS carregamentos com a MESMA cara: o véu do Montar (materializar →
+     planejar → conferir → trazer) e, depois do pouso no mapa, o véu do Iniciar
+     (materializar → custo → iniciar → reler) — que veste o MESMO rótulo
+     "Montando…" do dock (`ROTA_ESTADOS.montando`, no mock) porque a bandeira
+     do seam é uma só (`DADOS.rota.montando`, lido pelo `dockDaRota`). Quem
+     olhava a tela via a montagem acontecer duas vezes.
+
+     Medido no servidor do dono no ciclo das 21h08 (log do backend em produção):
+     `rota planejada 51 parada(s) company=41` às 00:08:41 UTC — o Montar — e
+     DE NOVO às 00:08:48, o replanejo de dentro do `POST /logistica/rota/iniciar`
+     (logistica-rota.service.ts:567, "re-planeja a partir da origem atual").
+     Dinheiro nunca saiu 2× — a chave do dia é `logistica:dia:company:<id>:date:
+     <dia>` e o `chaveJaPaga` barra a segunda —, mas a TELA dizia que sim, e
+     tela que mente sobre dinheiro é defeito mesmo com o caixa fechando certo.
+
+     Hoje a corrente é uma só, debaixo de um véu só, e as etapas dizem o passo
+     REAL até a rota estar RODANDO. Quem pousa na tela `rota` (o 2D) pousa num
+     dia que já começou — dock `Cancelar · Dirigindo · Encerrar dia`, que é a
+     lei do dono de 16/08 ("eu já montei a rota, não tenho q clicar em iniciar
+     se o 2d já é um modo iniciado").
+
+     `iniciarRota` continua VIVO logo abaixo, e é de propósito: ele é a porta de
+     quem chega com a rota montada e PARADA (app reaberto, rota planejada pelo
+     desktop, avulsa do pé da Montagem) e continua pousando na navegação 3D —
+     ordem do dono de 10/08, "Iniciar entra direto na navegação". O que morreu
+     foi o SEGUNDO véu no caminho do Montar, não o verbo.
+     ------------------------------------------------------------------------ */
   async function montarRota(alvo) {
     await comTrava(async () => {
       /* 🔴 O VÉU NASCE ANTES DO 1º PEDIDO (15/08 — espelho do `iniciarRota`,
          13/08, nota lá embaixo): o 1º recibo visual só saía DEPOIS do
          `materializarRascunho` (rede), rota grande parecia travada. Acende
          SÍNCRONO. `montando`/`etapa` abaixo continuam sendo quem AVANÇA o véu
-         (8→38→66→88%); a 1ª chamada deles vira NO-OP pelo freio de
+         (6→20→36→48→62→80→94%); a 1ª chamada deles vira NO-OP pelo freio de
          dado-igual do `usarDados`. */
       try {
         window.usarDados('rota', {
           montando: 1,
           etapaMontar: 'Organizando as paradas…',
-          etapaMontarPct: 8,
+          etapaMontarPct: 6,
         });
       } catch (_) { /* sem seam: a rota continua funcionando */ }
       // Cada tentativa começa com a memória limpa: avisos de uma volta
@@ -3907,7 +3948,7 @@
         } catch (_) { /* o véu é enfeite; a rota não depende dele */ }
       };
       montando(1);
-      etapa(8, 'Organizando as paradas…');
+      etapa(6, 'Organizando as paradas…');
       const devolverEstado = () => montando(0);
 
       /* 🔴 A ROTA SAI COM O QUE ESTÁ NA TELA — o RECORTE (`deliveryIds`) é a
@@ -3918,45 +3959,41 @@
          O recorte é medido DEPOIS do `materializarRascunho` de propósito: é lá
          que as entregas de hoje nascem, e `idsDaPrevia` casa a lista da tela
          com elas. */
-      const recorte = outroDia ? { deliveryIds: idsDaPrevia() || [] } : {};
-      let plano;
+      const idsRecorte = outroDia ? (idsDaPrevia() || []) : null;
+      const recorte = idsRecorte ? { deliveryIds: idsRecorte } : {};
       try {
         // A agenda do dia vira entrega ANTES de ordenar (ver `materializarDia`).
         // Nunca na avulsa nem com o dia de outra data: nos dois a agenda de hoje
         // ficou de fora de propósito — trazê-la de volta é encher a rota com
         // gente que a tela não está mostrando.
         if (montarDia !== -1 && !outroDia) await materializarDia();
-        etapa(38, 'Calculando o melhor trajeto…');
-        plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...recorte, ...origemGps() });
+        etapa(20, 'Calculando o melhor trajeto…');
+        await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...recorte, ...origemGps() });
       } catch (e) { devolverEstado(); return avisoErro(e, { repetir: () => montarRota() }); }
-      const paradas = Array.isArray(plano && plano.stops) ? plano.stops
-        : (Array.isArray(plano && plano.items) ? plano.items
-          : (Array.isArray(plano && plano.paradas) ? plano.paradas : []));
 
       // semáforo dos endereços: só ATRASA a montagem se o servidor acusar algo.
       // Confere HOJE, sempre: o dia da rota é hoje mesmo quando a gente dela
       // veio de outra data (é a lei do chip — ver `diaDeOutroDia`).
       let conf = null;
       try {
-        etapa(66, 'Conferindo os endereços…');
+        etapa(36, 'Conferindo os endereços…');
         conf = await window.API.post('/logistica/rota/conferir', { date: hojeISO(), ...origemGps() });
       } catch (_) { /* aviso é enfeite, não portão */ }
       const comAviso = conf && Array.isArray(conf.items)
         ? conf.items.filter((i) => Array.isArray(i.motivosVisiveis) && i.motivosVisiveis.length).length
         : 0;
 
-      /* 🔴 O CHIP FICA ACESO, E ISSO É O CONSERTO (10/08). Aqui a escolha de dia
-         era APAGADA (`montarDia = -1`) porque o dia tinha sido montado noutra
-         data — a lista de hoje era outra coisa, e o chip aceso mentiria.
-         Agora a lista da tela É a rota que acabou de nascer: apagar o dia
-         trocaria a lista debaixo do dedo dele, e o pé diria "Iniciar" sobre uma
-         lista que não é a que ele montou. Quem solta o dia continua sendo o
-         gesto de soltar (`soltarDia`) e o Iniciar, quando a rota já saiu. */
+      /* 🔴 O CHIP CONTINUA ACESO ATÉ A ROTA SAIR (10/08, ajustado em 16/08).
+         Apagar o dia AQUI trocaria a lista debaixo do dedo dele no meio do
+         próprio carregamento. Quem apaga é o fim da corrente, e só quando a
+         rota REALMENTE saiu pra rua (`iniciou && outroDia`, lá embaixo) — o
+         mesmo instante em que o `iniciarRota` sempre apagou. Falhou o Iniciar?
+         O chip fica, porque a lista da tela ainda é a rota montada. */
       // 🔴 SÓ ABRE A MONTAGEM SE A ROTA ENTROU. Com o `/logistica/rota` no chão
       // o `carregarRota` volta no catch antes de escrever no seam, e a tela de
       // montagem abria com as 6 paradas do desenho e "R$ 336,00" — dinheiro de
       // exemplo numa tela de decisão. Falhou, avisa e fica onde está.
-      etapa(88, 'Trazendo a rota…');
+      etapa(48, 'Trazendo a rota…');
       if (!(await carregarRota())) {
         devolverEstado();
         return avisoErro(new Error('Não consegui montar agora. Tente de novo.'));
@@ -3966,29 +4003,134 @@
          cima — o gesto virava enfeite. Em modo Distância isto nem roda: lá a
          sequência é do servidor, de propósito. */
       if (ordemDeGente()) await cravarOrdemDaTela();
-      /* 🔴 ROTA NOVA REPETE A CENA DA ENTRADA — ordem do dono: *"este efeito se
+
+      /* ── DAQUI PRA BAIXO É O QUE ERA O SEGUNDO VÉU ───────────────────────
+         Mesmas chamadas, MESMA ordem e mesmas regras de dinheiro do
+         `iniciarRota` (custo-preview → trava de saldo → POST iniciar →
+         reler) — só que sem o motorista ter que tocar de novo e sem a tela
+         reencenar a montagem. Nada aqui inventa cobrança: o `custo-preview` é
+         100% leitura e quem decide se pode sair continua sendo o servidor
+         (`saldoCobre`). */
+
+      /* Pousar é o mesmo gesto em TODOS os desfechos daqui pra baixo (saiu,
+         não saiu por saldo, não saiu por erro): a rota está MONTADA e o
+         motorista tem que vê-la. Escrito uma vez porque cada cópia é um beco
+         esperando pra nascer — o "Recusado" de 14/08 nasceu assim.
+         🔴 ROTA NOVA REPETE A CENA DA ENTRADA — ordem do dono: *"este efeito se
          repete sempre que uma rota é criada"*. Aqui é só o PEDIDO: quem monta
          está na tela de Montagem, e a cena acontece quando o mapa voltar pra
          frente (ver `atenderCena` no transplante). Cena tocada num palco fora da
-         tela é cena que ninguém vê. */
-      pedirCena('rota');
-      devolverEstado();          // o "Montando…" sai com o dado já na tela
-      /* 🔴 UM STATUS SÓ, NA TELA DO MAPA (dono, 11/08: "esse iniciar rota eu
-         quero aqui [no mapa], quero um status só, mesma tela") — reverte o
-         "Não navega" de 10/08, por ordem dele. Montar POUSA na Rota: a rota
-         verde no mapa com o "Iniciar" único, e a cena das ruas pedida acima
-         toca no pouso. Só navega quem AINDA está na Montagem — o cabeçalho e
-         as abas ficam vivos por cima do véu, e o fim do montar não teleporta
-         quem já foi pra outra tela. Os portões abaixo vêm DEPOIS do `ir` de
-         propósito: troca de tela fecha portão; nascendo na camada nova eles
-         sobrevivem à transição e os repintes os remontam. */
-      if (telaAtual() === 'montagem' && typeof window.ir === 'function') window.ir('rota');
+         tela é cena que ninguém vê.
+         🔴 E SÓ NAVEGA QUEM AINDA ESTÁ NA MONTAGEM — o cabeçalho e as abas
+         ficam vivos por cima do véu, e o fim do montar não teleporta quem já
+         foi pra outra tela. Os portões vêm DEPOIS do `ir` de propósito: troca
+         de tela fecha portão; nascendo na camada nova eles sobrevivem à
+         transição e os repintes os remontam. */
+      const pousarNaRota = () => {
+        pedirCena('rota');
+        devolverEstado();        // o "Montando…" sai com o dado já na tela
+        if (telaAtual() === 'montagem' && typeof window.ir === 'function') window.ir('rota');
+      };
+      const num = (v) => (isFinite(v) ? String(v).replace('.', ',') : '');
+      let debita = 0;
+      let iniciou = false;
+
+      /* 🔴 ROTA JÁ RODANDO NÃO SE INICIA DE NOVO. Montar por cima de um dia que
+         já está na rua é gesto legítimo (o dono remonta a rota com a lista
+         mudada), mas o `iniciar` dali seria um segundo começo pro mesmo dia.
+         Quem já está `rodando`/`pausada` só ganha a rota nova relida e o pouso
+         no 2D — que é exatamente o estado em que ele já estava. */
+      if (estadoRota !== 'rodando' && estadoRota !== 'pausada') {
+        let custo = null;
+        try {
+          etapa(62, 'Conferindo a saída…');
+          // a data vai JUNTO — sem ela o servidor cobra pelo dia UTC dele (ver a
+          // nota no `carregarRota`): das 21h em diante o portão nem abria. E com
+          // o dia de outra data na tela o recorte viaja aqui também: o preço tem
+          // que ser DESSA rota, a que acabou de ser montada.
+          const qIds = idsRecorte && idsRecorte.length
+            ? `&deliveryIds=${encodeURIComponent(idsRecorte.join(','))}` : '';
+          custo = await window.API.get(`/logistica/rota/custo-preview?date=${encodeURIComponent(hojeISO())}${qIds}`);
+        } catch (e) {
+          pousarNaRota();
+          return avisoErro(e, { repetir: () => montarRota() });
+        }
+        // 🔴 NOME DE CAMPO DE DINHEIRO NÃO SE CHUTA (10/08): estes são os nomes
+        // MEDIDOS na resposta, e quem decide se pode sair é o servidor
+        // (`saldoCobre`), não uma conta minha na tela.
+        debita = Number(custo && custo.creditosAIniciar);
+        const saldo = Number(custo && custo.saldoAtual);
+        const temSaldo = custo && typeof custo.saldoCobre === 'boolean'
+          ? custo.saldoCobre
+          : (isFinite(saldo) && isFinite(debita) ? saldo >= debita : true);
+        /* 🔴 SEM SALDO A ROTA FICA MONTADA, NÃO PERDIDA. A trava é a mesma do
+           `iniciarRota` (o único 402 que a tela sabe traduzir), e ela bloqueia
+           por natureza — mas o trabalho do véu não se joga fora: pousa na Rota
+           com o dia montado, e o "Iniciar" do dock é a saída depois da recarga.
+           Trava sem saída é BECO (lei de 14/08). */
+        if (!temSaldo) {
+          pousarNaRota();
+          return window.portao({
+            tom: 'trava', ico: 'card', titulo: 'Créditos insuficientes',
+            sub: isFinite(saldo) ? `Debita ${num(debita)} · você tem ${num(saldo)}` : `Debita ${num(debita)}`,
+            acoes: [['Fechar', '']],
+          });
+        }
+        try {
+          /* 🔴 A RESPOSTA DO INICIAR TEM DADO DENTRO (as empresas do corredor
+             que o servidor acabou de embarcar pro dia — ver `aplicarProspector`).
+             🔴 E A ORDEM DE GENTE VIAJA JUNTO: o iniciar re-planeja a partir da
+             origem atual, e sem `ordemManual` o otimizador desfaria o arrasto
+             que o `cravarOrdemDaTela` acabou de gravar. Sem decisão humana o
+             otimizador segue tendo a última palavra, de propósito. */
+          const minha = ordemDeGente() ? idsNaOrdemDaTela() : null;
+          etapa(80, 'Iniciando a rota…');
+          aplicarProspector(await window.API.post('/logistica/rota/iniciar', {
+            date: hojeISO(), ...recorte, ...(minha ? { ordemManual: minha } : {}), ...origemGps(),
+          }));
+          iniciou = true;
+        } catch (e) {
+          /* 🔴 NUNCA MORRER CALADO (dono, §1.3): primeiro a verdade do servidor
+             — se a rota JÁ ESTÁ em andamento (outro aparelho, toque anterior),
+             a resposta certa é o pouso na rota dela, não um erro genérico.
+             `iniciando` (INITIALIZING) NÃO entra aqui de propósito: é a reserva
+             ANTES do débito, e engoli-la esconderia justamente o 402 que prova
+             que o dia não foi pago (16/08). */
+          await carregarRota();
+          if (estadoRota === 'rodando' || estadoRota === 'pausada') {
+            iniciou = true;
+          } else {
+            pousarNaRota();
+            return avisoErro(e, { repetir: () => montarRota() });
+          }
+        }
+        etapa(94, 'Abrindo o mapa…');
+        await carregarRota();
+      }
+
+      /* 🔴 ROTA NOVA, RECIBO NOVO (12/08). A marca de "já mostrei o fim deste
+         dia" é carimbada pelo DIA, e o mesmo dia pode ter uma 2ª leva. Sem
+         apagar aqui, quem sai pra rua de novo terminaria a 2ª rota no mapa
+         mudo, com o app achando que já tinha avisado. */
+      if (iniciou) {
+        try { window.HBX.cache.remove(`fim-visto:${hojeISO()}`); } catch (_) { /* sem cache: nada a limpar */ }
+      }
+      /* ⚖️ O CHIP DO DIA NÃO É APAGADO AQUI, e é decisão medida: o
+         `iniciarRota` apaga (`montarDia = -1`) porque lá o gesto é SAIR, e a
+         Montagem seguinte tem que nascer limpa. No Montar vale a lei de 10/08
+         ("O CHIP FICA ACESO, E ISSO É O CONSERTO"): a gente daquele dia virou
+         entrega DE HOJE e é exatamente a rota que está na rua — quem voltar à
+         Montagem tem que encontrar a mesma lista que montou. Apagar trocaria a
+         lista debaixo do dedo dele. Quem solta o dia continua sendo o gesto de
+         soltar (`soltarDia`). */
+      pousarNaRota();
+
       /* Quem não conseguiu virar parada é dito por NOME, e antes do semáforo de
          endereço: "o Alfredo não entrou" vale mais pra quem vai sair pra rua do
          que "2 endereços com aviso". Nunca "não deu certo" — o resto entrou. */
       if (mat.falharam.length && typeof window.portao === 'function') {
         return window.portao({
-          tom: 'alerta', ico: 'alert', titulo: 'Rota montada sem todos',
+          tom: 'alerta', ico: 'alert', titulo: iniciou ? 'Rota iniciada sem todos' : 'Rota montada sem todos',
           sub: `Não consegui adicionar: ${mat.falharam.join(', ')}.`,
           acoes: [['Entendi', 'principal']],
         });
@@ -3997,11 +4139,18 @@
         window.usarDados('montagem', { iniciarSub: `${comAviso} com aviso` });
       }
       if (comAviso && typeof window.portao === 'function') {
-        window.portao({
+        return window.portao({
           tom: 'alerta', ico: 'gps', titulo: `${comAviso} ${comAviso === 1 ? 'endereço com aviso' : 'endereços com aviso'}`,
           // "Entendi", não "Ver a rota": desde 11/08 o montar já pousa NELA
           sub: 'Dá pra sair assim, mas confira antes.', acoes: [['Entendi', 'principal']],
         });
+      }
+      /* 🔴 DÉBITO ZERO NÃO VIRA AVISO NENHUM — recibo de coisa que não aconteceu
+         é ruído na cara de quem está saindo pra rua (empresa com plano paga 0 de
+         verdade). E o recibo fala DEPOIS que a tela parou de se pintar: `avisar`
+         monta na camada VIVA, e o `carregarRota` acima repinta. */
+      if (iniciou && isFinite(debita) && debita > 0 && typeof window.avisar === 'function') {
+        window.avisar({ ico: 'card', cls: 'ok', titulo: 'Rota iniciada', sub: `Debitou ${num(debita)}` });
       }
     }, alvo);
   }
@@ -4618,7 +4767,16 @@
   const GARAGEM = new Map();     // nome do palco → { gl, mapa, alvo, pinos, chave, luz }
   const MONTANDO = new Set();    // nome em criação (carregar o maplibre é async)
 
-  const nomeDoPalco = (p) => String((p && p.dataset && p.dataset.mapa) || 'geral');
+  /* 🔴 UM PALCO SÓ NOS DOIS ESTADOS (16/08 — dono: *"a tela não tem mais motivo
+     para piscar tudo, ambos os estados têm q ser idênticos"*, e a fita do g15
+     mostrando a volta da Panorâmica com 0,6-1,1 s de mapa PRETO).
+     Eram dois nomes ('gps' e 'geral') = dois maplibre = dois caches de tile =
+     duas câmeras. Trocar de estado era trocar de MAPA: o que entrava chegava
+     frio, pedia tile, desenhava do zero. Agora é UM: o nó muda de pai, a câmera
+     é a mesma e o movimento (subir/descer) acontece nela, sem nada pra
+     redesenhar. Os efeitos continuam todos — o que morreu foi o congelamento. */
+  const PALCO = 'rota';
+  const nomeDoPalco = (p) => String((p && p.dataset && p.dataset.mapa) || PALCO);
   const luzDeAgora = () => (document.documentElement.dataset.luz === 'claro' ? 'claro' : 'escuro');
 
   /* A garagem off-screen: tela que sai de cena não leva o mapa junto. Nó
@@ -4628,10 +4786,29 @@
   BOX.setAttribute('aria-hidden', 'true');
   BOX.style.cssText = 'position:absolute;left:-9999px;top:0;width:360px;height:640px;pointer-events:none';
 
+  /* 🔴 A GARAGEM TEM O TAMANHO DA TELA (16/08, medido na fita do g15). Ela era
+     360×640 cravados enquanto o aparelho do dono é 432×960: o mapa estacionado
+     desenhava um retângulo MENOR e, ao voltar pro palco, o `resize` pedia ~2×
+     mais área — tiles que aquele mapa não tinha. Na volta da Panorâmica isso
+     aparecia como 0,6 s de mapa PRETO com o cromo por cima, que é "travação"
+     para quem olha, mesmo com a câmera andando.
+     Estacionar no tamanho da tela faz o `resize` do transplante ser no-op: o
+     mapa volta com o desenho pronto. Custa render em tamanho cheio fora de
+     cena — o mesmo que ele já fazia em cena um segundo antes. */
+  function ajustarGaragem() {
+    const larg = Math.max(320, window.innerWidth || 360);
+    const alto = Math.max(480, window.innerHeight || 640);
+    if (BOX.__hbxL === larg && BOX.__hbxA === alto) return;
+    BOX.__hbxL = larg; BOX.__hbxA = alto;
+    BOX.style.width = `${larg}px`;
+    BOX.style.height = `${alto}px`;
+  }
+
   function estacionarMapas() {
     GARAGEM.forEach((casa) => {
       if (casa.alvo.isConnected) return;
       if (!BOX.isConnected) document.body.appendChild(BOX);
+      ajustarGaragem();
       BOX.appendChild(casa.alvo);
       try { casa.mapa.resize(); } catch (_) { /* mapa morto */ }
     });
@@ -4662,25 +4839,10 @@
       .filter((p) => p && pinoValido(p.lat, p.lng));
   }
 
-  /* 🔴 QUEM DECIDE O TAMANHO DO PINO É A QUANTIDADE, NÃO SÓ O ZOOM (09/08).
-     O rebaixamento por zoom nasceu pra um dia de 56 paradas, onde 56 bolas de
-     26px no zoom da cidade viram uma mancha sem leitura — e essa parte continua
-     certa. Errado era ele valer pra TODO dia: com 3 paradas no mesmo zoom não há
-     amontoado nenhum pra desfazer, e rebaixar transformava a única informação da
-     tela ("onde são minhas paradas, na ordem") em três pontinhos anônimos.
-     Régua nova, em duas faixas:
-     · até 12 paradas → NUMERADO SEMPRE, em qualquer zoom. Doze é o corte onde
-       o dia inteiro ainda cabe na tela sem os pinos se tocarem: no zoom em que
-       Rio Claro cabe nos 412px (z12), cada pixel vale ~19 m, então dois pinos
-       de 26px só encostam se as portas estiverem a menos de ~500 m — o que num
-       dia de 12 paradas espalhadas pela cidade é a exceção, não a regra.
-     · acima de 12 → abaixo do zoom de bairro o pino vira PONTO. Mas ponto que
-       se LÊ: o rebaixado não é o pino encolhido, é outra peça (`.map-pino.min`,
-       com anel próprio) medida contra a fita verde e contra o chão do mapa nos
-       dois modos — ponto de 10px sem anel some sobre a fita, que era o outro
-       lado do mesmo defeito. */
-  const PINOS_NUMERADOS_ATE = 12;
-  const PINOS_ZOOM_CORTE = 13.6;
+  /* 🔴 QUEM DECIDE O TAMANHO DO PINO É A QUANTIDADE, NÃO SÓ O ZOOM (09/08) — e
+     desde 16/08 nem isso: quem decide é o ESPAÇO que sobra entre eles. A régua
+     mora em `acertarPinos`, no 45-troca-de-modo.js, junto com a moldura do 2D
+     que a alimenta. */
 
   function vestirPino(el, p, proximoId) {
     const estado = String(p.mapStatus || '');
@@ -4717,6 +4879,10 @@
     const chave = paradas.map((p) => `${p.id}:${p.n}:${p.mapStatus || ''}:${p.chegou ? 1 : 0}:${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join('|');
     if (chave === casa.chave) return;
     casa.chave = chave;
+    // a distância de cada parada ao vizinho mais próximo, em METROS: é ela que
+    // decide, a cada zoom, se o número cabe NAQUELE pino (§ `acertarPinos`).
+    // Medida aqui porque aqui é o único lugar em que a lista muda de verdade.
+    casa.espacos = espacoDosPinos(paradas);
     /* O pino é reaproveitado pela IDENTIDADE da entrega. O número muda quando
        o motorista escolhe "Ir agora"; casar pelo número trocaria dois clientes
        de marcador e deixaria o ✓ no lugar errado. Derrubar os N e
@@ -4754,24 +4920,6 @@
     // rota OUTRA = enquadramento outro. Aqui dentro é o único lugar automático
     // que reenquadra, e de propósito: este bloco só roda quando a lista muda.
     enquadrarGeral(casa);
-  }
-
-  /* O rebaixamento, aplicado a cada zoom. Só mexe em CLASSE — nada de recriar
-     marcador ao girar a pinça, que seria o mapa remontando a rota inteira a
-     cada quadro do gesto. */
-  function acertarPinos(casa) {
-    if (!casa || !casa.pinos.size) return;
-    // Poucas paradas nunca rebaixam: a régua é a QUANTIDADE primeiro, e só
-    // depois o zoom. Sem esta linha, 3 paradas no zoom-cidade viravam 3 pontos.
-    const muitas = casa.pinos.size > PINOS_NUMERADOS_ATE;
-    let z;
-    try { z = casa.mapa.getZoom(); } catch (_) { return; }
-    const min = muitas && z < PINOS_ZOOM_CORTE;
-    casa.pinos.forEach((marcador) => {
-      let el;
-      try { el = marcador.getElement(); } catch (_) { return; }
-      el.classList.toggle('min', min);
-    });
   }
 
   /* ---- O ENQUADRAMENTO DO MAPA 2D --------------------------------------------
@@ -4860,14 +5008,20 @@
      e o mesmo desarme que o gesto faz. Sem ela, provar a régua dos 30 m exigiria
      um carro de verdade — e o que ela expõe é o que a tela já mostra. */
   window.HBXMapa2D = {
-    zoom() { const c = GARAGEM.get('geral'); try { return c && c.mapa ? c.mapa.getZoom() : null; } catch (_) { return null; } },
+    zoom() { const c = GARAGEM.get(PALCO); try { return c && c.mapa ? c.mapa.getZoom() : null; } catch (_) { return null; } },
     dedo() { soltarPlano(); },
   };
   /** e o enquadramento (rota nova ou dedo no botão) devolve a régua zerada */
   function rearmarPlanoZoom() { planoSolto = false; planoZoomPassos = 0; planoZoomAncora = null; }
 
-  function enquadrarGeral(casa) {
-    if (!casa || casa.nome !== 'geral') return;
+  /* 🔴 A MOLDURA VIROU CONTA, E APLICAR VIROU OUTRA COISA (16/08). Era uma
+     função só que MEDIA e MANDAVA no mesmo fôlego, com `fitBounds` de duração
+     zero — e por isso a vista de cima só sabia CHEGAR de tranco. A conta agora
+     mora em `molduraDoPlano` (45-troca-de-modo.js) e volta como pose; quem manda
+     é o `easeTo` daqui, que aceita duração. Com 0 é o pulo de sempre; com ms é a
+     SUBIDA da Panorâmica, sem uma linha de efeito novo. */
+  function enquadrarGeral(casa, ms) {
+    if (!casa || casa.nome !== PALCO) return;
     /* Enquadrar é o RECOMEÇO da régua dos 30 m, nas quatro portas que chegam
        aqui (mapa nascendo, 1º fix, rota mudou, dedo no botão). Sim: marcar uma
        entrega muda a digital dos pinos e devolve o dia inteiro, jogando fora a
@@ -4876,43 +5030,27 @@
        aproximar sozinhos. O contrário (guardar zoom por cima de um
        enquadramento) seria a câmera com duas vontades. */
     rearmarPlanoZoom();
-    // a MESMA lista dos pinos (§ paradasDoMapa): sem rota montada ela vem
-    // vazia, e a moldura passa a ser só o motorista — enquadrar uma rota que
-    // ninguém montou levaria a câmera pra um dia que não existe.
-    const pontos = paradasDoMapa().map((p) => [Number(p.lng), Number(p.lat)]);
-    // mesma régua das paradas (§ paradasDoMapa): fix zerado é ponto no oceano,
-    // e um só deles estica a moldura do dia inteiro pra outro continente.
-    const eu = ultimaPos || ultimoFix;
-    if (eu && pinoValido(eu.lat, eu.lng)) pontos.push([eu.lng, eu.lat]);
+    const alvo = molduraDoPlano(casa);
     // Sem um ponto sequer não há o que enquadrar — e a câmera fica onde está.
     // Pular pra lugar nenhum seria o mapa "corrigindo" pro meio do oceano.
-    if (!pontos.length) return;
-    const achatar = () => {
-      /* 🔴 2D É REQUISITO, NÃO PREFERÊNCIA. Dois dedos inclinam e giram qualquer
-         mapa do maplibre; enquadrar tem que DEVOLVER a vista de cima, senão o
-         botão devolve o dia numa perspectiva que esta tela não deveria ter. */
-      try {
-        if (casa.mapa.getPitch() || casa.mapa.getBearing()) casa.mapa.jumpTo({ pitch: 0, bearing: 0 });
-      } catch (_) { /* mapa saindo de cena */ }
-    };
-    if (pontos.length === 1) {
-      try { casa.mapa.jumpTo({ center: pontos[0], zoom: 15 }); } catch (_) { return; }
-      achatar();
-      return;
-    }
-    const o = pontos[0].slice(); const n = pontos[0].slice();
-    pontos.forEach((c) => {
-      o[0] = Math.min(o[0], c[0]); o[1] = Math.min(o[1], c[1]);
-      n[0] = Math.max(n[0], c[0]); n[1] = Math.max(n[1], c[1]);
-    });
-    try {
-      casa.mapa.fitBounds([o, n], { padding: PLANO_PAD, maxZoom: PLANO_ZOOM_TETO, duration: 0 });
-    } catch (_) { return; }
-    achatar();
+    if (!alvo) return;
+    porNoPlano(casa, alvo, ms);
+  }
+
+  /* 🔴 2D É REQUISITO, NÃO PREFERÊNCIA. Dois dedos inclinam e giram qualquer
+     mapa do maplibre; enquadrar tem que DEVOLVER a vista de cima — e é por isso
+     que `pitch:0`/`bearing:0` viajam SEMPRE no passo, em vez de um `jumpTo`
+     achatando depois: no meio de uma subida animada, achatar por fora seria o
+     segundo dono da câmera no mesmo movimento. */
+  function porNoPlano(casa, alvo, ms) {
+    const dur = Number(ms) > 0 ? Number(ms) : 0;
+    const passo = { center: alvo.center, zoom: alvo.zoom, pitch: 0, bearing: 0, duration: dur };
+    if (dur) passo.easing = suave;
+    try { casa.mapa.easeTo(passo); } catch (_) { /* mapa saindo de cena */ }
   }
 
   /** o botão da beirada do mapa 2D: devolve a rota inteira pra tela */
-  function enquadrarPlano() { enquadrarGeral(GARAGEM.get('geral')); }
+  function enquadrarPlano() { enquadrarGeral(GARAGEM.get(PALCO)); }
 
   /* 🔴 "ONDE EU ESTOU" NÃO É UM CARIMBO DE BOOT. O marcador do mapa 2D era
      criado UMA vez, no `load` do mapa, com a posição daquele instante — e nunca
@@ -4973,7 +5111,7 @@
   }
 
   function moverEuNoPlano() {
-    const casa = GARAGEM.get('geral');
+    const casa = GARAGEM.get(PALCO);
     const eu = ultimaPos || ultimoFix;
     if (!casa || !eu || !Number.isFinite(eu.lat) || !Number.isFinite(eu.lng)) return;
     if (!casa.eu) {
@@ -4998,7 +5136,7 @@
     // o ponto andou; o halo e o farol contam o fix NOVO — precisão velha
     // desenhada em cima de posição nova é a tela mentindo devagar.
     vestirEu(casa);
-    aproximarAoAndar(casa, eu);
+    acompanharNoPlano(casa, eu);
   }
 
   /* A régua dos 30 m, aplicada no ÚNICO lugar do palco 2D que roda a cada fix.
@@ -5007,47 +5145,47 @@
        · só com a rota NA RUA — parado na garagem, ou com o dia só montado, não
          há viagem pra acompanhar e mexer na câmera seria cromo;
        · só se o dedo não tiver pegado o mapa (`planoSolto`);
-       · e só até o teto de acúmulo.
+       · e só até o teto de acúmulo — o de ZOOM.
      `metrosEntre` é MÓDULO (Haversine, sem sinal): ir 30 m e voltar 30 m conta
      como andar. Aqui isso é o comportamento certo — quem manobrou na rua também
      saiu do lugar; o que a régua precisa excluir é o TREMOR parado, e 30 m é
-     ordem de grandeza muito acima dele (o erro típico do fix é 3–20 m). */
-  function aproximarAoAndar(casa, eu) {
+     ordem de grandeza muito acima dele (o erro típico do fix é 3–20 m).
+
+     🔴 APROXIMAR E ACOMPANHAR SÃO DOIS VERBOS (16/08 — dono: *"visual 2d: deve
+     aproximar, e acompanhar bem feito"*). Eram um só, e o teto de acúmulo do
+     PRIMEIRO desligava o SEGUNDO: gastos os dois passos de zoom, o `return` no
+     topo matava também o recentrar, e o motorista saía andando pra fora de um
+     mapa parado no quarteirão de dez minutos atrás. Hoje o teto apara só o
+     zoom; o centro continua vindo atrás dele o dia inteiro, a cada 30 m. */
+  function acompanharNoPlano(casa, eu) {
+    /* 🔴 UM DONO POR ESTADO (16/08, pego pelo portão `prova-navegar` 1.8 assim
+       que o palco virou um só): dirigindo, quem manda na câmera é
+       `cameraDaNavegacao` — e esta régua, que roda no MESMO mapa a cada fix,
+       passou a mandar um `easeTo` por cima do dele no mesmo tique. Com dois
+       mapas isso era inofensivo (cada um no seu); com um, são duas bocas na
+       mesma câmera, que é a lei mais antiga desta tela. A régua dos 30 m é do
+       2D e só do 2D. */
+    if (naNavegacao()) return;
     if (typeof rotaNaRua === 'function' && !rotaNaRua()) return;
-    if (planoSolto || planoZoomPassos >= PLANO_ZOOM_PASSOS_TETO) return;
+    if (planoSolto) return;
     if (!planoZoomAncora) { planoZoomAncora = { lat: eu.lat, lng: eu.lng }; return; }
     if (metrosEntre(planoZoomAncora, eu) < PLANO_ANDOU_M) return;
     planoZoomAncora = { lat: eu.lat, lng: eu.lng };
     try {
-      const alvo = Math.min(casa.mapa.getZoom() + PLANO_ZOOM_PASSO, PLANO_ZOOM_TETO);
-      // Já no teto de zoom do enquadramento: gasta o orçamento de uma vez, senão
-      // a régua tentaria de novo a cada 30 m pelo resto do dia.
-      if (alvo <= casa.mapa.getZoom() + 0.001) { planoZoomPassos = PLANO_ZOOM_PASSOS_TETO; return; }
-      planoZoomPassos += 1;
       // `easeTo` e não `jumpTo`: a tela está na mão de quem dirige, e salto de
       // meio nível sem transição lê como falha de render.
-      casa.mapa.easeTo({ center: [eu.lng, eu.lat], zoom: alvo, duration: 620 });
+      const passo = { center: [eu.lng, eu.lat], duration: 620 };
+      if (planoZoomPassos < PLANO_ZOOM_PASSOS_TETO) {
+        const alvo = Math.min(casa.mapa.getZoom() + PLANO_ZOOM_PASSO, PLANO_ZOOM_TETO);
+        // Já no teto de zoom do enquadramento: gasta o orçamento de uma vez, senão
+        // a régua tentaria de novo a cada 30 m pelo resto do dia.
+        if (alvo <= casa.mapa.getZoom() + 0.001) planoZoomPassos = PLANO_ZOOM_PASSOS_TETO;
+        else { planoZoomPassos += 1; passo.zoom = alvo; }
+      }
+      casa.mapa.easeTo(passo);
     } catch (_) { /* mapa saindo de cena */ }
   }
 
-  /* 🔴 PINO FORA DA TELA NÃO É PINO — é enfeite encostado na moldura. Com a
-     câmera de dirigir inclinada, parada a 7,9 km projeta ALÉM do horizonte e o
-     maplibre planta o marcador na beirada: foi o "1 2 3 4" enfileirado na
-     direita que o dono viu. Ele não diz onde a parada está — diz só que ela
-     não cabe. Some. (Só no palco "gps": no mapa "geral" a moldura é a rota
-     inteira, e ali todo pino está, por construção, dentro da tela.) */
-  function pinosVisiveis(casa) {
-    if (!casa || casa.nome !== 'gps') return;
-    let larg; let alt;
-    try { const c = casa.mapa.getContainer(); larg = c.clientWidth; alt = c.clientHeight; }
-    catch (_) { return; }
-    casa.pinos.forEach((marcador) => {
-      let p;
-      try { p = casa.mapa.project(marcador.getLngLat()); } catch (_) { return; }
-      const dentro = p && p.x >= -18 && p.x <= larg + 18 && p.y >= 0 && p.y <= alt + 18;
-      marcador.getElement().style.visibility = dentro ? '' : 'hidden';
-    });
-  }
 
   /* ==========================================================================
      7a-bis. A CENA DAS RUAS — o mapa se desenhando.
@@ -5477,6 +5615,322 @@
     try { casa.alvo.appendChild(cartao); } catch (_) { return null; }
     return cartao;
   }
+  /* ------------------------------------------------------------------------
+     7b — A TROCA DE MODO: 3D ⇄ 2D EM UM MOVIMENTO SÓ (16/08).
+
+     Dono, com o aparelho na mão: *"clicar em panorâmica trava tudo, faça um
+     efeito bem feito! entregue algo q não seja uma travação nojenta"* e
+     *"visual 2d: deve aproximar, e acompanhar bem feito — mas cadê os pontos,
+     os 'V'? as numerações?"*.
+
+     🔴 A CAUSA, MEDIDA NO g15 (gravação de 20 quadros/s, APK 284): a troca não
+     tinha movimento NENHUM. São DOIS mapas (o palco 'gps' e o palco 'geral',
+     cada um com maplibre próprio e câmera própria) e a Panorâmica trocava a
+     TELA: o mapa que saía dava uma subida de 520 ms dentro da camada que já
+     estava sumindo — invisível — e o mapa que entrava aparecia na câmera em que
+     estava parado desde a última vez, o dia inteiro visto de longe. Na
+     gravação: 3 quadros de tela igual, um quadro de mistura, tela nova. Corte
+     seco. "Travação" é o nome certo pro que se vê: nada se move, e de repente é
+     outro lugar.
+
+     A cura é uma frase só: **quem entra começa na pose de quem saiu.** Com os
+     dois mapas na mesma pose, o cruzamento das camadas deixa de ser corte (as
+     duas pintam a MESMA imagem) e o movimento inteiro passa a acontecer no mapa
+     que entra — que é o que fica na tela. Nenhum efeito novo nasceu aqui: a
+     subida é o `easeTo` que o enquadramento já mandava (agora com duração), e a
+     descida é o `descer()` de sempre (agora com duração própria).
+
+     🔴 E A VOLTA DEIXOU DE SER UMA ENTRADA. `Dirigindo` caía em
+     `entrarNaDescida`, a coreografia de quem chega na navegação pela primeira
+     vez: cena das ruas nascendo + 400 ms de vista de cima + 1,8 s de descida.
+     MEDIDO no g15: 3 s parado na vista de cima antes de a câmera se mexer.
+     Voltar da Panorâmica não é entrar na rota — é a mesma exceção que
+     'venda'/'folha' já tinham, e pelo mesmo motivo: a cidade já nasceu.
+     ------------------------------------------------------------------------ */
+  /* 700 ms e não os 1.800 da entrada: a entrada é um espetáculo de uma vez por
+     rota, a troca de modo é um gesto que o motorista repete na rua. O gesto de
+     camada dura 520 (`--mv-cheio`) e a câmera termina LOGO DEPOIS dele — assim o
+     mundo ainda está se mexendo quando a camada assenta, e os dois leem como um
+     movimento só em vez de dois eventos emendados. */
+  const TROCA_MS = 700;
+
+  /* 🔴 A "POSE DA TROCA" MORREU E ISSO É A CURA, NÃO UMA PERDA (16/08). Ela
+     existia pra copiar a câmera de um mapa no outro — remendo de um problema
+     que só existia porque eram dois. Com um palco só a continuidade é de
+     graça: a imagem na tela é a mesma antes e depois do toque. */
+  function poseDoMapa(mapa) {
+    try {
+      const c = mapa.getCenter();
+      return {
+        center: [c.lng, c.lat], zoom: mapa.getZoom(),
+        bearing: mapa.getBearing(), pitch: mapa.getPitch(),
+      };
+    } catch (_) { return null; }
+  }
+
+  /* ---- A MOLDURA DO 2D, SEPARADA DE QUEM A APLICA ---------------------------
+     Devolve a pose (centro + zoom) que põe o dia inteiro na tela, ou null quando
+     não há um ponto sequer. `cameraForBounds` é a conta que o `fitBounds` faz
+     por dentro — usá-la direto é o que permite ANIMAR até ela em vez de só pular
+     (o `fitBounds` deleta o padding e manda sozinho). E ela é medida com o mapa
+     ainda DEITADO: pedir moldura com o mapa inclinado devolveria zoom de uma
+     perspectiva que a tela de planejar não tem. */
+  function molduraDeCaixa(casa, pontos, teto) {
+    if (!pontos.length) return null;
+    if (pontos.length === 1) return { center: pontos[0], zoom: Math.min(15, teto) };
+    const o = pontos[0].slice(); const n = pontos[0].slice();
+    pontos.forEach((c) => {
+      o[0] = Math.min(o[0], c[0]); o[1] = Math.min(o[1], c[1]);
+      n[0] = Math.max(n[0], c[0]); n[1] = Math.max(n[1], c[1]);
+    });
+    try {
+      const cam = casa.mapa.cameraForBounds([o, n], {
+        padding: PLANO_PAD, maxZoom: teto, bearing: 0,
+      });
+      if (cam && cam.center) return { center: cam.center, zoom: cam.zoom };
+    } catch (_) { /* mapa saindo de cena */ }
+    return null;
+  }
+
+  function molduraDoPlano(casa) {
+    // a MESMA lista dos pinos (§ paradasDoMapa): sem rota montada ela vem
+    // vazia, e a moldura passa a ser só o motorista — enquadrar uma rota que
+    // ninguém montou levaria a câmera pra um dia que não existe.
+    const pontos = paradasDoMapa().map((p) => [Number(p.lng), Number(p.lat)]);
+    // mesma régua das paradas (§ paradasDoMapa): fix zerado é ponto no oceano,
+    // e um só deles estica a moldura do dia inteiro pra outro continente.
+    const eu = ultimaPos || ultimoFix;
+    if (eu && pinoValido(eu.lat, eu.lng)) pontos.push([eu.lng, eu.lat]);
+    return molduraDeCaixa(casa, pontos, PLANO_ZOOM_TETO);
+  }
+
+  /* ---- ONDE A PANORÂMICA POUSA ---------------------------------------------
+     🔴 COM A ROTA NA RUA ELA POUSA NO QUE VEM PELA FRENTE, não no dia inteiro
+     (16/08 — dono: *"deve aproximar, e acompanhar bem feito, mas cadê os pontos,
+     os 'V'? as numerações?"*). São duas queixas com uma causa só: o dia inteiro
+     numa cidade é zoom ~11,5, cada pixel vale ~50 m, e as 51 portas viram anéis
+     encostados um no outro — sem número, sem ✓, sem nada.
+     A moldura passou a ser o MOTORISTA + AS PRÓXIMAS PARADAS. É o que todo
+     navegador do mercado mostra quando se pede a visão geral no meio da viagem
+     (o que falta, não o que já foi), e é o enquadramento que faz o pino caber
+     numerado: seis portas de um bairro cabem num zoom em que 300 m valem ~50 px.
+     🔴 E ELA FOI MEDIDA NO g15, NÃO ESCOLHIDA NO PAPEL: a 1ª tentativa pousava
+     centrada NO MOTORISTA com zoom fixo — e com ele a 3 km da primeira porta a
+     tela virou mapa de rua sem pino nenhum. Zoom bonito, zero informação.
+     O dia inteiro continua a UM toque: é o botão da beirada (`mapa-enquadrar`),
+     que está bem ali e não mudou. Fora da rua — dia só montado, ou nenhum — a
+     moldura do dia continua sendo o pouso, que é o que aquela tela promete. */
+  const PANO_PROXIMAS = 6;
+  function alvoDaPanoramica(casa) {
+    const eu = ultimaPos || ultimoFix;
+    const naRua = typeof rotaNaRua === 'function' ? rotaNaRua() : false;
+    if (naRua && eu && pinoValido(eu.lat, eu.lng)) {
+      const pontos = paradasDoMapa()
+        .filter((p) => p.st !== 'entregue' && p.st !== 'cancelada')
+        .slice(0, PANO_PROXIMAS)
+        .map((p) => [Number(p.lng), Number(p.lat)]);
+      pontos.push([eu.lng, eu.lat]);
+      // o teto é o mesmo da vista de cima da entrada: com a próxima porta a 50 m
+      // uma moldura livre colaria o mapa no capô.
+      const m = molduraDeCaixa(casa, pontos, GERAL_ZOOM_TETO);
+      if (m) return m;
+    }
+    return molduraDoPlano(casa);
+  }
+
+  /* 🔴 "AO ASSENTAR, O EFEITO DAS RUAS ACENDENDO NOS 2" — a ordem do dono, ao pé
+     da letra, e ela diz QUANDO: ao ASSENTAR. A cena das ruas era pedida no
+     instante da troca e nascia POR CIMA do movimento — dois efeitos se cruzando,
+     a queixa mais antiga desta tela. Aqui ela espera o mapa parar.
+     Quem manda é o SINAL (`moveend`, que o próprio mapa emite); o relógio fica
+     de socorro, nunca de caminho normal — a lei que a medição de 16/08 deixou. */
+  function aoAssentar(mapa, entao) {
+    let feito = false;
+    const disparar = () => {
+      if (feito) return;
+      feito = true;
+      try { mapa.off('moveend', disparar); } catch (_) { /* mapa morto */ }
+      entao();
+    };
+    try { mapa.once('moveend', disparar); } catch (_) { /* versão sem evento */ }
+    setTimeout(disparar, TROCA_MS + 260);
+  }
+
+  /* 🔴 A TRAVA DO 2D LIGA E DESLIGA (16/08). Com dois mapas, a rotação e a
+     inclinação eram desligadas de vez no mapa de planejar. Com um mapa só, isso
+     travaria a tela de dirigir — que É inclinada. Então a trava virou estado:
+     no 2D o dedo arrasta e pinça (e nada mais); dirigindo, ele pode tudo. */
+  function travarGestos2D(mapa, travar) {
+    if (!mapa) return;
+    const par = (peca, ligar) => {
+      try { if (mapa[peca] && mapa[peca][ligar ? 'enable' : 'disable']) mapa[peca][ligar ? 'enable' : 'disable'](); } catch (_) { /* versão sem o gesto */ }
+    };
+    par('dragRotate', !travar);
+    par('touchPitch', !travar);
+    try {
+      if (mapa.touchZoomRotate) {
+        if (travar) mapa.touchZoomRotate.disableRotation();
+        else mapa.touchZoomRotate.enableRotation();
+      }
+    } catch (_) { /* idem */ }
+    try {
+      if (mapa.keyboard) {
+        if (travar) mapa.keyboard.disableRotation();
+        else mapa.keyboard.enableRotation();
+      }
+    } catch (_) { /* idem */ }
+  }
+
+  /* SUBIR — o 3D vira 2D NO MESMO MAPA: a inclinação cai, o rumo volta ao norte
+     e a câmera abre até o pouso da Panorâmica, tudo num `easeTo` só.
+     🔴 NENHUM EFEITO SE PERDEU AQUI (ordem do dono, 16/08: *"não é para regredir
+     nada, muito menos perder efeito"*). O que sumiu foi o CORTE: com um palco só
+     não existe mais "o mapa que entra" chegando frio de outra câmera — a imagem
+     na tela é a mesma, e o movimento acontece nela. */
+  function subirNoPlano() {
+    const casa = GARAGEM.get(PALCO);
+    if (!casa || !casa.mapa) return;
+    travarGestos2D(casa.mapa, true);
+    const alvo = alvoDaPanoramica(casa);
+    // a régua dos 30 m recomeça daqui: o pouso é o novo ponto de partida.
+    rearmarPlanoZoom();
+    if (!alvo) { pedirCena('rota'); return; }
+    porNoPlano(casa, alvo, TROCA_MS);
+    aoAssentar(casa.mapa, () => { if (telaAtual() === 'rota') pedirCena('rota'); });
+  }
+
+  /** DESCER — a volta da Panorâmica: o movimento primeiro, a cena no pouso */
+  function descerDoPlano() {
+    const casa = GARAGEM.get(PALCO);
+    if (!casa || !casa.mapa) { entrarNaDescida(); return; }
+    travarGestos2D(casa.mapa, false);
+    // limpa vigias, relógio da vista de cima e o estado 'solta' — é o mesmo
+    // desarme da saída, e sem ele a descida nasce morta (ver `pararDescida`).
+    pararDescida();
+    descer(TROCA_MS, casa.mapa);
+    aoAssentar(casa.mapa, () => { if (telaAtual() === 'mapa') pedirCena('navegar'); });
+  }
+
+  /* 🔴 PINO FORA DA TELA NÃO É PINO — é enfeite encostado na moldura. Com a
+     câmera de dirigir inclinada, parada a 7,9 km projeta ALÉM do horizonte e o
+     maplibre planta o marcador na beirada: foi o "1 2 3 4" enfileirado na
+     direita que o dono viu. Ele não diz onde a parada está — diz só que ela
+     não cabe. Some. (Só no palco "gps": no mapa "geral" a moldura é a rota
+     inteira, e ali todo pino está, por construção, dentro da tela.) */
+  function pinosVisiveis(casa) {
+    if (!casa || !casa.pinos) return;
+    /* 🔴 O ESCONDIDO TEM QUE VOLTAR (16/08). Isto só valia no palco de dirigir e
+       o outro mapa nunca escondia nada — com um palco só, sair do 3D sem
+       DESFAZER deixaria pinos invisíveis no 2D pra sempre. Fora da navegação a
+       régua não é "some": é "todos aparecem". */
+    if (!naNavegacao()) {
+      casa.pinos.forEach((marcador) => {
+        try { marcador.getElement().style.visibility = ''; } catch (_) { /* já saiu */ }
+      });
+      return;
+    }
+    let larg; let alt;
+    try { const c = casa.mapa.getContainer(); larg = c.clientWidth; alt = c.clientHeight; }
+    catch (_) { return; }
+    casa.pinos.forEach((marcador) => {
+      let p;
+      try { p = casa.mapa.project(marcador.getLngLat()); } catch (_) { return; }
+      const dentro = p && p.x >= -18 && p.x <= larg + 18 && p.y >= 0 && p.y <= alt + 18;
+      marcador.getElement().style.visibility = dentro ? '' : 'hidden';
+    });
+  }
+
+  /* ---- O PINO SÓ PERDE O NÚMERO QUANDO O NÚMERO NÃO CABE -------------------
+     🔴 A RÉGUA ERA CONTAGEM + ZOOM CRAVADO (09/08: "mais de 12 paradas e zoom
+     abaixo de 13,6 ⇒ vira ponto") e ela reprovava o dia inteiro do dono: 51
+     paradas com o mapa em qualquer zoom de cidade viravam 51 anéis anônimos,
+     inclusive nos zooms em que sobrava espaço de sobra entre eles. Zoom cravado
+     é palpite sobre densidade — e densidade é DADO: dia espremido num bairro e
+     dia espalhado por 70 km cabem no mesmo 13,6 e não têm nada em comum.
+     Hoje a pergunta é direta e é POR PINO: **quantos PIXELS separam ESTE pino do
+     vizinho mais próximo dele, neste zoom?** Se cabe o pino (30 px) com respiro,
+     o número fica. Quem está no meio do aperto do centro vira ponto; quem tem
+     rua sozinha continua dizendo quem é.
+     🔴 A MEDIANA DO DIA NÃO SERVIA, e isso foi MEDIDO no g15: com 51 portas,
+     metade delas coladas no centro, a mediana puxava o dia inteiro pra baixo e
+     apagava o número até de quem estava sozinho num bairro — inclusive na
+     Panorâmica nova, onde só 6 pinos espalhados aparecem na tela. Régua de
+     conjunto pra decidir peça individual sempre acaba assim.
+     A faixa de baixo continua valendo por cima de tudo: até 12 paradas nunca
+     rebaixa, em zoom nenhum — três pontinhos anônimos num mapa vazio era o
+     outro lado deste mesmo defeito. */
+  const PINOS_NUMERADOS_ATE = 12;
+  const PINO_ESPACO_PX = 24;
+
+  /** distância ao vizinho mais próximo, em metros, POR PARADA (id → m) */
+  function espacoDosPinos(paradas) {
+    const fora = new Map();
+    const n = paradas.length;
+    if (n < 2) return fora;
+    const kx = 111320 * Math.cos((Number(paradas[0].lat) * Math.PI) / 180);
+    for (let i = 0; i < n; i += 1) {
+      let menor = Infinity;
+      for (let j = 0; j < n; j += 1) {
+        if (i === j) continue;
+        const d = Math.hypot(
+          (paradas[i].lng - paradas[j].lng) * kx,
+          (paradas[i].lat - paradas[j].lat) * 110540,
+        );
+        if (d < menor) menor = d;
+      }
+      fora.set(String(paradas[i].id), menor);
+    }
+    return fora;
+  }
+
+  /* O rebaixamento, aplicado a cada zoom. Só mexe em CLASSE — nada de recriar
+     marcador ao girar a pinça, que seria o mapa remontando a rota inteira a
+     cada quadro do gesto. */
+  function acertarPinos(casa) {
+    if (!casa || !casa.pinos.size) return;
+    const poucos = casa.pinos.size <= PINOS_NUMERADOS_ATE;
+    let mpp = 0;
+    if (!poucos) {
+      let lat = 0;
+      try { lat = casa.mapa.getCenter().lat; } catch (_) { return; }
+      mpp = metrosPorPixel(casa, lat) || 0;
+    }
+    casa.pinos.forEach((marcador, id) => {
+      let el;
+      try { el = marcador.getElement(); } catch (_) { return; }
+      // sem espaço medido ainda (lista nunca sincronizada) o seguro é NUMERAR:
+      // pino sem número não diz nada, e pino apertado ainda diz quem é.
+      const d = casa.espacos ? casa.espacos.get(String(id)) : null;
+      const min = !poucos && !!mpp && Number.isFinite(d) && (d / mpp) < PINO_ESPACO_PX;
+      el.classList.toggle('min', min);
+    });
+  }
+
+  /* SONDA DE PROVA, no padrão do `window.HBXCena.pendente()`: a troca de modo é
+     câmera, e câmera só se prova medindo. Devolve a pose do palco pedido e se
+     ainda há pose guardada — é o que o portão `prova-ir-e-vir` pergunta pra
+     saber se o mapa que entrou começou onde o outro parou. */
+  window.HBXTroca = {
+    pose(nome) {
+      const casa = GARAGEM.get(PALCO);
+      return (casa && casa.mapa) ? poseDoMapa(casa.mapa) : null;
+    },
+    palco() { return PALCO; },
+    pinos(nome) {
+      const casa = GARAGEM.get(PALCO);
+      if (!casa || !casa.pinos.size) return null;
+      const fora = [];
+      casa.pinos.forEach((marcador, id) => {
+        let el;
+        try { el = marcador.getElement(); } catch (_) { return; }
+        fora.push({
+          id: String(id), min: el.classList.contains('min'), texto: el.textContent,
+          espaco: casa.espacos ? casa.espacos.get(String(id)) : null,
+        });
+      });
+      return fora;
+    },
+  };
   /* ---- a cena ---------------------------------------------------------------- */
 
   /* 🔴 "NA TELA" NÃO É `isConnected`. O mapa que sai de cena não é destruído: ele
@@ -5512,7 +5966,11 @@
   const telaSaindo = () => !!document.querySelector('#app .tela.sai');
 
   /** de qual palco é cada cena — 'navegar' mora na tela de dirigir */
-  const palcoDaCena = (motivo) => (motivo === 'navegar' ? 'gps' : 'geral');
+  /* 🔴 UM PALCO SÓ (16/08): as cenas continuam DUAS ('navegar' na tela de
+     dirigir, 'rota'/'entrada' no 2D) — o que deixou de existir são dois lugares
+     onde elas acontecem. O motivo continua mandando em QUANDO e COMO; o palco é
+     o mesmo mapa. */
+  const palcoDaCena = () => PALCO;
 
   /** o pedido: a cena acontece quando o palco estiver na tela, nunca antes */
   function pedirCena(motivo) {
@@ -6040,11 +6498,11 @@
      Ele tem o tamanho da JANELA e não os 360x640 da garagem: tile se pede pelo
      retângulo visível, e nascer pequeno seria pedir tudo de novo no transplante. */
   function prepararMapaCedo() {
-    if (GARAGEM.get('geral') || MONTANDO.has('geral')) return;
+    if (GARAGEM.get(PALCO) || MONTANDO.has(PALCO)) return;
     if (!BOX.isConnected) document.body.appendChild(BOX);
     const fantasma = document.createElement('div');
     fantasma.className = 'mapa-palco';
-    fantasma.dataset.mapa = 'geral';
+    fantasma.dataset.mapa = PALCO;
     fantasma.setAttribute('aria-hidden', 'true');
     const L = window.innerWidth || 412;
     const A = window.innerHeight || 800;
@@ -6085,7 +6543,7 @@
 
   /** o mapa desfaz o desenho; devolve quanto tempo isso vai levar */
   function cenaAoContrario() {
-    const casa = GARAGEM.get('geral');
+    const casa = GARAGEM.get(PALCO);
     if (!casa || !casa.mapa || !mapaNaTela(casa) || semMovimento()) return 0;
     /* Uma cena por vez, sempre: se a de entrada ainda estiver no ar quando o
        motorista mandar fechar, ela sai SECA e a de volta assume. */
@@ -6333,7 +6791,12 @@
       palco.classList.add('com-mapa');
       acertarLuz(casa);
       sincronizarPinos(casa);
-      if (nome === 'gps') { desenharTraco(casa.mapa); pedirCamera(); atenderCena(casa); return; }
+      /* 🔴 QUEM MANDA AQUI DEIXOU DE SER O NOME DO PALCO — é o ESTADO da tela
+         (16/08). Com um maplibre só, `gps` e `geral` não existem mais como
+         lugares: existe o MESMO mapa em dois estados, e quem sabe qual é a tela
+         viva. Nada mudou de comportamento: dirigindo continua sendo traço +
+         câmera + cena; no 2D continua sendo traço + a bolinha do "eu". */
+      if (naNavegacao()) { desenharTraco(casa.mapa); pedirCamera(); atenderCena(casa); return; }
       // 🔴 O TRANSPLANTE NÃO MEXE NA CÂMERA, e é assim que fica: voltar pra aba
       // Rota devolve o mapa exatamente onde ele estava. Só o traço e a seta se
       // acertam — os dois são DADO, e dado velho na tela principal é mentira.
@@ -6389,7 +6852,10 @@
        Aqui o `esconderMundo` acontece no `styledata`, que vem ANTES do primeiro
        tile. A espera pela tela continua existindo, dentro de `esperarChao`, que
        é o lugar dela: lá ela espera SEM deixar o mundo aparecer. */
-    if (nome === 'geral') chamarCena(nova, 'entrada');
+    // a cena de ENTRADA é a da abertura do app (a cidade nascendo na aba Rota):
+    // ela nunca foi da tela de dirigir, e continua não sendo — quem chega
+    // dirigindo cai no motivo 'navegar'. Com um palco só, a pergunta é o ESTADO.
+    if (!naNavegacao()) chamarCena(nova, 'entrada');
     palco.__hbxMapa = true;
     palco.__hbxMapaObj = mapa;
     // existe mapa de verdade: o "você está aqui" de DESENHO sai de cena (ver
@@ -6417,7 +6883,7 @@
       // inteira, sem puck) o marcador é justamente o que diz onde ele está.
       // e a cena da entrada da navegação espera o mapa NASCER, não só o palco:
       // sem estilo no ar não há rua nenhuma pra crescer (§ `atenderCena`).
-      if (nome === 'gps') { desenharTraco(mapa); pedirCamera(); atenderCena(nova); return; }
+      if (naNavegacao()) { desenharTraco(mapa); pedirCamera(); atenderCena(nova); return; }
       // 🔴 O PALCO "geral" É A TELA PRINCIPAL DA ROTA desde 08/08, e ele nascia
       // com pino e mais nada: sem traço (o caminho existia e ninguém desenhava)
       // e no zoom de nascimento, com o resto do dia fora da tela. As três peças
@@ -6445,26 +6911,28 @@
        no 'geral', a régua dos 30 m, que só volta pelo botão de enquadrar —
        aqui não existe "voltar sozinho", porque quem abriu o mapa de cima pra
        olhar o dia inteiro não quer a tela se mexendo debaixo do dedo. */
-    if (nome === 'gps') {
-      const doDedo = (e) => { if (e && e.originalEvent) soltarCamera(); };
+    /* 🔴 O MESMO MAPA, DOIS FREIOS — e quem escolhe é o ESTADO, no instante do
+       dedo (16/08). Antes eram dois mapas, então cada um pendurava o freio dele
+       no nascimento; hoje é um só e a pergunta se faz na HORA: dirigindo, o
+       dedo solta a câmera que segue (com volta por tempo); no 2D, ele desarma a
+       régua dos 30 m até o botão de enquadrar. Nada mudou pro motorista. */
+    {
+      const doDedo = (e) => {
+        if (!e || !e.originalEvent) return;
+        if (naNavegacao()) soltarCamera(); else soltarPlano();
+      };
       mapa.on('dragstart', doDedo);
       mapa.on('rotatestart', doDedo);
       mapa.on('pitchstart', doDedo);
       mapa.on('zoomstart', doDedo);
-    } else {
-      const doDedoNoPlano = (e) => { if (e && e.originalEvent) soltarPlano(); };
-      mapa.on('dragstart', doDedoNoPlano);
-      mapa.on('zoomstart', doDedoNoPlano);
       /* 🔴 "2D" É UMA TRAVA, NÃO UMA POSE INICIAL (dono, 08/08: *"mapa limpo,
          2d"*). Todo mapa do maplibre gira e inclina com dois dedos — quer dizer
          que a tela de PLANEJAR podia sair deitada e torta sem ninguém pedir, e
          sem bússola nenhuma pra dizer onde ficou o norte (a bússola é peça da
-         tela de dirigir). Aqui a rotação e a inclinação são DESLIGADAS: arrastar
-         e pinçar continuam, que é tudo o que se faz num mapa visto de cima. */
-      try { mapa.dragRotate.disable(); } catch (_) { /* versão sem o gesto */ }
-      try { mapa.touchZoomRotate.disableRotation(); } catch (_) { /* idem */ }
-      try { mapa.touchPitch.disable(); } catch (_) { /* idem */ }
-      try { mapa.keyboard.disableRotation(); } catch (_) { /* idem */ }
+         tela de dirigir). A trava continua existindo — só que agora ela LIGA E
+         DESLIGA com o estado (§ `travarGestos2D`), porque o mapa é o mesmo e
+         dirigir precisa de inclinação. */
+      travarGestos2D(mapa, !naNavegacao());
     }
     /* 🔴 O PUCK SOLTO ANDA COM O MAPA, NÃO COM O GPS. Sincronizá-lo só no fix
        (1 por segundo) deixaria a seta escorregando um quadro atrás do dedo
@@ -6717,7 +7185,7 @@
        manda ali continua sendo só a moldura da tela. Sem esta pergunta, uma
        empresa desenhada na tela da Rota nasceria em fase 0 e não apareceria
        nunca — sumida sem que nada na tela explicasse por quê. */
-    const naNavegacaoAqui = palco.dataset && palco.dataset.mapa === 'gps';
+    const naNavegacaoAqui = naNavegacao();
     /* 🔴 A ENTRADA DA TELA NÃO TEM PROSPECTOR (dono, 09/08). Sai ANTES de
        projetar: a conta cara desta função não é a matemática, é medir chip,
        escrever estilo e brigar por rótulo — e nos 4,5 s de cena + vista de
@@ -8136,11 +8604,12 @@
      precisa se acertar e a seta ainda não está no DOM (mapa nascendo, camada
      trocando no repinte). Errar por um dedo aqui não vira defeito: o quadro
      seguinte já mede. Era 0,86 enquanto o mock ancorava a seta em `top:86%`;
-     hoje o mock a pousa no `--gps-piso`, que em aparelho comum dá ~0,83. */
-  const NAV_ANCORA = 0.83;
+     hoje o mock a pousa no `--gps-piso` + `--gps-puck-sobe` (16/08, a seta que
+     saiu do amontoado do rodapé), que em aparelho comum dá ~0,77. */
+  const NAV_ANCORA = 0.77;
 
   const mapaDaNavegacao = () => {
-    const palco = naCamada('[data-mapa="gps"]');
+    const palco = naCamada(`[data-mapa="${PALCO}"]`);
     return (palco && palco.__hbxMapaObj) || null;
   };
   /* 🔴 A TINTA DO MAPA SAI DO `.app`, NÃO DA RAIZ — e isto era um pedaço da pele
@@ -8384,7 +8853,7 @@
      e nenhum caminho entre eles. O caminho já estava no aparelho; faltava
      desenhá-lo na tela em que o motorista olha o dia. */
   /** os dois palcos que podem ter fita: o da navegação e o da tela Rota */
-  const palcosDoTraco = () => [mapaDaNavegacao(), (GARAGEM.get('geral') || {}).mapa].filter(Boolean);
+  const palcosDoTraco = () => [mapaDaNavegacao(), (GARAGEM.get(PALCO) || {}).mapa].filter(Boolean);
 
   function pintarTraco() {
     palcosDoTraco().forEach((mapa) => quandoEstiloPronto(mapa, () => desenharTraco(mapa)));
@@ -8575,7 +9044,7 @@
      MEDIDO: ~940 ms de descida represada esperando um efeito que ninguém enxerga.
      `mundoVoltou` é a marca que a CENA já levanta no instante em que a última
      onda partiu — quem decide quando a cidade nasceu passa a ser ela. */
-  const cenaDasRuasNoAr = () => !!(cena && cena.casa && cena.casa.nome === 'gps' && !cena.mundoVoltou);
+  const cenaDasRuasNoAr = () => !!(cena && cena.casa && cena.casa.nome === PALCO && !cena.mundoVoltou);
 
   /* 🔴 A CÂMERA PERGUNTA PRA TELA ONDE A SETA ESTÁ (11/08). Ela guardava uma
      CÓPIA da âncora do desenho (`0.86`, o mesmo número que o mock escrevia em
@@ -8714,15 +9183,21 @@
     } catch (_) { /* mapa saindo de cena */ }
   }
 
-  /** o movimento: 2,4 s de inclinação, zoom e rumo andando juntos */
-  function descer() {
-    const mapa = mapaDaNavegacao();
+  /* o movimento: inclinação, zoom e rumo andando juntos.
+     🔴 A DURAÇÃO E O MAPA ENTRAM POR FORA (16/08), pelo mesmo motivo que já
+     valia pro `vistaGeral`: a VOLTA da Panorâmica é a mesma descida com outro
+     tempo (700 ms, o gesto) e acontece no mapa que ainda está sendo
+     transplantado — `mapaDaNavegacao()` lê o palco da camada e devolveria null
+     bem na hora. Sem argumento, é a entrada de sempre. */
+  function descer(ms, mapaDado) {
+    const mapa = mapaDado || mapaDaNavegacao();
     if (!mapa || telaAtual() !== 'mapa') { camFase = 'dirigindo'; return; }
     camFase = 'descendo';
     poseGeral = null;               // a próxima entrada remede a moldura do dia
+    const dur = Number(ms) > 0 ? Number(ms) : DESCIDA_MS;
     const passo = {
       zoom: NAV_ZOOM, pitch: NAV_PITCH, offset: recuoDoPuck(mapa),
-      duration: DESCIDA_MS, easing: suave,
+      duration: dur, easing: suave,
     };
     const eu = posicaoDaTela();
     if (eu) passo.center = [eu.lng, eu.lat];
@@ -8731,7 +9206,7 @@
     try { mapa.easeTo(passo); } catch (_) { camFase = 'dirigindo'; return; }
     // o relógio é o dono do fim, não o evento do mapa: `moveend` não chega se
     // o dedo arrastar o mapa no meio, e a câmera ficaria presa em "descendo".
-    setTimeout(() => { if (camFase === 'descendo') camFase = 'dirigindo'; }, DESCIDA_MS + 80);
+    setTimeout(() => { if (camFase === 'descendo') camFase = 'dirigindo'; }, dur + 80);
   }
 
   /* A cena da cobra dura até 2,2 s e a marca `cena` cai no relógio do mock —
@@ -8803,7 +9278,7 @@
     if (geralTimer) { clearTimeout(geralTimer); geralTimer = null; }
     if (voltaTimer) { clearTimeout(voltaTimer); voltaTimer = null; }
     if (Number(msSubida) > 0) {
-      const casa = GARAGEM.get('gps');
+      const casa = GARAGEM.get(PALCO);
       if (casa && casa.mapa) { poseGeral = null; vistaGeral(Number(msSubida), casa.mapa); }
     }
     marcarSolta(false);
@@ -9482,6 +9957,10 @@
      repinte não muda `telaAtual`, então isto não dispara duas descidas. */
   let telaVistaAqui = null;
   const observador = new MutationObserver(() => {
+    // o gesto da troca de modo, decidido na virada de tela e executado depois do
+    // transplante (§ mais abaixo). Nasce e morre DENTRO desta passada: gesto que
+    // sobrevive ao repinte é câmera se mexendo fora de hora.
+    let trocando = null;
     // a FASE da câmera antes do mapa: `montarMapa` já manda a câmera pro lugar,
     // e ela precisa saber que a tela está entrando (2D) e não dirigindo (3D).
     if (telaAtual() !== telaVistaAqui) {
@@ -9502,6 +9981,15 @@
          era exatamente o defeito que a exceção original existia pra matar. */
       if (telaVistaAqui === 'mapa') {
         if (veioDe === 'venda' || veioDe === 'folha' || veioDe === 'folhanao') { camFase = 'dirigindo'; pedirCamera(); }
+        /* 🔴 VOLTAR DA PANORÂMICA TAMBÉM NÃO É ENTRAR NA ROTA (16/08). Caía no
+           `entrarNaDescida` — a coreografia de quem chega pela primeira vez:
+           cena das ruas + 400 ms de vista de cima + 1,8 s de descida, MEDIDOS
+           no g15 como 3 s de tela parada antes de a câmera se mexer. É a mesma
+           exceção de 'venda'/'folha' logo acima, pelo mesmo motivo (a cidade já
+           nasceu) — só que aqui a câmera TEM que voltar, porque ela subiu. A
+           pose do 2D é guardada agora, antes de o mapa ser estacionado, e a
+           descida acontece depois do transplante (§ `descerDoPlano`). */
+        else if (veioDe === 'rota') { trocando = 'descer'; }
         else entrarNaDescida();
       } else if (veioDe === 'mapa' && telaVistaAqui === 'rota') {
         /* 🔴 A VOLTA GANHOU O GESTO QUE A IDA SEMPRE TEVE (16/08 — dono:
@@ -9517,14 +10005,34 @@
               `chamarCena` e o efeito nasceria intermitente.
            3. `pedirCena('rota')` — o motivo 'rota' JÁ existe, JÁ aponta pro palco
               'geral' e JÁ tem ritmo próprio declarado. Quem toca é o transplante,
-              quando o palco de cima aparece. */
-        pararDescida(520);
+              quando o palco de cima aparece.
+           🔴 E A SUBIDA MUDOU DE MAPA (16/08, depois de VER a troca gravada no
+           g15): subir o mapa que SAI é subir dentro de uma camada que está
+           desaparecendo — invisível — enquanto o mapa que ENTRA aparece na
+           câmera de outro lugar. Corte seco, que é a "travação" do dono. Agora o
+           que sai fica PARADO (as duas camadas pintam a mesma imagem no
+           cruzamento) e quem sobe é quem entra, a partir da pose guardada
+           aqui (§ `subirNoPlano`). */
+        pararDescida();
         if (typeof encerrarCena === 'function' && typeof cena !== 'undefined' && cena) encerrarCena('saida', true);
-        pedirCena('rota');
+        /* o `pedirCena('rota')` que morava aqui foi pro fim do movimento
+           (§ `subirNoPlano`): pedido no instante da troca punha a cena nascendo
+           POR CIMA da subida, e a ordem do dono diz "AO ASSENTAR". */
+        trocando = 'subir';
       } else pararDescida();
     }
     const palco = naCamada('[data-mapa]');
     if (palco) montarMapa(palco);
+    /* 🔴 A CÂMERA DA TROCA VEM DEPOIS DO TRANSPLANTE, e essa ordem é a diferença
+       entre mover o mapa e mover o mapa NO LUGAR CERTO: antes do `montarMapa` o
+       palco que entra ainda não tem mapa nenhum, e o mapa que vai receber a
+       ordem ainda está na garagem, com o tamanho DELA — o recuo do puck e a
+       moldura sairiam calculados contra uma caixa que ninguém vê. */
+    if (trocando) {
+      const gesto = trocando;
+      trocando = null;
+      if (gesto === 'subir') subirNoPlano(); else descerDoPlano();
+    }
     // 🔴 A PORTA ÚNICA DO CARTÃO "VOCÊ CHEGOU" (LOTE 3, 15/08). Cobre volta de
     // Ajustes/Chat/folha, chegada recebida noutra tela (guardada em `chegada`
     // sem ter montado ainda) e o app subindo com a pendência já carimbada. A

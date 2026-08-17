@@ -220,7 +220,7 @@
        manda ali continua sendo só a moldura da tela. Sem esta pergunta, uma
        empresa desenhada na tela da Rota nasceria em fase 0 e não apareceria
        nunca — sumida sem que nada na tela explicasse por quê. */
-    const naNavegacaoAqui = palco.dataset && palco.dataset.mapa === 'gps';
+    const naNavegacaoAqui = naNavegacao();
     /* 🔴 A ENTRADA DA TELA NÃO TEM PROSPECTOR (dono, 09/08). Sai ANTES de
        projetar: a conta cara desta função não é a matemática, é medir chip,
        escrever estilo e brigar por rótulo — e nos 4,5 s de cena + vista de

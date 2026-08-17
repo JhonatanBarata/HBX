@@ -31,7 +31,7 @@
 
   /** o mapa desfaz o desenho; devolve quanto tempo isso vai levar */
   function cenaAoContrario() {
-    const casa = GARAGEM.get('geral');
+    const casa = GARAGEM.get(PALCO);
     if (!casa || !casa.mapa || !mapaNaTela(casa) || semMovimento()) return 0;
     /* Uma cena por vez, sempre: se a de entrada ainda estiver no ar quando o
        motorista mandar fechar, ela sai SECA e a de volta assume. */
@@ -279,7 +279,12 @@
       palco.classList.add('com-mapa');
       acertarLuz(casa);
       sincronizarPinos(casa);
-      if (nome === 'gps') { desenharTraco(casa.mapa); pedirCamera(); atenderCena(casa); return; }
+      /* 🔴 QUEM MANDA AQUI DEIXOU DE SER O NOME DO PALCO — é o ESTADO da tela
+         (16/08). Com um maplibre só, `gps` e `geral` não existem mais como
+         lugares: existe o MESMO mapa em dois estados, e quem sabe qual é a tela
+         viva. Nada mudou de comportamento: dirigindo continua sendo traço +
+         câmera + cena; no 2D continua sendo traço + a bolinha do "eu". */
+      if (naNavegacao()) { desenharTraco(casa.mapa); pedirCamera(); atenderCena(casa); return; }
       // 🔴 O TRANSPLANTE NÃO MEXE NA CÂMERA, e é assim que fica: voltar pra aba
       // Rota devolve o mapa exatamente onde ele estava. Só o traço e a seta se
       // acertam — os dois são DADO, e dado velho na tela principal é mentira.
@@ -335,7 +340,10 @@
        Aqui o `esconderMundo` acontece no `styledata`, que vem ANTES do primeiro
        tile. A espera pela tela continua existindo, dentro de `esperarChao`, que
        é o lugar dela: lá ela espera SEM deixar o mundo aparecer. */
-    if (nome === 'geral') chamarCena(nova, 'entrada');
+    // a cena de ENTRADA é a da abertura do app (a cidade nascendo na aba Rota):
+    // ela nunca foi da tela de dirigir, e continua não sendo — quem chega
+    // dirigindo cai no motivo 'navegar'. Com um palco só, a pergunta é o ESTADO.
+    if (!naNavegacao()) chamarCena(nova, 'entrada');
     palco.__hbxMapa = true;
     palco.__hbxMapaObj = mapa;
     // existe mapa de verdade: o "você está aqui" de DESENHO sai de cena (ver
@@ -363,7 +371,7 @@
       // inteira, sem puck) o marcador é justamente o que diz onde ele está.
       // e a cena da entrada da navegação espera o mapa NASCER, não só o palco:
       // sem estilo no ar não há rua nenhuma pra crescer (§ `atenderCena`).
-      if (nome === 'gps') { desenharTraco(mapa); pedirCamera(); atenderCena(nova); return; }
+      if (naNavegacao()) { desenharTraco(mapa); pedirCamera(); atenderCena(nova); return; }
       // 🔴 O PALCO "geral" É A TELA PRINCIPAL DA ROTA desde 08/08, e ele nascia
       // com pino e mais nada: sem traço (o caminho existia e ninguém desenhava)
       // e no zoom de nascimento, com o resto do dia fora da tela. As três peças
@@ -391,26 +399,28 @@
        no 'geral', a régua dos 30 m, que só volta pelo botão de enquadrar —
        aqui não existe "voltar sozinho", porque quem abriu o mapa de cima pra
        olhar o dia inteiro não quer a tela se mexendo debaixo do dedo. */
-    if (nome === 'gps') {
-      const doDedo = (e) => { if (e && e.originalEvent) soltarCamera(); };
+    /* 🔴 O MESMO MAPA, DOIS FREIOS — e quem escolhe é o ESTADO, no instante do
+       dedo (16/08). Antes eram dois mapas, então cada um pendurava o freio dele
+       no nascimento; hoje é um só e a pergunta se faz na HORA: dirigindo, o
+       dedo solta a câmera que segue (com volta por tempo); no 2D, ele desarma a
+       régua dos 30 m até o botão de enquadrar. Nada mudou pro motorista. */
+    {
+      const doDedo = (e) => {
+        if (!e || !e.originalEvent) return;
+        if (naNavegacao()) soltarCamera(); else soltarPlano();
+      };
       mapa.on('dragstart', doDedo);
       mapa.on('rotatestart', doDedo);
       mapa.on('pitchstart', doDedo);
       mapa.on('zoomstart', doDedo);
-    } else {
-      const doDedoNoPlano = (e) => { if (e && e.originalEvent) soltarPlano(); };
-      mapa.on('dragstart', doDedoNoPlano);
-      mapa.on('zoomstart', doDedoNoPlano);
       /* 🔴 "2D" É UMA TRAVA, NÃO UMA POSE INICIAL (dono, 08/08: *"mapa limpo,
          2d"*). Todo mapa do maplibre gira e inclina com dois dedos — quer dizer
          que a tela de PLANEJAR podia sair deitada e torta sem ninguém pedir, e
          sem bússola nenhuma pra dizer onde ficou o norte (a bússola é peça da
-         tela de dirigir). Aqui a rotação e a inclinação são DESLIGADAS: arrastar
-         e pinçar continuam, que é tudo o que se faz num mapa visto de cima. */
-      try { mapa.dragRotate.disable(); } catch (_) { /* versão sem o gesto */ }
-      try { mapa.touchZoomRotate.disableRotation(); } catch (_) { /* idem */ }
-      try { mapa.touchPitch.disable(); } catch (_) { /* idem */ }
-      try { mapa.keyboard.disableRotation(); } catch (_) { /* idem */ }
+         tela de dirigir). A trava continua existindo — só que agora ela LIGA E
+         DESLIGA com o estado (§ `travarGestos2D`), porque o mapa é o mesmo e
+         dirigir precisa de inclinação. */
+      travarGestos2D(mapa, !naNavegacao());
     }
     /* 🔴 O PUCK SOLTO ANDA COM O MAPA, NÃO COM O GPS. Sincronizá-lo só no fix
        (1 por segundo) deixaria a seta escorregando um quadro atrás do dedo

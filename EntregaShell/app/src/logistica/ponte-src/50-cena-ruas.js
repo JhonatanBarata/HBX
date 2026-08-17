@@ -33,7 +33,11 @@
   const telaSaindo = () => !!document.querySelector('#app .tela.sai');
 
   /** de qual palco é cada cena — 'navegar' mora na tela de dirigir */
-  const palcoDaCena = (motivo) => (motivo === 'navegar' ? 'gps' : 'geral');
+  /* 🔴 UM PALCO SÓ (16/08): as cenas continuam DUAS ('navegar' na tela de
+     dirigir, 'rota'/'entrada' no 2D) — o que deixou de existir são dois lugares
+     onde elas acontecem. O motivo continua mandando em QUANDO e COMO; o palco é
+     o mesmo mapa. */
+  const palcoDaCena = () => PALCO;
 
   /** o pedido: a cena acontece quando o palco estiver na tela, nunca antes */
   function pedirCena(motivo) {
@@ -561,11 +565,11 @@
      Ele tem o tamanho da JANELA e não os 360x640 da garagem: tile se pede pelo
      retângulo visível, e nascer pequeno seria pedir tudo de novo no transplante. */
   function prepararMapaCedo() {
-    if (GARAGEM.get('geral') || MONTANDO.has('geral')) return;
+    if (GARAGEM.get(PALCO) || MONTANDO.has(PALCO)) return;
     if (!BOX.isConnected) document.body.appendChild(BOX);
     const fantasma = document.createElement('div');
     fantasma.className = 'mapa-palco';
-    fantasma.dataset.mapa = 'geral';
+    fantasma.dataset.mapa = PALCO;
     fantasma.setAttribute('aria-hidden', 'true');
     const L = window.innerWidth || 412;
     const A = window.innerHeight || 800;

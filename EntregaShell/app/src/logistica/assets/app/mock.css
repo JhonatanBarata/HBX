@@ -1273,7 +1273,12 @@ button,input{font:inherit;color:inherit}
    pagando as duas colunas vazias (`<span></span>` × 2 = 18px de gap sobrando
    nas pontas). No flex, satélite que não existe não é escrito, e a barra
    ocupa a largura inteira sem sobra — que é o ponto todo desta mudança. */
-.transmux{display:flex;align-items:center;gap:9px}
+/* 🔴 OS SEIS BOTÕES SÃO A MESMA PEÇA (16/08, ordem do dono: "quero os botões
+   idênticos foto 1 e 2"). `flex-start` e não `center`: os três quadrados pousam
+   na MESMA linha de topo, e é isso que faz a fileira parecer uma peça só. Com
+   `center`, rótulo de tamanho diferente empurrava o quadrado do meio pra cima
+   ou pra baixo dos vizinhos — o desencontro que o dono viu nas duas fotos. */
+.transmux{display:flex;align-items:flex-start;gap:9px}
 .tmx-sat{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:4px}
 .tmx-sat button{width:46px;height:46px;border-radius:16px;border:.7px solid var(--line);background:var(--card);
   color:var(--ink);display:grid;place-items:center;cursor:pointer;position:relative}
@@ -1284,13 +1289,24 @@ button,input{font:inherit;color:inherit}
 @keyframes tmxPisca{50%{opacity:.35}}
 .tmx-sat .cont{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;border-radius:9px;background:var(--amber);
   color:#1a1204;font-size:10px;font-weight:500;display:grid;place-items:center;border:1.5px solid var(--bg)}
-.tmx-main{flex:1;min-width:0}
-.tmx-main button{width:100%;height:56px;border-radius:18px;border:0;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;gap:9px;
+/* 🔴 A PALAVRA SAIU DO BOTÃO E VIROU LEGENDA (16/08, ordem do dono: "faça
+   ícones, com um rótulo bem pequeno"). O main deixa de ser uma barra com texto
+   de 16px e passa a ser a MESMA peça do satélite: quadro com ícone + `<small>`
+   de 9,5px por fora. Ele só continua diferente no que precisa ser — largura
+   (`flex:1`) e a cor de ação —, e é isso que faz os três lerem como um trio.
+   Altura 56 → 46 pelo mesmo motivo: com o rótulo fora, os três quadros têm que
+   ter o mesmo tamanho, senão a fileira volta a ser um botão e dois enfeites.
+   ⚠️ A ALTURA DO DOCK NÃO MUDOU: era `max(56, 46+4+11)` = 61 e continua 61
+   (46+4+11), então `--tmx-h`, `.body.com-dock` (147px) e o `--map-chao` do 2D
+   seguem valendo — MEDIDO, não deduzido. Quem mexer nestes 46 refaz aquela
+   conta, que é o chão de toda peça flutuante das duas telas. */
+.tmx-main{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px}
+.tmx-main button{width:100%;height:46px;border-radius:18px;border:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
   color:var(--white);background:linear-gradient(180deg,var(--go-1),var(--go-2));box-shadow:0 8px 22px rgba(122,190,30,.28)}
-/* A palavra mora DENTRO do botão — e é ela que manda no tamanho da peça.
-   Nome que não cabe encolhe o texto, nunca a barra (mesma lei da `.plano-bar`). */
-.tmx-main b{font-weight:500;font-size:16px;letter-spacing:.1px;
+/* Mesma régua do `.tmx-sat small`: nome que não cabe vira "…" e NUNCA quebra em
+   duas linhas — altura de rodapé que depende do dado é o defeito de 10/08. */
+.tmx-main small{max-width:100%;font-size:9.5px;color:var(--ink-2);
   overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .tmx-main button[data-estado="pausar"]{background:linear-gradient(180deg,#ffca63,#e08a00);color:#241500;
   box-shadow:0 8px 22px rgba(224,138,0,.3)}
@@ -1305,11 +1321,9 @@ button,input{font:inherit;color:inherit}
    (`.tmx-main` = "o botão grande é sempre o próximo passo do dia"), porque
    consultar não é passo nenhum. A nota ocupa a MESMA vaga e a MESMA altura
    (o rodapé não pula), com a superfície neutra que o resto da casa já usa. */
-.tmx-nota{width:100%;height:56px;border-radius:18px;
-  display:flex;align-items:center;justify-content:center;gap:9px;
+.tmx-nota{width:100%;height:46px;border-radius:18px;
+  display:flex;align-items:center;justify-content:center;
   background:var(--card);border:.7px solid var(--line);color:var(--ink-2)}
-.tmx-nota b{font-weight:500;font-size:15px;letter-spacing:.1px;color:var(--ink-2);
-  overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 /* TRABALHANDO: o botão continua no lugar, com o mesmo tamanho, respirando.
    Some com a sombra viva porque nada vai acontecer se o dedo insistir. */
 .ocupado{opacity:.62;box-shadow:none!important;animation:respira 1.15s ease-in-out infinite}
@@ -1530,7 +1544,13 @@ button,input{font:inherit;color:inherit}
         3D o chão é o rodapé de dirigir. Mesma fórmula, dois valores.
    Peça flutuante de mapa que não pousar nesta régua é peça fora do padrão. */
 .plano,.gps{--map-beira:11px;--map-respiro:12px;--map-btn:46px;--map-raio:16px;
-  --map-gap:10px;--map-vel-l:108px;--map-vel-h:113px;--map-chao:0px;
+  /* 🔴 O DISCO ENCOLHEU 15% (16/08 — dono: *"diminuir 15% o tamanho do
+     velocímetro"*). 108×113 → 92×96, e TODO o miolo desceu na mesma proporção
+     (número 40→34, unidade 13→11, trilho e placa juntos): encolher só a caixa
+     deixaria o número batendo na borda, que é o mesmo defeito de 11/08 pelo
+     avesso. Ele é token porque o aviso de radar pousa em cima dele e pergunta
+     a altura — a peça encolhe e o chip acompanha sem ninguém refazer conta. */
+  --map-gap:10px;--map-vel-l:92px;--map-vel-h:96px;--map-chao:0px;
   --map-piso:calc(var(--map-chao) + var(--map-respiro))}
 .plano{position:absolute;left:0;right:0;top:0;bottom:60px;overflow:hidden;background:var(--fog)}
 .plano.com-dock{bottom:139px}
@@ -1650,8 +1670,32 @@ button,input{font:inherit;color:inherit}
    O nome fica porque meia dúzia de peças desta tela já o citam; o valor passa a
    sair da MESMA fórmula do 2D. Modo que calcula o próprio piso é modo que
    descola do outro na primeira vez que alguém mexe num dos dois. */
+/* 🔴 E A SETA SAIU DO CHÃO (16/08 — dono, com as duas fotos lado a lado:
+   *"visual amassado: foto1, eu quero assim: foto2 — apenas posicionamento de
+   ícone"*). O `--gps-piso` continua sendo o chão do CROMO (velocímetro e coluna
+   de botões, que são peças de beirada e vivem coladas na moldura), mas a seta
+   não é cromo: ela é o MOTORISTA. Pousada na mesma linha do velocímetro, ela
+   ficava na mesma faixa horizontal do disco e do botão de recentralizar — três
+   peças amontoadas no rodapé e quase nenhuma rua à frente. É literalmente o
+   "amassado" da foto 1.
+   `--gps-puck-sobe` é o quanto ela sobe ACIMA desse chão, e é a única medida da
+   tela que fala do motorista em vez da moldura: 70px põem o ponto dele a ~77%
+   da altura, que é onde a foto 2 o mostra e onde todo navegador de rua o põe
+   (a regra nº1 lá embaixo já dizia "~68%" e o desenho nunca a cumpriu).
+   🔴 A CÂMERA ACOMPANHA SOZINHA: `ancoraDoPuck` MEDE o `.gps-puck` na tela, não
+   copia número nenhum — subir a seta sobe o recuo da câmera junto, e é por isso
+   que sobra mais rua à frente em vez de a fita descolar da seta. */
 .gps{position:absolute;inset:0;overflow:hidden;background:var(--fog);
-  --gps-rodape-h:117px;--map-chao:var(--gps-rodape-h);--gps-piso:var(--map-piso)}
+  /* 🔴 117 → 133 EM 16/08, e o motivo é UMA peça: a faixa de texto de 46px
+     virou a fileira do dock (46 do quadro + 4 do respiro + 11 da legenda = 61).
+     São os mesmos 15px que este rodapé cresceu, e é por isso que o número muda
+     junto — quem esquece esta linha repete 10/08, quando o rodapé engordou 41px
+     sozinho e a seta passou a ser cortada por trás dele.
+     MEDIDO pelo `prova-encaixe-gps` na pele: 132,6px. Guarda 133 e não 132 pela
+     mesma razão de sempre — fonte de aparelho varia e arredondar pra cima só
+     custa folga, enquanto arredondar pra baixo põe a peça dentro do rodapé. */
+  --gps-rodape-h:133px;--map-chao:var(--gps-rodape-h);--gps-piso:var(--map-piso);
+  --gps-puck-sobe:70px}
 /* 🔴 O PALCO DE ESPERA É COR, NÃO DESENHO (09/08 — a maquete morreu, ver
    `mapa()`). Ele nasce com a cor do mapa e fica assim até o maplibre subir: o
    que o motorista vê antes do mapa é um chão escuro liso, nunca uma cidade
@@ -1830,7 +1874,8 @@ button,input{font:inherit;color:inherit}
    uma caixa de 104×118 px bem no meio da tela e engolia todo arrasto que
    começasse ali — o mapa parecia travado justamente onde a mão cai primeiro.
    Ponteiro é DESENHO: quem manda no dedo, aqui, é o mapa. */
-.gps-puck{position:absolute;left:50%;top:auto;bottom:calc(var(--gps-piso) + 22.5px);
+.gps-puck{position:absolute;left:50%;top:auto;
+  bottom:calc(var(--gps-piso) + var(--gps-puck-sobe) + 22.5px);
   width:0;height:0;z-index:19;pointer-events:none}
 .gps-puck::before{content:"";position:absolute;left:-36px;top:-36px;width:72px;height:72px;
   border-radius:50%;background:var(--puck-vidro);border:.7px solid var(--puck-vidro-fio);
@@ -1868,7 +1913,8 @@ button,input{font:inherit;color:inherit}
    ponte projetar o ponto —, então um número velho aqui faz a seta PULAR toda
    vez que o dedo encosta no mapa: defeito de um quadro, que não reproduz em
    foto. Ele é derivado da âncora, nunca digitado de novo. */
-.gps.solta .gps-puck{left:var(--px,50%);top:var(--py,calc(100% - var(--gps-piso) - 22.5px));bottom:auto}
+.gps.solta .gps-puck{left:var(--px,50%);
+  top:var(--py,calc(100% - var(--gps-piso) - var(--gps-puck-sobe) - 22.5px));bottom:auto}
 
 /* 🔴 O CARTÃO CRESCEU 15% (11/08 — dono: *"400m a direita tá ok, pode aumentar
    um pouco, av 25, depois continue na rua 2 (ilegível dirigindo) — aumente um
@@ -1940,15 +1986,15 @@ button,input{font:inherit;color:inherit}
    diferentes. O valor medido virou o valor escrito, e ele mora em token porque
    o aviso de radar pousa em cima do velocímetro e precisa da altura dele. */
 .gps-vel{position:absolute;left:var(--map-beira);bottom:var(--map-piso);z-index:20;
-  width:var(--map-vel-l);height:var(--map-vel-h);border-radius:20px;
+  width:var(--map-vel-l);height:var(--map-vel-h);border-radius:17px;
   background:var(--vel-bg);border:.7px solid var(--vel-fio);text-align:center;line-height:1;
   box-shadow:0 10px 24px rgba(0,0,0,.46)}
 /* Os internos vieram do mundo escalado: cada medida daqui é a de antes × .9,
    pra que tirar o `scale` mude a FOLHA e não a tela (11→10, 16→14, 45→40,
    34→31, 18→16). Quem conferir com régua no palco acha os mesmos pixels. */
-.gps-vel::before{content:"";position:absolute;inset:10px;border:2px dotted var(--vel-trilho);border-radius:14px}
-.gps-vel::after{content:"";position:absolute;inset:10px;border:3px solid transparent;border-right-color:var(--vel-acima-ink);
-  border-bottom-color:var(--vel-acima-ink);border-radius:14px;clip-path:polygon(52% 46%,100% 46%,100% 100%,52% 100%);display:none}
+.gps-vel::before{content:"";position:absolute;inset:8.5px;border:2px dotted var(--vel-trilho);border-radius:12px}
+.gps-vel::after{content:"";position:absolute;inset:8.5px;border:3px solid transparent;border-right-color:var(--vel-acima-ink);
+  border-bottom-color:var(--vel-acima-ink);border-radius:12px;clip-path:polygon(52% 46%,100% 46%,100% 100%,52% 100%);display:none}
 /* 🔴 O NÚMERO NO CENTRO DO DISCO, E O "km/h" FORA DO FLUXO (12/08 — dono:
    *"centralize o número do velocímetro, está muito pra cima"*). O par número+
    unidade JÁ era centralizado como GRUPO (medido: folga 8,5 px em cima e
@@ -1960,12 +2006,12 @@ button,input{font:inherit;color:inherit}
    parte larga do círculo (folga medida: 64 px de corda na altura dela).
    Sem unidade (o mock a torna opcional) o número continua centrado — antes
    também ficava, e essa era a única hora em que ficava. */
-.gps-vel b{position:absolute;left:0;right:0;top:31px;display:block;font-size:40px;font-weight:650;color:var(--ink)}
-.gps-vel small{position:absolute;left:0;right:0;bottom:16px;display:block;
-  font-size:13px;color:var(--ink-2);text-align:center}
-.gps-vel .limite-via{position:absolute;right:-11px;top:-12px;z-index:2;display:grid;place-items:center;
-  width:35px;height:35px;border-radius:50%;background:var(--radar-lim-bg);color:var(--radar-lim-ink);
-  border:4px solid var(--radar-lim-fio);font-size:17px;font-weight:750;font-style:normal;
+.gps-vel b{position:absolute;left:0;right:0;top:26px;display:block;font-size:34px;font-weight:650;color:var(--ink)}
+.gps-vel small{position:absolute;left:0;right:0;bottom:13.5px;display:block;
+  font-size:11px;color:var(--ink-2);text-align:center}
+.gps-vel .limite-via{position:absolute;right:-9px;top:-10px;z-index:2;display:grid;place-items:center;
+  width:30px;height:30px;border-radius:50%;background:var(--radar-lim-bg);color:var(--radar-lim-ink);
+  border:3.4px solid var(--radar-lim-fio);font-size:14.5px;font-weight:750;font-style:normal;
   box-shadow:0 5px 12px rgba(0,0,0,.38)}
 .gps-vel .limite-via:empty{display:none}
 /* 🔴 O VELOCÍMETRO ACIMA DO LIMITE DO RADAR (12/08, F3). Estado, não peça nova:
@@ -2013,6 +2059,12 @@ button,input{font:inherit;color:inherit}
    Vale nos DOIS modos: quem silencia a voz no 2D e entra no 3D tem que achar o
    mesmo botão no mesmo estado — chave do aparelho, não estado da tela. */
 .plano-lado button.mudo,.gps-lado button.mudo{opacity:.45}
+/* 🔴 O CADEADO DO FIM DO DIA (16/08), o mesmo azul do satélite `tmx-info` que
+   ele era até hoje de manhã: a cor viaja junto com o botão quando ele muda de
+   fileira, senão o motorista aprende o verbo de novo a cada tela. Azul e não
+   vermelho de propósito — encerrar o dia é o fim NORMAL do trabalho, e pintá-lo
+   da cor do Cancelar ensinaria que fechar e destruir são a mesma coisa. */
+.plano-lado button.fechar,.gps-lado button.fechar{color:var(--blue-l);border-color:#26436e}
 
 /* 🔴 QUEM MEXER AQUI REFAZ O `--gps-rodape-h` LÁ EM CIMA. A altura deste rodapé
    é o chão de TODAS as peças flutuantes da tela de dirigir — seta, velocímetro
@@ -2068,24 +2120,14 @@ button,input{font:inherit;color:inherit}
 .gps.dirigindo .gps-rodape .n b{font-size:16px;font-weight:650;color:var(--ink);white-space:nowrap}
 .gps.dirigindo .gps-rodape .n small{font-size:10.5px;color:var(--ink-2);margin-top:2px;white-space:nowrap}
 .gps.dirigindo .gps-rodape .n.destaque b{color:var(--ink)}
-.gps-encerrar{display:flex;align-items:stretch;height:46px;margin-top:10px;border:.7px solid var(--line-2);
-  border-radius:16px;background:var(--card);overflow:hidden}
-.gps-encerrar button{min-width:0;border:0;background:transparent;cursor:pointer;font-size:11.5px;font-weight:700;
-  white-space:nowrap}
-.gps-encerrar button+button{border-left:.7px solid var(--line)}
-/* 🔴 AS LARGURAS SEGUEM O RÓTULO, E O RÓTULO MUDOU (16/08). Esta faixa é
-   `overflow:hidden` + `white-space:nowrap` logo acima: texto que não cabe é
-   CORTADO EM SILÊNCIO, sem reticências e sem erro. "Panorâmica" tem 10 letras e
-   morava no slot de `.64` (o antigo "Sair", de 4); "ENCERRAR DIA" em caixa alta
-   com `letter-spacing` é o rótulo mais largo que esta barra já teve. As três
-   frações foram refeitas em cima dos rótulos novos, não herdadas dos velhos.
-   🔴 E O VERMELHO TROCOU DE PEÇA. Ele morava no botão da esquerda porque ali
-   ficava a saída; hoje a esquerda só troca a câmera — pintar de vermelho quem
-   não destrói nada é a mesma mentira que os rótulos acabaram de perder. Quem
-   carrega a consequência agora é o "Encerrar dia", na ponta direita. */
-.gps-encerrar .gps-panoramica{flex:1;color:var(--ink)}
-.gps-encerrar .gps-registrar{flex:1;color:var(--ink)}
-.gps-encerrar-main{flex:1.45;color:var(--lime);font-weight:750;letter-spacing:.06em;text-transform:uppercase}
+/* 🔴 `.gps-encerrar` MORREU EM 16/08 — eram 6 regras e 3 larguras em fração
+   (`flex:1 / 1 / 1.45`) mantidas à mão contra o comprimento do rótulo, num
+   `overflow:hidden` que cortava em silêncio quem não coubesse. O rodapé daqui
+   passou a ser o `.transmux` do 2D, que já resolve largura sozinho (`flex:1` no
+   meio, satélites de 46px fixos) e corta com "…" em vez de calado.
+   Sobra a margem: é a única medida que era da faixa e continua sendo da
+   fileira, e ela ENTRA na conta do `--gps-rodape-h` lá em cima. */
+.gps-rodape .transmux{margin-top:10px}
 
 /* ==========================================================================
    AS EMPRESAS DO CORREDOR — o prospector desenhado na tela de navegação.

@@ -134,7 +134,16 @@
   const GARAGEM = new Map();     // nome do palco → { gl, mapa, alvo, pinos, chave, luz }
   const MONTANDO = new Set();    // nome em criação (carregar o maplibre é async)
 
-  const nomeDoPalco = (p) => String((p && p.dataset && p.dataset.mapa) || 'geral');
+  /* 🔴 UM PALCO SÓ NOS DOIS ESTADOS (16/08 — dono: *"a tela não tem mais motivo
+     para piscar tudo, ambos os estados têm q ser idênticos"*, e a fita do g15
+     mostrando a volta da Panorâmica com 0,6-1,1 s de mapa PRETO).
+     Eram dois nomes ('gps' e 'geral') = dois maplibre = dois caches de tile =
+     duas câmeras. Trocar de estado era trocar de MAPA: o que entrava chegava
+     frio, pedia tile, desenhava do zero. Agora é UM: o nó muda de pai, a câmera
+     é a mesma e o movimento (subir/descer) acontece nela, sem nada pra
+     redesenhar. Os efeitos continuam todos — o que morreu foi o congelamento. */
+  const PALCO = 'rota';
+  const nomeDoPalco = (p) => String((p && p.dataset && p.dataset.mapa) || PALCO);
   const luzDeAgora = () => (document.documentElement.dataset.luz === 'claro' ? 'claro' : 'escuro');
 
   /* A garagem off-screen: tela que sai de cena não leva o mapa junto. Nó
@@ -144,10 +153,29 @@
   BOX.setAttribute('aria-hidden', 'true');
   BOX.style.cssText = 'position:absolute;left:-9999px;top:0;width:360px;height:640px;pointer-events:none';
 
+  /* 🔴 A GARAGEM TEM O TAMANHO DA TELA (16/08, medido na fita do g15). Ela era
+     360×640 cravados enquanto o aparelho do dono é 432×960: o mapa estacionado
+     desenhava um retângulo MENOR e, ao voltar pro palco, o `resize` pedia ~2×
+     mais área — tiles que aquele mapa não tinha. Na volta da Panorâmica isso
+     aparecia como 0,6 s de mapa PRETO com o cromo por cima, que é "travação"
+     para quem olha, mesmo com a câmera andando.
+     Estacionar no tamanho da tela faz o `resize` do transplante ser no-op: o
+     mapa volta com o desenho pronto. Custa render em tamanho cheio fora de
+     cena — o mesmo que ele já fazia em cena um segundo antes. */
+  function ajustarGaragem() {
+    const larg = Math.max(320, window.innerWidth || 360);
+    const alto = Math.max(480, window.innerHeight || 640);
+    if (BOX.__hbxL === larg && BOX.__hbxA === alto) return;
+    BOX.__hbxL = larg; BOX.__hbxA = alto;
+    BOX.style.width = `${larg}px`;
+    BOX.style.height = `${alto}px`;
+  }
+
   function estacionarMapas() {
     GARAGEM.forEach((casa) => {
       if (casa.alvo.isConnected) return;
       if (!BOX.isConnected) document.body.appendChild(BOX);
+      ajustarGaragem();
       BOX.appendChild(casa.alvo);
       try { casa.mapa.resize(); } catch (_) { /* mapa morto */ }
     });
@@ -178,25 +206,10 @@
       .filter((p) => p && pinoValido(p.lat, p.lng));
   }
 
-  /* 🔴 QUEM DECIDE O TAMANHO DO PINO É A QUANTIDADE, NÃO SÓ O ZOOM (09/08).
-     O rebaixamento por zoom nasceu pra um dia de 56 paradas, onde 56 bolas de
-     26px no zoom da cidade viram uma mancha sem leitura — e essa parte continua
-     certa. Errado era ele valer pra TODO dia: com 3 paradas no mesmo zoom não há
-     amontoado nenhum pra desfazer, e rebaixar transformava a única informação da
-     tela ("onde são minhas paradas, na ordem") em três pontinhos anônimos.
-     Régua nova, em duas faixas:
-     · até 12 paradas → NUMERADO SEMPRE, em qualquer zoom. Doze é o corte onde
-       o dia inteiro ainda cabe na tela sem os pinos se tocarem: no zoom em que
-       Rio Claro cabe nos 412px (z12), cada pixel vale ~19 m, então dois pinos
-       de 26px só encostam se as portas estiverem a menos de ~500 m — o que num
-       dia de 12 paradas espalhadas pela cidade é a exceção, não a regra.
-     · acima de 12 → abaixo do zoom de bairro o pino vira PONTO. Mas ponto que
-       se LÊ: o rebaixado não é o pino encolhido, é outra peça (`.map-pino.min`,
-       com anel próprio) medida contra a fita verde e contra o chão do mapa nos
-       dois modos — ponto de 10px sem anel some sobre a fita, que era o outro
-       lado do mesmo defeito. */
-  const PINOS_NUMERADOS_ATE = 12;
-  const PINOS_ZOOM_CORTE = 13.6;
+  /* 🔴 QUEM DECIDE O TAMANHO DO PINO É A QUANTIDADE, NÃO SÓ O ZOOM (09/08) — e
+     desde 16/08 nem isso: quem decide é o ESPAÇO que sobra entre eles. A régua
+     mora em `acertarPinos`, no 45-troca-de-modo.js, junto com a moldura do 2D
+     que a alimenta. */
 
   function vestirPino(el, p, proximoId) {
     const estado = String(p.mapStatus || '');
@@ -233,6 +246,10 @@
     const chave = paradas.map((p) => `${p.id}:${p.n}:${p.mapStatus || ''}:${p.chegou ? 1 : 0}:${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join('|');
     if (chave === casa.chave) return;
     casa.chave = chave;
+    // a distância de cada parada ao vizinho mais próximo, em METROS: é ela que
+    // decide, a cada zoom, se o número cabe NAQUELE pino (§ `acertarPinos`).
+    // Medida aqui porque aqui é o único lugar em que a lista muda de verdade.
+    casa.espacos = espacoDosPinos(paradas);
     /* O pino é reaproveitado pela IDENTIDADE da entrega. O número muda quando
        o motorista escolhe "Ir agora"; casar pelo número trocaria dois clientes
        de marcador e deixaria o ✓ no lugar errado. Derrubar os N e
@@ -270,24 +287,6 @@
     // rota OUTRA = enquadramento outro. Aqui dentro é o único lugar automático
     // que reenquadra, e de propósito: este bloco só roda quando a lista muda.
     enquadrarGeral(casa);
-  }
-
-  /* O rebaixamento, aplicado a cada zoom. Só mexe em CLASSE — nada de recriar
-     marcador ao girar a pinça, que seria o mapa remontando a rota inteira a
-     cada quadro do gesto. */
-  function acertarPinos(casa) {
-    if (!casa || !casa.pinos.size) return;
-    // Poucas paradas nunca rebaixam: a régua é a QUANTIDADE primeiro, e só
-    // depois o zoom. Sem esta linha, 3 paradas no zoom-cidade viravam 3 pontos.
-    const muitas = casa.pinos.size > PINOS_NUMERADOS_ATE;
-    let z;
-    try { z = casa.mapa.getZoom(); } catch (_) { return; }
-    const min = muitas && z < PINOS_ZOOM_CORTE;
-    casa.pinos.forEach((marcador) => {
-      let el;
-      try { el = marcador.getElement(); } catch (_) { return; }
-      el.classList.toggle('min', min);
-    });
   }
 
   /* ---- O ENQUADRAMENTO DO MAPA 2D --------------------------------------------
@@ -376,14 +375,20 @@
      e o mesmo desarme que o gesto faz. Sem ela, provar a régua dos 30 m exigiria
      um carro de verdade — e o que ela expõe é o que a tela já mostra. */
   window.HBXMapa2D = {
-    zoom() { const c = GARAGEM.get('geral'); try { return c && c.mapa ? c.mapa.getZoom() : null; } catch (_) { return null; } },
+    zoom() { const c = GARAGEM.get(PALCO); try { return c && c.mapa ? c.mapa.getZoom() : null; } catch (_) { return null; } },
     dedo() { soltarPlano(); },
   };
   /** e o enquadramento (rota nova ou dedo no botão) devolve a régua zerada */
   function rearmarPlanoZoom() { planoSolto = false; planoZoomPassos = 0; planoZoomAncora = null; }
 
-  function enquadrarGeral(casa) {
-    if (!casa || casa.nome !== 'geral') return;
+  /* 🔴 A MOLDURA VIROU CONTA, E APLICAR VIROU OUTRA COISA (16/08). Era uma
+     função só que MEDIA e MANDAVA no mesmo fôlego, com `fitBounds` de duração
+     zero — e por isso a vista de cima só sabia CHEGAR de tranco. A conta agora
+     mora em `molduraDoPlano` (45-troca-de-modo.js) e volta como pose; quem manda
+     é o `easeTo` daqui, que aceita duração. Com 0 é o pulo de sempre; com ms é a
+     SUBIDA da Panorâmica, sem uma linha de efeito novo. */
+  function enquadrarGeral(casa, ms) {
+    if (!casa || casa.nome !== PALCO) return;
     /* Enquadrar é o RECOMEÇO da régua dos 30 m, nas quatro portas que chegam
        aqui (mapa nascendo, 1º fix, rota mudou, dedo no botão). Sim: marcar uma
        entrega muda a digital dos pinos e devolve o dia inteiro, jogando fora a
@@ -392,43 +397,27 @@
        aproximar sozinhos. O contrário (guardar zoom por cima de um
        enquadramento) seria a câmera com duas vontades. */
     rearmarPlanoZoom();
-    // a MESMA lista dos pinos (§ paradasDoMapa): sem rota montada ela vem
-    // vazia, e a moldura passa a ser só o motorista — enquadrar uma rota que
-    // ninguém montou levaria a câmera pra um dia que não existe.
-    const pontos = paradasDoMapa().map((p) => [Number(p.lng), Number(p.lat)]);
-    // mesma régua das paradas (§ paradasDoMapa): fix zerado é ponto no oceano,
-    // e um só deles estica a moldura do dia inteiro pra outro continente.
-    const eu = ultimaPos || ultimoFix;
-    if (eu && pinoValido(eu.lat, eu.lng)) pontos.push([eu.lng, eu.lat]);
+    const alvo = molduraDoPlano(casa);
     // Sem um ponto sequer não há o que enquadrar — e a câmera fica onde está.
     // Pular pra lugar nenhum seria o mapa "corrigindo" pro meio do oceano.
-    if (!pontos.length) return;
-    const achatar = () => {
-      /* 🔴 2D É REQUISITO, NÃO PREFERÊNCIA. Dois dedos inclinam e giram qualquer
-         mapa do maplibre; enquadrar tem que DEVOLVER a vista de cima, senão o
-         botão devolve o dia numa perspectiva que esta tela não deveria ter. */
-      try {
-        if (casa.mapa.getPitch() || casa.mapa.getBearing()) casa.mapa.jumpTo({ pitch: 0, bearing: 0 });
-      } catch (_) { /* mapa saindo de cena */ }
-    };
-    if (pontos.length === 1) {
-      try { casa.mapa.jumpTo({ center: pontos[0], zoom: 15 }); } catch (_) { return; }
-      achatar();
-      return;
-    }
-    const o = pontos[0].slice(); const n = pontos[0].slice();
-    pontos.forEach((c) => {
-      o[0] = Math.min(o[0], c[0]); o[1] = Math.min(o[1], c[1]);
-      n[0] = Math.max(n[0], c[0]); n[1] = Math.max(n[1], c[1]);
-    });
-    try {
-      casa.mapa.fitBounds([o, n], { padding: PLANO_PAD, maxZoom: PLANO_ZOOM_TETO, duration: 0 });
-    } catch (_) { return; }
-    achatar();
+    if (!alvo) return;
+    porNoPlano(casa, alvo, ms);
+  }
+
+  /* 🔴 2D É REQUISITO, NÃO PREFERÊNCIA. Dois dedos inclinam e giram qualquer
+     mapa do maplibre; enquadrar tem que DEVOLVER a vista de cima — e é por isso
+     que `pitch:0`/`bearing:0` viajam SEMPRE no passo, em vez de um `jumpTo`
+     achatando depois: no meio de uma subida animada, achatar por fora seria o
+     segundo dono da câmera no mesmo movimento. */
+  function porNoPlano(casa, alvo, ms) {
+    const dur = Number(ms) > 0 ? Number(ms) : 0;
+    const passo = { center: alvo.center, zoom: alvo.zoom, pitch: 0, bearing: 0, duration: dur };
+    if (dur) passo.easing = suave;
+    try { casa.mapa.easeTo(passo); } catch (_) { /* mapa saindo de cena */ }
   }
 
   /** o botão da beirada do mapa 2D: devolve a rota inteira pra tela */
-  function enquadrarPlano() { enquadrarGeral(GARAGEM.get('geral')); }
+  function enquadrarPlano() { enquadrarGeral(GARAGEM.get(PALCO)); }
 
   /* 🔴 "ONDE EU ESTOU" NÃO É UM CARIMBO DE BOOT. O marcador do mapa 2D era
      criado UMA vez, no `load` do mapa, com a posição daquele instante — e nunca
@@ -489,7 +478,7 @@
   }
 
   function moverEuNoPlano() {
-    const casa = GARAGEM.get('geral');
+    const casa = GARAGEM.get(PALCO);
     const eu = ultimaPos || ultimoFix;
     if (!casa || !eu || !Number.isFinite(eu.lat) || !Number.isFinite(eu.lng)) return;
     if (!casa.eu) {
@@ -514,7 +503,7 @@
     // o ponto andou; o halo e o farol contam o fix NOVO — precisão velha
     // desenhada em cima de posição nova é a tela mentindo devagar.
     vestirEu(casa);
-    aproximarAoAndar(casa, eu);
+    acompanharNoPlano(casa, eu);
   }
 
   /* A régua dos 30 m, aplicada no ÚNICO lugar do palco 2D que roda a cada fix.
@@ -523,47 +512,47 @@
        · só com a rota NA RUA — parado na garagem, ou com o dia só montado, não
          há viagem pra acompanhar e mexer na câmera seria cromo;
        · só se o dedo não tiver pegado o mapa (`planoSolto`);
-       · e só até o teto de acúmulo.
+       · e só até o teto de acúmulo — o de ZOOM.
      `metrosEntre` é MÓDULO (Haversine, sem sinal): ir 30 m e voltar 30 m conta
      como andar. Aqui isso é o comportamento certo — quem manobrou na rua também
      saiu do lugar; o que a régua precisa excluir é o TREMOR parado, e 30 m é
-     ordem de grandeza muito acima dele (o erro típico do fix é 3–20 m). */
-  function aproximarAoAndar(casa, eu) {
+     ordem de grandeza muito acima dele (o erro típico do fix é 3–20 m).
+
+     🔴 APROXIMAR E ACOMPANHAR SÃO DOIS VERBOS (16/08 — dono: *"visual 2d: deve
+     aproximar, e acompanhar bem feito"*). Eram um só, e o teto de acúmulo do
+     PRIMEIRO desligava o SEGUNDO: gastos os dois passos de zoom, o `return` no
+     topo matava também o recentrar, e o motorista saía andando pra fora de um
+     mapa parado no quarteirão de dez minutos atrás. Hoje o teto apara só o
+     zoom; o centro continua vindo atrás dele o dia inteiro, a cada 30 m. */
+  function acompanharNoPlano(casa, eu) {
+    /* 🔴 UM DONO POR ESTADO (16/08, pego pelo portão `prova-navegar` 1.8 assim
+       que o palco virou um só): dirigindo, quem manda na câmera é
+       `cameraDaNavegacao` — e esta régua, que roda no MESMO mapa a cada fix,
+       passou a mandar um `easeTo` por cima do dele no mesmo tique. Com dois
+       mapas isso era inofensivo (cada um no seu); com um, são duas bocas na
+       mesma câmera, que é a lei mais antiga desta tela. A régua dos 30 m é do
+       2D e só do 2D. */
+    if (naNavegacao()) return;
     if (typeof rotaNaRua === 'function' && !rotaNaRua()) return;
-    if (planoSolto || planoZoomPassos >= PLANO_ZOOM_PASSOS_TETO) return;
+    if (planoSolto) return;
     if (!planoZoomAncora) { planoZoomAncora = { lat: eu.lat, lng: eu.lng }; return; }
     if (metrosEntre(planoZoomAncora, eu) < PLANO_ANDOU_M) return;
     planoZoomAncora = { lat: eu.lat, lng: eu.lng };
     try {
-      const alvo = Math.min(casa.mapa.getZoom() + PLANO_ZOOM_PASSO, PLANO_ZOOM_TETO);
-      // Já no teto de zoom do enquadramento: gasta o orçamento de uma vez, senão
-      // a régua tentaria de novo a cada 30 m pelo resto do dia.
-      if (alvo <= casa.mapa.getZoom() + 0.001) { planoZoomPassos = PLANO_ZOOM_PASSOS_TETO; return; }
-      planoZoomPassos += 1;
       // `easeTo` e não `jumpTo`: a tela está na mão de quem dirige, e salto de
       // meio nível sem transição lê como falha de render.
-      casa.mapa.easeTo({ center: [eu.lng, eu.lat], zoom: alvo, duration: 620 });
+      const passo = { center: [eu.lng, eu.lat], duration: 620 };
+      if (planoZoomPassos < PLANO_ZOOM_PASSOS_TETO) {
+        const alvo = Math.min(casa.mapa.getZoom() + PLANO_ZOOM_PASSO, PLANO_ZOOM_TETO);
+        // Já no teto de zoom do enquadramento: gasta o orçamento de uma vez, senão
+        // a régua tentaria de novo a cada 30 m pelo resto do dia.
+        if (alvo <= casa.mapa.getZoom() + 0.001) planoZoomPassos = PLANO_ZOOM_PASSOS_TETO;
+        else { planoZoomPassos += 1; passo.zoom = alvo; }
+      }
+      casa.mapa.easeTo(passo);
     } catch (_) { /* mapa saindo de cena */ }
   }
 
-  /* 🔴 PINO FORA DA TELA NÃO É PINO — é enfeite encostado na moldura. Com a
-     câmera de dirigir inclinada, parada a 7,9 km projeta ALÉM do horizonte e o
-     maplibre planta o marcador na beirada: foi o "1 2 3 4" enfileirado na
-     direita que o dono viu. Ele não diz onde a parada está — diz só que ela
-     não cabe. Some. (Só no palco "gps": no mapa "geral" a moldura é a rota
-     inteira, e ali todo pino está, por construção, dentro da tela.) */
-  function pinosVisiveis(casa) {
-    if (!casa || casa.nome !== 'gps') return;
-    let larg; let alt;
-    try { const c = casa.mapa.getContainer(); larg = c.clientWidth; alt = c.clientHeight; }
-    catch (_) { return; }
-    casa.pinos.forEach((marcador) => {
-      let p;
-      try { p = casa.mapa.project(marcador.getLngLat()); } catch (_) { return; }
-      const dentro = p && p.x >= -18 && p.x <= larg + 18 && p.y >= 0 && p.y <= alt + 18;
-      marcador.getElement().style.visibility = dentro ? '' : 'hidden';
-    });
-  }
 
   /* ==========================================================================
      7a-bis. A CENA DAS RUAS — o mapa se desenhando.

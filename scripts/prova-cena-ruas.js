@@ -182,7 +182,7 @@ const GRAVAR = (ondas) => {
   window.__fita = [];
   window.__gravando = true;
   // (a luz verde da abertura é carimbada lá na ARMADILHA, antes do boot)
-  const palco = () => document.querySelector('.mapa-palco[data-mapa="geral"]');
+  const palco = () => document.querySelector('.mapa-palco[data-mapa="rota"]');
   const dado = (m, id) => {
     try {
       const s = m.getSource(id);
@@ -640,7 +640,7 @@ const ultimo = (fita, cond) => { const q = [...fita].reverse().find(cond); retur
         cena: janela.some((q) => q.camadas > 0),
         quadros: janela.length,
         pico: Math.max(0, ...janela.map((q) => q.camadas)),
-        temPalco: !!document.querySelector('.mapa-palco[data-mapa="geral"]'),
+        temPalco: !!document.querySelector('.mapa-palco[data-mapa="rota"]'),
       };
     });
     eh('5.1 a cena NAO toca fora da tela do mapa', !fora.cena,
@@ -668,7 +668,7 @@ const ultimo = (fita, cond) => { const q = [...fita].reverse().find(cond); retur
     const { ctx, p } = await abrir(navegador, pele, porta, { itens: [], luz: 'claro' });
     await p.waitForFunction(() => (window.__fita || []).some((q) => q.gs.some((g) => g !== null && g > 0)), null, { timeout: 9000 }).catch(() => {});
     const cor = await p.evaluate(() => {
-      const palco = document.querySelector('.mapa-palco[data-mapa="geral"]');
+      const palco = document.querySelector('.mapa-palco[data-mapa="rota"]');
       const m = palco && palco.__hbxMapaObj;
       let g = null;
       for (let i = 0; i < 7 && m; i += 1) {

@@ -173,7 +173,7 @@ async function abrir(navegador, pele, porta, { itens, permissao, luz, routeStatu
 
 /** o que a tela mostra do mapa, medido */
 const LER = () => {
-  const palco = document.querySelector('.mapa-palco[data-mapa="geral"]');
+  const palco = document.querySelector('.mapa-palco[data-mapa="rota"]');
   const cx = palco ? palco.getBoundingClientRect() : null;
   const cai = (r) => !!cx && r.width > 0 && r.height > 0
     && r.x >= cx.x - 40 && r.x + r.width <= cx.x + cx.width + 40
@@ -381,7 +381,7 @@ const RESOLVER = (valor) => {
     const ordem = await p.evaluate(() => {
       const vendor = document.getElementById('maplibre-css');
       const casa = document.querySelector('link[rel="stylesheet"]:not(#maplibre-css)');
-      const alvo = document.querySelector('.mapa-palco[data-mapa="geral"] > .mapa-vivo');
+      const alvo = document.querySelector('.mapa-palco[data-mapa="rota"] > .mapa-vivo');
       const r = alvo ? alvo.getBoundingClientRect() : null;
       return {
         antes: !!(vendor && casa
@@ -463,9 +463,23 @@ const RESOLVER = (valor) => {
     const a = await p.evaluate(LER);
     eh('3.0 a tela abre em zoom-cidade', a.zoom !== null && a.zoom < 13.6, `zoom=${a.zoom}`);
     eh('3.1 cinquenta paradas => cinquenta pinos', a.pinos.length === 50, `${a.pinos.length} pinos`);
-    eh('3.2 zoom-cidade: TODOS rebaixados (nada de 50 bolas de 26px)',
-      a.pinos.length === 50 && a.pinos.every((x) => x.min),
-      `rebaixados=${a.pinos.filter((x) => x.min).length}/50`);
+    /* 🔴 A RÉGUA VIROU POR PINO (16/08 — dono: *"cadê os pontos, os 'V'? as
+       numerações?"*). Era "mais de 12 paradas e zoom abaixo de 13,6 ⇒ TODOS
+       viram ponto", e foi ela que apagou a numeração do dia inteiro do dono.
+       Hoje cada pino responde pelo próprio espaço: quem tem vizinho a menos de
+       24 px vira ponto; quem tem rua sozinha continua dizendo quem é.
+       Nesta semente isso é MEDIDO e conferível na mão: 49 das 50 paradas têm
+       vizinho a 151 m (2,9 px no zoom 11,4 desta tela) e a `e0` está a 6,8 km
+       da mais próxima (130 px). Então o certo é 49 pontos e UM numerado — e é
+       essa a diferença entre "declutter" e "apagar informação". */
+    const amontoado = a.pinos.filter((x) => x.id !== 'e0');
+    const sozinho = a.pinos.find((x) => x.id === 'e0');
+    eh('3.2 zoom-cidade: o AMONTOADO vira ponto (nada de 50 bolas de 30px)',
+      a.pinos.length === 50 && amontoado.length === 49 && amontoado.every((x) => x.min),
+      `rebaixados=${a.pinos.filter((x) => x.min).length}/50 · de pe: ${a.pinos.filter((x) => !x.min).map((x) => `${x.id}"${x.txt}"`).join(',') || '-'}`);
+    eh('3.2b e quem tem rua sozinha CONTINUA numerado (a e0, 6,8 km do vizinho)',
+      !!sozinho && !sozinho.min && sozinho.txt === '1',
+      sozinho ? `min=${sozinho.min} texto="${sozinho.txt}"` : 'nao achou a e0');
     eh('3.3 o rebaixado continua LEGIVEL (>=12px, com anel proprio)',
       a.pinos.every((x) => x.w >= 12 && x.h >= 12),
       a.pinos[0] ? `${a.pinos[0].w}x${a.pinos[0].h}` : '-');
@@ -474,7 +488,7 @@ const RESOLVER = (valor) => {
       `dentro=${a.pinos.filter((x) => x.dentro).length}/50`);
     // aproximar devolve o numero
     await p.evaluate(() => {
-      document.querySelector('.mapa-palco[data-mapa="geral"]').__hbxMapaObj.setZoom(15);
+      document.querySelector('.mapa-palco[data-mapa="rota"]').__hbxMapaObj.setZoom(15);
     });
     await p.waitForTimeout(700);
     const b = await p.evaluate(LER);
@@ -498,7 +512,7 @@ const RESOLVER = (valor) => {
     const itens = [0, 1, 2].map(paradaFalsa);
     const { ctx, p } = await abrir(navegador, pele, porta, { itens, permissao: true });
     await p.evaluate(() => {
-      const palco = document.querySelector('.mapa-palco[data-mapa="geral"]');
+      const palco = document.querySelector('.mapa-palco[data-mapa="rota"]');
       const mapa = palco.__hbxMapaObj;
       const cena = palco.parentElement;
       const c = mapa.getCenter();
@@ -522,7 +536,7 @@ const RESOLVER = (valor) => {
     });
     await p.waitForTimeout(450);
     const m6a = await p.evaluate(() => {
-      const cena = document.querySelector('.mapa-palco[data-mapa="geral"]').parentElement;
+      const cena = document.querySelector('.mapa-palco[data-mapa="rota"]').parentElement;
       const todos = [...cena.querySelectorAll('.emp[data-lat]')];
       const r = {
         aDentro: todos.filter((e) => e.style.visibility !== 'hidden').length,
@@ -530,7 +544,7 @@ const RESOLVER = (valor) => {
         aposPrimeira: window.__proj,
       };
       window.__proj = 0;
-      const mapa = document.querySelector('.mapa-palco[data-mapa="geral"]').__hbxMapaObj;
+      const mapa = document.querySelector('.mapa-palco[data-mapa="rota"]').__hbxMapaObj;
       for (let i = 0; i < 30; i += 1) mapa.fire('move');
       return r;
     });
@@ -542,7 +556,7 @@ const RESOLVER = (valor) => {
       // e devolve 0: o conferidor medindo a si mesmo, de novo).
       const marcados = [...document.querySelectorAll('.map-pino')];
       marcados.forEach((e, i) => { e.__id = 'p' + i; });
-      const mapa = document.querySelector('.mapa-palco[data-mapa="geral"]').__hbxMapaObj;
+      const mapa = document.querySelector('.mapa-palco[data-mapa="rota"]').__hbxMapaObj;
       const c = mapa.getCenter();
       /* PARADAS e const de SCRIPT (nao mora no window; "o identificador NU
          funciona", licao do depurador de 08/08) — entao se MUTA, nunca se

@@ -519,6 +519,10 @@
      repinte não muda `telaAtual`, então isto não dispara duas descidas. */
   let telaVistaAqui = null;
   const observador = new MutationObserver(() => {
+    // o gesto da troca de modo, decidido na virada de tela e executado depois do
+    // transplante (§ mais abaixo). Nasce e morre DENTRO desta passada: gesto que
+    // sobrevive ao repinte é câmera se mexendo fora de hora.
+    let trocando = null;
     // a FASE da câmera antes do mapa: `montarMapa` já manda a câmera pro lugar,
     // e ela precisa saber que a tela está entrando (2D) e não dirigindo (3D).
     if (telaAtual() !== telaVistaAqui) {
@@ -539,6 +543,15 @@
          era exatamente o defeito que a exceção original existia pra matar. */
       if (telaVistaAqui === 'mapa') {
         if (veioDe === 'venda' || veioDe === 'folha' || veioDe === 'folhanao') { camFase = 'dirigindo'; pedirCamera(); }
+        /* 🔴 VOLTAR DA PANORÂMICA TAMBÉM NÃO É ENTRAR NA ROTA (16/08). Caía no
+           `entrarNaDescida` — a coreografia de quem chega pela primeira vez:
+           cena das ruas + 400 ms de vista de cima + 1,8 s de descida, MEDIDOS
+           no g15 como 3 s de tela parada antes de a câmera se mexer. É a mesma
+           exceção de 'venda'/'folha' logo acima, pelo mesmo motivo (a cidade já
+           nasceu) — só que aqui a câmera TEM que voltar, porque ela subiu. A
+           pose do 2D é guardada agora, antes de o mapa ser estacionado, e a
+           descida acontece depois do transplante (§ `descerDoPlano`). */
+        else if (veioDe === 'rota') { trocando = 'descer'; }
         else entrarNaDescida();
       } else if (veioDe === 'mapa' && telaVistaAqui === 'rota') {
         /* 🔴 A VOLTA GANHOU O GESTO QUE A IDA SEMPRE TEVE (16/08 — dono:
@@ -554,14 +567,34 @@
               `chamarCena` e o efeito nasceria intermitente.
            3. `pedirCena('rota')` — o motivo 'rota' JÁ existe, JÁ aponta pro palco
               'geral' e JÁ tem ritmo próprio declarado. Quem toca é o transplante,
-              quando o palco de cima aparece. */
-        pararDescida(520);
+              quando o palco de cima aparece.
+           🔴 E A SUBIDA MUDOU DE MAPA (16/08, depois de VER a troca gravada no
+           g15): subir o mapa que SAI é subir dentro de uma camada que está
+           desaparecendo — invisível — enquanto o mapa que ENTRA aparece na
+           câmera de outro lugar. Corte seco, que é a "travação" do dono. Agora o
+           que sai fica PARADO (as duas camadas pintam a mesma imagem no
+           cruzamento) e quem sobe é quem entra, a partir da pose guardada
+           aqui (§ `subirNoPlano`). */
+        pararDescida();
         if (typeof encerrarCena === 'function' && typeof cena !== 'undefined' && cena) encerrarCena('saida', true);
-        pedirCena('rota');
+        /* o `pedirCena('rota')` que morava aqui foi pro fim do movimento
+           (§ `subirNoPlano`): pedido no instante da troca punha a cena nascendo
+           POR CIMA da subida, e a ordem do dono diz "AO ASSENTAR". */
+        trocando = 'subir';
       } else pararDescida();
     }
     const palco = naCamada('[data-mapa]');
     if (palco) montarMapa(palco);
+    /* 🔴 A CÂMERA DA TROCA VEM DEPOIS DO TRANSPLANTE, e essa ordem é a diferença
+       entre mover o mapa e mover o mapa NO LUGAR CERTO: antes do `montarMapa` o
+       palco que entra ainda não tem mapa nenhum, e o mapa que vai receber a
+       ordem ainda está na garagem, com o tamanho DELA — o recuo do puck e a
+       moldura sairiam calculados contra uma caixa que ninguém vê. */
+    if (trocando) {
+      const gesto = trocando;
+      trocando = null;
+      if (gesto === 'subir') subirNoPlano(); else descerDoPlano();
+    }
     // 🔴 A PORTA ÚNICA DO CARTÃO "VOCÊ CHEGOU" (LOTE 3, 15/08). Cobre volta de
     // Ajustes/Chat/folha, chegada recebida noutra tela (guardada em `chegada`
     // sem ter montado ainda) e o app subindo com a pendência já carimbada. A

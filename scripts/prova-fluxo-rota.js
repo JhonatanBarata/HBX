@@ -201,7 +201,16 @@ const PONTE = ({
          (todas as cenas comparam rota por igualdade), mas quem precisa provar
          que um GET saiu SEM recorte — o `custo-preview` da cena P — não tem
          outro lugar pra olhar: o `deliveryIds` dele viaja na URL. */
-      window.__chamadas.push([metodo, String(caminho).split('?')[0], corpo, String(caminho)]);
+      /* O 5º campo é O VÉU NO INSTANTE DA CHAMADA (16/08). Amostrar o
+         `.veu-montar` por relógio não mede nada contra um dublê que responde em
+         microtask — a corrente inteira nasce e morre entre duas leituras do
+         Playwright (medido: 42 amostras de 120 ms, todas zero, com o véu tendo
+         existido de verdade). Carimbar aqui é medir NO EVENTO: o que a cena
+         precisa provar é que entre o toque e a rota na rua não houve UMA
+         chamada com a tela livre — que é onde caberia o 2º toque que o dono
+         mandou matar. */
+      window.__chamadas.push([metodo, String(caminho).split('?')[0], corpo, String(caminho),
+        !!document.querySelector('.veu-montar')]);
       const q = (nome) => {
         const m = new RegExp(`[?&]${nome}=([^&]*)`).exec(caminho);
         return m ? decodeURIComponent(m[1]) : '';
@@ -374,7 +383,24 @@ const PONTE = ({
         };
         if (S.routeId && ref === `route:${S.routeId}`) {
           const presas = presasNaRota();
-          if (presas.length) return R({ ok: true, resumo: { canceladas: esvaziar(presas) } });
+          if (presas.length) {
+            const n = esvaziar(presas);
+            /* 🔴 O DUBLÊ ESQUECIA DE ENCERRAR A ROTA NESTE RAMO (16/08). O
+               servidor real carimba `operationalEndedAt` na rota VIVA ao
+               cancelar (`logistica-rota-continuidade.service`, provado em
+               `logistica-rota-continuidade.service.test.ts`, FURO 4: "a rota
+               VIVA realmente fica ENCERRADA depois do cancelar") e o
+               `/logistica/rota` passa a reportar `routeStatus:'ENCERRADA'`
+               (logistica-admin-route-view.service.ts:72). Aqui o status ficava
+               como estava — e com uma rota ACTIVE isso vestia o dia cancelado
+               de rota na rua ("Dirigindo" no dock). O ramo de baixo já fazia a
+               metade certa disto; faltava esta. Só apareceu quando o Montar
+               passou a deixar a rota ACTIVE: antes deste lote todo cancelar
+               desta cena caía sobre uma PLANNED e o defeito não tinha como
+               falar. */
+            S.routeStatus = 'ENCERRADA';
+            return R({ ok: true, resumo: { canceladas: n } });
+          }
           const havia = abertas().length;
           if (!havia) return R({ ok: true, resumo: { canceladas: 0 } });
           const n = esvaziar(abertas());
@@ -705,7 +731,10 @@ const SO_MEDIR = process.argv.includes('--antes');
     portaoCorpo: (document.querySelector('.portao .corpo') || {}).innerHTML || '',
     portaoBotoes: [...document.querySelectorAll('.portao-wrap button')].map((e) => e.textContent.trim()),
     aviso: (document.querySelector('.aviso-card strong, .aviso strong') || {}).textContent || '',
-    dock: (document.querySelector('.tmx-main b, .tmx-main .rot') || {}).textContent || '',
+    // 16/08 — o rotulo do meio saiu de DENTRO do botao (era `<b>`) e virou o
+    // `<small>` de fora, igual ao dos sateites: o botao hoje so tem o icone.
+    // O `<b>` fica na lista por seguranca, mas quem responde e o `small`.
+    dock: (document.querySelector('.tmx-main small, .tmx-main b, .tmx-main .rot') || {}).textContent || '',
     entregasNoServidor: window.__S.entregas.length,
     routeStatus: window.__S.routeStatus,
     // cena V/W: quantas vezes o dia foi REGISTRADO, e as peças do fim.
@@ -717,7 +746,12 @@ const SO_MEDIR = process.argv.includes('--antes');
     // os dois espioes abaixo sao ESCOPADOS: sem escopo, `[data-acao=fechar-dia]`
     // passou a casar em dois lugares e o querySelector pegaria o primeiro do
     // DOM — a prova mediria o satelite achando que media a tela.
-    temEncerrarDia: document.querySelectorAll('.tmx-sat [data-acao="fechar-dia"]').length,
+    // 🔴 E NO MESMO DIA ELE MUDOU DE FILEIRA (ordem do dono): saiu do dock e
+    // virou o cadeado da COLUNA lateral, que e a mesma peca nos dois modos
+    // (`.plano-lado` no 2D, `.gps-lado` no 3D). O escopo acompanha o botao —
+    // continua escopado pela mesma razao, so que no lugar onde ele mora hoje.
+    temEncerrarDia: document.querySelectorAll(
+      '.plano-lado [data-acao="fechar-dia"], .gps-lado [data-acao="fechar-dia"]').length,
     // O `dock` acima lê só o botão do MEIO; o rótulo do satélite mora no <small>
     // ao lado dele, e é ele que o dono lê na tela.
     satelites: [...document.querySelectorAll('.tmx-sat small')].map((e) => e.textContent.trim()),
@@ -1420,13 +1454,40 @@ const SO_MEDIR = process.argv.includes('--antes');
   await zerar();
   await p.waitForSelector('.pe-montagem [data-acao="montar-agora"], .pe-montagem [data-acao="iniciar-rota"]', { timeout: 8000 });
   await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="montar-agora"], .pe-montagem [data-acao="iniciar-rota"]').click());
-  await p.waitForTimeout(2800);
-  /* 🔴 UM STATUS SÓ (dono, 11/08: "quero um status só, mesma tela"): o montar
-     POUSA na tela da rota, onde mora o "Iniciar" único do dock. A leitura do
-     pouso vem ANTES de voltar pra Montagem medir o resto. */
+  await p.waitForTimeout(4000);
+  /* 🔴 O VÉU É UM SÓ, E ISSO SE MEDE NO EVENTO (dono, 16/08, com as duas fotos
+     do g15 na mão: *"clicou em montar rota, já carrega tudo q tem q carregar no
+     loading; quando entrar no mapa, já é a visão 2d. TUDO TEM Q SER CARREGADO
+     ALI"*). O que ele viu foram DOIS carregamentos com a mesma cara: o do
+     Montar e, depois do pouso, o do Iniciar — que veste o MESMO "Montando…"
+     porque a bandeira do seam é uma só (`DADOS.rota.montando`).
+     A régua é o 5º campo do `__chamadas` (ver o carimbo no dublê): da 1ª
+     chamada até o `rota/iniciar`, TODA ida ao servidor tem que ter acontecido
+     com o véu de pé. Uma chamada com a tela livre é a janela em que o app
+     devolvia o dedo pro motorista — e é justamente ela que este lote matou. */
+  const chamadasM = await p.evaluate(() => window.__chamadas.map((c) => [c[1], c[4] ? 1 : 0]));
+  const ateIniciarM = chamadasM.slice(0, chamadasM.map((c) => c[0]).lastIndexOf('/logistica/rota/iniciar') + 1);
+  const semVeuM = ateIniciarM.filter((c) => !c[1]).map((c) => c[0]);
+  /* A leitura do pouso vem ANTES de voltar pra Montagem medir o resto. */
   const tMr = await espiar();
-  eh('M7a · montar POUSA na rota com o dock "Iniciar" (um status so)',
-    tMr.tela === 'rota' && /Iniciar/i.test(tMr.dock), `tela=${tMr.tela} dock="${tMr.dock}"`);
+  const iniciarNoMontarM = await postsDe('/logistica/rota/iniciar');
+  nota(`[M] veu por chamada ate o iniciar: ${ateIniciarM.map((c) => `${c[0]}=${c[1]}`).join(' ') || '(nenhuma)'}`);
+  nota(`    pouso: tela=${tMr.tela} · status=${tMr.routeStatus} · dock="${tMr.dock}" · POSTs de iniciar=${iniciarNoMontarM.length}`);
+  /* 🔴 A LEI NOVA (16/08) SUBSTITUI A DE 11/08 ("montar pousa na rota com o
+     dock Iniciar"). O "um status só" continua de pé — o que mudou é QUAL: o
+     dono decidiu que o pouso já é o dia RODANDO, e o 2D é o modo iniciado
+     (ordem dele no mesmo dia: *"eu já montei a rota, não tenho q clicar em
+     iniciar se o 2d já é um modo iniciado"*). Dock de rota na rua =
+     Cancelar · Dirigindo · Encerrar dia; "Iniciar" ali seria o segundo toque
+     que este lote matou. */
+  eh('M7a · montar POUSA na rota com o dia JA RODANDO (o 2o carregamento morreu)',
+    tMr.tela === 'rota' && tMr.routeStatus === 'ACTIVE' && !/Iniciar/i.test(tMr.dock),
+    `tela=${tMr.tela} status=${tMr.routeStatus} dock="${tMr.dock}"`);
+  eh('M7b · quem iniciou foi o PROPRIO montar — um toque, um POST de iniciar',
+    iniciarNoMontarM.length === 1, `POSTs de iniciar no montar=${iniciarNoMontarM.length}`);
+  eh('M7c · UM carregamento so: nenhuma ida ao servidor com a tela livre, ate a rota sair',
+    ateIniciarM.length > 0 && semVeuM.length === 0,
+    `chamadas ate o iniciar=${ateIniciarM.length} · sem veu: ${semVeuM.join(',') || '(nenhuma)'}`);
   // quem VOLTA à Montagem ainda encontra o dia aceso e o pé de "Iniciar rota"
   await irPara('montagem', 2200);
   const tM1 = await espiar();
@@ -1461,31 +1522,38 @@ const SO_MEDIR = process.argv.includes('--antes');
     postsM.indexOf('/logistica/mobile/materialize') < 0 && agendaIntocadaM,
     `posts=${postsM.join(',')} intocada=${agendaIntocadaM}`);
   /* O chip fica ACESO de propósito: a lista na tela é exatamente a rota que
-     acabou de nascer. Apagar o dia aqui trocaria a lista por baixo do dedo —
-     e o pé diria "Iniciar" sobre uma lista que não é mais a que ele montou. */
-  eh('M7 · o dia continua aceso e o pe virou "Iniciar rota"',
-    /Iniciar/i.test(tM1.pe) && tM1.chips.some((c) => c[1] === 1), `pe="${tM1.pe}" chips=${JSON.stringify(tM1.chips)}`);
+     acabou de nascer. Apagar o dia aqui trocaria a lista por baixo do dedo.
+     🔴 O QUE MUDOU EM 16/08 É O VERBO. Enquanto o Montar parava na rota
+     montada, o pé virar "Iniciar rota" era a verdade — faltava sair. Agora o
+     Montar já leva o dia até a rua, e um "Iniciar" verde sobre uma rota ACTIVE
+     é botão que mente. Rodando, o que sobra é REMONTAR. */
+  eh('M7 · o dia continua aceso e o pe NAO oferece "Iniciar" sobre rota que ja saiu',
+    !/Iniciar/i.test(tM1.pe) && tM1.chips.some((c) => c[1] === 1),
+    `pe="${tM1.pe}" chips=${JSON.stringify(tM1.chips)}`);
   eh('M8 · a lista continua sendo a mesma gente do dia escolhido', tM1.nStops === 2, `stops=${tM1.nStops}`);
 
-  await zerar();
-  /* 🔴 O PÉ QUE NÃO VIRA "INICIAR" É UM ACHADO, NÃO UM CRASH. Antes do fix o
-     `waitForSelector` estourava aqui e levava junto as 9 medidas de cima — a
-     prova escondia o que tinha acabado de medir. Toca no que ESTIVER no pé e
-     deixa as asserções falarem. */
-  await p.waitForSelector('.pe-montagem [data-acao="iniciar-rota"], .pe-montagem [data-acao="montar-agora"]', { timeout: 8000 });
-  await p.evaluate(() => document.querySelector('.pe-montagem [data-acao="iniciar-rota"], .pe-montagem [data-acao="montar-agora"]').click());
-  await p.waitForTimeout(2600);
-  const tM2 = await espiar();
-  const corpoIniciarM = (await postsDe('/logistica/rota/iniciar'))[0] || {};
-  const idsIniciarM = Array.isArray(corpoIniciarM.deliveryIds) ? corpoIniciarM.deliveryIds : [];
+  /* 🔴 O RECORTE DO INICIAR SE MEDE NO POST DO PRÓPRIO MONTAR (16/08). Antes
+     esta parte tocava o pé uma 2ª vez pra fazer o Iniciar acontecer; hoje ele
+     já aconteceu dentro do carregamento único, e é ESSE corpo que vale. Tocar
+     de novo mediria um segundo começo do mesmo dia — coisa que o app agora
+     recusa de propósito (ver a guarda de rota já rodando em `montarRota`). */
+  const idsIniciarM = Array.isArray(iniciarNoMontarM[0] && iniciarNoMontarM[0].deliveryIds)
+    ? iniciarNoMontarM[0].deliveryIds : [];
   const agendaIntocadaM2 = await p.evaluate(() => window.__S.entregas
     .filter((e) => e.id.indexOf('ag') === 0).every((e) => e.rotaOrdem === null || e.rotaOrdem === undefined));
-  nota(`[M] iniciar: deliveryIds=${JSON.stringify(idsIniciarM)} · tela=${tM2.tela} · status=${tM2.routeStatus}`);
+  nota(`[M] iniciar do proprio montar: deliveryIds=${JSON.stringify(idsIniciarM)}`);
   eh('M9 · o Iniciar leva o mesmo RECORTE',
     idsIniciarM.length === 2 && !idsIniciarM.some((id) => String(id).indexOf('ag') === 0), JSON.stringify(idsIniciarM));
-  eh('M10 · a rota do outro dia inicia HOJE e cai na navegacao',
-    tM2.routeStatus === 'ACTIVE' && tM2.tela === 'mapa', `tela=${tM2.tela} status=${tM2.routeStatus}`);
+  eh('M10 · a rota do outro dia inicia HOJE, no mesmo toque',
+    tMr.routeStatus === 'ACTIVE', `status=${tMr.routeStatus}`);
   eh('M11 · e a agenda de hoje segue intocada depois de sair pra rua', agendaIntocadaM2);
+  /* 🔴 A CENA DEVOLVE O CHIP COMO ENCONTROU (16/08). Quem apagava o dia aqui
+     era o 2º toque desta cena (o `iniciarRota` recortado faz `montarDia = -1`),
+     e ele saiu junto com o segundo carregamento. Sem esta linha o chip de "Qua"
+     fica aceso para TODAS as cenas seguintes — e catorze asserções de dock
+     reprovam por herdarem uma tela que nunca foi delas. Estado de tela não é
+     do teste, é do app: quem acende, apaga. */
+  await tocarChip(DIA_B);
 
   /* ===================================================================
      CENA P — A PORTA SUJA: o Iniciar do MAPA não é o da MONTAGEM (10/08).
@@ -1523,8 +1591,11 @@ const SO_MEDIR = process.argv.includes('--antes');
   await zerar();
   const tP0 = await espiar();
   const dockP = await p.evaluate(() => {
+    // 16/08: o rotulo saiu de dentro do botao — ele hoje so tem o icone, e a
+    // palavra e o `<small>` irmao. Ler o textContent do botao devolveria ''.
     const b2 = document.querySelector('.tmx-main button[data-estado]');
-    return b2 ? [b2.dataset.estado, (b2.textContent || '').trim()] : ['(sem dock)', ''];
+    const rot = document.querySelector('.tmx-main small');
+    return b2 ? [b2.dataset.estado, ((rot || {}).textContent || '').trim()] : ['(sem dock)', ''];
   });
   nota(`[P] rota por montar, Montagem nunca aberta: tela=${tP0.tela} · stops=${tP0.nStops} · dock=${JSON.stringify(dockP)}`);
   eh('P0 · o dock do MAPA oferece "Iniciar" no dia por montar',
@@ -1710,9 +1781,16 @@ const SO_MEDIR = process.argv.includes('--antes');
   /* o caminho é o da cena M (dia de OUTRA data): com agenda de HOJE o pé é
      "Iniciar rota" (o Iniciar monta sozinho, cena G) e o toque cairia no GPS —
      o Cancelar desta cena mora no dock da ROTA, onde o montar pousa. */
+  /* 🔴 A CENA GANHOU `routeId` + `stopsPresos` (16/08) porque a PREMISSA dela
+     mudou: desde que o Montar leva o dia até a rua, o que o Cancelar encontra
+     aqui é uma rota ACTIVE com os stops congelados — e rota ACTIVE no servidor
+     de verdade SEMPRE publica `routeId` (logistica-admin-route-view.service.ts:71).
+     Sem isso o dublê ficava num estado que produção nunca produz (ACTIVE sem
+     routeId), o app mandava `draft:` e o ramo errado do cancelar respondia. */
   await cena({
     entregas: [{ id: 'ag1', status: 'agendada', rotaOrdem: null, origem: 'recorrente', cliente: CLI_C5 }],
     agendaHoje: AGENDA_HOJE, mesmaBase: true, custoComoServidor: true,
+    routeId: 'route-u-do-montar', stopsPresos: true,
   });
   await irPara('montagem', 2200);
   await tocarChip(DIA_B);
@@ -1801,22 +1879,32 @@ const SO_MEDIR = process.argv.includes('--antes');
     routeStatus: 'ACTIVE', mesmaBase: true,
   });
   const tV0 = await espiar();
-  nota(`[V] rota na rua: tela=${tV0.tela} · dock="${tV0.dock}" · satelite Encerrar dia=${tV0.temEncerrarDia}`);
-  /* 🔴 V1 MUDOU DE ALVO EM 16/08 (ordem do dono: *"pq o 3d tem encerrar e o 2d
-     nao?"*). O satelite era "Finalizar" e apontava pro `ir-fechamento`, um
-     gancho que so ABRIA a tela — verbo que nao cumpre o proprio nome. Agora ele
-     e "Encerrar dia" e usa o MESMO gancho da tela de Fechamento (`fechar-dia`),
-     que e quem encerra de verdade. A prova cobra o dock inteiro pra o rotulo
-     novo nao passar despercebido. */
-  eh('V1 · o dock da rota na rua tem o "Encerrar dia" no satelite, e ele usa o gancho que ENCERRA',
-    tV0.temEncerrarDia === 1 && tV0.satelites.some((s) => /Encerrar dia/i.test(s))
-      && !tV0.satelites.some((s) => /Finalizar/i.test(s)),
+  nota(`[V] rota na rua: tela=${tV0.tela} · dock="${tV0.dock}" · cadeado Encerrar dia=${tV0.temEncerrarDia} · satelites=${JSON.stringify(tV0.satelites)}`);
+  /* 🔴 V1 MUDOU DE ALVO DUAS VEZES EM 16/08, e a segunda foi de LUGAR. De manha
+     o satelite era "Finalizar" e apontava pro `ir-fechamento`, um gancho que so
+     ABRIA a tela — verbo que nao cumpre o proprio nome; virou "Encerrar dia" no
+     `fechar-dia`, que e quem encerra de verdade. A tarde o dono trocou a fileira
+     dele: encerrar o dia acontece UMA vez e cedeu a vaga do satelite ao
+     Registrar, que e o verbo de toda porta. O cadeado foi pra COLUNA lateral.
+     O que a prova cobra continua sendo o mesmo par — o verbo existe UMA vez e no
+     gancho que ENCERRA —, mas agora tambem cobra que ele nao ficou nos DOIS
+     lugares: dock e coluna ao mesmo tempo e o "botao repetido a 60px de si
+     mesmo" que o proprio mock ja proibiu. */
+  eh('V1 · o Encerrar dia mora na COLUNA (uma vez so) e usa o gancho que ENCERRA',
+    tV0.temEncerrarDia === 1
+      && !tV0.satelites.some((s) => /Encerrar dia|Finalizar/i.test(s)),
     `temEncerrarDia=${tV0.temEncerrarDia} satelites=${JSON.stringify(tV0.satelites)}`);
+  eh('V1a · e o satelite que ele deixou vago virou o Registrar',
+    tV0.satelites.some((s) => /Registrar/i.test(s)),
+    `satelites=${JSON.stringify(tV0.satelites)}`);
+  /* O verbo do meio nao pode voltar a prometer navegacao que ja esta
+     acontecendo ("Navegar" era `ir('mapa')` e mais nada). "Direcao" e o rotulo
+     de 16/08 e diz o que o toque FAZ: troca a camera. */
   eh('V1b · e o verbo do meio deixou de prometer navegacao que ja esta acontecendo',
-    /Dirigindo/i.test(tV0.dock) && !/Navegar/i.test(tV0.dock), `dock="${tV0.dock}"`);
+    /Dire[çc][ãa]o/i.test(tV0.dock) && !/Navegar/i.test(tV0.dock), `dock="${tV0.dock}"`);
   await zerar();
   const achouFimV = await p.evaluate(() => {
-    const x = document.querySelector('.tmx-sat [data-acao="fechar-dia"]');
+    const x = document.querySelector('.plano-lado [data-acao="fechar-dia"]');
     if (x) { x.click(); return true; }
     return false;
   });
@@ -1834,14 +1922,14 @@ const SO_MEDIR = process.argv.includes('--antes');
      hoje ele PERGUNTA e nao navega — o dia so acaba depois do "Encerrar dia" do
      portao. O que continua igual e a promessa de dinheiro: nenhum POST de fim
      de dia sai do primeiro toque. */
-  eh('V2 · o Encerrar dia do dock ABRE O PORTAO e nao fecha nada sozinho',
+  eh('V2 · o Encerrar dia da coluna ABRE O PORTAO e nao fecha nada sozinho',
     achouFimV && /Encerrar o dia\?/i.test(tV1.portao) && !postsV1.some((x) => FIM_DO_DIA.indexOf(x) >= 0),
     `tela=${tV1.tela} portao="${tV1.portao}" posts=${postsV1.join(',')}`);
   await zerar();
   await p.evaluate(() => {
-    // ESCOPADO no satelite: `[data-acao="fechar-dia"]` cru casa em dois lugares
+    // ESCOPADO na coluna: `[data-acao="fechar-dia"]` cru casa em dois lugares
     // desde 16/08, e o primeiro do DOM nem sempre e o que a cena quer tocar.
-    const x = document.querySelector('.tmx-sat [data-acao="fechar-dia"]');
+    const x = document.querySelector('.plano-lado [data-acao="fechar-dia"]');
     if (x) x.click();
   });
   await p.waitForTimeout(600);

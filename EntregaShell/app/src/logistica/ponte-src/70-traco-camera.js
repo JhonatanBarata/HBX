@@ -94,11 +94,12 @@
      precisa se acertar e a seta ainda não está no DOM (mapa nascendo, camada
      trocando no repinte). Errar por um dedo aqui não vira defeito: o quadro
      seguinte já mede. Era 0,86 enquanto o mock ancorava a seta em `top:86%`;
-     hoje o mock a pousa no `--gps-piso`, que em aparelho comum dá ~0,83. */
-  const NAV_ANCORA = 0.83;
+     hoje o mock a pousa no `--gps-piso` + `--gps-puck-sobe` (16/08, a seta que
+     saiu do amontoado do rodapé), que em aparelho comum dá ~0,77. */
+  const NAV_ANCORA = 0.77;
 
   const mapaDaNavegacao = () => {
-    const palco = naCamada('[data-mapa="gps"]');
+    const palco = naCamada(`[data-mapa="${PALCO}"]`);
     return (palco && palco.__hbxMapaObj) || null;
   };
   /* 🔴 A TINTA DO MAPA SAI DO `.app`, NÃO DA RAIZ — e isto era um pedaço da pele
@@ -342,7 +343,7 @@
      e nenhum caminho entre eles. O caminho já estava no aparelho; faltava
      desenhá-lo na tela em que o motorista olha o dia. */
   /** os dois palcos que podem ter fita: o da navegação e o da tela Rota */
-  const palcosDoTraco = () => [mapaDaNavegacao(), (GARAGEM.get('geral') || {}).mapa].filter(Boolean);
+  const palcosDoTraco = () => [mapaDaNavegacao(), (GARAGEM.get(PALCO) || {}).mapa].filter(Boolean);
 
   function pintarTraco() {
     palcosDoTraco().forEach((mapa) => quandoEstiloPronto(mapa, () => desenharTraco(mapa)));
@@ -533,7 +534,7 @@
      MEDIDO: ~940 ms de descida represada esperando um efeito que ninguém enxerga.
      `mundoVoltou` é a marca que a CENA já levanta no instante em que a última
      onda partiu — quem decide quando a cidade nasceu passa a ser ela. */
-  const cenaDasRuasNoAr = () => !!(cena && cena.casa && cena.casa.nome === 'gps' && !cena.mundoVoltou);
+  const cenaDasRuasNoAr = () => !!(cena && cena.casa && cena.casa.nome === PALCO && !cena.mundoVoltou);
 
   /* 🔴 A CÂMERA PERGUNTA PRA TELA ONDE A SETA ESTÁ (11/08). Ela guardava uma
      CÓPIA da âncora do desenho (`0.86`, o mesmo número que o mock escrevia em
@@ -672,15 +673,21 @@
     } catch (_) { /* mapa saindo de cena */ }
   }
 
-  /** o movimento: 2,4 s de inclinação, zoom e rumo andando juntos */
-  function descer() {
-    const mapa = mapaDaNavegacao();
+  /* o movimento: inclinação, zoom e rumo andando juntos.
+     🔴 A DURAÇÃO E O MAPA ENTRAM POR FORA (16/08), pelo mesmo motivo que já
+     valia pro `vistaGeral`: a VOLTA da Panorâmica é a mesma descida com outro
+     tempo (700 ms, o gesto) e acontece no mapa que ainda está sendo
+     transplantado — `mapaDaNavegacao()` lê o palco da camada e devolveria null
+     bem na hora. Sem argumento, é a entrada de sempre. */
+  function descer(ms, mapaDado) {
+    const mapa = mapaDado || mapaDaNavegacao();
     if (!mapa || telaAtual() !== 'mapa') { camFase = 'dirigindo'; return; }
     camFase = 'descendo';
     poseGeral = null;               // a próxima entrada remede a moldura do dia
+    const dur = Number(ms) > 0 ? Number(ms) : DESCIDA_MS;
     const passo = {
       zoom: NAV_ZOOM, pitch: NAV_PITCH, offset: recuoDoPuck(mapa),
-      duration: DESCIDA_MS, easing: suave,
+      duration: dur, easing: suave,
     };
     const eu = posicaoDaTela();
     if (eu) passo.center = [eu.lng, eu.lat];
@@ -689,7 +696,7 @@
     try { mapa.easeTo(passo); } catch (_) { camFase = 'dirigindo'; return; }
     // o relógio é o dono do fim, não o evento do mapa: `moveend` não chega se
     // o dedo arrastar o mapa no meio, e a câmera ficaria presa em "descendo".
-    setTimeout(() => { if (camFase === 'descendo') camFase = 'dirigindo'; }, DESCIDA_MS + 80);
+    setTimeout(() => { if (camFase === 'descendo') camFase = 'dirigindo'; }, dur + 80);
   }
 
   /* A cena da cobra dura até 2,2 s e a marca `cena` cai no relógio do mock —
@@ -761,7 +768,7 @@
     if (geralTimer) { clearTimeout(geralTimer); geralTimer = null; }
     if (voltaTimer) { clearTimeout(voltaTimer); voltaTimer = null; }
     if (Number(msSubida) > 0) {
-      const casa = GARAGEM.get('gps');
+      const casa = GARAGEM.get(PALCO);
       if (casa && casa.mapa) { poseGeral = null; vistaGeral(Number(msSubida), casa.mapa); }
     }
     marcarSolta(false);

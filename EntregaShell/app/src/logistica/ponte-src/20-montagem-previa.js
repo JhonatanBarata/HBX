@@ -787,7 +787,15 @@
          escolhido entregando HOJE a promessa é verdadeira — e cobrar um 2º
          toque depois da rota montada é o "botão que muda de nome" que o dono
          mandou matar no mesmo dia. */
-      pronta: previaAlvo > 0 ? (montadaNaTela ? 1 : 0) : 1,
+      /* 🔴 …e com a rota JÁ NA RUA o pé não oferece verbo nenhum de saída
+         (16/08). Desde que o Montar leva o dia até o fim num carregamento só
+         (ver `montarRota`), voltar aqui com a rota ACTIVE encontrava um
+         "Iniciar rota" verde sobre um dia que já começou — botão que mente, a
+         doença que esta casa persegue. Rodando, o que sobra pra fazer com esta
+         lista é REMONTAR, e esse é o "Montar rota". */
+      pronta: (estadoRota === 'rodando' || estadoRota === 'pausada')
+        ? 0
+        : (previaAlvo > 0 ? (montadaNaTela ? 1 : 0) : 1),
       // Hoje: quem vem primeiro, que é pra onde ele vai agora. Dia futuro: o
       // DIA, porque é ele que responde "montar o quê?".
       iniciarSub: previaAlvo > 0

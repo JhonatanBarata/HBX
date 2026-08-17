@@ -7,19 +7,52 @@
      resto de 30-verbos-rota.js continuam no MESMO escopo lexico — nada aqui
      precisa de import/export, so a ORDEM DO NOME (32 depois de 30) importa.
      ------------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------------
+     🔴 MONTAR É UM CARREGAMENTO SÓ, E ELE ENTREGA A ROTA NA RUA (dono, 16/08,
+     com as duas fotos na mão: *"clicou em montar rota, já carrega tudo q tem q
+     carregar no loading; quando entrar no mapa, já é a visão 2d. não vou
+     discutir sobre, TUDO TEM Q SER CARREGADO ALI"*).
+
+     Eram DOIS carregamentos com a MESMA cara: o véu do Montar (materializar →
+     planejar → conferir → trazer) e, depois do pouso no mapa, o véu do Iniciar
+     (materializar → custo → iniciar → reler) — que veste o MESMO rótulo
+     "Montando…" do dock (`ROTA_ESTADOS.montando`, no mock) porque a bandeira
+     do seam é uma só (`DADOS.rota.montando`, lido pelo `dockDaRota`). Quem
+     olhava a tela via a montagem acontecer duas vezes.
+
+     Medido no servidor do dono no ciclo das 21h08 (log do backend em produção):
+     `rota planejada 51 parada(s) company=41` às 00:08:41 UTC — o Montar — e
+     DE NOVO às 00:08:48, o replanejo de dentro do `POST /logistica/rota/iniciar`
+     (logistica-rota.service.ts:567, "re-planeja a partir da origem atual").
+     Dinheiro nunca saiu 2× — a chave do dia é `logistica:dia:company:<id>:date:
+     <dia>` e o `chaveJaPaga` barra a segunda —, mas a TELA dizia que sim, e
+     tela que mente sobre dinheiro é defeito mesmo com o caixa fechando certo.
+
+     Hoje a corrente é uma só, debaixo de um véu só, e as etapas dizem o passo
+     REAL até a rota estar RODANDO. Quem pousa na tela `rota` (o 2D) pousa num
+     dia que já começou — dock `Cancelar · Dirigindo · Encerrar dia`, que é a
+     lei do dono de 16/08 ("eu já montei a rota, não tenho q clicar em iniciar
+     se o 2d já é um modo iniciado").
+
+     `iniciarRota` continua VIVO logo abaixo, e é de propósito: ele é a porta de
+     quem chega com a rota montada e PARADA (app reaberto, rota planejada pelo
+     desktop, avulsa do pé da Montagem) e continua pousando na navegação 3D —
+     ordem do dono de 10/08, "Iniciar entra direto na navegação". O que morreu
+     foi o SEGUNDO véu no caminho do Montar, não o verbo.
+     ------------------------------------------------------------------------ */
   async function montarRota(alvo) {
     await comTrava(async () => {
       /* 🔴 O VÉU NASCE ANTES DO 1º PEDIDO (15/08 — espelho do `iniciarRota`,
          13/08, nota lá embaixo): o 1º recibo visual só saía DEPOIS do
          `materializarRascunho` (rede), rota grande parecia travada. Acende
          SÍNCRONO. `montando`/`etapa` abaixo continuam sendo quem AVANÇA o véu
-         (8→38→66→88%); a 1ª chamada deles vira NO-OP pelo freio de
+         (6→20→36→48→62→80→94%); a 1ª chamada deles vira NO-OP pelo freio de
          dado-igual do `usarDados`. */
       try {
         window.usarDados('rota', {
           montando: 1,
           etapaMontar: 'Organizando as paradas…',
-          etapaMontarPct: 8,
+          etapaMontarPct: 6,
         });
       } catch (_) { /* sem seam: a rota continua funcionando */ }
       // Cada tentativa começa com a memória limpa: avisos de uma volta
@@ -57,7 +90,7 @@
         } catch (_) { /* o véu é enfeite; a rota não depende dele */ }
       };
       montando(1);
-      etapa(8, 'Organizando as paradas…');
+      etapa(6, 'Organizando as paradas…');
       const devolverEstado = () => montando(0);
 
       /* 🔴 A ROTA SAI COM O QUE ESTÁ NA TELA — o RECORTE (`deliveryIds`) é a
@@ -68,45 +101,41 @@
          O recorte é medido DEPOIS do `materializarRascunho` de propósito: é lá
          que as entregas de hoje nascem, e `idsDaPrevia` casa a lista da tela
          com elas. */
-      const recorte = outroDia ? { deliveryIds: idsDaPrevia() || [] } : {};
-      let plano;
+      const idsRecorte = outroDia ? (idsDaPrevia() || []) : null;
+      const recorte = idsRecorte ? { deliveryIds: idsRecorte } : {};
       try {
         // A agenda do dia vira entrega ANTES de ordenar (ver `materializarDia`).
         // Nunca na avulsa nem com o dia de outra data: nos dois a agenda de hoje
         // ficou de fora de propósito — trazê-la de volta é encher a rota com
         // gente que a tela não está mostrando.
         if (montarDia !== -1 && !outroDia) await materializarDia();
-        etapa(38, 'Calculando o melhor trajeto…');
-        plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...recorte, ...origemGps() });
+        etapa(20, 'Calculando o melhor trajeto…');
+        await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...recorte, ...origemGps() });
       } catch (e) { devolverEstado(); return avisoErro(e, { repetir: () => montarRota() }); }
-      const paradas = Array.isArray(plano && plano.stops) ? plano.stops
-        : (Array.isArray(plano && plano.items) ? plano.items
-          : (Array.isArray(plano && plano.paradas) ? plano.paradas : []));
 
       // semáforo dos endereços: só ATRASA a montagem se o servidor acusar algo.
       // Confere HOJE, sempre: o dia da rota é hoje mesmo quando a gente dela
       // veio de outra data (é a lei do chip — ver `diaDeOutroDia`).
       let conf = null;
       try {
-        etapa(66, 'Conferindo os endereços…');
+        etapa(36, 'Conferindo os endereços…');
         conf = await window.API.post('/logistica/rota/conferir', { date: hojeISO(), ...origemGps() });
       } catch (_) { /* aviso é enfeite, não portão */ }
       const comAviso = conf && Array.isArray(conf.items)
         ? conf.items.filter((i) => Array.isArray(i.motivosVisiveis) && i.motivosVisiveis.length).length
         : 0;
 
-      /* 🔴 O CHIP FICA ACESO, E ISSO É O CONSERTO (10/08). Aqui a escolha de dia
-         era APAGADA (`montarDia = -1`) porque o dia tinha sido montado noutra
-         data — a lista de hoje era outra coisa, e o chip aceso mentiria.
-         Agora a lista da tela É a rota que acabou de nascer: apagar o dia
-         trocaria a lista debaixo do dedo dele, e o pé diria "Iniciar" sobre uma
-         lista que não é a que ele montou. Quem solta o dia continua sendo o
-         gesto de soltar (`soltarDia`) e o Iniciar, quando a rota já saiu. */
+      /* 🔴 O CHIP CONTINUA ACESO ATÉ A ROTA SAIR (10/08, ajustado em 16/08).
+         Apagar o dia AQUI trocaria a lista debaixo do dedo dele no meio do
+         próprio carregamento. Quem apaga é o fim da corrente, e só quando a
+         rota REALMENTE saiu pra rua (`iniciou && outroDia`, lá embaixo) — o
+         mesmo instante em que o `iniciarRota` sempre apagou. Falhou o Iniciar?
+         O chip fica, porque a lista da tela ainda é a rota montada. */
       // 🔴 SÓ ABRE A MONTAGEM SE A ROTA ENTROU. Com o `/logistica/rota` no chão
       // o `carregarRota` volta no catch antes de escrever no seam, e a tela de
       // montagem abria com as 6 paradas do desenho e "R$ 336,00" — dinheiro de
       // exemplo numa tela de decisão. Falhou, avisa e fica onde está.
-      etapa(88, 'Trazendo a rota…');
+      etapa(48, 'Trazendo a rota…');
       if (!(await carregarRota())) {
         devolverEstado();
         return avisoErro(new Error('Não consegui montar agora. Tente de novo.'));
@@ -116,29 +145,134 @@
          cima — o gesto virava enfeite. Em modo Distância isto nem roda: lá a
          sequência é do servidor, de propósito. */
       if (ordemDeGente()) await cravarOrdemDaTela();
-      /* 🔴 ROTA NOVA REPETE A CENA DA ENTRADA — ordem do dono: *"este efeito se
+
+      /* ── DAQUI PRA BAIXO É O QUE ERA O SEGUNDO VÉU ───────────────────────
+         Mesmas chamadas, MESMA ordem e mesmas regras de dinheiro do
+         `iniciarRota` (custo-preview → trava de saldo → POST iniciar →
+         reler) — só que sem o motorista ter que tocar de novo e sem a tela
+         reencenar a montagem. Nada aqui inventa cobrança: o `custo-preview` é
+         100% leitura e quem decide se pode sair continua sendo o servidor
+         (`saldoCobre`). */
+
+      /* Pousar é o mesmo gesto em TODOS os desfechos daqui pra baixo (saiu,
+         não saiu por saldo, não saiu por erro): a rota está MONTADA e o
+         motorista tem que vê-la. Escrito uma vez porque cada cópia é um beco
+         esperando pra nascer — o "Recusado" de 14/08 nasceu assim.
+         🔴 ROTA NOVA REPETE A CENA DA ENTRADA — ordem do dono: *"este efeito se
          repete sempre que uma rota é criada"*. Aqui é só o PEDIDO: quem monta
          está na tela de Montagem, e a cena acontece quando o mapa voltar pra
          frente (ver `atenderCena` no transplante). Cena tocada num palco fora da
-         tela é cena que ninguém vê. */
-      pedirCena('rota');
-      devolverEstado();          // o "Montando…" sai com o dado já na tela
-      /* 🔴 UM STATUS SÓ, NA TELA DO MAPA (dono, 11/08: "esse iniciar rota eu
-         quero aqui [no mapa], quero um status só, mesma tela") — reverte o
-         "Não navega" de 10/08, por ordem dele. Montar POUSA na Rota: a rota
-         verde no mapa com o "Iniciar" único, e a cena das ruas pedida acima
-         toca no pouso. Só navega quem AINDA está na Montagem — o cabeçalho e
-         as abas ficam vivos por cima do véu, e o fim do montar não teleporta
-         quem já foi pra outra tela. Os portões abaixo vêm DEPOIS do `ir` de
-         propósito: troca de tela fecha portão; nascendo na camada nova eles
-         sobrevivem à transição e os repintes os remontam. */
-      if (telaAtual() === 'montagem' && typeof window.ir === 'function') window.ir('rota');
+         tela é cena que ninguém vê.
+         🔴 E SÓ NAVEGA QUEM AINDA ESTÁ NA MONTAGEM — o cabeçalho e as abas
+         ficam vivos por cima do véu, e o fim do montar não teleporta quem já
+         foi pra outra tela. Os portões vêm DEPOIS do `ir` de propósito: troca
+         de tela fecha portão; nascendo na camada nova eles sobrevivem à
+         transição e os repintes os remontam. */
+      const pousarNaRota = () => {
+        pedirCena('rota');
+        devolverEstado();        // o "Montando…" sai com o dado já na tela
+        if (telaAtual() === 'montagem' && typeof window.ir === 'function') window.ir('rota');
+      };
+      const num = (v) => (isFinite(v) ? String(v).replace('.', ',') : '');
+      let debita = 0;
+      let iniciou = false;
+
+      /* 🔴 ROTA JÁ RODANDO NÃO SE INICIA DE NOVO. Montar por cima de um dia que
+         já está na rua é gesto legítimo (o dono remonta a rota com a lista
+         mudada), mas o `iniciar` dali seria um segundo começo pro mesmo dia.
+         Quem já está `rodando`/`pausada` só ganha a rota nova relida e o pouso
+         no 2D — que é exatamente o estado em que ele já estava. */
+      if (estadoRota !== 'rodando' && estadoRota !== 'pausada') {
+        let custo = null;
+        try {
+          etapa(62, 'Conferindo a saída…');
+          // a data vai JUNTO — sem ela o servidor cobra pelo dia UTC dele (ver a
+          // nota no `carregarRota`): das 21h em diante o portão nem abria. E com
+          // o dia de outra data na tela o recorte viaja aqui também: o preço tem
+          // que ser DESSA rota, a que acabou de ser montada.
+          const qIds = idsRecorte && idsRecorte.length
+            ? `&deliveryIds=${encodeURIComponent(idsRecorte.join(','))}` : '';
+          custo = await window.API.get(`/logistica/rota/custo-preview?date=${encodeURIComponent(hojeISO())}${qIds}`);
+        } catch (e) {
+          pousarNaRota();
+          return avisoErro(e, { repetir: () => montarRota() });
+        }
+        // 🔴 NOME DE CAMPO DE DINHEIRO NÃO SE CHUTA (10/08): estes são os nomes
+        // MEDIDOS na resposta, e quem decide se pode sair é o servidor
+        // (`saldoCobre`), não uma conta minha na tela.
+        debita = Number(custo && custo.creditosAIniciar);
+        const saldo = Number(custo && custo.saldoAtual);
+        const temSaldo = custo && typeof custo.saldoCobre === 'boolean'
+          ? custo.saldoCobre
+          : (isFinite(saldo) && isFinite(debita) ? saldo >= debita : true);
+        /* 🔴 SEM SALDO A ROTA FICA MONTADA, NÃO PERDIDA. A trava é a mesma do
+           `iniciarRota` (o único 402 que a tela sabe traduzir), e ela bloqueia
+           por natureza — mas o trabalho do véu não se joga fora: pousa na Rota
+           com o dia montado, e o "Iniciar" do dock é a saída depois da recarga.
+           Trava sem saída é BECO (lei de 14/08). */
+        if (!temSaldo) {
+          pousarNaRota();
+          return window.portao({
+            tom: 'trava', ico: 'card', titulo: 'Créditos insuficientes',
+            sub: isFinite(saldo) ? `Debita ${num(debita)} · você tem ${num(saldo)}` : `Debita ${num(debita)}`,
+            acoes: [['Fechar', '']],
+          });
+        }
+        try {
+          /* 🔴 A RESPOSTA DO INICIAR TEM DADO DENTRO (as empresas do corredor
+             que o servidor acabou de embarcar pro dia — ver `aplicarProspector`).
+             🔴 E A ORDEM DE GENTE VIAJA JUNTO: o iniciar re-planeja a partir da
+             origem atual, e sem `ordemManual` o otimizador desfaria o arrasto
+             que o `cravarOrdemDaTela` acabou de gravar. Sem decisão humana o
+             otimizador segue tendo a última palavra, de propósito. */
+          const minha = ordemDeGente() ? idsNaOrdemDaTela() : null;
+          etapa(80, 'Iniciando a rota…');
+          aplicarProspector(await window.API.post('/logistica/rota/iniciar', {
+            date: hojeISO(), ...recorte, ...(minha ? { ordemManual: minha } : {}), ...origemGps(),
+          }));
+          iniciou = true;
+        } catch (e) {
+          /* 🔴 NUNCA MORRER CALADO (dono, §1.3): primeiro a verdade do servidor
+             — se a rota JÁ ESTÁ em andamento (outro aparelho, toque anterior),
+             a resposta certa é o pouso na rota dela, não um erro genérico.
+             `iniciando` (INITIALIZING) NÃO entra aqui de propósito: é a reserva
+             ANTES do débito, e engoli-la esconderia justamente o 402 que prova
+             que o dia não foi pago (16/08). */
+          await carregarRota();
+          if (estadoRota === 'rodando' || estadoRota === 'pausada') {
+            iniciou = true;
+          } else {
+            pousarNaRota();
+            return avisoErro(e, { repetir: () => montarRota() });
+          }
+        }
+        etapa(94, 'Abrindo o mapa…');
+        await carregarRota();
+      }
+
+      /* 🔴 ROTA NOVA, RECIBO NOVO (12/08). A marca de "já mostrei o fim deste
+         dia" é carimbada pelo DIA, e o mesmo dia pode ter uma 2ª leva. Sem
+         apagar aqui, quem sai pra rua de novo terminaria a 2ª rota no mapa
+         mudo, com o app achando que já tinha avisado. */
+      if (iniciou) {
+        try { window.HBX.cache.remove(`fim-visto:${hojeISO()}`); } catch (_) { /* sem cache: nada a limpar */ }
+      }
+      /* ⚖️ O CHIP DO DIA NÃO É APAGADO AQUI, e é decisão medida: o
+         `iniciarRota` apaga (`montarDia = -1`) porque lá o gesto é SAIR, e a
+         Montagem seguinte tem que nascer limpa. No Montar vale a lei de 10/08
+         ("O CHIP FICA ACESO, E ISSO É O CONSERTO"): a gente daquele dia virou
+         entrega DE HOJE e é exatamente a rota que está na rua — quem voltar à
+         Montagem tem que encontrar a mesma lista que montou. Apagar trocaria a
+         lista debaixo do dedo dele. Quem solta o dia continua sendo o gesto de
+         soltar (`soltarDia`). */
+      pousarNaRota();
+
       /* Quem não conseguiu virar parada é dito por NOME, e antes do semáforo de
          endereço: "o Alfredo não entrou" vale mais pra quem vai sair pra rua do
          que "2 endereços com aviso". Nunca "não deu certo" — o resto entrou. */
       if (mat.falharam.length && typeof window.portao === 'function') {
         return window.portao({
-          tom: 'alerta', ico: 'alert', titulo: 'Rota montada sem todos',
+          tom: 'alerta', ico: 'alert', titulo: iniciou ? 'Rota iniciada sem todos' : 'Rota montada sem todos',
           sub: `Não consegui adicionar: ${mat.falharam.join(', ')}.`,
           acoes: [['Entendi', 'principal']],
         });
@@ -147,11 +281,18 @@
         window.usarDados('montagem', { iniciarSub: `${comAviso} com aviso` });
       }
       if (comAviso && typeof window.portao === 'function') {
-        window.portao({
+        return window.portao({
           tom: 'alerta', ico: 'gps', titulo: `${comAviso} ${comAviso === 1 ? 'endereço com aviso' : 'endereços com aviso'}`,
           // "Entendi", não "Ver a rota": desde 11/08 o montar já pousa NELA
           sub: 'Dá pra sair assim, mas confira antes.', acoes: [['Entendi', 'principal']],
         });
+      }
+      /* 🔴 DÉBITO ZERO NÃO VIRA AVISO NENHUM — recibo de coisa que não aconteceu
+         é ruído na cara de quem está saindo pra rua (empresa com plano paga 0 de
+         verdade). E o recibo fala DEPOIS que a tela parou de se pintar: `avisar`
+         monta na camada VIVA, e o `carregarRota` acima repinta. */
+      if (iniciou && isFinite(debita) && debita > 0 && typeof window.avisar === 'function') {
+        window.avisar({ ico: 'card', cls: 'ok', titulo: 'Rota iniciada', sub: `Debitou ${num(debita)}` });
       }
     }, alvo);
   }

@@ -170,10 +170,18 @@ const PONTE = ({ itens, geo }) => {
 const AMOSTRAR = () => {
   window.__fita = [];
   window.__t0 = performance.now();
-  const mapaDe = (nome) => {
-    const palco = document.querySelector(`#app .tela [data-mapa="${nome}"]`);
-    return (palco && palco.__hbxMapaObj) || null;
+  /* 🔴 UM PALCO SÓ (16/08). A fita pedia o mapa por NOME ('gps' / 'geral') —
+     e não existe mais nome: existe UM mapa que muda de camada. A régua passou
+     a ser a identidade do OBJETO (um carimbo no próprio maplibre), que é o que
+     prova a promessa nova: quem troca de estado não troca de mapa. */
+  let seq = 0;
+  const mapaVivo = () => {
+    const palco = document.querySelector('#app .tela [data-mapa]');
+    const m = (palco && palco.__hbxMapaObj) || null;
+    if (m && !m.__hbxMarca) { seq += 1; m.__hbxMarca = `m${seq}`; }
+    return m;
   };
+  const mapaDe = () => mapaVivo();
   const ruasDe = (mapa) => {
     try { return mapa && mapa.getStyle ? (mapa.getStyle().layers || []).filter((l) => /^hbx-cena-ruas-/.test(l.id)).length : 0; }
     catch (_) { return 0; }
@@ -181,18 +189,17 @@ const AMOSTRAR = () => {
   const tira = () => {
     const t = Math.round(performance.now() - window.__t0);
     const camadas = [...document.querySelectorAll('#app .tela')];
-    const sai = camadas.find((c) => c.classList.contains('sai'));
-    const gps = mapaDe('gps');
-    const geral = mapaDe('geral');
-    let curvaSai = '';
-    if (sai) { try { curvaSai = getComputedStyle(sai).animationTimingFunction || ''; } catch (_) { curvaSai = ''; } }
+    const m = mapaDe();
     window.__fita.push({
       t,
       camadas: camadas.length,
-      curvaSai,
-      pitchGps: gps ? Math.round(gps.getPitch()) : null,
-      ruasGps: ruasDe(gps),
-      ruasGeral: ruasDe(geral),
+      // o ESTADO lido do desenho (a casca não expõe  no window):
+      //  é a tela de dirigir,  é o 2D.
+      modo: document.querySelector('#app .tela .gps') ? '3d'
+        : (document.querySelector('#app .tela .plano') ? '2d' : ''),
+      marca: m ? m.__hbxMarca : null,
+      pitch: m ? Math.round(m.getPitch()) : null,
+      ruas: ruasDe(m),
     });
   };
   window.__amostra = setInterval(tira, 50);
@@ -288,29 +295,29 @@ async function abrir(navegador, pele, porta) {
 
     // ---- IDA ----------------------------------------------------------
     await p.evaluate(AMOSTRAR);
-    const t95Ida = p.evaluate(T95_DA_SAIDA);
     await p.evaluate(() => window.ir('mapa'));
-    const distIda = await t95Ida;
     await p.waitForTimeout(2400);
     const fitaIda = await p.evaluate(() => {
       clearInterval(window.__amostra);
       return window.__fita;
     });
-    const curvasIda = [...new Set(fitaIda.map((f) => f.curvaSai).filter(Boolean))];
-    const ruasNaIda = Math.max(0, ...fitaIda.map((f) => f.ruasGps));
-    nota(`[ida] a saida (${distIda ? distIda.nome : '?'}) cumpriu ${distIda ? `${distIda.cumprido}ms de ${distIda.dur} (${(distIda.fracao * 100).toFixed(0)}%)` : '(nao amostrou)'} · curva=${curvasIda.join(' , ') || '(sem camada saindo)'} · ruas no palco gps=${ruasNaIda}`);
+    const ruasNaIda = Math.max(0, ...fitaIda.map((f) => f.ruas));
+    const marcasIda = [...new Set(fitaIda.map((f) => f.marca).filter(Boolean))];
+    const pilhaIda = Math.max(0, ...fitaIda.map((f) => f.camadas));
+    nota(`[ida] camadas no pico=${pilhaIda} · mapas vistos=${marcasIda.join(',') || '-'} · ruas=${ruasNaIda}`);
 
-    eh('1.1 IDA: a camada que sai CUMPRE o show (nao e arrancada no meio)',
-      !!distIda && distIda.fracao >= PISO_SHOW,
-      distIda ? `${(distIda.fracao * 100).toFixed(0)}% (piso ${PISO_SHOW * 100}%)` : 'nao amostrou a camada saindo');
-    /* A curva vem computada como `cubic-bezier(...)`: o que a prova cobra é que
-       NÃO seja a de entrada. `--cv-entra` é a única que começa devagar (1º
-       parâmetro baixo); `--cv-sai` ataca (1º parâmetro alto). Comparar o texto
-       com o token evita cravar números que a folha pode reafinar. */
-    const ehCurvaDeEntrada = (c) => /cubic-bezier\(\s*0?\.(0|1|2)/.test(c);
-    eh('1.2 IDA: a camada que SAI nao usa a curva de quem entra',
-      curvasIda.length > 0 && !curvasIda.some(ehCurvaDeEntrada), curvasIda.join(' , ') || 'nao amostrou camada saindo');
-    eh('1.3 IDA: a cena das ruas acende no palco de DIRIGIR',
+    /* 🔴 A RÉGUA MUDOU DE PERGUNTA (16/08 — dono: *"a tela não tem mais motivo
+       para piscar tudo, ambos os estados têm q ser idênticos"*). Ela media o
+       SHOW da camada que sai — a coreografia de duas camadas cruzando. Esse
+       cruzamento é justamente o que morreu: com um palco de mapa só, camada
+       velha no ar é camada com o palco VAZIO. Hoje se cobra o contrário: a
+       troca é SECA (nunca duas camadas) e o mapa é o MESMO objeto dos dois
+       lados — que é a definição de "não piscar" nesta tela. */
+    eh('1.1 IDA: a troca e SECA (nunca duas camadas no ar)',
+      pilhaIda <= 1, `pico de camadas=${pilhaIda}`);
+    eh('1.2 IDA: o mapa e o MESMO objeto antes e depois (nao renasce)',
+      marcasIda.length === 1, `mapas vistos=${marcasIda.join(',') || 'nenhum'}`);
+    eh('1.3 IDA: a cena das ruas acende dirigindo',
       ruasNaIda > 0, `camadas de cena=${ruasNaIda}`);
 
     // deixa a ida assentar por inteiro antes de medir a volta
@@ -318,38 +325,48 @@ async function abrir(navegador, pele, porta) {
 
     // ---- VOLTA --------------------------------------------------------
     await p.evaluate(AMOSTRAR);
-    const t95Volta = p.evaluate(T95_DA_SAIDA);
     await p.evaluate(() => window.ir('rota'));
-    const distVolta = await t95Volta;
     await p.waitForTimeout(2400);
     const fitaVolta = await p.evaluate(() => {
       clearInterval(window.__amostra);
       return window.__fita;
     });
-    const curvasVolta = [...new Set(fitaVolta.map((f) => f.curvaSai).filter(Boolean))];
-    const ruasNaVolta = Math.max(0, ...fitaVolta.map((f) => f.ruasGeral));
-    const pitches = fitaVolta.map((f) => f.pitchGps).filter((v) => v != null);
+    const ruasNaVolta = Math.max(0, ...fitaVolta.map((f) => f.ruas));
+    const marcasVolta = [...new Set(fitaVolta.map((f) => f.marca).filter(Boolean))];
+    const pilhaVolta = Math.max(0, ...fitaVolta.map((f) => f.camadas));
+    /* o MESMO mapa desce a inclinação: ele começa deitado no 3D e vai a zero.
+       Não existe mais "o mapa que entra" — existe um mapa e um movimento. */
+    const pitches = fitaVolta.map((f) => f.pitch).filter((v) => v != null);
     const pitchMax = pitches.length ? Math.max(...pitches) : null;
     const pitchMin = pitches.length ? Math.min(...pitches) : null;
     const degraus = new Set(pitches);
-    nota(`[volta] a saida (${distVolta ? distVolta.nome : '?'}) cumpriu ${distVolta ? `${distVolta.cumprido}ms de ${distVolta.dur} (${(distVolta.fracao * 100).toFixed(0)}%)` : '(nao amostrou)'} · curva=${curvasVolta.join(' , ') || '(sem camada saindo)'} · ruas no palco geral=${ruasNaVolta} · pitch do 3D ${pitchMax}->${pitchMin} em ${degraus.size} degraus`);
+    // a emenda: o pitch do 1º quadro depois da troca × o do último antes dela
+    const iTroca = fitaVolta.findIndex((f) => f.modo === '2d');
+    const antes = iTroca > 0 ? fitaVolta[iTroca - 1].pitch : null;
+    const depois = iTroca >= 0 ? fitaVolta[iTroca].pitch : null;
+    const emenda = (antes != null && depois != null) ? Math.abs(antes - depois) : null;
+    nota(`[volta] camadas no pico=${pilhaVolta} · mapas vistos=${marcasVolta.join(',') || '-'} · ruas=${ruasNaVolta} · pitch ${pitchMax}->${pitchMin} em ${degraus.size} degraus · emenda ${antes}->${depois}`);
 
-    eh('2.1 VOLTA: a camada que sai CUMPRE o show (nao e arrancada no meio)',
-      !!distVolta && distVolta.fracao >= PISO_SHOW,
-      distVolta ? `${(distVolta.fracao * 100).toFixed(0)}% (piso ${PISO_SHOW * 100}%)` : 'nao amostrou a camada saindo');
-    eh('2.2 VOLTA: a camada que SAI nao usa a curva de quem entra',
-      curvasVolta.length > 0 && !curvasVolta.some((c) => /cubic-bezier\(\s*0?\.(0|1|2)/.test(c)),
-      curvasVolta.join(' , ') || 'nao amostrou camada saindo');
-    /* 🔴 O PEDIDO LITERAL: "as ruas acendendo nos 2". Na ida a cena mora no palco
-       'gps'; na volta, no 'geral'. Sem o chamador novo este numero e ZERO. */
-    eh('2.3 VOLTA: a cena das ruas acende TAMBEM no palco de cima',
+    eh('2.1 VOLTA: a troca e SECA (nunca duas camadas no ar)',
+      pilhaVolta <= 1, `pico de camadas=${pilhaVolta}`);
+    eh('2.2 VOLTA: o mapa e o MESMO objeto antes e depois (nao renasce)',
+      marcasVolta.length === 1, `mapas vistos=${marcasVolta.join(',') || 'nenhum'}`);
+    /* 🔴 O PEDIDO LITERAL: "as ruas acendendo nos 2" — na ida (dirigindo) e na
+       volta (2D). Sem o chamador do pouso este numero e ZERO. */
+    eh('2.3 VOLTA: a cena das ruas acende TAMBEM no 2D',
       ruasNaVolta > 0, `camadas de cena=${ruasNaVolta}`);
-    /* 🔴 A SUBIDA: o mapa 3D continua visivel dentro da camada que sai durante o
-       gesto inteiro, e o pitch dele tem que ANDAR — em mais de um degrau. Um
-       degrau so seria o corte seco que a volta tinha. */
-    eh('2.4 VOLTA: o mapa de dirigir SOBE (pitch anda, nao corta)',
+    /* 🔴 A SUBIDA EXISTE E ELA ANDA (16/08, depois de VER a troca gravada no g15
+       a 20 quadros/s: 3 quadros de tela igual, 1 de mistura, tela nova — corte
+       seco, zero movimento). O pitch tem que sair de deitado e ir a zero, em
+       mais de um degrau. Um degrau só é o corte que o dono chamou de travação. */
+    eh('2.4 VOLTA: o mapa SOBE (pitch anda, nao corta)',
       pitchMax != null && pitchMax >= 40 && pitchMin != null && pitchMin < pitchMax && degraus.size >= 3,
       `${pitchMax}->${pitchMin} em ${degraus.size} degraus`);
+    /* 🔴 E O MOVIMENTO COMEÇA DE ONDE A TELA ESTAVA. No quadro da troca o mapa
+       não pode pular: ele é o mesmo, então o primeiro quadro do estado novo tem
+       que mostrar a MESMA inclinação do último quadro do estado velho. */
+    eh('2.5 VOLTA: o mapa nao PULA no quadro da troca',
+      emenda != null && emenda <= 3, `pitch ${antes} -> ${depois} (delta ${emenda})`);
 
     eh('3.1 nenhum erro de pagina no ida-e-volta', erros.length === 0, erros[0] || 'limpo');
     await ctx.close();

@@ -199,7 +199,13 @@ const ESPIAR = () => {
     ['jumpTo', 'easeTo', 'flyTo'].forEach((m) => {
       const o = M.prototype[m];
       M.prototype[m] = function (arg, ...r) {
-        if (window.__t0) window.__cam.push(Math.round(performance.now() - window.__t0));
+        // o NOME da ordem e QUAL MAPA entram junto com o instante: sem eles não
+        // dá pra separar "pose + movimento" (uma coreografia) de "dois
+        // movimentos" (dois donos), nem os dois palcos — ver a regra 1.8.
+        if (window.__t0) {
+          if (!this.__hbxId) { window.__mapaN = (window.__mapaN || 0) + 1; this.__hbxId = `m${window.__mapaN}`; }
+          window.__cam.push({ t: Math.round(performance.now() - window.__t0), m, mapa: this.__hbxId });
+        }
         return o.call(this, arg, ...r);
       };
     });
@@ -215,7 +221,7 @@ const AMOSTRAR = () => {
   window.__t0 = performance.now();
   const tira = () => {
     const t = Math.round(performance.now() - window.__t0);
-    const palco = document.querySelector('#app .tela:last-of-type [data-mapa="gps"]');
+    const palco = document.querySelector('#app .tela:last-of-type [data-mapa="rota"]');
     const mapa = palco && palco.__hbxMapaObj;
     const emps = [...document.querySelectorAll('#app .tela:last-of-type .emp[data-lat]')];
     const vw = window.innerWidth; const vh = window.innerHeight;
@@ -358,11 +364,33 @@ async function abrir(navegador, pele, porta) {
     eh('1.7 e ele NAO some no meio da entrada (o fundido de troca morreu)',
       !apagouDepois, apagouDepois ? 'mapa vivo apagou depois de aparecer' : 'ficou');
 
-    // C) uma boca só na câmera
+    /* C) uma boca só na câmera.
+       🔴 E "POSE + MOVIMENTO" NÃO É DUAS BOCAS (16/08). O defeito que esta regra
+       pegou em 09/08 eram dois MOVIMENTOS no mesmo tique — duas portas mandando
+       a mesma entrada, cada uma do seu jeito ("entrar de novo em quem já está
+       entrando é gaguejar"). A troca de modo faz outra coisa: um `jumpTo`, que é
+       POSE (duração zero, ninguém vê), pondo o mapa que entra exatamente onde o
+       que sai parou, e logo em seguida UM movimento a partir dali. Sem esse par
+       o mapa novo apareceria noutro lugar — que é o corte seco que o dono
+       chamou de travação. O par proibido continua proibido: dois `easeTo`,
+       dois `jumpTo`, ou um movimento em cima de outro. */
+    /* 🔴 E "UMA BOCA SÓ NA CÂMERA" É POR CÂMERA. São DOIS mapas vivos (o palco
+       de dirigir e o do dia), e desde 16/08 os dois se mexem sozinhos — o 3D
+       segue o motorista, o 2D acompanha de 30 em 30 m. Cada fix pode mandar nos
+       dois no mesmo tique, e isso não é gagueira: é um dono em cada palco. A
+       régua sem esta linha reprovava o app por ter dois mapas. */
     let juntas = 0;
-    for (let i = 1; i < r.cam.length; i += 1) if (r.cam[i] - r.cam[i - 1] <= 8) juntas += 1;
+    const pares = [];
+    for (let i = 1; i < r.cam.length; i += 1) {
+      const a = r.cam[i - 1]; const b = r.cam[i];
+      if (b.t - a.t > 8) continue;
+      if (a.mapa !== b.mapa) continue;                      // um dono por palco
+      if (a.m === 'jumpTo' && b.m !== 'jumpTo') continue;   // pose + movimento
+      juntas += 1;
+      pares.push(`${a.m}+${b.m}@${b.t}ms`);
+    }
     eh('1.8 NUNCA duas ordens de camera no mesmo tique', juntas === 0,
-      `${juntas} pares colados em ${r.cam.length} ordens`);
+      juntas ? pares.join(' , ') : `0 pares colados em ${r.cam.length} ordens`);
 
     // D) o orçamento
     const chegou = fita.find((f) => f.pitch != null && f.pitch >= 50);
@@ -392,7 +420,7 @@ async function abrir(navegador, pele, porta) {
     await p.evaluate(() => window.ir('mapa'));
     await p.waitForTimeout(4600);           // a entrada inteira acontece
     const antes = await p.evaluate(() => {
-      const palco = document.querySelector('#app .tela:last-of-type [data-mapa="gps"]');
+      const palco = document.querySelector('#app .tela:last-of-type [data-mapa="rota"]');
       const m = palco && palco.__hbxMapaObj;
       return m ? Math.round(m.getPitch()) : null;
     });

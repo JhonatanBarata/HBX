@@ -69,9 +69,21 @@ const MEDIR = () => {
       left: +b.left.toFixed(1), right: +b.right.toFixed(1),
     };
   };
+  /* os dois números que decidem onde a seta pousa, lidos da FOLHA e não
+     digitados aqui: `--map-respiro` é o respiro do chão do cromo e
+     `--gps-puck-sobe` é o quanto o ponteiro sobe acima dele (16/08). Régua que
+     copia o número que ela deveria conferir não confere nada. */
+  const tok = (nome) => {
+    const gps = document.querySelector('.gps');
+    if (!gps) return null;
+    const v = parseFloat(getComputedStyle(gps).getPropertyValue(nome));
+    return Number.isFinite(v) ? v : null;
+  };
   return {
     altura: window.innerHeight,
     largura: window.innerWidth,
+    respiro: tok('--map-respiro'),
+    sobe: tok('--gps-puck-sobe'),
     rodape: r('.gps-rodape'),
     seta: r('.gps-seta'),
     vel: r('.gps-vel'),
@@ -132,7 +144,17 @@ const MEDIR = () => {
     const folgaSeta = +(teto - m.seta.bottom).toFixed(1);
     console.log(`  seta    y ${m.seta.top}..${m.seta.bottom}   folga ${folgaSeta}px`);
     diz(folgaSeta >= 0, `a seta cabe INTEIRA acima do rodapé (folga ${folgaSeta}px)`);
-    diz(folgaSeta >= 4 && folgaSeta <= 28, `a folga é de encaixe, não de sobra (${folgaSeta}px, alvo 4..28)`);
+    /* 🔴 A FOLGA DEIXOU DE SER FAIXA E VIROU CONTA (16/08 — dono, com as duas
+       fotos: *"visual amassado: foto1, eu quero assim: foto2"*). O alvo antigo
+       (4..28px) era o "colado no bottom" de 09/08 virado régua — e era ele que
+       amontoava seta, velocímetro e botão na mesma faixa do rodapé. Hoje a seta
+       pousa no chão do cromo MAIS `--gps-puck-sobe`, e é isso que se cobra: o
+       número tem que sair da FOLHA, senão a régua vira um segundo lugar onde a
+       âncora mora — que é o defeito que este portão nasceu pra matar. */
+    const alvoFolga = (m.respiro || 0) + (m.sobe || 0);
+    diz(m.sobe > 0, `a folha declara a subida do ponteiro (--gps-puck-sobe = ${m.sobe}px)`);
+    diz(Math.abs(folgaSeta - alvoFolga) <= 2,
+      `a folga é o respiro + a subida do ponteiro (${folgaSeta}px × ${alvoFolga}px)`);
 
     const centro = (m.seta.left + m.seta.right) / 2;
     diz(Math.abs(centro - m.largura / 2) <= 1, `a seta está no centro da largura (${centro.toFixed(1)} × ${m.largura / 2})`);
@@ -142,7 +164,14 @@ const MEDIR = () => {
     diz(folgaVel >= 0, `o velocímetro cabe inteiro acima do rodapé (folga ${folgaVel}px)`);
 
     console.log(`  botões  ${m.botoes.map((b) => `${b.rotulo} ${b.top}..${b.bottom}`).join(' · ')}`);
-    diz(m.botoes.length === 3, `a coluna tem os 3 botões — chat, voz, recentralizar (tem ${m.botoes.length})`);
+    /* 🔴 3 VIROU 4 EM 16/08: o cadeado do "Encerrar dia" desceu do rodapé pra
+       cá (ordem do dono — o slot ao lado do polegar passou a ser do Registrar,
+       que é o verbo de toda porta; encerrar o dia acontece uma vez). O número
+       é CRAVADO de propósito: botão que entra ou sai desta coluna muda a altura
+       dela e passa a disputar espaço com o cartão da manobra, então a conta tem
+       que ser refeita à mão e não descoberta em produção. */
+    diz(m.botoes.length === 4,
+      `a coluna tem os 4 botões — chat, voz, encerrar dia, recentralizar (tem ${m.botoes.length})`);
     diz(m.botoes.some((b) => /chat/i.test(b.rotulo || '')), 'o botão de chat existe na beirada');
     const maisBaixo = m.botoes.length ? Math.max(...m.botoes.map((b) => b.bottom)) : 0;
     diz(teto - maisBaixo >= 0, `nenhum botão fica atrás do rodapé (folga ${(teto - maisBaixo).toFixed(1)}px)`);

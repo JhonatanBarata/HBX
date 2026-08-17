@@ -342,9 +342,28 @@ const ROTA_ESTADOS={
      · Glifo `lock` e tipo `info`: o satélite esquerdo já é `perigo` (Cancelar).
        Dois vermelhos lado a lado ensinariam que "encerrar o dia" e "destruir o
        dia" são a mesma coisa — e não são: um é o fim normal do trabalho. */
-  rodando:  {main:{acao:'navegar', glifo:'nav', rotulo:'Dirigindo'},
+  /* 🔴 O CADEADO SAIU DO RODAPÉ E O REGISTRAR OCUPOU A VAGA (16/08, ordem do
+     dono, com as duas telas na mão). A régua é FREQUÊNCIA: registrar acontece
+     em toda porta, encerrar o dia acontece UMA vez — e o slot ao lado do polegar
+     era do verbo raro. O `fechar-dia` não sumiu: virou o cadeado da coluna
+     lateral, que é a MESMA peça (`.plano-lado` / `.gps-lado`) nos dois modos,
+     então ele continua a um toque e agora mora no mesmo lugar nas duas telas.
+     `dir` sem `tipo`: Registrar não é perigo nem aviso — é o verbo comum da
+     rua, e veste a superfície neutra que o `.tmx-sat` já dá de fábrica. */
+  rodando:  {main:{acao:'navegar', glifo:'nav', rotulo:'Direção'},
              esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar', acao:'cancelar-rota'},
-             dir:{tipo:'info', glifo:'lock', rotulo:'Encerrar dia', acao:'fechar-dia'}},
+             dir:{glifo:'check', rotulo:'Registrar', acao:'registrar-local'}},
+  /* 🔴 O RODAPÉ DO 3D NASCE DAQUI, DO MESMO LUGAR QUE O DO 2D (16/08). Ele era
+     uma faixa própria (`.gps-encerrar`: três textos de 11,5px, sem ícone e sem
+     legenda) — outro HTML, outro CSS, outra altura, pro mesmo trabalho. Dois
+     desenhos pra mesma fileira é o que fez as fotos 1 e 2 parecerem telas de
+     apps diferentes; agora existe UM gerador, e quem mexer numa mexe nas duas.
+     O par do meio é o mesmo gesto nos dois sentidos: `Direção` leva de cima pro
+     inclinado, `Panorâmica` traz de volta. Por isso o main aqui é `ir` e não
+     `acao` — a volta é uma TELA (o roteador), não uma mutação. */
+  dirigindo:{main:{ir:'rota', glifo:'map', rotulo:'Panorâmica'},
+             esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar', acao:'cancelar-rota'},
+             dir:{glifo:'check', rotulo:'Registrar', acao:'registrar-local'}},
   /* 🔴 O RECIBO DO TOQUE MORA NO BOTÃO TOCADO. Enquanto o servidor monta, o
      meio vira "Montando…": mesmo lugar, mesmo tamanho, SEM ação (dois toques
      não montam duas vezes) e sem satélite — cancelar ou iniciar no meio de uma
@@ -362,19 +381,33 @@ const ROTA_ESTADOS={
 };
 function transmux(estado){
   const c=ROTA_ESTADOS[estado]; if(!c) return '';
-  const sat=(s,lado)=>s?`<span class="tmx-sat tmx-${s.tipo} tmx-${lado}">
-      <button aria-label="${s.rotulo}"${s.acao?` data-acao="${s.acao}"`:''}>${ic(s.glifo,20)}${s.contagem?`<i class="cont">${s.contagem}</i>`:''}</button>
+  /* `tipo` virou OPCIONAL (16/08): satélite sem papel declarado é o verbo comum
+     e veste a superfície neutra do `.tmx-sat`. Antes o nome saía sempre, e um
+     satélite sem tipo escrevia `tmx-undefined` no HTML — classe que não existe,
+     mas que aparece no retrato do `casca-conferir` como se fosse desenho. */
+  const sat=(s,lado)=>s?`<span class="tmx-sat ${s.tipo?`tmx-${s.tipo} `:''}tmx-${lado}">
+      <button aria-label="${s.rotulo}"${s.ir?` data-ir="${s.ir}"`:''}${s.acao?` data-acao="${s.acao}"`:''}>${ic(s.glifo,20)}${s.contagem?`<i class="cont">${s.contagem}</i>`:''}</button>
       <small>${s.rotulo}</small></span>`:'';
-  // main sem `acao` = trabalho em curso: não vira gancho e não aceita dedo.
-  /* 🔴 A PALAVRA ENTROU NO BOTÃO. Ela era um `<small>` de 12px POR BAIXO de um
-     quadrado com um ícone de 34px — quer dizer: o desenho grande não dizia
-     nada e o que dizia era a menor letra do rodapé. Agora o verbo é o botão.
-     O ícone encolhe (34 → 21) porque virou o acompanhante, não o cartaz. */
+  // main sem `acao` e sem `ir` = trabalho em curso: não vira gancho, nem dedo.
+  /* 🔴 A PALAVRA SAIU DO BOTÃO — e isto é uma VOLTA ATRÁS consciente (16/08,
+     ordem do dono: "faça ícones, com um rótulo bem pequeno"). Ela tinha entrado
+     em 15/08 porque era um `<small>` de 12px por baixo de um quadrado com ícone
+     de 34px: o desenho grande não dizia nada e quem dizia era a menor letra do
+     rodapé. O que muda agora e desarma aquele defeito é que o rótulo miúdo
+     deixou de ser exceção — os TRÊS o têm, com o mesmo tamanho e na mesma
+     linha, então ele lê como legenda de uma fileira e não como um botão que
+     esqueceu o nome. O ícone sobe de 21 a 24 porque voltou a ser o cartaz.
+     ⚠️ O botão perdeu o texto de dentro, então perdeu o nome acessível junto:
+     o `aria-label` abaixo é obrigatório, não enfeite. */
+  const gancho=c.main.ir?` data-ir="${c.main.ir}"`
+    :c.main.acao?` data-estado="${c.main.acao}"`
+    :' class="ocupado" disabled aria-busy="true"';
   return `<div class="transmux">${sat(c.esq,'esq')}
     <span class="tmx-main">
       ${c.main.nota
-        ? `<span class="tmx-nota" role="status">${ic(c.main.glifo,21)}<b>${c.main.rotulo}</b></span>`
-        : `<button${c.main.acao?` data-estado="${c.main.acao}"`:' class="ocupado" disabled aria-busy="true"'}>${ic(c.main.glifo,21)}<b>${c.main.rotulo}</b></button>`}
+        ? `<span class="tmx-nota" role="status">${ic(c.main.glifo,24)}</span>`
+        : `<button aria-label="${c.main.rotulo}"${gancho}>${ic(c.main.glifo,24)}</button>`}
+      <small>${c.main.rotulo}</small>
     </span>
     ${sat(c.dir,'dir')}</div>`;
 }
@@ -457,8 +490,16 @@ function stop(o){
    posição inventada de "você está aqui" é a pior das mentiras que esta tela
    pode contar — pior que a maquete, que ao menos mentia sobre os OUTROS.
    ========================================================================== */
+/* 🔴 UM PALCO SÓ NOS DOIS ESTADOS (16/08 — dono: *"MAPA PARADO, TRANSIÇÃO
+   DENTRO DO MAPA SEM SE MEXER; ambos os estados têm q ser idênticos"*).
+   Este `data-mapa` era `geral` aqui e `gps` na tela de dirigir: dois nomes, duas
+   instâncias de maplibre, duas câmeras — e por isso trocar de estado era trocar
+   de MAPA, com tile novo, redesenho e o preto que o dono chamou de travação.
+   Com o mesmo nome nos dois, o maplibre é UM: o nó só muda de pai e a câmera
+   fica exatamente onde estava. O que troca entre 2D e 3D é a INCLINAÇÃO e o
+   cromo — nada mais. */
 function mapa(){
-  return `<div class="mapa-palco" data-mapa="geral">${DADOS.rota.euDemo
+  return `<div class="mapa-palco" data-mapa="rota">${DADOS.rota.euDemo
     ?'<i class="eu-puck demo" style="--rumo:34deg;--cone:1;--halo:104px"></i>':''}</div>`;
 }
 
@@ -601,21 +642,18 @@ const DADOS={
 
      🔴 SLOT SEM FONTE **SOME INTEIRO** — com rótulo, unidade e separador. O
      " · " nasce de um `join`, nunca do template: separador órfão e caixa vazia
-     boiando no mapa são a mesma mentira de antes, só que mais feia. O que
-     NUNCA some é a `panoramica`: é a porta de saída desta tela, e motorista
-     preso na navegação é defeito pior que qualquer número faltando.
+     boiando no mapa são a mesma mentira de antes, só que mais feia. O que NUNCA
+     some é a saída desta tela (hoje a `Panorâmica` do dock): motorista preso na
+     navegação é defeito pior que qualquer número faltando — e ela sobrevive
+     justamente por não depender mais de chave de seam nenhuma.
 
-     🔴 AS DUAS CHAVES DO RODAPÉ MUDARAM DE NOME EM 16/08, junto com os verbos.
-     `encerrar` dizia "Sair" e virou `panoramica`; e nasceu `encerrarDia`, que é
-     o verbo novo da ponta direita. A chave velha `fechar` foi APAGADA: ela
-     guardava a palavra "Fechamento" e NINGUÉM a lia (o template cravava o
-     literal) — slot de seam com a copy antiga é armadilha, porque parece ser a
-     fonte do rótulo e não é.
+     🔴 O RODAPÉ INTEIRO SAIU DESTE INVENTÁRIO EM 16/08: ele virou o `transmux`,
+     e os três rótulos moram no `ROTA_ESTADOS` (estado `dirigindo`). Aqui ficou
+     só o que ainda é dado ou copy dos NÚMEROS.
 
      DADO: manobra* · rumo · velocidade · paradaN · paradaTotal · paradaNome ·
            chegada · restante · distancia.
-     COPY: velocidadeUnidade · chegadaRotulo · restanteRotulo · distanciaRotulo
-           · panoramica · encerrarDia.
+     COPY: velocidadeUnidade · chegadaRotulo · restanteRotulo · distanciaRotulo.
      🔴 OS 8 CAMPOS `chegou*` SAÍRAM DAQUI NO LOTE 3 (15/08). O "Você chegou"
      não é mais um estado deste cromo — é a peça `.chegou-wrap`, montada por
      `cartaoChegada(d)` com `d={id,n,nome,endereco,gps}` lido direto de
@@ -633,25 +671,11 @@ const DADOS={
     chegada:'12:26', chegadaRotulo:'chegada',
     restante:'45 min', restanteRotulo:'restante',
     distancia:'8,2 km', distanciaRotulo:'distância',
-    /* 🔴 "Panorâmica", e a razão de 09/08 é a mesma, mais forte (16/08). Este
-       botão só volta pra tela Rota com a rota VIVA — não fecha dia, não devolve
-       parada, não desfaz nada; verbo destrutivo aqui seria mentira. Ele era
-       "Sair", que descrevia o que se PERDE (a tela); "Panorâmica" descreve o que
-       se GANHA (o dia visto de cima) e faz par com o "Dirigindo" do dock do 2D:
-       a mesma viagem, nos dois sentidos, com os dois nomes visíveis. */
-    panoramica:'Panorâmica',
-    /* Os dois vizinhos da mesma faixa. São COPY fixa como a `panoramica`: a
-       ponte não os reescreve, e por isso eles nunca "somem por falta de dado" —
-       porta de saída, botão de registro e fim do dia não podem depender do que o
-       servidor respondeu.
-       "Registrar" é o verbo curto de "registrar o local onde eu estou": é dele
-       que saem o cadastro na porta, a venda avulsa e a correção do endereço,
-       todos com o GPS carimbado no toque (a folha da rua).
-       🔴 "Encerrar dia" é o MESMO verbo do satélite do 2D, e de propósito: um
-       dono só (`fechar-dia`), dois lugares de alcance. Era "Fechamento" aqui e
-       "Finalizar" lá — dois nomes para a mesma porta, que é como o motorista
-       aprende que existem dois lugares pra mesma coisa. */
-    registrar:'Registrar', encerrarDia:'Encerrar dia',
+    /* 🔴 AS 3 CHAVES DO RODAPÉ SAÍRAM DAQUI EM 16/08 (`panoramica`, `registrar`,
+       `encerrarDia`). O rodapé desta tela virou o `transmux` do 2D, e os rótulos
+       dele moram no `ROTA_ESTADOS` — que é onde já viviam os do dock. Slot de
+       seam que ninguém lê é ARMADILHA: parece a fonte do rótulo e não é, e foi
+       exatamente por isso que a chave velha `fechar` já tinha sido apagada. */
   },
   /* L4 — A PORTA. Os literais abaixo são os que estavam nos templates da folha
      de chegada e da folha da venda, MOVIDOS pra cá. `itens` é [ícone, nome,
@@ -1485,9 +1509,19 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
          tela que o motorista abriu justamente pra não dirigir olhando.
          (Sem CRASE aqui dentro: este comentário mora num template literal e a
          crase o fecharia — foi exatamente o que eu fiz na primeira escrita.) */''}
+    ${/* 🔴 O CADEADO MORA AQUI DESDE 16/08, NOS DOIS MODOS. Ele era o satelite
+         direito do dock e cedeu a vaga ao Registrar (ver o estado "rodando" em
+         ROTA_ESTADOS): encerrar o dia acontece UMA vez, registrar acontece em
+         toda porta. A coluna e o rodape sao vizinhos na mesma beirada, entao
+         ele nao ficou mais longe do polegar — mudou de fileira, nao de alcance.
+         So com a rota NA RUA: sem dia rodando nao ha dia pra encerrar, e botao
+         que abre portao pra dizer "nao ha nada aqui" e o beco de 14/08.
+         (Sem CRASE aqui dentro: este comentario mora num template literal.) */''}
     <div class="plano-lado">
       ${emCurso?`<button data-acao="gps-voz" class="${DADOS.gps.vozMuda?'mudo':''}"
         aria-label="${DADOS.gps.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',22)}</button>`:''}
+      ${emCurso?`<button data-acao="fechar-dia" class="fechar"
+        aria-label="Encerrar dia">${ic('lock',22)}</button>`:''}
       <button data-acao="mapa-enquadrar"${d.gps==='procurando'?' class="buscando"':''}
         aria-label="${temRotaNoDia(e)?'Enquadrar a rota':'Centralizar em mim'}">${ic('target',22)}</button>
     </div>
@@ -1639,7 +1673,8 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
 /* O MUNDO DO GPS — desenhado achatado e inclinado pelo CSS. A rua em que se
    anda é a coluna do meio: como o carro fica no centro horizontal, ele cai em
    cima dela em qualquer altura, e o giro à direita aparece lá na frente. */
-function mapaGps(){ return `<div class="mapa-palco" data-mapa="gps">${mapaGpsDesenho()}</div>`; }
+/* o MESMO palco do 2D (ver `mapa()`): um maplibre só, dois estados. */
+function mapaGps(){ return `<div class="mapa-palco" data-mapa="rota">${mapaGpsDesenho()}</div>`; }
 function mapaGpsDesenho(){
   const quadra=(x,y,w,h)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="var(--map-quadra)"/>`;
   /* UM TRAÇO DA COBRA = dois caminhos no mesmo `d`: o CORPO, que cresce, e a
@@ -1900,23 +1935,23 @@ function telaGps(){
       <button data-ir="chat" aria-label="Chat com a Central">${ic('chat',22)}</button>
       <button data-acao="gps-voz" class="${g.vozMuda?'mudo':''}"
         aria-label="${g.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',22)}</button>
+      <button data-acao="fechar-dia" class="fechar" aria-label="Encerrar dia">${ic('lock',22)}</button>
       <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',22)}</button>
     </div>
 
-    <!-- 🔴 A FAIXA DOS VERBOS, REALINHADA COM O 2D (16/08). Ela tinha TRES
-         verbos e NENHUM encerrava coisa alguma: "Fechamento" abria outra tela,
-         "Registrar" abria um portao, "Sair" voltava pro 2D. O dono perguntou
-         por que o 3D tem encerrar e o 2D nao — a medicao mostrou o contrario:
-         o 3D tinha tres portas e nenhuma fechadura.
-         A esquerda passa a ser PANORAMICA, o par exato do "Dirigindo" do dock
-         do 2D: mesma viagem, sentido contrario. Ela mantem data-ir="rota"
-         porque a volta e uma TELA, e porque rota e o unico modulo que nunca
-         desliga — a saida da navegacao nao pode depender de configuracao.
-         A direita passa a ser ENCERRAR DIA, o mesmo verbo e o MESMO gancho
-         (fechar-dia) do satelite do 2D: um dono so, dois lugares de alcance.
-         E ele deixa de ser data-ir: fechamento e chave de MODULO do admin, e
-         com o modulo desligado a poda arrancava o botao do rodape — o motorista
-         na rua ficava sem verbo de encerrar. Com data-acao ele sobrevive.
+    <!-- 🔴 A FAIXA MORREU: ESTE RODAPE AGORA E O DOCK DO 2D (16/08, ordem do
+         dono: "quero os botoes identicos foto 1 e 2"). Aqui existiam TRES
+         botoes de texto de 11,5px, sem icone e sem legenda, numa barra propria
+         (.gps-encerrar) com CSS proprio e altura propria — outro desenho pro
+         mesmo trabalho, e foi o que fez as duas fotos parecerem apps
+         diferentes. Agora quem monta e o transmux, o MESMO gerador do 2D:
+         Cancelar / Panoramica / Registrar, nas mesmas pecas de 46px.
+         O estado chama-se "dirigindo" e mora no ROTA_ESTADOS, junto dos outros
+         — quem mexer na fileira de um modo mexe na do outro por construcao, em
+         vez de por disciplina. O fechar-dia saiu daqui pra coluna lateral
+         (.gps-lado, o cadeado): ele continua com data-acao e nao data-ir,
+         porque fechamento e chave de MODULO do admin e a poda arrancaria um
+         data-ir — o motorista na rua ficaria sem verbo de encerrar.
          (Sem CRASE aqui dentro: este comentario mora num template literal.) -->
     <div class="gps-rodape">
       ${rodape?`<div class="parada">${ic('route',14)} <span class="txt">${rodape}</span></div>`:''}
@@ -1925,17 +1960,10 @@ function telaGps(){
         ${num(g.distancia,g.distanciaRotulo,0,'distancia','route')}
         ${num(g.chegada,g.chegadaRotulo,1,'chegada','flag')}
       </div>
-      <!-- Os três verbos ficam sempre expostos na mesma faixa. Nenhum deles
-           depende de abrir menu: quem está dirigindo precisa enxergar a saída,
-           o registro na porta e o encerramento antes de tocar.
-           A ORDEM É A DA CONSEQUÊNCIA: sair da câmera (nada acontece) → registrar
-           (grava uma parada) → encerrar o dia (acaba o trabalho). O verbo mais
-           caro fica na ponta, longe do polegar que estava mirando o mapa. -->
-      <div class="gps-encerrar">
-        <button class="gps-panoramica" data-ir="rota">${g.panoramica||'Panorâmica'}</button>
-        <button class="gps-registrar" data-acao="registrar-local">${g.registrar||'Registrar'}</button>
-        <button class="gps-encerrar-main" data-acao="fechar-dia">${g.encerrarDia||'Encerrar dia'}</button>
-      </div>
+      <!-- Os três verbos ficam sempre expostos na mesma fileira. Nenhum deles
+           depende de abrir menu: quem está dirigindo precisa enxergar a saída
+           da câmera e o registro na porta antes de tocar. -->
+      ${transmux('dirigindo')}
     </div>
   </div>
 </div>`;
@@ -4128,7 +4156,24 @@ function pintar(animar,dir){
   nova.dataset.dir = marcaDir;
   if(antiga){ antiga.style.setProperty('--dir', dir===-1?-1:1); antiga.dataset.dir = marcaDir; }
 
-  if(animar && antiga && tr!=='nenhuma'){
+  /* 🔴 A TROCA ENTRE 2D E 3D É SECA (16/08 — dono: *"a tela não tem mais motivo
+     para piscar tudo, ambos os estados têm q ser idênticos... MAPA PARADO,
+     transição DENTRO do mapa sem se mexer"*).
+     As duas telas passaram a dividir o MESMO palco de mapa (`data-mapa="rota"`)
+     — e mapa é UM nó só: ele muda de pai no transplante. Se a camada velha
+     ficasse no ar animando a saída, ela ficaria com o palco VAZIO na tela, que
+     é o pisca ao contrário. Então aqui não há camada saindo: a nova entra
+     inteira, no lugar, e quem se mexe são as PEÇAS (o cartão da manobra
+     recolhendo, o cabeçalho entrando, a bússola) e a inclinação do mapa.
+     Vale só pra este par: qualquer outra troca continua com a coreografia de
+     camada de sempre. */
+  const trocaDeModo = (atual==='mapa'&&anterior==='rota')||(atual==='rota'&&anterior==='mapa');
+  if(animar && antiga && trocaDeModo){
+    nova.classList.add('modo-troca');
+    app.appendChild(nova);
+    antiga.remove();
+    clearTimeout(limpezaTimer);
+  }else if(animar && antiga && tr!=='nenhuma'){
     // 🔴 A camada que entrou guardava a classe `entra` pra sempre. Na troca
     // seguinte ela virava a que SAI carregando as duas regras de animação — e
     // quem decidia era a ordem da folha, não o código. Some com a marca antes

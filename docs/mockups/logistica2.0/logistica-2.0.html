@@ -1300,7 +1300,12 @@ button,input{font:inherit;color:inherit}
    pagando as duas colunas vazias (`<span></span>` × 2 = 18px de gap sobrando
    nas pontas). No flex, satélite que não existe não é escrito, e a barra
    ocupa a largura inteira sem sobra — que é o ponto todo desta mudança. */
-.transmux{display:flex;align-items:center;gap:9px}
+/* 🔴 OS SEIS BOTÕES SÃO A MESMA PEÇA (16/08, ordem do dono: "quero os botões
+   idênticos foto 1 e 2"). `flex-start` e não `center`: os três quadrados pousam
+   na MESMA linha de topo, e é isso que faz a fileira parecer uma peça só. Com
+   `center`, rótulo de tamanho diferente empurrava o quadrado do meio pra cima
+   ou pra baixo dos vizinhos — o desencontro que o dono viu nas duas fotos. */
+.transmux{display:flex;align-items:flex-start;gap:9px}
 .tmx-sat{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:4px}
 .tmx-sat button{width:46px;height:46px;border-radius:16px;border:.7px solid var(--line);background:var(--card);
   color:var(--ink);display:grid;place-items:center;cursor:pointer;position:relative}
@@ -1311,13 +1316,24 @@ button,input{font:inherit;color:inherit}
 @keyframes tmxPisca{50%{opacity:.35}}
 .tmx-sat .cont{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;border-radius:9px;background:var(--amber);
   color:#1a1204;font-size:10px;font-weight:500;display:grid;place-items:center;border:1.5px solid var(--bg)}
-.tmx-main{flex:1;min-width:0}
-.tmx-main button{width:100%;height:56px;border-radius:18px;border:0;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;gap:9px;
+/* 🔴 A PALAVRA SAIU DO BOTÃO E VIROU LEGENDA (16/08, ordem do dono: "faça
+   ícones, com um rótulo bem pequeno"). O main deixa de ser uma barra com texto
+   de 16px e passa a ser a MESMA peça do satélite: quadro com ícone + `<small>`
+   de 9,5px por fora. Ele só continua diferente no que precisa ser — largura
+   (`flex:1`) e a cor de ação —, e é isso que faz os três lerem como um trio.
+   Altura 56 → 46 pelo mesmo motivo: com o rótulo fora, os três quadros têm que
+   ter o mesmo tamanho, senão a fileira volta a ser um botão e dois enfeites.
+   ⚠️ A ALTURA DO DOCK NÃO MUDOU: era `max(56, 46+4+11)` = 61 e continua 61
+   (46+4+11), então `--tmx-h`, `.body.com-dock` (147px) e o `--map-chao` do 2D
+   seguem valendo — MEDIDO, não deduzido. Quem mexer nestes 46 refaz aquela
+   conta, que é o chão de toda peça flutuante das duas telas. */
+.tmx-main{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px}
+.tmx-main button{width:100%;height:46px;border-radius:18px;border:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
   color:var(--white);background:linear-gradient(180deg,var(--go-1),var(--go-2));box-shadow:0 8px 22px rgba(122,190,30,.28)}
-/* A palavra mora DENTRO do botão — e é ela que manda no tamanho da peça.
-   Nome que não cabe encolhe o texto, nunca a barra (mesma lei da `.plano-bar`). */
-.tmx-main b{font-weight:500;font-size:16px;letter-spacing:.1px;
+/* Mesma régua do `.tmx-sat small`: nome que não cabe vira "…" e NUNCA quebra em
+   duas linhas — altura de rodapé que depende do dado é o defeito de 10/08. */
+.tmx-main small{max-width:100%;font-size:9.5px;color:var(--ink-2);
   overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .tmx-main button[data-estado="pausar"]{background:linear-gradient(180deg,#ffca63,#e08a00);color:#241500;
   box-shadow:0 8px 22px rgba(224,138,0,.3)}
@@ -1332,11 +1348,9 @@ button,input{font:inherit;color:inherit}
    (`.tmx-main` = "o botão grande é sempre o próximo passo do dia"), porque
    consultar não é passo nenhum. A nota ocupa a MESMA vaga e a MESMA altura
    (o rodapé não pula), com a superfície neutra que o resto da casa já usa. */
-.tmx-nota{width:100%;height:56px;border-radius:18px;
-  display:flex;align-items:center;justify-content:center;gap:9px;
+.tmx-nota{width:100%;height:46px;border-radius:18px;
+  display:flex;align-items:center;justify-content:center;
   background:var(--card);border:.7px solid var(--line);color:var(--ink-2)}
-.tmx-nota b{font-weight:500;font-size:15px;letter-spacing:.1px;color:var(--ink-2);
-  overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 /* TRABALHANDO: o botão continua no lugar, com o mesmo tamanho, respirando.
    Some com a sombra viva porque nada vai acontecer se o dedo insistir. */
 .ocupado{opacity:.62;box-shadow:none!important;animation:respira 1.15s ease-in-out infinite}
@@ -1557,7 +1571,13 @@ button,input{font:inherit;color:inherit}
         3D o chão é o rodapé de dirigir. Mesma fórmula, dois valores.
    Peça flutuante de mapa que não pousar nesta régua é peça fora do padrão. */
 .plano,.gps{--map-beira:11px;--map-respiro:12px;--map-btn:46px;--map-raio:16px;
-  --map-gap:10px;--map-vel-l:108px;--map-vel-h:113px;--map-chao:0px;
+  /* 🔴 O DISCO ENCOLHEU 15% (16/08 — dono: *"diminuir 15% o tamanho do
+     velocímetro"*). 108×113 → 92×96, e TODO o miolo desceu na mesma proporção
+     (número 40→34, unidade 13→11, trilho e placa juntos): encolher só a caixa
+     deixaria o número batendo na borda, que é o mesmo defeito de 11/08 pelo
+     avesso. Ele é token porque o aviso de radar pousa em cima dele e pergunta
+     a altura — a peça encolhe e o chip acompanha sem ninguém refazer conta. */
+  --map-gap:10px;--map-vel-l:92px;--map-vel-h:96px;--map-chao:0px;
   --map-piso:calc(var(--map-chao) + var(--map-respiro))}
 .plano{position:absolute;left:0;right:0;top:0;bottom:60px;overflow:hidden;background:var(--fog)}
 .plano.com-dock{bottom:139px}
@@ -1677,8 +1697,32 @@ button,input{font:inherit;color:inherit}
    O nome fica porque meia dúzia de peças desta tela já o citam; o valor passa a
    sair da MESMA fórmula do 2D. Modo que calcula o próprio piso é modo que
    descola do outro na primeira vez que alguém mexe num dos dois. */
+/* 🔴 E A SETA SAIU DO CHÃO (16/08 — dono, com as duas fotos lado a lado:
+   *"visual amassado: foto1, eu quero assim: foto2 — apenas posicionamento de
+   ícone"*). O `--gps-piso` continua sendo o chão do CROMO (velocímetro e coluna
+   de botões, que são peças de beirada e vivem coladas na moldura), mas a seta
+   não é cromo: ela é o MOTORISTA. Pousada na mesma linha do velocímetro, ela
+   ficava na mesma faixa horizontal do disco e do botão de recentralizar — três
+   peças amontoadas no rodapé e quase nenhuma rua à frente. É literalmente o
+   "amassado" da foto 1.
+   `--gps-puck-sobe` é o quanto ela sobe ACIMA desse chão, e é a única medida da
+   tela que fala do motorista em vez da moldura: 70px põem o ponto dele a ~77%
+   da altura, que é onde a foto 2 o mostra e onde todo navegador de rua o põe
+   (a regra nº1 lá embaixo já dizia "~68%" e o desenho nunca a cumpriu).
+   🔴 A CÂMERA ACOMPANHA SOZINHA: `ancoraDoPuck` MEDE o `.gps-puck` na tela, não
+   copia número nenhum — subir a seta sobe o recuo da câmera junto, e é por isso
+   que sobra mais rua à frente em vez de a fita descolar da seta. */
 .gps{position:absolute;inset:0;overflow:hidden;background:var(--fog);
-  --gps-rodape-h:117px;--map-chao:var(--gps-rodape-h);--gps-piso:var(--map-piso)}
+  /* 🔴 117 → 133 EM 16/08, e o motivo é UMA peça: a faixa de texto de 46px
+     virou a fileira do dock (46 do quadro + 4 do respiro + 11 da legenda = 61).
+     São os mesmos 15px que este rodapé cresceu, e é por isso que o número muda
+     junto — quem esquece esta linha repete 10/08, quando o rodapé engordou 41px
+     sozinho e a seta passou a ser cortada por trás dele.
+     MEDIDO pelo `prova-encaixe-gps` na pele: 132,6px. Guarda 133 e não 132 pela
+     mesma razão de sempre — fonte de aparelho varia e arredondar pra cima só
+     custa folga, enquanto arredondar pra baixo põe a peça dentro do rodapé. */
+  --gps-rodape-h:133px;--map-chao:var(--gps-rodape-h);--gps-piso:var(--map-piso);
+  --gps-puck-sobe:70px}
 /* 🔴 O PALCO DE ESPERA É COR, NÃO DESENHO (09/08 — a maquete morreu, ver
    `mapa()`). Ele nasce com a cor do mapa e fica assim até o maplibre subir: o
    que o motorista vê antes do mapa é um chão escuro liso, nunca uma cidade
@@ -1857,7 +1901,8 @@ button,input{font:inherit;color:inherit}
    uma caixa de 104×118 px bem no meio da tela e engolia todo arrasto que
    começasse ali — o mapa parecia travado justamente onde a mão cai primeiro.
    Ponteiro é DESENHO: quem manda no dedo, aqui, é o mapa. */
-.gps-puck{position:absolute;left:50%;top:auto;bottom:calc(var(--gps-piso) + 22.5px);
+.gps-puck{position:absolute;left:50%;top:auto;
+  bottom:calc(var(--gps-piso) + var(--gps-puck-sobe) + 22.5px);
   width:0;height:0;z-index:19;pointer-events:none}
 .gps-puck::before{content:"";position:absolute;left:-36px;top:-36px;width:72px;height:72px;
   border-radius:50%;background:var(--puck-vidro);border:.7px solid var(--puck-vidro-fio);
@@ -1895,7 +1940,8 @@ button,input{font:inherit;color:inherit}
    ponte projetar o ponto —, então um número velho aqui faz a seta PULAR toda
    vez que o dedo encosta no mapa: defeito de um quadro, que não reproduz em
    foto. Ele é derivado da âncora, nunca digitado de novo. */
-.gps.solta .gps-puck{left:var(--px,50%);top:var(--py,calc(100% - var(--gps-piso) - 22.5px));bottom:auto}
+.gps.solta .gps-puck{left:var(--px,50%);
+  top:var(--py,calc(100% - var(--gps-piso) - var(--gps-puck-sobe) - 22.5px));bottom:auto}
 
 /* 🔴 O CARTÃO CRESCEU 15% (11/08 — dono: *"400m a direita tá ok, pode aumentar
    um pouco, av 25, depois continue na rua 2 (ilegível dirigindo) — aumente um
@@ -1967,15 +2013,15 @@ button,input{font:inherit;color:inherit}
    diferentes. O valor medido virou o valor escrito, e ele mora em token porque
    o aviso de radar pousa em cima do velocímetro e precisa da altura dele. */
 .gps-vel{position:absolute;left:var(--map-beira);bottom:var(--map-piso);z-index:20;
-  width:var(--map-vel-l);height:var(--map-vel-h);border-radius:20px;
+  width:var(--map-vel-l);height:var(--map-vel-h);border-radius:17px;
   background:var(--vel-bg);border:.7px solid var(--vel-fio);text-align:center;line-height:1;
   box-shadow:0 10px 24px rgba(0,0,0,.46)}
 /* Os internos vieram do mundo escalado: cada medida daqui é a de antes × .9,
    pra que tirar o `scale` mude a FOLHA e não a tela (11→10, 16→14, 45→40,
    34→31, 18→16). Quem conferir com régua no palco acha os mesmos pixels. */
-.gps-vel::before{content:"";position:absolute;inset:10px;border:2px dotted var(--vel-trilho);border-radius:14px}
-.gps-vel::after{content:"";position:absolute;inset:10px;border:3px solid transparent;border-right-color:var(--vel-acima-ink);
-  border-bottom-color:var(--vel-acima-ink);border-radius:14px;clip-path:polygon(52% 46%,100% 46%,100% 100%,52% 100%);display:none}
+.gps-vel::before{content:"";position:absolute;inset:8.5px;border:2px dotted var(--vel-trilho);border-radius:12px}
+.gps-vel::after{content:"";position:absolute;inset:8.5px;border:3px solid transparent;border-right-color:var(--vel-acima-ink);
+  border-bottom-color:var(--vel-acima-ink);border-radius:12px;clip-path:polygon(52% 46%,100% 46%,100% 100%,52% 100%);display:none}
 /* 🔴 O NÚMERO NO CENTRO DO DISCO, E O "km/h" FORA DO FLUXO (12/08 — dono:
    *"centralize o número do velocímetro, está muito pra cima"*). O par número+
    unidade JÁ era centralizado como GRUPO (medido: folga 8,5 px em cima e
@@ -1987,12 +2033,12 @@ button,input{font:inherit;color:inherit}
    parte larga do círculo (folga medida: 64 px de corda na altura dela).
    Sem unidade (o mock a torna opcional) o número continua centrado — antes
    também ficava, e essa era a única hora em que ficava. */
-.gps-vel b{position:absolute;left:0;right:0;top:31px;display:block;font-size:40px;font-weight:650;color:var(--ink)}
-.gps-vel small{position:absolute;left:0;right:0;bottom:16px;display:block;
-  font-size:13px;color:var(--ink-2);text-align:center}
-.gps-vel .limite-via{position:absolute;right:-11px;top:-12px;z-index:2;display:grid;place-items:center;
-  width:35px;height:35px;border-radius:50%;background:var(--radar-lim-bg);color:var(--radar-lim-ink);
-  border:4px solid var(--radar-lim-fio);font-size:17px;font-weight:750;font-style:normal;
+.gps-vel b{position:absolute;left:0;right:0;top:26px;display:block;font-size:34px;font-weight:650;color:var(--ink)}
+.gps-vel small{position:absolute;left:0;right:0;bottom:13.5px;display:block;
+  font-size:11px;color:var(--ink-2);text-align:center}
+.gps-vel .limite-via{position:absolute;right:-9px;top:-10px;z-index:2;display:grid;place-items:center;
+  width:30px;height:30px;border-radius:50%;background:var(--radar-lim-bg);color:var(--radar-lim-ink);
+  border:3.4px solid var(--radar-lim-fio);font-size:14.5px;font-weight:750;font-style:normal;
   box-shadow:0 5px 12px rgba(0,0,0,.38)}
 .gps-vel .limite-via:empty{display:none}
 /* 🔴 O VELOCÍMETRO ACIMA DO LIMITE DO RADAR (12/08, F3). Estado, não peça nova:
@@ -2040,6 +2086,12 @@ button,input{font:inherit;color:inherit}
    Vale nos DOIS modos: quem silencia a voz no 2D e entra no 3D tem que achar o
    mesmo botão no mesmo estado — chave do aparelho, não estado da tela. */
 .plano-lado button.mudo,.gps-lado button.mudo{opacity:.45}
+/* 🔴 O CADEADO DO FIM DO DIA (16/08), o mesmo azul do satélite `tmx-info` que
+   ele era até hoje de manhã: a cor viaja junto com o botão quando ele muda de
+   fileira, senão o motorista aprende o verbo de novo a cada tela. Azul e não
+   vermelho de propósito — encerrar o dia é o fim NORMAL do trabalho, e pintá-lo
+   da cor do Cancelar ensinaria que fechar e destruir são a mesma coisa. */
+.plano-lado button.fechar,.gps-lado button.fechar{color:var(--blue-l);border-color:#26436e}
 
 /* 🔴 QUEM MEXER AQUI REFAZ O `--gps-rodape-h` LÁ EM CIMA. A altura deste rodapé
    é o chão de TODAS as peças flutuantes da tela de dirigir — seta, velocímetro
@@ -2095,24 +2147,14 @@ button,input{font:inherit;color:inherit}
 .gps.dirigindo .gps-rodape .n b{font-size:16px;font-weight:650;color:var(--ink);white-space:nowrap}
 .gps.dirigindo .gps-rodape .n small{font-size:10.5px;color:var(--ink-2);margin-top:2px;white-space:nowrap}
 .gps.dirigindo .gps-rodape .n.destaque b{color:var(--ink)}
-.gps-encerrar{display:flex;align-items:stretch;height:46px;margin-top:10px;border:.7px solid var(--line-2);
-  border-radius:16px;background:var(--card);overflow:hidden}
-.gps-encerrar button{min-width:0;border:0;background:transparent;cursor:pointer;font-size:11.5px;font-weight:700;
-  white-space:nowrap}
-.gps-encerrar button+button{border-left:.7px solid var(--line)}
-/* 🔴 AS LARGURAS SEGUEM O RÓTULO, E O RÓTULO MUDOU (16/08). Esta faixa é
-   `overflow:hidden` + `white-space:nowrap` logo acima: texto que não cabe é
-   CORTADO EM SILÊNCIO, sem reticências e sem erro. "Panorâmica" tem 10 letras e
-   morava no slot de `.64` (o antigo "Sair", de 4); "ENCERRAR DIA" em caixa alta
-   com `letter-spacing` é o rótulo mais largo que esta barra já teve. As três
-   frações foram refeitas em cima dos rótulos novos, não herdadas dos velhos.
-   🔴 E O VERMELHO TROCOU DE PEÇA. Ele morava no botão da esquerda porque ali
-   ficava a saída; hoje a esquerda só troca a câmera — pintar de vermelho quem
-   não destrói nada é a mesma mentira que os rótulos acabaram de perder. Quem
-   carrega a consequência agora é o "Encerrar dia", na ponta direita. */
-.gps-encerrar .gps-panoramica{flex:1;color:var(--ink)}
-.gps-encerrar .gps-registrar{flex:1;color:var(--ink)}
-.gps-encerrar-main{flex:1.45;color:var(--lime);font-weight:750;letter-spacing:.06em;text-transform:uppercase}
+/* 🔴 `.gps-encerrar` MORREU EM 16/08 — eram 6 regras e 3 larguras em fração
+   (`flex:1 / 1 / 1.45`) mantidas à mão contra o comprimento do rótulo, num
+   `overflow:hidden` que cortava em silêncio quem não coubesse. O rodapé daqui
+   passou a ser o `.transmux` do 2D, que já resolve largura sozinho (`flex:1` no
+   meio, satélites de 46px fixos) e corta com "…" em vez de calado.
+   Sobra a margem: é a única medida que era da faixa e continua sendo da
+   fileira, e ela ENTRA na conta do `--gps-rodape-h` lá em cima. */
+.gps-rodape .transmux{margin-top:10px}
 
 /* ==========================================================================
    AS EMPRESAS DO CORREDOR — o prospector desenhado na tela de navegação.
@@ -3708,9 +3750,28 @@ const ROTA_ESTADOS={
      · Glifo `lock` e tipo `info`: o satélite esquerdo já é `perigo` (Cancelar).
        Dois vermelhos lado a lado ensinariam que "encerrar o dia" e "destruir o
        dia" são a mesma coisa — e não são: um é o fim normal do trabalho. */
-  rodando:  {main:{acao:'navegar', glifo:'nav', rotulo:'Dirigindo'},
+  /* 🔴 O CADEADO SAIU DO RODAPÉ E O REGISTRAR OCUPOU A VAGA (16/08, ordem do
+     dono, com as duas telas na mão). A régua é FREQUÊNCIA: registrar acontece
+     em toda porta, encerrar o dia acontece UMA vez — e o slot ao lado do polegar
+     era do verbo raro. O `fechar-dia` não sumiu: virou o cadeado da coluna
+     lateral, que é a MESMA peça (`.plano-lado` / `.gps-lado`) nos dois modos,
+     então ele continua a um toque e agora mora no mesmo lugar nas duas telas.
+     `dir` sem `tipo`: Registrar não é perigo nem aviso — é o verbo comum da
+     rua, e veste a superfície neutra que o `.tmx-sat` já dá de fábrica. */
+  rodando:  {main:{acao:'navegar', glifo:'nav', rotulo:'Direção'},
              esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar', acao:'cancelar-rota'},
-             dir:{tipo:'info', glifo:'lock', rotulo:'Encerrar dia', acao:'fechar-dia'}},
+             dir:{glifo:'check', rotulo:'Registrar', acao:'registrar-local'}},
+  /* 🔴 O RODAPÉ DO 3D NASCE DAQUI, DO MESMO LUGAR QUE O DO 2D (16/08). Ele era
+     uma faixa própria (`.gps-encerrar`: três textos de 11,5px, sem ícone e sem
+     legenda) — outro HTML, outro CSS, outra altura, pro mesmo trabalho. Dois
+     desenhos pra mesma fileira é o que fez as fotos 1 e 2 parecerem telas de
+     apps diferentes; agora existe UM gerador, e quem mexer numa mexe nas duas.
+     O par do meio é o mesmo gesto nos dois sentidos: `Direção` leva de cima pro
+     inclinado, `Panorâmica` traz de volta. Por isso o main aqui é `ir` e não
+     `acao` — a volta é uma TELA (o roteador), não uma mutação. */
+  dirigindo:{main:{ir:'rota', glifo:'map', rotulo:'Panorâmica'},
+             esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar', acao:'cancelar-rota'},
+             dir:{glifo:'check', rotulo:'Registrar', acao:'registrar-local'}},
   /* 🔴 O RECIBO DO TOQUE MORA NO BOTÃO TOCADO. Enquanto o servidor monta, o
      meio vira "Montando…": mesmo lugar, mesmo tamanho, SEM ação (dois toques
      não montam duas vezes) e sem satélite — cancelar ou iniciar no meio de uma
@@ -3728,19 +3789,33 @@ const ROTA_ESTADOS={
 };
 function transmux(estado){
   const c=ROTA_ESTADOS[estado]; if(!c) return '';
-  const sat=(s,lado)=>s?`<span class="tmx-sat tmx-${s.tipo} tmx-${lado}">
-      <button aria-label="${s.rotulo}"${s.acao?` data-acao="${s.acao}"`:''}>${ic(s.glifo,20)}${s.contagem?`<i class="cont">${s.contagem}</i>`:''}</button>
+  /* `tipo` virou OPCIONAL (16/08): satélite sem papel declarado é o verbo comum
+     e veste a superfície neutra do `.tmx-sat`. Antes o nome saía sempre, e um
+     satélite sem tipo escrevia `tmx-undefined` no HTML — classe que não existe,
+     mas que aparece no retrato do `casca-conferir` como se fosse desenho. */
+  const sat=(s,lado)=>s?`<span class="tmx-sat ${s.tipo?`tmx-${s.tipo} `:''}tmx-${lado}">
+      <button aria-label="${s.rotulo}"${s.ir?` data-ir="${s.ir}"`:''}${s.acao?` data-acao="${s.acao}"`:''}>${ic(s.glifo,20)}${s.contagem?`<i class="cont">${s.contagem}</i>`:''}</button>
       <small>${s.rotulo}</small></span>`:'';
-  // main sem `acao` = trabalho em curso: não vira gancho e não aceita dedo.
-  /* 🔴 A PALAVRA ENTROU NO BOTÃO. Ela era um `<small>` de 12px POR BAIXO de um
-     quadrado com um ícone de 34px — quer dizer: o desenho grande não dizia
-     nada e o que dizia era a menor letra do rodapé. Agora o verbo é o botão.
-     O ícone encolhe (34 → 21) porque virou o acompanhante, não o cartaz. */
+  // main sem `acao` e sem `ir` = trabalho em curso: não vira gancho, nem dedo.
+  /* 🔴 A PALAVRA SAIU DO BOTÃO — e isto é uma VOLTA ATRÁS consciente (16/08,
+     ordem do dono: "faça ícones, com um rótulo bem pequeno"). Ela tinha entrado
+     em 15/08 porque era um `<small>` de 12px por baixo de um quadrado com ícone
+     de 34px: o desenho grande não dizia nada e quem dizia era a menor letra do
+     rodapé. O que muda agora e desarma aquele defeito é que o rótulo miúdo
+     deixou de ser exceção — os TRÊS o têm, com o mesmo tamanho e na mesma
+     linha, então ele lê como legenda de uma fileira e não como um botão que
+     esqueceu o nome. O ícone sobe de 21 a 24 porque voltou a ser o cartaz.
+     ⚠️ O botão perdeu o texto de dentro, então perdeu o nome acessível junto:
+     o `aria-label` abaixo é obrigatório, não enfeite. */
+  const gancho=c.main.ir?` data-ir="${c.main.ir}"`
+    :c.main.acao?` data-estado="${c.main.acao}"`
+    :' class="ocupado" disabled aria-busy="true"';
   return `<div class="transmux">${sat(c.esq,'esq')}
     <span class="tmx-main">
       ${c.main.nota
-        ? `<span class="tmx-nota" role="status">${ic(c.main.glifo,21)}<b>${c.main.rotulo}</b></span>`
-        : `<button${c.main.acao?` data-estado="${c.main.acao}"`:' class="ocupado" disabled aria-busy="true"'}>${ic(c.main.glifo,21)}<b>${c.main.rotulo}</b></button>`}
+        ? `<span class="tmx-nota" role="status">${ic(c.main.glifo,24)}</span>`
+        : `<button aria-label="${c.main.rotulo}"${gancho}>${ic(c.main.glifo,24)}</button>`}
+      <small>${c.main.rotulo}</small>
     </span>
     ${sat(c.dir,'dir')}</div>`;
 }
@@ -3823,8 +3898,16 @@ function stop(o){
    posição inventada de "você está aqui" é a pior das mentiras que esta tela
    pode contar — pior que a maquete, que ao menos mentia sobre os OUTROS.
    ========================================================================== */
+/* 🔴 UM PALCO SÓ NOS DOIS ESTADOS (16/08 — dono: *"MAPA PARADO, TRANSIÇÃO
+   DENTRO DO MAPA SEM SE MEXER; ambos os estados têm q ser idênticos"*).
+   Este `data-mapa` era `geral` aqui e `gps` na tela de dirigir: dois nomes, duas
+   instâncias de maplibre, duas câmeras — e por isso trocar de estado era trocar
+   de MAPA, com tile novo, redesenho e o preto que o dono chamou de travação.
+   Com o mesmo nome nos dois, o maplibre é UM: o nó só muda de pai e a câmera
+   fica exatamente onde estava. O que troca entre 2D e 3D é a INCLINAÇÃO e o
+   cromo — nada mais. */
 function mapa(){
-  return `<div class="mapa-palco" data-mapa="geral">${DADOS.rota.euDemo
+  return `<div class="mapa-palco" data-mapa="rota">${DADOS.rota.euDemo
     ?'<i class="eu-puck demo" style="--rumo:34deg;--cone:1;--halo:104px"></i>':''}</div>`;
 }
 
@@ -3967,21 +4050,18 @@ const DADOS={
 
      🔴 SLOT SEM FONTE **SOME INTEIRO** — com rótulo, unidade e separador. O
      " · " nasce de um `join`, nunca do template: separador órfão e caixa vazia
-     boiando no mapa são a mesma mentira de antes, só que mais feia. O que
-     NUNCA some é a `panoramica`: é a porta de saída desta tela, e motorista
-     preso na navegação é defeito pior que qualquer número faltando.
+     boiando no mapa são a mesma mentira de antes, só que mais feia. O que NUNCA
+     some é a saída desta tela (hoje a `Panorâmica` do dock): motorista preso na
+     navegação é defeito pior que qualquer número faltando — e ela sobrevive
+     justamente por não depender mais de chave de seam nenhuma.
 
-     🔴 AS DUAS CHAVES DO RODAPÉ MUDARAM DE NOME EM 16/08, junto com os verbos.
-     `encerrar` dizia "Sair" e virou `panoramica`; e nasceu `encerrarDia`, que é
-     o verbo novo da ponta direita. A chave velha `fechar` foi APAGADA: ela
-     guardava a palavra "Fechamento" e NINGUÉM a lia (o template cravava o
-     literal) — slot de seam com a copy antiga é armadilha, porque parece ser a
-     fonte do rótulo e não é.
+     🔴 O RODAPÉ INTEIRO SAIU DESTE INVENTÁRIO EM 16/08: ele virou o `transmux`,
+     e os três rótulos moram no `ROTA_ESTADOS` (estado `dirigindo`). Aqui ficou
+     só o que ainda é dado ou copy dos NÚMEROS.
 
      DADO: manobra* · rumo · velocidade · paradaN · paradaTotal · paradaNome ·
            chegada · restante · distancia.
-     COPY: velocidadeUnidade · chegadaRotulo · restanteRotulo · distanciaRotulo
-           · panoramica · encerrarDia.
+     COPY: velocidadeUnidade · chegadaRotulo · restanteRotulo · distanciaRotulo.
      🔴 OS 8 CAMPOS `chegou*` SAÍRAM DAQUI NO LOTE 3 (15/08). O "Você chegou"
      não é mais um estado deste cromo — é a peça `.chegou-wrap`, montada por
      `cartaoChegada(d)` com `d={id,n,nome,endereco,gps}` lido direto de
@@ -3999,25 +4079,11 @@ const DADOS={
     chegada:'12:26', chegadaRotulo:'chegada',
     restante:'45 min', restanteRotulo:'restante',
     distancia:'8,2 km', distanciaRotulo:'distância',
-    /* 🔴 "Panorâmica", e a razão de 09/08 é a mesma, mais forte (16/08). Este
-       botão só volta pra tela Rota com a rota VIVA — não fecha dia, não devolve
-       parada, não desfaz nada; verbo destrutivo aqui seria mentira. Ele era
-       "Sair", que descrevia o que se PERDE (a tela); "Panorâmica" descreve o que
-       se GANHA (o dia visto de cima) e faz par com o "Dirigindo" do dock do 2D:
-       a mesma viagem, nos dois sentidos, com os dois nomes visíveis. */
-    panoramica:'Panorâmica',
-    /* Os dois vizinhos da mesma faixa. São COPY fixa como a `panoramica`: a
-       ponte não os reescreve, e por isso eles nunca "somem por falta de dado" —
-       porta de saída, botão de registro e fim do dia não podem depender do que o
-       servidor respondeu.
-       "Registrar" é o verbo curto de "registrar o local onde eu estou": é dele
-       que saem o cadastro na porta, a venda avulsa e a correção do endereço,
-       todos com o GPS carimbado no toque (a folha da rua).
-       🔴 "Encerrar dia" é o MESMO verbo do satélite do 2D, e de propósito: um
-       dono só (`fechar-dia`), dois lugares de alcance. Era "Fechamento" aqui e
-       "Finalizar" lá — dois nomes para a mesma porta, que é como o motorista
-       aprende que existem dois lugares pra mesma coisa. */
-    registrar:'Registrar', encerrarDia:'Encerrar dia',
+    /* 🔴 AS 3 CHAVES DO RODAPÉ SAÍRAM DAQUI EM 16/08 (`panoramica`, `registrar`,
+       `encerrarDia`). O rodapé desta tela virou o `transmux` do 2D, e os rótulos
+       dele moram no `ROTA_ESTADOS` — que é onde já viviam os do dock. Slot de
+       seam que ninguém lê é ARMADILHA: parece a fonte do rótulo e não é, e foi
+       exatamente por isso que a chave velha `fechar` já tinha sido apagada. */
   },
   /* L4 — A PORTA. Os literais abaixo são os que estavam nos templates da folha
      de chegada e da folha da venda, MOVIDOS pra cá. `itens` é [ícone, nome,
@@ -4851,9 +4917,19 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
          tela que o motorista abriu justamente pra não dirigir olhando.
          (Sem CRASE aqui dentro: este comentário mora num template literal e a
          crase o fecharia — foi exatamente o que eu fiz na primeira escrita.) */''}
+    ${/* 🔴 O CADEADO MORA AQUI DESDE 16/08, NOS DOIS MODOS. Ele era o satelite
+         direito do dock e cedeu a vaga ao Registrar (ver o estado "rodando" em
+         ROTA_ESTADOS): encerrar o dia acontece UMA vez, registrar acontece em
+         toda porta. A coluna e o rodape sao vizinhos na mesma beirada, entao
+         ele nao ficou mais longe do polegar — mudou de fileira, nao de alcance.
+         So com a rota NA RUA: sem dia rodando nao ha dia pra encerrar, e botao
+         que abre portao pra dizer "nao ha nada aqui" e o beco de 14/08.
+         (Sem CRASE aqui dentro: este comentario mora num template literal.) */''}
     <div class="plano-lado">
       ${emCurso?`<button data-acao="gps-voz" class="${DADOS.gps.vozMuda?'mudo':''}"
         aria-label="${DADOS.gps.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',22)}</button>`:''}
+      ${emCurso?`<button data-acao="fechar-dia" class="fechar"
+        aria-label="Encerrar dia">${ic('lock',22)}</button>`:''}
       <button data-acao="mapa-enquadrar"${d.gps==='procurando'?' class="buscando"':''}
         aria-label="${temRotaNoDia(e)?'Enquadrar a rota':'Centralizar em mim'}">${ic('target',22)}</button>
     </div>
@@ -5005,7 +5081,8 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
 /* O MUNDO DO GPS — desenhado achatado e inclinado pelo CSS. A rua em que se
    anda é a coluna do meio: como o carro fica no centro horizontal, ele cai em
    cima dela em qualquer altura, e o giro à direita aparece lá na frente. */
-function mapaGps(){ return `<div class="mapa-palco" data-mapa="gps">${mapaGpsDesenho()}</div>`; }
+/* o MESMO palco do 2D (ver `mapa()`): um maplibre só, dois estados. */
+function mapaGps(){ return `<div class="mapa-palco" data-mapa="rota">${mapaGpsDesenho()}</div>`; }
 function mapaGpsDesenho(){
   const quadra=(x,y,w,h)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="var(--map-quadra)"/>`;
   /* UM TRAÇO DA COBRA = dois caminhos no mesmo `d`: o CORPO, que cresce, e a
@@ -5266,23 +5343,23 @@ function telaGps(){
       <button data-ir="chat" aria-label="Chat com a Central">${ic('chat',22)}</button>
       <button data-acao="gps-voz" class="${g.vozMuda?'mudo':''}"
         aria-label="${g.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',22)}</button>
+      <button data-acao="fechar-dia" class="fechar" aria-label="Encerrar dia">${ic('lock',22)}</button>
       <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',22)}</button>
     </div>
 
-    <!-- 🔴 A FAIXA DOS VERBOS, REALINHADA COM O 2D (16/08). Ela tinha TRES
-         verbos e NENHUM encerrava coisa alguma: "Fechamento" abria outra tela,
-         "Registrar" abria um portao, "Sair" voltava pro 2D. O dono perguntou
-         por que o 3D tem encerrar e o 2D nao — a medicao mostrou o contrario:
-         o 3D tinha tres portas e nenhuma fechadura.
-         A esquerda passa a ser PANORAMICA, o par exato do "Dirigindo" do dock
-         do 2D: mesma viagem, sentido contrario. Ela mantem data-ir="rota"
-         porque a volta e uma TELA, e porque rota e o unico modulo que nunca
-         desliga — a saida da navegacao nao pode depender de configuracao.
-         A direita passa a ser ENCERRAR DIA, o mesmo verbo e o MESMO gancho
-         (fechar-dia) do satelite do 2D: um dono so, dois lugares de alcance.
-         E ele deixa de ser data-ir: fechamento e chave de MODULO do admin, e
-         com o modulo desligado a poda arrancava o botao do rodape — o motorista
-         na rua ficava sem verbo de encerrar. Com data-acao ele sobrevive.
+    <!-- 🔴 A FAIXA MORREU: ESTE RODAPE AGORA E O DOCK DO 2D (16/08, ordem do
+         dono: "quero os botoes identicos foto 1 e 2"). Aqui existiam TRES
+         botoes de texto de 11,5px, sem icone e sem legenda, numa barra propria
+         (.gps-encerrar) com CSS proprio e altura propria — outro desenho pro
+         mesmo trabalho, e foi o que fez as duas fotos parecerem apps
+         diferentes. Agora quem monta e o transmux, o MESMO gerador do 2D:
+         Cancelar / Panoramica / Registrar, nas mesmas pecas de 46px.
+         O estado chama-se "dirigindo" e mora no ROTA_ESTADOS, junto dos outros
+         — quem mexer na fileira de um modo mexe na do outro por construcao, em
+         vez de por disciplina. O fechar-dia saiu daqui pra coluna lateral
+         (.gps-lado, o cadeado): ele continua com data-acao e nao data-ir,
+         porque fechamento e chave de MODULO do admin e a poda arrancaria um
+         data-ir — o motorista na rua ficaria sem verbo de encerrar.
          (Sem CRASE aqui dentro: este comentario mora num template literal.) -->
     <div class="gps-rodape">
       ${rodape?`<div class="parada">${ic('route',14)} <span class="txt">${rodape}</span></div>`:''}
@@ -5291,17 +5368,10 @@ function telaGps(){
         ${num(g.distancia,g.distanciaRotulo,0,'distancia','route')}
         ${num(g.chegada,g.chegadaRotulo,1,'chegada','flag')}
       </div>
-      <!-- Os três verbos ficam sempre expostos na mesma faixa. Nenhum deles
-           depende de abrir menu: quem está dirigindo precisa enxergar a saída,
-           o registro na porta e o encerramento antes de tocar.
-           A ORDEM É A DA CONSEQUÊNCIA: sair da câmera (nada acontece) → registrar
-           (grava uma parada) → encerrar o dia (acaba o trabalho). O verbo mais
-           caro fica na ponta, longe do polegar que estava mirando o mapa. -->
-      <div class="gps-encerrar">
-        <button class="gps-panoramica" data-ir="rota">${g.panoramica||'Panorâmica'}</button>
-        <button class="gps-registrar" data-acao="registrar-local">${g.registrar||'Registrar'}</button>
-        <button class="gps-encerrar-main" data-acao="fechar-dia">${g.encerrarDia||'Encerrar dia'}</button>
-      </div>
+      <!-- Os três verbos ficam sempre expostos na mesma fileira. Nenhum deles
+           depende de abrir menu: quem está dirigindo precisa enxergar a saída
+           da câmera e o registro na porta antes de tocar. -->
+      ${transmux('dirigindo')}
     </div>
   </div>
 </div>`;
@@ -7500,7 +7570,24 @@ function pintar(animar,dir){
   nova.dataset.dir = marcaDir;
   if(antiga){ antiga.style.setProperty('--dir', dir===-1?-1:1); antiga.dataset.dir = marcaDir; }
 
-  if(animar && antiga && tr!=='nenhuma'){
+  /* 🔴 A TROCA ENTRE 2D E 3D É SECA (16/08 — dono: *"a tela não tem mais motivo
+     para piscar tudo, ambos os estados têm q ser idênticos... MAPA PARADO,
+     transição DENTRO do mapa sem se mexer"*).
+     As duas telas passaram a dividir o MESMO palco de mapa (`data-mapa="rota"`)
+     — e mapa é UM nó só: ele muda de pai no transplante. Se a camada velha
+     ficasse no ar animando a saída, ela ficaria com o palco VAZIO na tela, que
+     é o pisca ao contrário. Então aqui não há camada saindo: a nova entra
+     inteira, no lugar, e quem se mexe são as PEÇAS (o cartão da manobra
+     recolhendo, o cabeçalho entrando, a bússola) e a inclinação do mapa.
+     Vale só pra este par: qualquer outra troca continua com a coreografia de
+     camada de sempre. */
+  const trocaDeModo = (atual==='mapa'&&anterior==='rota')||(atual==='rota'&&anterior==='mapa');
+  if(animar && antiga && trocaDeModo){
+    nova.classList.add('modo-troca');
+    app.appendChild(nova);
+    antiga.remove();
+    clearTimeout(limpezaTimer);
+  }else if(animar && antiga && tr!=='nenhuma'){
     // 🔴 A camada que entrou guardava a classe `entra` pra sempre. Na troca
     // seguinte ela virava a que SAI carregando as duas regras de animação — e
     // quem decidia era a ordem da folha, não o código. Some com a marca antes
