@@ -220,7 +220,7 @@
       casa, motivo, mundo: null, t0: 0, ondas: [], nomes: [],
       cartao: null, eu: null, raf: 0, dedo: null, onda: CENA_ONDA,
       mundoVoltou: false, nomesSairam: false, ruasPartiram: false,
-      semApagar: !!semApagar,
+      ruasFecharam: false, semApagar: !!semApagar,
     };
     const daVez = cena;
     /* 🔴 A FILA COMEÇA AQUI, NO INSTANTE EM QUE A CENA É ACEITA — e ela só nasce
@@ -548,18 +548,30 @@
            armar: enquanto ele estiver de pé, a descida está na fila e quem fecha
            é o `descer` (§ 70-traco-camera). Sem descida armada — o pouso no 2D —
            a última onda É o fim da fila, como o contrato manda. */
-        if (typeof filaEsperaDescida !== 'function' || !filaEsperaDescida()) faseDaCena('pronto');
+        /* 🔴 E O `pronto` SAIU DAQUI (17/08 — dono: *"depois de carregar tá uma
+           tela desesperada… dê um tempo de um transition acabar para entrar em
+           outro"*). Este ponto é a última onda PARTINDO, não chegando: os botões
+           entravam com as ruas ainda crescendo por baixo deles, que é a "muita
+           coisa ao mesmo tempo" pela última porta que faltava fechar. Quem
+           anuncia agora é o fim do CRESCIMENTO (§ `ruasCresceram`, no laço das
+           ondas, poucas linhas abaixo). O que continua morando aqui é a volta do
+           resto do mundo, que é o que esta marca sempre foi. */
       }
     }
 
     const corFim = daVez.corFim || (daVez.corFim = corDaRuaReal(mapa, corpo));
+    // 🔴 CRESCEU ≠ ASSENTOU. `ruasProntas` (abaixo) só é verdade quando a onda
+    // cresceu E a tinta escorregou pro tom do basemap (`CENA_COR_ASSENTA`) — 420
+    // ms em que a tela já está parada. Quem manda nos botões é o DESENHO ter
+    // acabado; esperar a cor seria segurar o cromo por uma troca que ninguém vê.
+    let ruasCresceram = true;
     let ruasProntas = true;
     for (let i = 0; i < daVez.ondas.length; i += 1) {
       const o = daVez.ondas[i];
       if (o.pronta) continue;
       const onda = daVez.onda || CENA_ONDA;
       const p = (t - o.em) / onda;
-      if (p <= 0) { ruasProntas = false; continue; }
+      if (p <= 0) { ruasProntas = false; ruasCresceram = false; continue; }
       const id = `${CENA_FONTE}-${i}`;
       /* 🔴 FECHOU A RUA, A COR ESCORREGA PRO TOM DE VERDADE. Sem isto a onda
          ficava acesa até o fim da cena e a linha caía do `#59677a` pro `#333333`
@@ -573,7 +585,19 @@
       } catch (_) { o.pronta = true; continue; }
       // a onda só está PRONTA quando cresceu E assentou a cor: é isso que faz o
       // desfecho encontrar a mesma tinta dos dois lados da troca.
+      if (p < 1) ruasCresceram = false;
       if (p >= 1 && q >= 1) o.pronta = true; else ruasProntas = false;
+    }
+
+    /* 🔴 OS BOTÕES ENTRAM QUANDO O DESENHO ACABA (17/08 — *"dê um tempo de um
+       transition acabar para entrar em outro, tudo SMOOTHLY"*). Antes o anúncio
+       saía junto com a ÚLTIMA ONDA PARTINDO (§ `mundoVoltou`), ~0,8 s antes de a
+       cidade fechar: o cromo nascia por cima de rua ainda crescendo.
+       A guarda da descida é a mesma de sempre e pelo mesmo motivo: no 3D ainda
+       há 1,8 s de câmera pela frente, e quem fecha a fila lá é o `descer`. */
+    if (!daVez.ruasFecharam && ruasCresceram && daVez.ondas.length) {
+      daVez.ruasFecharam = true;
+      if (typeof filaEsperaDescida !== 'function' || !filaEsperaDescida()) faseDaCena('pronto');
     }
 
     let nomesProntos = true;

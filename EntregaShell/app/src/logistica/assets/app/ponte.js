@@ -6496,7 +6496,7 @@
       casa, motivo, mundo: null, t0: 0, ondas: [], nomes: [],
       cartao: null, eu: null, raf: 0, dedo: null, onda: CENA_ONDA,
       mundoVoltou: false, nomesSairam: false, ruasPartiram: false,
-      semApagar: !!semApagar,
+      ruasFecharam: false, semApagar: !!semApagar,
     };
     const daVez = cena;
     /* 🔴 A FILA COMEÇA AQUI, NO INSTANTE EM QUE A CENA É ACEITA — e ela só nasce
@@ -6824,18 +6824,30 @@
            armar: enquanto ele estiver de pé, a descida está na fila e quem fecha
            é o `descer` (§ 70-traco-camera). Sem descida armada — o pouso no 2D —
            a última onda É o fim da fila, como o contrato manda. */
-        if (typeof filaEsperaDescida !== 'function' || !filaEsperaDescida()) faseDaCena('pronto');
+        /* 🔴 E O `pronto` SAIU DAQUI (17/08 — dono: *"depois de carregar tá uma
+           tela desesperada… dê um tempo de um transition acabar para entrar em
+           outro"*). Este ponto é a última onda PARTINDO, não chegando: os botões
+           entravam com as ruas ainda crescendo por baixo deles, que é a "muita
+           coisa ao mesmo tempo" pela última porta que faltava fechar. Quem
+           anuncia agora é o fim do CRESCIMENTO (§ `ruasCresceram`, no laço das
+           ondas, poucas linhas abaixo). O que continua morando aqui é a volta do
+           resto do mundo, que é o que esta marca sempre foi. */
       }
     }
 
     const corFim = daVez.corFim || (daVez.corFim = corDaRuaReal(mapa, corpo));
+    // 🔴 CRESCEU ≠ ASSENTOU. `ruasProntas` (abaixo) só é verdade quando a onda
+    // cresceu E a tinta escorregou pro tom do basemap (`CENA_COR_ASSENTA`) — 420
+    // ms em que a tela já está parada. Quem manda nos botões é o DESENHO ter
+    // acabado; esperar a cor seria segurar o cromo por uma troca que ninguém vê.
+    let ruasCresceram = true;
     let ruasProntas = true;
     for (let i = 0; i < daVez.ondas.length; i += 1) {
       const o = daVez.ondas[i];
       if (o.pronta) continue;
       const onda = daVez.onda || CENA_ONDA;
       const p = (t - o.em) / onda;
-      if (p <= 0) { ruasProntas = false; continue; }
+      if (p <= 0) { ruasProntas = false; ruasCresceram = false; continue; }
       const id = `${CENA_FONTE}-${i}`;
       /* 🔴 FECHOU A RUA, A COR ESCORREGA PRO TOM DE VERDADE. Sem isto a onda
          ficava acesa até o fim da cena e a linha caía do `#59677a` pro `#333333`
@@ -6849,7 +6861,19 @@
       } catch (_) { o.pronta = true; continue; }
       // a onda só está PRONTA quando cresceu E assentou a cor: é isso que faz o
       // desfecho encontrar a mesma tinta dos dois lados da troca.
+      if (p < 1) ruasCresceram = false;
       if (p >= 1 && q >= 1) o.pronta = true; else ruasProntas = false;
+    }
+
+    /* 🔴 OS BOTÕES ENTRAM QUANDO O DESENHO ACABA (17/08 — *"dê um tempo de um
+       transition acabar para entrar em outro, tudo SMOOTHLY"*). Antes o anúncio
+       saía junto com a ÚLTIMA ONDA PARTINDO (§ `mundoVoltou`), ~0,8 s antes de a
+       cidade fechar: o cromo nascia por cima de rua ainda crescendo.
+       A guarda da descida é a mesma de sempre e pelo mesmo motivo: no 3D ainda
+       há 1,8 s de câmera pela frente, e quem fecha a fila lá é o `descer`. */
+    if (!daVez.ruasFecharam && ruasCresceram && daVez.ondas.length) {
+      daVez.ruasFecharam = true;
+      if (typeof filaEsperaDescida !== 'function' || !filaEsperaDescida()) faseDaCena('pronto');
     }
 
     let nomesProntos = true;
@@ -7313,7 +7337,9 @@
     casa.luz = luz;
     estiloDoMapa(luz !== 'claro').then((estilo) => {
       try { casa.mapa.setStyle(estilo); } catch (_) { return; }
-      casa.mapa.once('styledata', () => desenharTraco(casa.mapa));
+      // pele nova = chão novo: o carimbo anda junto com o estilo, senão o véu
+      // escureceria na cor do tema anterior (§ `carimbarChao`).
+      casa.mapa.once('styledata', () => { desenharTraco(casa.mapa); carimbarChao(casa.mapa); });
     }).catch(() => { /* sem estilo novo: fica o de agora */ });
   }
 
@@ -7437,6 +7463,9 @@
 
     mapa.on('load', () => {
       palco.classList.add('pronto');             // o desenho de espera se apaga
+      // a cor do chão do estilo vira `--map-chao` pra casca (§ `carimbarChao`):
+      // é ela que a fase 1 da cena usa pra escurecer NA COR DO MAPA.
+      carimbarChao(mapa);
       sincronizarPinos(nova);
       // 🔴 A SETA É UMA SÓ. No palco "gps" quem mostra o motorista é o puck do
       // desenho, parado a 68% da tela — um marcador do maplibre no mesmo lugar
@@ -9187,6 +9216,24 @@
       return getComputedStyle(casca).getPropertyValue(nome).trim() || padrao;
     } catch (_) { return padrao; }
   };
+  /* 🔴 O CHÃO DO MAPA VIRA TOKEN DA CASCA (17/08 — dono, montando a rota no g15:
+     *"aparece um azul do nada"*). A fase 1 da cena promete "escurece na COR DO
+     MAPA", e a casca só tinha `--map-fundo`, que é `var(--bg-2)`: o azul-marinho
+     do APP. O chão de verdade mora no `style-*.json` (`earth`, `#1f1f1f` no
+     escuro) e quem o enxerga é a ponte — a mesma lei que o halo do nome da cena
+     já escreve: cor do chão não vira token de folha, senão é a mesma verdade em
+     dois arquivos, que é como eles discordam.
+     Então a ponte CARIMBA na raiz e a folha LÊ (`var(--map-chao,var(--map-fundo))`):
+     sem mapa no ar — o mock no navegador — o fallback é o de sempre. Escrever na
+     raiz é escrever uma vez por estilo, não por quadro: isto roda no `load` e na
+     troca de pele, e mais nada. */
+  function carimbarChao(mapa) {
+    let cor;
+    try { cor = mapa.getPaintProperty('earth', 'fill-color'); } catch (_) { return; }
+    if (typeof cor !== 'string' || !/^#[0-9a-f]{3,8}$/i.test(cor)) return;
+    try { document.documentElement.style.setProperty('--map-chao', cor); } catch (_) { /* documento indo embora */ }
+  }
+
   const geometriaDe = (rota) => {
     const g = rota && rota.geometry;
     return (g && g.type === 'LineString' && Array.isArray(g.coordinates) && g.coordinates.length > 1)

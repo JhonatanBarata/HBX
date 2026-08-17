@@ -609,7 +609,26 @@ button,input{font:inherit;color:inherit}
    (por `mvCheioSaiClaro`) e ganha desta por ser mais específica — mas o que ela
    NÃO troca é a duração, e o `animation:none` daqui a põe em 0s. Nos dois temas o
    resultado é o mesmo: nenhum quadro de animação. */
-:root[data-cena] .tela.sai.cheio{animation:none!important}
+/* 🔴 A SAÍDA VOLTOU A SER GESTO — SÓ QUE BARATA (17/08, dono com o g15 na mão:
+   *"vc vai ver uma tela azul do nada, tem q ser transition, botões saindo,
+   transition acontecendo, botões entrando"*). `animation:none` fazia o que está
+   escrito acima: a montagem ficava PARADA e era coberta por uma cor — do ponto de
+   vista de quem olha, a tela anterior não sai, ela some. O que custava caro no
+   `mvCheioSai` era a ESCALA e o `filter:brightness` numa tela de 52 linhas (4,8
+   fps medidos); opacidade sozinha é compositor puro e não custa quadro nenhum.
+   Então a saída existe de novo, com a curva de quem sai, e dura exatamente os
+   mesmos 420 ms em que a cor sobe: as duas são o MESMO movimento visto dos dois
+   lados — a montagem se apagando dentro da cor do mapa. */
+:root[data-cena] .tela.sai.cheio{animation:mvCenaSai var(--cena-escurece) var(--cv-sai) both!important}
+@keyframes mvCenaSai{to{opacity:0}}
+/* e "BOTÕES SAINDO" é literal: o pé da tela que sai DESCE enquanto a cor sobe.
+   Uma transformação numa peça pequena, no compositor — o oposto do filtro que
+   esta casa proibiu. Vale pros três pés que podem estar embaixo quando a cena
+   entra (a montagem, o rodapé do mapa e a barra da lista). */
+:root[data-cena] .tela.sai.cheio .pe-montagem,
+:root[data-cena] .tela.sai.cheio .gps-rodape,
+:root[data-cena] .tela.sai.cheio .tmx-dock{animation:mvCenaPeSai var(--cena-escurece) var(--cv-sai) both}
+@keyframes mvCenaPeSai{to{opacity:0;transform:translateY(72%)}}
 /* 🔴 A SAÍDA USAVA A CURVA DE QUEM CHEGA — e é ISSO que o dono chamou de
    "travação nojenta" no ir e vir entre o 2D e o 3D (16/08). A Lei 2 desta folha
    está escrita 300 linhas acima: quem ENTRA desacelera (`--cv-entra`), quem SAI
@@ -664,13 +683,22 @@ button,input{font:inherit;color:inherit}
    pop (100 → 380). Tudo dentro dos 420 ms de `--cena-pronto`.
    ========================================================================== */
 @keyframes mvDesce{from{opacity:0;transform:translateY(-115%)}to{opacity:1;transform:none}}
+/* 🔴 UM DEPOIS DO OUTRO, NÃO TODOS JUNTOS (17/08, dono: *"depois de carregar tá
+   uma tela desesperada, já abre as coisas… FAÇA COM CALMA, dê um tempo de um
+   transition acabar para entrar em outro, tudo SMOOTHLY"*).
+   Os atrasos eram .00/.04/.10 s — três gestos partindo praticamente no mesmo
+   quadro, que é "aparecer tudo de uma vez" com nomes diferentes. Agora cada um
+   espera o anterior FECHAR: o rodapé sobe (0 → 380), a peça do topo desce
+   (380 → 760) e só então as redondas dão o pop (760 → 1040). É a mesma lei da
+   fila, aplicada dentro da última fase — e continua caber no `FASE_PRONTO_MS`
+   (1,4 s), que é quando a marca sai da raiz. */
 :root[data-cena="pronto"] .tela.cena.cheio .gps-rodape{animation:mvFolha var(--mv-folha) var(--cv-entra) both}
 :root[data-cena="pronto"] .tela.cena.cheio .gps-manobra,
-:root[data-cena="pronto"] .tela.cena.cheio .plano-topo{animation:mvDesce var(--mv-folha) var(--cv-entra) .04s both}
+:root[data-cena="pronto"] .tela.cena.cheio .plano-topo{animation:mvDesce var(--mv-folha) var(--cv-entra) var(--mv-folha) both}
 :root[data-cena="pronto"] .tela.cena.cheio .gps-vel,
 :root[data-cena="pronto"] .tela.cena.cheio .gps-bussola,
 :root[data-cena="pronto"] .tela.cena.cheio .gps-lado button,
-:root[data-cena="pronto"] .tela.cena.cheio .plano-lado button{animation:mvPop var(--mv-normal) var(--cv-mola) .10s both}
+:root[data-cena="pronto"] .tela.cena.cheio .plano-lado button{animation:mvPop var(--mv-normal) var(--cv-mola) calc(var(--mv-folha) * 2) both}
 
 /* 🔴 E FASE NÃO INVADE FASE: nas TRÊS primeiras o cromo não existe na tela — nem
    meio-transparente, nem com transição pendurada esperando a vez (lei 1 da fila).
@@ -869,9 +897,19 @@ button,input{font:inherit;color:inherit}
    e o clarão do ponteiro nasce de dentro dele. A troca não custa nada no tema
    claro: `--map-fundo` também é claro lá, então o véu continua CLAREANDO em vez
    de escurecer, que é a lei do bloco do claro no fim da folha. */
+/* 🔴 "COR DO MAPA" ERA O FUNDO DO APP, E POR ISSO O DONO VIU UM AZUL (17/08:
+   *"aparece um azul do nada"*). `--map-fundo` é `var(--bg-2)` = `#0a1120`, o
+   azul-marinho da CASCA; o chão do mapa de verdade é `#1f1f1f` (o `earth` do
+   `style-dark.json`). Escurecer no azul da casca no meio de um mapa cinza é
+   exatamente o que ele descreveu: uma tela azul aparecendo do nada.
+   `--map-chao` é carimbado pela PONTE lendo o estilo VIVO (§ `carimbarChao`, em
+   40-mapa-palcos) — a mesma lei do halo do nome da cena: a cor do chão mora no
+   `style-*.json`, e um token igual a ela seria a mesma verdade em dois arquivos.
+   O fallback é o de sempre: sem mapa no ar (mock no navegador, estilo que não
+   carregou) o véu continua sendo o fundo da casca. */
 .gps-veu{position:absolute;inset:0;z-index:18;pointer-events:none;opacity:0;--veu-r:1500px;
   background:radial-gradient(circle at 50% 68%,transparent 0,transparent var(--veu-r),
-    var(--map-fundo) calc(var(--veu-r) * 1.25 + 56px))}
+    var(--map-chao,var(--map-fundo)) calc(var(--veu-r) * 1.25 + 56px))}
 /* 🔴 FASE 1 — O VÉU PREENCHE ANTES DE ABRIR (17/08, e é o pedido literal:
    *"Escurece, PREENCHER com cor do mapa, COMECE o efeito"* — três verbos, nesta
    ordem). O que havia aqui era só o terceiro: o véu já nascia ABRINDO (`mvVeu`
@@ -886,7 +924,7 @@ button,input{font:inherit;color:inherit}
    O `to` é obrigatório — a regra estática do véu é `opacity:0` (parado ele não
    existe), então um `@keyframes` só com `from` levaria a fase 1 de volta ao
    invisível, que é o contrário do que ela é. */
-:root[data-cena="escurece"] .tela.cena.cheio .gps-veu{--veu-r:0px;background:var(--map-fundo);
+:root[data-cena="escurece"] .tela.cena.cheio .gps-veu{--veu-r:0px;background:var(--map-chao,var(--map-fundo));
   animation:mvVeuEnche var(--cena-escurece) var(--cv-cena) both}
 @keyframes mvVeuEnche{from{opacity:0}to{opacity:1}}
 /* 🔴 FASE 2 — E AGORA O CLARÃO É A VIRADA DE FASE, não a cena inteira. Ele abre
@@ -2084,7 +2122,10 @@ button,input{font:inherit;color:inherit}
    inventada e nunca um retângulo preto. Some com isto o `.mapwrap` (a caixa do
    SVG, `z-index:10`), a regra que o apagava e o `pointer-events` que existia só
    porque uma caixa invisível continuava comendo o dedo em cima do mapa. */
-.mapa-palco{position:absolute;inset:0;background:var(--map-fundo)}
+/* o chão do palco é o chão do MAPA (§ `--map-chao`, no véu): é ele que aparece
+   enquanto o tile não pintou, e um azul de casca embaixo de um mapa cinza é a
+   emenda que o dono viu na entrada da cena. */
+.mapa-palco{position:absolute;inset:0;background:var(--map-chao,var(--map-fundo))}
 /* 🔴 SÓ CROMO — a camada que SAI na troca 2D⇄3D (quem põe a marca é o `pintar`).
    O mapa é um nó só e ele já foi transplantado pra camada que entra: o palco
    desta aqui está VAZIO, e palco vazio pinta `--map-fundo` — um retângulo

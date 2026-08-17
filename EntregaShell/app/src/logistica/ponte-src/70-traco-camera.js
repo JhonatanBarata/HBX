@@ -116,6 +116,24 @@
       return getComputedStyle(casca).getPropertyValue(nome).trim() || padrao;
     } catch (_) { return padrao; }
   };
+  /* 🔴 O CHÃO DO MAPA VIRA TOKEN DA CASCA (17/08 — dono, montando a rota no g15:
+     *"aparece um azul do nada"*). A fase 1 da cena promete "escurece na COR DO
+     MAPA", e a casca só tinha `--map-fundo`, que é `var(--bg-2)`: o azul-marinho
+     do APP. O chão de verdade mora no `style-*.json` (`earth`, `#1f1f1f` no
+     escuro) e quem o enxerga é a ponte — a mesma lei que o halo do nome da cena
+     já escreve: cor do chão não vira token de folha, senão é a mesma verdade em
+     dois arquivos, que é como eles discordam.
+     Então a ponte CARIMBA na raiz e a folha LÊ (`var(--map-chao,var(--map-fundo))`):
+     sem mapa no ar — o mock no navegador — o fallback é o de sempre. Escrever na
+     raiz é escrever uma vez por estilo, não por quadro: isto roda no `load` e na
+     troca de pele, e mais nada. */
+  function carimbarChao(mapa) {
+    let cor;
+    try { cor = mapa.getPaintProperty('earth', 'fill-color'); } catch (_) { return; }
+    if (typeof cor !== 'string' || !/^#[0-9a-f]{3,8}$/i.test(cor)) return;
+    try { document.documentElement.style.setProperty('--map-chao', cor); } catch (_) { /* documento indo embora */ }
+  }
+
   const geometriaDe = (rota) => {
     const g = rota && rota.geometry;
     return (g && g.type === 'LineString' && Array.isArray(g.coordinates) && g.coordinates.length > 1)

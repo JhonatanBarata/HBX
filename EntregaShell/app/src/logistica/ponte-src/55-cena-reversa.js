@@ -247,7 +247,9 @@
     casa.luz = luz;
     estiloDoMapa(luz !== 'claro').then((estilo) => {
       try { casa.mapa.setStyle(estilo); } catch (_) { return; }
-      casa.mapa.once('styledata', () => desenharTraco(casa.mapa));
+      // pele nova = chão novo: o carimbo anda junto com o estilo, senão o véu
+      // escureceria na cor do tema anterior (§ `carimbarChao`).
+      casa.mapa.once('styledata', () => { desenharTraco(casa.mapa); carimbarChao(casa.mapa); });
     }).catch(() => { /* sem estilo novo: fica o de agora */ });
   }
 
@@ -371,6 +373,9 @@
 
     mapa.on('load', () => {
       palco.classList.add('pronto');             // o desenho de espera se apaga
+      // a cor do chão do estilo vira `--map-chao` pra casca (§ `carimbarChao`):
+      // é ela que a fase 1 da cena usa pra escurecer NA COR DO MAPA.
+      carimbarChao(mapa);
       sincronizarPinos(nova);
       // 🔴 A SETA É UMA SÓ. No palco "gps" quem mostra o motorista é o puck do
       // desenho, parado a 68% da tela — um marcador do maplibre no mesmo lugar

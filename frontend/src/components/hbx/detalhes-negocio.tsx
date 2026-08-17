@@ -32,6 +32,7 @@ import { apiFetch, type ApiError } from "@/lib/api";
 import { formatBrCnae, formatBrCnpj } from "@/lib/br-document";
 import type { ChannelPresence } from "@/lib/radar-channel-presence";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
+import { resolveLeadSiteHref } from "@/lib/lead-site-link";
 
 // ── Humanização: mapa de snake_case → label legível ──────────────────────────
 // Tudo que pode aparecer cru (painType, recommendedChannel, tags, status) passa
@@ -744,7 +745,9 @@ function ChannelRow({
       case "facebook":
         return li?.facebookUrl || null;
       case "site":
-        return n.website ? (n.website.startsWith("http") ? n.website : `https://${n.website}`) : null;
+        // Portal de cidade que entrou como site do lead abre a busca do Google, não o portal
+        // (17/08 — ver lib/lead-site-link.mjs). O canal continua sendo "site": o que muda é o destino.
+        return resolveLeadSiteHref({ website: n.website, name: n.name, city: n.city, state: n.state });
       default:
         return null;
     }
@@ -1968,7 +1971,10 @@ export function DetalhesNegocio({
 
         {n.website && (
           <a
-            href={n.website.startsWith("http") ? n.website : `https://${n.website}`}
+            // O TEXTO continua sendo o endereço do site (decisão do dono: tem que parecer um
+            // site normal, sem rótulo novo). Só o destino muda quando o "site" é, na verdade,
+            // um portal de cidade — aí abre a busca do Google pelo lead.
+            href={resolveLeadSiteHref({ website: n.website, name: n.name, city: n.city, state: n.state }) || undefined}
             target="_blank"
             rel="noopener noreferrer"
             className="ctx-phone ctx-phone--site"
