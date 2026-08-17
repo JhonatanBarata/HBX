@@ -4100,52 +4100,30 @@ olhoDoSistema.addEventListener('change',()=>{
 });
 
 let limpezaTimer=null;
-/* 🔴 A CENA DE TELA CHEIA TEM HORA PRA ACABAR — e ela mora numa marca PRÓPRIA,
-   não na `entra`. A `entra` fica na camada pra sempre (é dela que o repinte
-   herda o papel, Lei 10): se a cena do GPS pendurasse nela, todo repinte do
-   seam RECOMEÇARIA a cena — o véu escurecendo a tela do motorista de novo aos
-   5 s, cada vez que uma empresa acende. Com `cena`, o veneno tem prazo.
+/* 🔴 O TETO DA CENA ERA UM NÚMERO E VIROU UMA PERGUNTA — `CENA_CHEIA` MORREU
+   (17/08). O que existia aqui: um relógio de parede (2200 → 1200 → e hoje seria
+   ~3940) fazendo TRÊS trabalhos ao mesmo tempo — tirar a marca `cena` da camada,
+   dizer até quando o repinte herda a entrada, e (§ `entrarNaDescida`, na ponte)
+   servir de maestro pra descida da câmera. Um número com três donos é um número
+   que erra pra dois deles.
 
-   O número é o MESMO do relógio herdado lá embaixo, e isso é de propósito:
-   enquanto a marca vive o repinte CONTINUA a cena (`currentTime`); depois
-   dela não existe cena pra continuar.
+   E com a FILA ele erraria pra todos: a cena deixou de ter duração fechada. Cada
+   fase acaba quando o MAPA avisa — `escurece` espera o tile (a ponte dá até 3,8 s
+   pra isso), `ruas` acaba na última onda, `descida` no fim do `easeTo` —, então
+   qualquer número que a casca cravasse aqui seria curto num aparelho lento. Curto
+   significa: repinte no meio da cena perde a herança, as animações da fase
+   recomeçam do zero e a tela PISCA. É o defeito de 08/08 voltando por dentro.
 
-   🔴 SÃO DOIS NÚMEROS PORQUE SÃO DUAS ENTRADAS, e a lei é a mesma nas duas:
-   "o relógio herdado vale exatamente enquanto a entrada roda". Uma tela comum
-   entra em ~740 ms (o eixo X fecha em 150 ms e as linhas escalonadas seguem
-   até lá) — pra ela o teto é `ENTRADA_COMUM`. A tela cheia do GPS tem a cena
-   de entrar na rota: pra ela o teto é `CENA_CHEIA`. Um teto grande aplicado a
-   TODA tela seria reabrir o buraco do "nasce terminada" de brinde.
+   O que responde no lugar dele é a própria fila: `cenaNoAr()` enquanto a cena que
+   a casca abriu não fechou, `emCena()` enquanto existe fase na raiz. Quem garante
+   que isso TERMINA são os dois relógios que já existem (o `FASE_TETO` da ponte e o
+   `CENA_SOCORRO` daqui), e não um terceiro.
 
-   🔴 `CENA_CHEIA` É TETO, NÃO É A DURAÇÃO — e a diferença custou uma medição.
-   As peças da cena fecham antes; este número é de RELÓGIO DE PAREDE, e os dois
-   não coincidem. MEDIDO no g15 (07/08): ao entrar na rota a thread trava
-   ~490 ms subindo o mapa, então no instante em que a parede marcava 519 ms o
-   relógio do véu marcava 33. Teto colado na duração corta a cena no meio; a
-   folga cobre a travada, e quem termina continua sendo a própria animação
-   (todo `@keyframes` daqui é `both`, o estado final fica).
-
-   🔴 CAIU DE 2200 PRA 1200 COM A COBRA (09/08) E VOLTOU A SUBIR COM A FILA
-   (17/08). Enquanto a cena era um acorde de ~1,36 s, 1,2 s de parede era folga de
-   quase o dobro. Agora a cena é uma FILA de quatro fases e ela dura o que a soma
-   das fases durar — o teto tem que acompanhar, senão o repinte no meio da cena
-   perde a herança e a tela pisca (foi essa a conta que faltou nas duas primeiras
-   passadas de hoje).
-   A CONTA, fase por fase (é a soma de `CENA_TETO`, e é PAREDE, não duração):
-     escurece  420 ms   a folha manda de ponta a ponta (`--cena-escurece`)
-     ruas     1200 ms   1,06 s MEDIDO da cena das ruas + 140 de folga
-     descida  1900 ms   1,8 s do `easeTo` + 100 de folga
-     pronto    420 ms   a entrada do cromo (`--cena-pronto`)
-                = 3940
-   Com a ponte no ar a fila real fecha em ~3,7 s (cada fase acaba quando o mapa
-   avisa, não quando o relógio estoura); 3.940 é o pior caso, que é justamente o
-   que um TETO tem que cobrir.
-   🔴 E ELE DEIXOU DE SER ORQUESTRA. Até hoje a descida da câmera esperava esta
-   marca CAIR (§ `entrarNaDescida`, na ponte, com `emCena()` de 90 em 90 ms), o que
-   fazia deste número um maestro cego: encurtá-lo apressava a câmera, alongá-lo
-   parava a tela. Agora quem manda na descida é a fase `descida` — a ponte a
-   anuncia quando começa o `easeTo` e não pergunta mais nada à casca. */
-const CENA_CHEIA=3940;
+   `ENTRADA_COMUM` fica, e a lei dele é a mesma de sempre: "o relógio herdado vale
+   exatamente enquanto a entrada roda". Uma tela comum entra em ~740 ms (o eixo X
+   fecha em 150 ms e as linhas escalonadas seguem até lá) — 900 é essa conta com a
+   folga da travada de thread. Um teto grande aplicado a TODA tela seria reabrir o
+   buraco do "nasce terminada" de brinde. */
 const ENTRADA_COMUM=900;
 /* 🔴 A ENTRADA DA TELA É DA CAMADA, NUNCA DA PEÇA (dono, 08/08: "clico em
    montar rota, ele pisca, parece que abre 2x").
@@ -4220,7 +4198,16 @@ function cenaMarcar(f){
   if(f) document.documentElement.dataset.cena=f;
   else delete document.documentElement.dataset.cena;
 }
-/** há cena no ar? é a própria fila que responde — nunca um relógio à parte */
+/* 🔴 SÃO DUAS PERGUNTAS E ELAS NÃO SÃO A MESMA — o vão entre uma e outra é real e
+   dura de `pintar` até o transplante do mapa:
+   · `cenaNoAr()` — a CASCA abriu uma cena (pôs a classe e escolheu a guia). É
+     verdade desde o primeiro quadro, ANTES de existir fase nenhuma. É esta que
+     manda no repinte: sem ela, um fix do GPS caindo nesse vão não herdaria a
+     classe `cena`, a classe é o sinal que a ponte espera pra anunciar, e a cena
+     inteira morreria calada antes de começar.
+   · `emCena()` — existe FASE na raiz. É a que manda no relógio de fase do
+     carimbo: sem fase não há animação de fase pra continuar. */
+const cenaNoAr=()=>!!cenaGuia;
 const emCena=()=>!!cenaFase;
 /* a sonda das provas e do dono no console: a fase, a idade dela e o roteiro desta
    cena. O atributo da raiz já é público e não mente; isto conta o que ele não sabe
@@ -4477,12 +4464,14 @@ function pintar(animar,dir){
      isso é 3,7 s num aparelho bom e mais num ruim. Palpite curto = a herança
      morre no meio da cena e a camada nova nasce sem papel (o pisca de 08/08);
      palpite longo = o relógio herdado carimba animação que já acabou.
-     `emCena()` é a verdade: enquanto existe fase na raiz, existe cena pra
-     continuar. O teto continua existindo, só que ele agora é o da FILA (é ela que
-     tem hora pra acabar, § `CENA_TETO`) — um dono, não dois. */
+     `cenaNoAr()` é a verdade: enquanto a cena que a casca abriu não fechou, existe
+     cena pra continuar. O teto continua existindo, só que ele agora é o da FILA —
+     um dono, não dois. E é `cenaNoAr()` e não `emCena()` de propósito: no vão
+     entre abrir a cena e a ponte anunciar a 1ª fase não há fase nenhuma, e perder
+     a herança ali é perder a classe que a ponte espera pra anunciar. */
   const entradaViva = antiga
     && (antiga.classList.contains('cena')
-      ? emCena()
+      ? cenaNoAr()
       : (performance.now()-entradaEm) < ENTRADA_COMUM);
   const comSaidaViva = camadas.some(c=>c.classList.contains('sai'));
   const herdando = !animar && antiga && antiga.classList.contains('entra')
@@ -4759,13 +4748,11 @@ function pintar(animar,dir){
     // MEDIDO no g15 (07/08), com as empresas do mapa chegando pelo seam: as 17
     // animações da cena nasciam TERMINADAS — o motorista via o desfecho sem
     // nunca ver o prédio acender. Passada a entrada não existe o que
-    // continuar, e carimbar vira só estrago. O teto é a ENTRADA DA CAMADA: a
-    // tela cheia carrega a marca `cena` e vale `CENA_CHEIA` (a soma das fases da
-    // fila); qualquer outra vale `ENTRADA_COMUM`.
+    // continuar, e carimbar vira só estrago.
     /* 🔴 NA CENA O RELÓGIO É DA FASE, NÃO DA CAMADA (17/08) — e sem isto a fila
        não sobreviveria ao primeiro repinte. As animações da cena não partem mais
        junto com a camada: elas partem quando a FASE começa (`escurece` no instante
-       da entrada, mas `ruas` ~420 ms depois, `pronto` a três segundos e meio).
+       da entrada, mas `ruas` só quando o tile chega e `pronto` segundos depois).
        Carimbar nelas o tempo de vida da CAMADA jogaria cada uma direto pro fim —
        é o mesmo defeito de 07/08 ("as 17 animações nasciam TERMINADAS"), só que
        por outro caminho: dirigindo, o seam repinta 1×/s, então um fix do GPS
@@ -4773,12 +4760,17 @@ function pintar(animar,dir){
        `cenaEm` é o começo da fase que está no ar (§ `cenaVestir`); a ÚNICA
        animação da camada em cena que não é da fase é a entrada dela mesma
        (`mvCenaEnche`, que toca uma vez, no começo) — essa continua no relógio da
-       camada, senão ela reencena a 71% de opacidade no meio da fase seguinte. */
+       camada, senão ela reencena a 71% de opacidade no meio da fase seguinte.
+       🔴 E NA CENA O TETO NÃO É NÚMERO: é a fila estar no ar (§ a lápide do
+       `CENA_CHEIA`). Carimbar fase VELHA não estraga nada — todo `@keyframes`
+       desta folha declara só o `from`, então relógio grande num gesto curto para
+       exatamente no estado que a fase quer. Número curto, sim, estraga: ele faz o
+       repinte recomeçar a fase do zero, e recomeçar é o pisca. */
     const t=performance.now()-entradaEm;
     const naCena=nova.classList.contains('cena') && emCena();
     const tf=performance.now()-cenaEm;
-    const teto=nova.classList.contains('cena')?CENA_CHEIA:ENTRADA_COMUM;
-    if(nova.getAnimations && t<teto){
+    const dentro=nova.classList.contains('cena') ? cenaNoAr() : t<ENTRADA_COMUM;
+    if(nova.getAnimations && dentro){
       // 🔴 SÓ CONTINUA QUEM TINHA O QUE CONTINUAR. O teto sozinho não basta:
       // dentro da janela, um elemento que NASCEU deste repinte (uma empresa
       // que o corredor acabou de trazer) também levava o carimbo e aparecia
@@ -4829,7 +4821,7 @@ function pintar(animar,dir){
      cena: a troca de tela (que remove a marca `cena` da que sai), o repinte que
      não herda (`innerHTML=''`) e o herdeiro que não recebeu a marca. Perguntar ao
      documento cobre os três com uma linha — enumerar os casos cobriria dois. */
-  if(emCena() && !document.querySelector('#app .tela.cena')) fecharCena();
+  if(cenaNoAr() && !document.querySelector('#app .tela.cena')) fecharCena();
   pintarRail();
   /* 🔴 O TOUR SE REMONTA NA CAMADA NOVA. O `.aula-wrap` mora DENTRO da camada,
      e a camada é trocada inteira a cada repinte do seam — sem esta linha a

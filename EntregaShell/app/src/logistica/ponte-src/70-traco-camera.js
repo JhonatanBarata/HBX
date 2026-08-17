@@ -519,6 +519,18 @@
      de mundo andado. Todo mapa de rua do mercado tem esse estado; o nosso
      não tinha. */
   let camFase = 'dirigindo';
+  /* 🔴 A FILA TEM DONO EXPLÍCITO, NÃO DEDUZIDO (17/08, 2ª medição no g15). A
+     pergunta "ainda vem descida?" era respondida por `camFase === 'cima'` — e
+     `camFase` é a máquina da CÂMERA, com cinco estados e meia dúzia de donos
+     (fix, dedo, troca de modo, chegada). MEDIDO: a fila fechava em `pronto` no
+     fim das ruas porque naquele instante `camFase` já não era 'cima', e a
+     descida de 1,8 s acontecia DEPOIS dos botões — o contrário da ordem do dono
+     (*"desce até o ponto, faz todos efeitos, ao concluir aparecem os botões"*).
+     Esta bandeira responde UMA pergunta e só ela: a entrada na rota prometeu uma
+     descida e ela ainda não terminou. Quem promete é o `entrarNaDescida`; quem
+     desarma é o fim (ou a morte) da descida. */
+  let filaVaiDescer = false;
+  const filaEsperaDescida = () => filaVaiDescer;
   let vigiaCena = null;
   let geralTimer = null;
   let voltaTimer = null;
@@ -698,7 +710,7 @@
       camFase = 'dirigindo';
       /* sem mapa (ou já fora da tela de dirigir) não existe descida pra esperar:
          a fila fecha AQUI, senão o cromo ficaria invisível pelo resto do dia. */
-      if (daFila) faseDaCena('pronto');
+      if (daFila) { filaVaiDescer = false; faseDaCena('pronto'); }
       return;
     }
     camFase = 'descendo';
@@ -712,7 +724,7 @@
     if (eu) passo.center = [eu.lng, eu.lat];
     const rumo = rumoDaTela();
     if (rumo != null) passo.bearing = rumo;
-    try { mapa.easeTo(passo); } catch (_) { camFase = 'dirigindo'; if (daFila) faseDaCena('pronto'); return; }
+    try { mapa.easeTo(passo); } catch (_) { camFase = 'dirigindo'; if (daFila) { filaVaiDescer = false; faseDaCena('pronto'); } return; }
     // a fase entra com o movimento JÁ mandado: anunciar antes seria a casca
     // vestindo uma descida que o mapa podia recusar (estilo trocando, mapa morto).
     if (daFila) faseDaCena('descida');
@@ -725,7 +737,7 @@
          dedo pegar o mapa no meio), então é ele que fecha a fila. Um segundo
          relógio pra dizer a mesma coisa é o jeito clássico de os dois
          discordarem no aparelho lento. */
-      if (daFila) faseDaCena('pronto');
+      if (daFila) { filaVaiDescer = false; faseDaCena('pronto'); }
     }, dur + 80);
   }
 
@@ -747,6 +759,8 @@
     if (vigiaCena) { clearInterval(vigiaCena); vigiaCena = null; }
     if (geralTimer) { clearTimeout(geralTimer); geralTimer = null; }
     camFase = 'cima';
+    // a fila agora TEM uma descida prometida (§ `filaVaiDescer`)
+    filaVaiDescer = true;
     /* 🔴 ENTRAR NA NAVEGAÇÃO É A CIDADE NASCENDO NO MAPA DE VERDADE (09/08, no
        lugar da cobra). Pedido aqui e não no `ir` porque esta função é a porta
        única do "entrei na tela de dirigir" — vale pro toque do Navegar e pro
@@ -755,7 +769,21 @@
     pedirCena('navegar');
     poseGeral = null;
     vistaGeral();
-    const desistirEm = Date.now() + 3000;
+    /* 🔴 3 s NÃO CABE MAIS A FILA — MEDIDO NO g15 (17/08, fita do roteiro). Este
+       relógio nasceu quando a espera era só "a cena das ruas terminar" (~1,1 s) e
+       3 s era folga de sobra. Com a fila do dono a espera passou a ser
+       `escurece` (420 ms + o tile) + `ruas` (~1,1 s) — e a medição pegou o
+       flagrante: `pronto` anunciado a EXATOS 3,0 s do arme, com a cena ainda
+       viva (`motivo=navegar`, `descida=true` na sonda). Resultado na tela: os
+       botões entravam e a câmera descia POR BAIXO deles, que é exatamente a
+       ordem que o dono recusou (*"desce até o ponto... AO CONCLUIR aparecem os
+       botões"*).
+       6 s cobre a fila inteira com folga e continua sendo TETO: quem garante que
+       o cromo nunca fica preso são os tetos POR FASE da própria fila
+       (§ `FASE_TETO`, 50-cena-ruas), que fecham em `pronto` sozinhos. Dois
+       relógios de desistência com números diferentes é como eles discordam no
+       aparelho lento — este aqui agora é o mais FROUXO dos dois, de propósito. */
+    const desistirEm = Date.now() + 6000;
     vigiaCena = setInterval(() => {
       if (camFase !== 'cima' || telaAtual() !== 'mapa') {
         clearInterval(vigiaCena); vigiaCena = null;
@@ -774,7 +802,19 @@
          A pergunta certa é a FASE: a descida é a 3, e a 3 espera a 1 e a 2.
          O `emCena() && !cenaFase` cobre o vão em que a casca já abriu o véu e a
          cena ainda não foi aceita (transplante que não veio na mesma passada). */
-      const filaNaFrente = cenaFase === 'escurece' || cenaFase === 'ruas'
+      /* 🔴 `ruas` NÃO PODE ESTAR NESTA LISTA — ERA UM DEADLOCK (17/08, MEDIDO no
+         g15 na 3ª fita). A fase só SAI de `ruas` quando a descida anuncia
+         `descida`; e a descida só começava quando a fase saísse de `ruas`.
+         Circular: os dois esperando um ao outro, e quem desempatava era o relógio
+         de desistência — a fila ficava 3,5 s em `ruas` e os botões entravam no
+         estouro do relógio, sem descida nenhuma. Duas medições provaram: `pronto`
+         cravado a exatos 3,0 s do arme (relógio antigo) e depois a exatos 6,0 s
+         (relógio novo). Relógio que sempre estoura não é teto: é o caminho.
+         O que se espera aqui é UMA coisa e ela tem nome: a cidade parar de
+         nascer (`cenaDasRuasNoAr`, que lê o `mundoVoltou` da própria cena).
+         `escurece` fica na lista porque ali as ruas ainda NÃO começaram —
+         descer sobre a cortina fechada seria mover o mapa que ninguém vê. */
+      const filaNaFrente = cenaFase === 'escurece'
         || (emCena() && !cenaFase) || cenaDasRuasNoAr();
       if (filaNaFrente) {
         if (Date.now() < desistirEm) return;
@@ -813,6 +853,10 @@
        12 s fazia o `voltarASeguir` disparar no meio da fase 'cima' e cravar
        'dirigindo': a descida seguinte nascia morta. */
   function pararDescida(msSubida) {
+    // a promessa morre com a descida: quem corta o movimento fecha a fila (o
+    // `faseDaCena('pronto')` do fim desta função) e não pode deixar a bandeira
+    // de pé — senão a cena SEGUINTE esperaria uma descida que ninguém mandou.
+    filaVaiDescer = false;
     if (vigiaCena) { clearInterval(vigiaCena); vigiaCena = null; }
     if (geralTimer) { clearTimeout(geralTimer); geralTimer = null; }
     if (voltaTimer) { clearTimeout(voltaTimer); voltaTimer = null; }
@@ -897,6 +941,7 @@
 
   /** volta a seguir o motorista — pelo botão, ou sozinho depois do repouso */
   function voltarASeguir() {
+    filaVaiDescer = false;   // idem: o dedo no recentralizar encerra a fila
     if (voltaTimer) { clearTimeout(voltaTimer); voltaTimer = null; }
     if (geralTimer) { clearTimeout(geralTimer); geralTimer = null; }
     poseGeral = null;

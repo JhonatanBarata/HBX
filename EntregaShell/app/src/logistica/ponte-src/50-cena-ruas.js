@@ -159,7 +159,21 @@
      🔴 `fase()` ENTRA JUNTO (17/08): a fila é uma ORDEM de quatro tempos, e ordem
      só se prova lendo o tempo em que ela está. A prova pode ler a raiz direto,
      mas aí ela mediria a SAÍDA e não a decisão — e é a decisão que tem dono. */
-  window.HBXCena = { pendente: () => !!cenaPedido, fase: () => cenaFase };
+  /* a sonda ganhou DIAGNÓSTICO (17/08): a fila fechava cedo e "quem fechou" não
+     se lê da tela. `motivo` é o da cena viva, `fim` o último desfecho e `descida`
+     a promessa da câmera — três perguntas, três campos, medidos no aparelho. */
+  let cenaUltimoFim = '';
+  window.HBXCena = {
+    pendente: () => !!cenaPedido,
+    fase: () => cenaFase,
+    diag: () => ({
+      fase: cenaFase,
+      motivo: cena ? cena.motivo : '',
+      fim: cenaUltimoFim,
+      descida: (typeof filaEsperaDescida === 'function') ? filaEsperaDescida() : null,
+      pedido: cenaPedido ? cenaPedido.motivo : '',
+    }),
+  };
 
   function atenderCena(casa) {
     const p = cenaPedido;
@@ -491,7 +505,19 @@
            nenhuma pra esperar ali, então a última onda É o fim da fila e o cromo
            entra aqui. No 3D quem fecha é o `descer` — a câmera ainda tem 1,8 s de
            trabalho, e *"ao concluir aparecem os botões"* quer dizer AO CONCLUIR. */
-        if (daVez.motivo !== 'navegar') faseDaCena('pronto');
+        /* 🔴 QUEM DIZ SE AINDA HÁ DESCIDA É A CÂMERA, NÃO O MOTIVO DA CENA
+           (17/08, MEDIDO no g15 com a fita da fila). Esta linha perguntava
+           `motivo !== 'navegar'` — e a fila fechou em `pronto` 55 ms ANTES de a
+           câmera começar a descer, então os botões entraram e a descida
+           aconteceu por baixo deles. O motivo mente porque há DOIS verbos que
+           entram na rota: `montarRota` (pede a cena com motivo 'navegar', pelo
+           `entrarNaDescida`) e `iniciarRota` (pede com motivo 'rota' e TAMBÉM
+           cai no `entrarNaDescida` pelo observador). Mesmo destino, dois nomes.
+           `camFase === 'cima'` é o estado que o `entrarNaDescida` acabou de
+           armar: enquanto ele estiver de pé, a descida está na fila e quem fecha
+           é o `descer` (§ 70-traco-camera). Sem descida armada — o pouso no 2D —
+           a última onda É o fim da fila, como o contrato manda. */
+        if (typeof filaEsperaDescida !== 'function' || !filaEsperaDescida()) faseDaCena('pronto');
       }
     }
 
@@ -570,6 +596,7 @@
   function encerrarCena(motivo, seco) {
     const c = cena;
     if (!c) return;
+    cenaUltimoFim = String(motivo || '') + '/' + String(c.motivo || '');
     cena = null;
     /* 🔴 E A FILA NÃO MORRE PRESA (17/08). Todo desfecho passa por aqui — fim,
        dedo, teto, erro no meio, tela que trocou, `sem-rua`, `sem-estilo`,
