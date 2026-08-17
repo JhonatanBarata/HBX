@@ -5671,13 +5671,39 @@ const AULAS={
     ['[data-campo="novo-numero"]','O número da casa','Este você digita. Se a casa não tem número, escreva SN.'],
     ['[data-acao="salvar-novo-cliente"]','Pronto','Salvou, o cliente já aparece na sua lista.'],
   ],
+  /* 🔴 ESTA AULA NÃO EXISTIA — e é a tela onde o dia inteiro acontece (17/08).
+     O capítulo "Entregar e receber" do catálogo aponta pra ela (`aula:'folha'`);
+     sem os passos, `capitulosDoCatalogo` DERRUBAVA a linha calado, com um
+     `console.warn` que ninguém lê. É palavra por palavra o buraco dos créditos
+     de 12/08, na tela mais importante do app: o motorista tinha lição de montar
+     rota, de cadastrar cliente e de recarregar crédito — e nenhuma de ENTREGAR.
+     Alvos conferidos na tela do g15, na ordem em que o dedo desce a folha. */
+  folha:[
+    ['.sheet-head','A parada aberta','Quem é o cliente, o endereço e o recado da porta.'],
+    ['.item-linha','Confira o que saiu','O − e o + acertam a quantidade que o cliente levou de verdade.'],
+    ['.pays','Como ele pagou','Dinheiro, Pix, cartão — ou "Marcar", que deixa anotado pra depois.'],
+    ['.foot2','Fecha a parada','Confirmado, a entrega entra no caixa do dia e a próxima parada assume.'],
+  ],
   chat:[
-    ['.recado','Recado da Central','Toque em "Entendi" pra Central saber que você viu.'],
+    /* `opcional` porque recado é EVENTO: no dia sem recado a peça não existe, e
+       isso é a tela certa, não lição velha. Sem a marca o console gritava todo
+       dia limpo — guarda que grita à toa é guarda que se aprende a ignorar. */
+    {alvo:'.recado',titulo:'Recado da Central',
+     texto:'Toque em "Entendi" pra Central saber que você viu.',opcional:1},
     ['.escrever','Falar com a Central','Escreva aqui e mande. Ela responde no mesmo lugar.'],
   ],
   ajustes:[
     ['.cartao-lista','Seus ajustes','Cadastro de clientes e produtos, sons e conta ficam aqui.'],
     ['.nav','Os três módulos','Chat, Rota e Ajustes. A Rota é onde o dia acontece.'],
+  ],
+  /* A outra metade do buraco do `folha` acima: o capítulo "Fechamento do dia"
+     do catálogo pedia `aula:'fechamento'` e caía calado pelo mesmo caminho.
+     Três passos — a régua do dono é a ordem da tela: quanto entrou, quanto
+     rendeu, e o botão que carimba. */
+  fechamento:[
+    ['.forms','O caixa do dia','Quanto entrou em dinheiro, Pix, cartão — e quanto ficou marcado.'],
+    ['.sum','A conta do dia','Entregas fechadas, clientes atendidos e produtos que saíram.'],
+    ['.acts','Fechar o dia','"Fechar o dia" guarda esse resumo. "Ver detalhe" abre linha por linha.'],
   ],
   /* 🔴 ESTA AULA NÃO EXISTIA — e o capítulo "Créditos e recarga" do catálogo
      apontava pra ela (`aula:'consumo'`). Capítulo sem passo é DERRUBADO pelo
@@ -5909,7 +5935,11 @@ function capitulosDoCatalogo(){
    no primeiro repinte do seam. Aqui a camada é só o DESENHO do passo; a
    verdade é este objeto, e `tourRepintar()` a redesenha onde ela couber. */
 const TOUR={id:null,cap:null,passos:[],i:0,obrig:false,fila:0,
-  alvoEl:null,esperandoDedo:false,volta:null,dicaTimer:null,remedir:[]};
+  alvoEl:null,esperandoDedo:false,volta:null,dicaTimer:null,remedir:[],
+  /* Quantas vezes ESTE passo já pediu paciência (tela carregando, alvo fora da
+     dobra). Mora aqui, no estado que sobrevive ao repinte, e não numa variável
+     do `tourRepintar` — que nasce de novo a cada quadro e nunca contaria nada. */
+  tentativa:0,tentativaDe:-1};
 const tourRodando=()=>!!TOUR.cap;
 
 function tourLimparRelogios(){
@@ -5938,10 +5968,38 @@ function tourAbrirCapitulo(id,obrig,retomar){
   tourRepintar();
   return true;
 }
-/** O passo saiu do ar (alvo sumiu, tela murada): anda um e tenta de novo. */
+/** O passo saiu do ar (alvo sumiu, tela murada): TIRA ele do roteiro e segue.
+ *  🔴 ANTES ELE SÓ ANDAVA O ÍNDICE — e o contador virava mentira (dono, 17/08).
+ *  Medido no g15: o capítulo "Montar e iniciar a rota" abre em "1 de 5", os dois
+ *  passos do meio caem (dia sem chip, lista ainda vazia) e a tela seguinte diz
+ *  "4 de 5" — a barra de progresso pula 20%→80% num toque. Pior no "Recados da
+ *  Central": sem recado pendente o capítulo ABRE direto em "2 de 2", começando
+ *  pelo fim. O total é a promessa que a barra faz; passo que não vai ser mostrado
+ *  não entra na promessa. Sai da lista e a conta volta a ser honesta. */
 function tourPular(motivo,p){
   console.warn('[HBX 2.0] tutor —',motivo,':',(p&&p.alvo)||'(sem alvo)','· capítulo',TOUR.id);
-  TOUR.i++; tourRepintar();
+  if(TOUR.i<TOUR.passos.length) TOUR.passos.splice(TOUR.i,1); else TOUR.i++;
+  TOUR.tentativa=0; TOUR.tentativaDe=-1;
+  tourRepintar();
+}
+/* 🔴 ALVO ABAIXO DA DOBRA É ALVO QUE EXISTE — só está fora do olho. `alvoNaTela`
+   trata "não encosta na camada" como ausente, e isso é certo pro prédio que a
+   CÂMERA do mapa levou embora (não há rolagem que traga de volta). Mas numa tela
+   ROLÁVEL a peça está a um scroll de distância: o passo do "Confirmar" da folha e
+   o do extrato dos créditos moram no pé da rolagem e sumiam calados do roteiro.
+   Quem sabe distinguir os dois casos não é o seletor — é tentar rolar e MEDIR se
+   algo andou. Andou: remede. Não andou: é o prédio, e aí o passo cai como antes. */
+function tourRolarAte(el){
+  const pais=[]; let n=el.parentElement;
+  while(n&&n!==document.body){
+    const ov=getComputedStyle(n).overflowY;
+    if((ov==='auto'||ov==='scroll')&&n.scrollHeight>n.clientHeight+4) pais.push(n);
+    n=n.parentElement;
+  }
+  if(!pais.length) return false;
+  const antes=pais.map(p=>p.scrollTop);
+  try{ el.scrollIntoView({block:'center',inline:'nearest'}); }catch(_){ return false; }
+  return pais.some((p,i)=>Math.abs(p.scrollTop-antes[i])>1);
 }
 function tourConcluirCapitulo(){
   const id=TOUR.id, obrig=TOUR.obrig;
@@ -6004,10 +6062,32 @@ function tourRepintar(){
     return ir(p.tela);
   }
   const camada=camadaViva(); if(!camada) return;
+  // Contador de paciência é POR PASSO: mudou o passo, zera.
+  if(TOUR.tentativaDe!==TOUR.i){ TOUR.tentativaDe=TOUR.i; TOUR.tentativa=0; }
   const alvo=acharAlvo(camada,p.alvo);
-  // Passo cujo alvo não está na tela SAI (e grita no console): estado diferente
-  // desenha peça diferente, e apontar pro vazio é pior que não falar.
-  if(p.alvo&&!alvo) return tourPular('sumiu da tela',p);
+  /* 🔴 "AINDA NÃO CHEGOU" NÃO É "NÃO EXISTE" (dono, 17/08 — "travado, bugado").
+     A jornada navega e o `pintar()` remonta o tour NO MESMO QUADRO da troca de
+     tela — antes de o seam trazer o dado. Medido no g15: o capítulo "Onde moram
+     os clientes" morria no passo 3 porque `.cli` ainda não existia quando o tour
+     mediu, e a lista aparecia ~400 ms depois, com a lição já encerrada. Mesma
+     morte em `.recado` (Chat) e `.stop` (Montagem). É a lei da casa outra vez —
+     vazio porque o servidor disse vazio ≠ vazio porque não chegou —, e o preço
+     da pressa aqui é a lição inteira. Duas esperas curtas antes de desistir; o
+     passo que realmente não existe cai igual, só que ~1 s depois. */
+  if(p.alvo&&!alvo){
+    if(TOUR.tentativa<2){
+      TOUR.tentativa++;
+      TOUR.remedir.push(setTimeout(tourRepintar,TOUR.tentativa===1?320:820));
+      return;
+    }
+    return tourPular('sumiu da tela',p);
+  }
+  // Fora do olho, mas rolável: traz pra tela e remede (ver `tourRolarAte`).
+  if(alvo&&!alvoNaTela(camada,alvo)&&TOUR.tentativa<3&&tourRolarAte(alvo)){
+    TOUR.tentativa=3;
+    TOUR.remedir.push(setTimeout(tourRepintar,300));
+    return;
+  }
   /* 🔴 ALVO FORA DA TELA É ALVO AUSENTE — e custou uma TELA PRETA (09/08). Peça
      posicionada por COORDENADA DE MAPA (`.emp`, que a ponte projeta com
      `mapa.project([lng,lat])`) continua no DOM quando está 1.240 px acima do
@@ -6050,7 +6130,19 @@ function tourRepintar(){
     // getBoundingClientRect da janela devolveria o furo fora do lugar.
     const a=alvo.getBoundingClientRect();
     const topo=a.top-c.top, esq=a.left-c.left, alt=a.height, larg=a.width;
-    const t=topo-6, l=esq-6, lg=larg+12, at=alt+12;
+    /* 🔴 O FURO NÃO PODE VAZAR A CAMADA (dono, 17/08 — "essa feiura"). O respiro
+       de 6px em volta do alvo é cego: peça que já encosta nas bordas (o dock do
+       pé, a fileira de ações — 410px de largura numa camada de 432) empurrava o
+       anel para `left:-6` e `right:438`, e o que aparecia na tela era um
+       retângulo de lima com os DOIS lados cortados. Lê como quadro quebrado,
+       não como destaque. O anel é a fronteira do holofote, e fronteira aberta
+       não fecha nada. MEDIDO nos passos "Salvar ou começar" e "Recarregar". */
+    const M=3;
+    let t=topo-6, l=esq-6, lg=larg+12, at=alt+12;
+    if(l<M){ lg+=l-M; l=M; }
+    if(t<M){ at+=t-M; t=M; }
+    lg=Math.max(12,Math.min(lg,c.width-l-M));
+    at=Math.max(12,Math.min(at,c.height-t-M));
     Object.assign(furo.style,{top:t+'px',left:l+'px',width:lg+'px',height:at+'px'});
     veus.forEach(v=>v.style.display='');
     Object.assign(veus[0].style,{top:'0',left:'0',width:'100%',height:Math.max(0,t)+'px'});
@@ -6068,8 +6160,10 @@ function tourRepintar(){
        — e é o X que separa "lição" de "cativeiro". */
     const cxAlt=cx.offsetHeight||160;
     const preso=v=>Math.max(11,Math.min(v,Math.max(11,c.height-cxAlt-11)));
-    const cabeAbaixo=topo+alt+14+cxAlt<c.height;
-    cx.style.top=preso(cabeAbaixo?topo+alt+14:topo-14-cxAlt)+'px';
+    /* 16px, não 14: o anel agora tem 2px de borda e o balão vinha encostar a
+       7px dele — dois retângulos de lima quase colados leem como uma peça só. */
+    const cabeAbaixo=t+at+16+cxAlt<c.height;
+    cx.style.top=preso(cabeAbaixo?t+at+16:t-16-cxAlt)+'px';
     cx.style.bottom='auto';
   }
 
@@ -6080,8 +6174,10 @@ function tourRepintar(){
     ${TOUR.obrig?'':`<button class="fechar" data-aula-sair="1" data-escape="1" aria-label="Fechar">${ic('close',15)}</button>`}
     <b>${p.titulo}</b><span class="txt">${p.texto}</span>
     <div class="pe"><span class="conta">${TOUR.i+1} de ${TOUR.passos.length}</span>
-      <span style="display:flex;gap:8px">
-        ${tipo==='fazer'?'':`<button class="principal" data-aula-prox="1"${ultimo?' data-escape="1"':''}>${ultimo?'Entendi':'Próximo'}</button>`}
+      <span style="display:flex;gap:8px;align-items:center">
+        ${tipo==='fazer'
+          ? '<span class="dedo"><i></i>Toque no destaque</span>'
+          : `<button class="principal" data-aula-prox="1"${ultimo?' data-escape="1"':''}>${ultimo?'Entendi':'Próximo'}</button>`}
       </span></div>`;
   medir();
   /* 🔴 A TELA AINDA ESTÁ ENTRANDO QUANDO O TOUR MEDE. A camada nasce com a
@@ -6090,8 +6186,10 @@ function tourRepintar(){
      entrada comum (~740 ms) e o furo transiciona sozinho até o lugar — quem
      olha vê o destaque assentar, nunca pular. */
   TOUR.remedir.push(setTimeout(medir,140),setTimeout(medir,520));
-  // 4 s parado no `fazer` e o anel pulsa. Dica, não bronca.
-  if(tipo==='fazer') TOUR.dicaTimer=setTimeout(()=>furo.classList.add('dica'),4000);
+  /* 2,2 s parado no `fazer` e o anel pulsa. Dica, não bronca — e 4 s era tempo
+     demais pra quem já está lendo "Toque no destaque" no rodapé: a frase chega
+     primeiro, o anel só confirma onde. */
+  if(tipo==='fazer') TOUR.dicaTimer=setTimeout(()=>furo.classList.add('dica'),2200);
 
   w.addEventListener('click',e=>{
     if(e.target.closest('[data-aula-sair]')){

@@ -52,6 +52,22 @@ object HbxMobileBridge {
     @Volatile private var foregroundTask: ScheduledFuture<*>? = null
     @Volatile private var lastPushRegistrationAt = 0L
 
+    /**
+     * 🔴 A FILA DE VENDAS NÃO É DE TODO MUNDO (17/08). Desde a FUSÃO o binário é
+     *    um só, então o aparelho de um motorista PURO também roda esta ponte — e
+     *    o VPS responde 403 "O módulo Vendas não está habilitado para esta
+     *    empresa". Esse 403 é VEREDITO, não falha de momento: a fila de Vendas
+     *    nunca vai ter nada pra esta conta. Sem freio, o ciclo de 30 s martela
+     *    pra sempre (34 respostas 403 seguidas no g15 em 17/08, mesma família do
+     *    loop de 409 do rastreamento).
+     *
+     *    Só a MEMÓRIA do processo guarda isso, de propósito: habilitar Vendas na
+     *    empresa religa sozinho no próximo boot, e um pareamento novo (outra
+     *    conta, outra empresa) zera na hora. Nada de flag persistida que vira
+     *    porta trancada sem chave.
+     */
+    @Volatile private var vendasIndisponivel = false
+
     fun initialize(context: Context) {
         val app = context.applicationContext
         ensureNotificationChannel(app)
@@ -91,6 +107,9 @@ object HbxMobileBridge {
 
     fun onDevicePaired(context: Context) {
         val app = context.applicationContext
+        // Pareamento novo pode ser outra conta/empresa: o veredito anterior não
+        // vale mais e a ponte volta a ter direito de perguntar.
+        vendasIndisponivel = false
         requestAndRegisterPushToken(app, force = true)
         executor.execute { syncNow(app) }
     }
@@ -156,10 +175,19 @@ object HbxMobileBridge {
             return
         }
         if ((!appInForeground && !allowBackground) || activeActionScreens > 0) return
+        // O heartbeat acima é infraestrutura compartilhada e continua valendo pro
+        // motorista; só a fila de Vendas abaixo é que fica de fora.
+        if (vendasIndisponivel) return
 
         val take = if (notificationsAvailable(context)) 10 else 1
         val pullPayload = JSONObject(credentials.toString()).put("take", take)
-        val response = runCatching { postJson("/mobile/actions/pull", pullPayload) }.getOrNull()
+        val pull = runCatching { postJson("/mobile/actions/pull", pullPayload) }
+        val pullError = pull.exceptionOrNull()
+        if (pullError is MobileBridgeHttpException && pullError.statusCode == 403) {
+            vendasIndisponivel = true
+            return
+        }
+        val response = pull.getOrNull()
         val actions = response?.optJSONArray("actions") ?: JSONArray()
         for (index in 0 until actions.length()) {
             if ((!appInForeground && !allowBackground) || activeActionScreens > 0) break
@@ -334,6 +362,7 @@ object HbxMobileBridge {
 
     private fun registerPushToken(context: Context, pushToken: String) {
         executor.execute {
+            if (vendasIndisponivel) return@execute
             val payload = credentialPayload(context) ?: return@execute
             payload.put("pushToken", pushToken)
             // 🔴 O versionNAME NÃO IDENTIFICA BUILD. Ele é "alpha1" e não muda
@@ -347,6 +376,13 @@ object HbxMobileBridge {
             val error = runCatching {
                 postJson("/mobile/actions/register-push", payload)
             }.exceptionOrNull()
+            // Mesmo veredito do pull: sem o módulo Vendas, registrar push da fila
+            // de Vendas não passa nunca — e o retry de 6 em 6 horas viraria outro
+            // martelo silencioso.
+            if (error is MobileBridgeHttpException && error.statusCode == 403) {
+                vendasIndisponivel = true
+                return@execute
+            }
             if (error is MobileBridgeHttpException && error.statusCode == 401) {
                 DeviceCredentialStore(context).clearDeviceToken()
             }
