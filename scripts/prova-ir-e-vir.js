@@ -240,6 +240,21 @@ const AMOSTRAR = (sel) => {
     try { return mapa && mapa.getStyle ? (mapa.getStyle().layers || []).filter((l) => /^hbx-cena-ruas-/.test(l.id)).length : 0; }
     catch (_) { return 0; }
   };
+  /* 🔴 QUANTAS RUAS DE VERDADE ESTÃO ESCONDIDAS NESTE QUADRO (17/08 — dono, com o
+     aparelho na mão: *"ao alternar de 2d para 3d e vice versa, apaga as ruas para
+     refazer o efeito brilhando… não apagar as ruas neste caso"*).
+     A cena esconde o mundo por `visibility:none` (§ `esconderMundo`), então a
+     pergunta se faz no ESTILO VIVO e não numa marca nossa: `getStyle()` devolve
+     as camadas como elas estão agora. Zero é o contrato da troca de modo — o
+     brilho passa POR CIMA da cidade. No Montar rota este número é grande de
+     propósito, e é lá que ele continua certo (CASO 2 não mede isto). */
+  const ocultasDe = (mapa) => {
+    try {
+      return (mapa && mapa.getStyle ? (mapa.getStyle().layers || []) : [])
+        .filter((l) => l.type === 'line' && l['source-layer'] === 'roads'
+          && ((l.layout && l.layout.visibility) === 'none')).length;
+    } catch (_) { return 0; }
+  };
   /* 🔴 QUEM ESTÁ SE MOVENDO, PERGUNTADO AO PRÓPRIO NÓ (17/08, item 4).
      `getAnimations({subtree:false})` devolve as animações vivas NAQUELE nó — é
      resultado, não marca: uma classe `troca-desce` que não anima nada sai zerada
@@ -311,6 +326,7 @@ const AMOSTRAR = (sel) => {
       marca: m ? m.__hbxMarca : null,
       pitch: m ? Math.round(m.getPitch()) : null,
       ruas: ruasDe(m),
+      ocultas: ocultasDe(m),
       // ---- item 4: quem se move, e quem NÃO pode se mover ----
       animCamada: camadas.reduce((fora, c) => fora.concat(nomes(c)), []),
       animPalco: palcos.reduce((fora, el) => fora.concat(nomes(el)), []),
@@ -622,9 +638,10 @@ async function abrir(navegador, pele, porta) {
       return window.__fita;
     });
     const ruasNaIda = Math.max(0, ...fitaIda.map((f) => f.ruas));
+    const ocultasIda = Math.max(0, ...fitaIda.map((f) => f.ocultas));
     const marcasIda = [...new Set(fitaIda.map((f) => f.marca).filter(Boolean))];
     const pilhaIda = Math.max(0, ...fitaIda.map((f) => f.camadas));
-    nota(`[ida] camadas no pico=${pilhaIda} · mapas vistos=${marcasIda.join(',') || '-'} · ruas=${ruasNaIda}`);
+    nota(`[ida] camadas no pico=${pilhaIda} · mapas vistos=${marcasIda.join(',') || '-'} · ruas=${ruasNaIda} · ruas de verdade escondidas no pico=${ocultasIda}`);
 
     /* 🔴 AS DUAS PERGUNTAS JUNTAS, E A SEGUNDA NASCEU DE UM ERRO MEU (16/08).
        Eu tinha trocado o show por uma troca SECA pra camada velha não cobrir o
@@ -643,6 +660,11 @@ async function abrir(navegador, pele, porta) {
       marcasIda.length === 1, `mapas vistos=${marcasIda.join(',') || 'nenhum'}`);
     eh('1.3 IDA: a cena das ruas acende dirigindo',
       ruasNaIda > 0, `camadas de cena=${ruasNaIda}`);
+    /* 🔴 O PAR DA 1.3, E ELE É O PEDIDO DE 17/08: acender NÃO é apagar antes. As
+       duas juntas são a frase inteira do dono (*"é só para acontecer o brilho"*)
+       — sozinha, a 1.3 aprovaria o esconde-e-redesenha que ele reclamou. */
+    eh('1.4 IDA: a rua de verdade NUNCA some (o brilho passa por cima)',
+      ocultasIda === 0, `ruas do basemap escondidas no pico=${ocultasIda}`);
     // item 4: a camada parada, o mapa parado, e a MANOBRA entrando por cima
     cobrarTroca('1', 'IDA', coreografia(fitaIda), MANOBRA, TOPO_2D);
     /* 🔴 A FOTO 6 — A BÚSSOLA É PEÇA DO 3D. Medida no ASSENTADO (uma camada só):
@@ -670,6 +692,7 @@ async function abrir(navegador, pele, porta) {
       return window.__fita;
     });
     const ruasNaVolta = Math.max(0, ...fitaVolta.map((f) => f.ruas));
+    const ocultasVolta = Math.max(0, ...fitaVolta.map((f) => f.ocultas));
     const marcasVolta = [...new Set(fitaVolta.map((f) => f.marca).filter(Boolean))];
     const pilhaVolta = Math.max(0, ...fitaVolta.map((f) => f.camadas));
     /* o MESMO mapa desce a inclinação: ele começa deitado no 3D e vai a zero.
@@ -683,7 +706,7 @@ async function abrir(navegador, pele, porta) {
     const antes = iTroca > 0 ? fitaVolta[iTroca - 1].pitch : null;
     const depois = iTroca >= 0 ? fitaVolta[iTroca].pitch : null;
     const emenda = (antes != null && depois != null) ? Math.abs(antes - depois) : null;
-    nota(`[volta] camadas no pico=${pilhaVolta} · mapas vistos=${marcasVolta.join(',') || '-'} · ruas=${ruasNaVolta} · pitch ${pitchMax}->${pitchMin} em ${degraus.size} degraus · emenda ${antes}->${depois}`);
+    nota(`[volta] camadas no pico=${pilhaVolta} · mapas vistos=${marcasVolta.join(',') || '-'} · ruas=${ruasNaVolta} · ruas de verdade escondidas no pico=${ocultasVolta} · pitch ${pitchMax}->${pitchMin} em ${degraus.size} degraus · emenda ${antes}->${depois}`);
 
     eh(`2.1 VOLTA: a peca que SAI cumpre o show (${MANOBRA}, nao e arrancada no meio)`,
       !!distVolta && distVolta.fracao >= PISO_SHOW,
@@ -696,6 +719,9 @@ async function abrir(navegador, pele, porta) {
        volta (2D). Sem o chamador do pouso este numero e ZERO. */
     eh('2.3 VOLTA: a cena das ruas acende TAMBEM no 2D',
       ruasNaVolta > 0, `camadas de cena=${ruasNaVolta}`);
+    // o par da 2.3, pelo mesmo motivo da 1.4: nos DOIS sentidos é o mesmo gesto
+    eh('2.3b VOLTA: a rua de verdade NUNCA some (o brilho passa por cima)',
+      ocultasVolta === 0, `ruas do basemap escondidas no pico=${ocultasVolta}`);
     /* 🔴 A SUBIDA EXISTE E ELA ANDA (16/08, depois de VER a troca gravada no g15
        a 20 quadros/s: 3 quadros de tela igual, 1 de mistura, tela nova — corte
        seco, zero movimento). O pitch tem que sair de deitado e ir a zero, em

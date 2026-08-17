@@ -6007,9 +6007,16 @@
     const alvo = alvoDaPanoramica(casa);
     // a régua dos 30 m recomeça daqui: o pouso é o novo ponto de partida.
     rearmarPlanoZoom();
-    if (!alvo) { pedirCena('rota'); return; }
+    /* 🔴 O SEGUNDO ARGUMENTO É "NÃO APAGUE A CIDADE" (17/08 — dono: *"ao alternar
+       de 2d para 3d e vice versa, apaga as ruas para refazer o efeito brilhando…
+       não apagar as ruas neste caso. É só para acontecer o brilho"*). O brilho é
+       o mesmo, com o mesmo ritmo; o que sai é o esconde-e-redesenha, que aqui não
+       tem motivo nenhum: o mapa está assentado na cara do motorista. Ver
+       `semApagar` em § 50-cena-ruas — e o Montar rota, que continua com a cena
+       inteira, escurece incluído. */
+    if (!alvo) { pedirCena('rota', true); return; }
     porNoPlano(casa, alvo, TROCA_MS);
-    aoAssentar(casa.mapa, () => { if (telaAtual() === 'rota') pedirCena('rota'); });
+    aoAssentar(casa.mapa, () => { if (telaAtual() === 'rota') pedirCena('rota', true); });
   }
 
   /** DESCER — a volta da Panorâmica: o movimento primeiro, a cena no pouso */
@@ -6029,7 +6036,9 @@
     // desarme da saída, e sem ele a descida nasce morta (ver `pararDescida`).
     pararDescida();
     descer(TROCA_MS, casa.mapa);
-    aoAssentar(casa.mapa, () => { if (telaAtual() === 'mapa') pedirCena('navegar'); });
+    // (o mesmo "não apague a cidade" da subida — a troca é um gesto só, nos 2
+    // sentidos, e o que o dono vê tem que ser o mesmo brilho nos dois)
+    aoAssentar(casa.mapa, () => { if (telaAtual() === 'mapa') pedirCena('navegar', true); });
   }
 
   /* 🔴 PINO FORA DA TELA NÃO É PINO — é enfeite encostado na moldura. Com a
@@ -6407,10 +6416,30 @@
      o mesmo mapa. */
   const palcoDaCena = () => PALCO;
 
-  /** o pedido: a cena acontece quando o palco estiver na tela, nunca antes */
-  function pedirCena(motivo) {
+  /* o pedido: a cena acontece quando o palco estiver na tela, nunca antes.
+
+     🔴 `semApagar` — A TROCA DE MODO NÃO APAGA A CIDADE (17/08, dono com o g15 na
+     mão: *"ao alternar de 2d para 3d e vice versa, apaga as ruas para refazer o
+     efeito brilhando… não apagar as ruas neste caso. É só para acontecer o
+     brilho"*).
+     A cena SEMPRE começou escondendo o mundo (§ `esconderMundo`) porque ela É a
+     cidade NASCENDO: no Montar rota o motorista chega por trás de um véu escuro e
+     não existe mapa nenhum pra apagar — o mundo escondido é o palco em branco em
+     que as ruas se desenham. Na troca de modo existe mapa, assentado e na cara
+     dele: apagar as ruas pra redesenhá-las é o app desfazendo o que já estava
+     certo, e é exatamente o que a gravação do g15 mostra (1,5 s de mapa vazio com
+     só o traço verde antes de as ruas voltarem crescendo).
+     Com este sinal o brilho passa POR CIMA da cidade viva: mesma geometria, mesma
+     largura, mesma tinta assentando no tom real (§ `CENA_COR_ASSENTA`) — a onda
+     acende sobre a rua de verdade em vez de no vazio, e quando a cena sai não há
+     nada a devolver porque nada saiu.
+     🔴 E ISTO NÃO ENCOSTA NO MONTAR ROTA (regra literal do dono: *"NÃO ALTERAR O
+     EFEITO AO MONTAR ROTA"*): quem pede com este sinal são só os chamadores da
+     troca (§ 45-troca-de-modo). `montarRota` e `entrarNaDescida` continuam
+     pedindo a cena inteira — escurece, cidade fora, ruas nascendo, descida. */
+  function pedirCena(motivo, semApagar) {
     if (semMovimento()) return;
-    cenaPedido = { motivo, em: Date.now() };
+    cenaPedido = { motivo, em: Date.now(), semApagar: !!semApagar };
     const casa = GARAGEM.get(palcoDaCena(motivo));
     if (mapaNaTela(casa)) atenderCena(casa);
   }
@@ -6452,10 +6481,10 @@
     // não é "rota nova", é o dia em andamento.
     if (Date.now() - p.em > CENA_VALIDADE) { cenaPedido = null; return; }
     cenaPedido = null;
-    chamarCena(casa, p.motivo);
+    chamarCena(casa, p.motivo, p.semApagar);
   }
 
-  function chamarCena(casa, motivo) {
+  function chamarCena(casa, motivo, semApagar) {
     if (!casa || casa.nome !== palcoDaCena(motivo) || !casa.mapa) return;
     if (cena || semMovimento()) return;
     if (motivo === 'entrada') {
@@ -6467,6 +6496,7 @@
       casa, motivo, mundo: null, t0: 0, ondas: [], nomes: [],
       cartao: null, eu: null, raf: 0, dedo: null, onda: CENA_ONDA,
       mundoVoltou: false, nomesSairam: false, ruasPartiram: false,
+      semApagar: !!semApagar,
     };
     const daVez = cena;
     /* 🔴 A FILA COMEÇA AQUI, NO INSTANTE EM QUE A CENA É ACEITA — e ela só nasce
@@ -6488,6 +6518,11 @@
        sumir, que é a piscada que esta casa passou o dia 09/08 matando. */
     quandoEstiloPronto(mapa, () => {
       if (cena !== daVez) return;
+      /* 🔴 A CIDADE FICA NA TELA (§ `semApagar`, no `pedirCena`). `mundo` segue
+         null, e isso atravessa a casa inteira SEM exceção nova: `fatiaDoMundo`
+         de null é null e `devolverMundo` com null não faz nada — não há o que
+         devolver porque nada saiu de cena. */
+      if (daVez.semApagar) { esperarChao(daVez); return; }
       daVez.mundo = esconderMundo(mapa);
       if (!daVez.mundo) { encerrarCena('sem-estilo', true); return; }
       esperarChao(daVez);
@@ -6550,7 +6585,12 @@
     ondasDasRuas(casa, ruas);
     // na tela de dirigir a cena é só a cidade nascendo: nome de rua ali brigaria
     // com a manobra, que desce no mesmo instante (§ CENA_PASSO_NAV).
-    const nomes = daVez.motivo === 'navegar' ? [] : nomesDaCena(ruas);
+    /* 🔴 E NA TROCA DE MODO TAMBÉM NÃO HÁ LETRA (§ `semApagar`): o rótulo do
+       basemap continua NA TELA — é o mesmo nome, no mesmo lugar. Escrevê-lo de
+       novo letra a letra seria a mesma rua com dois nomes por cima um do outro.
+       A cena do Montar pode escrever porque lá o mundo saiu de cena e a letra
+       nascendo é a única que existe. */
+    const nomes = (daVez.motivo === 'navegar' || daVez.semApagar) ? [] : nomesDaCena(ruas);
 
     const corpo = tinta('--map-cena-rua', '#59677a');
     const cabeca = tinta('--map-cabeca', '#e8f4ff');

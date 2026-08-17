@@ -234,9 +234,16 @@
     const alvo = alvoDaPanoramica(casa);
     // a régua dos 30 m recomeça daqui: o pouso é o novo ponto de partida.
     rearmarPlanoZoom();
-    if (!alvo) { pedirCena('rota'); return; }
+    /* 🔴 O SEGUNDO ARGUMENTO É "NÃO APAGUE A CIDADE" (17/08 — dono: *"ao alternar
+       de 2d para 3d e vice versa, apaga as ruas para refazer o efeito brilhando…
+       não apagar as ruas neste caso. É só para acontecer o brilho"*). O brilho é
+       o mesmo, com o mesmo ritmo; o que sai é o esconde-e-redesenha, que aqui não
+       tem motivo nenhum: o mapa está assentado na cara do motorista. Ver
+       `semApagar` em § 50-cena-ruas — e o Montar rota, que continua com a cena
+       inteira, escurece incluído. */
+    if (!alvo) { pedirCena('rota', true); return; }
     porNoPlano(casa, alvo, TROCA_MS);
-    aoAssentar(casa.mapa, () => { if (telaAtual() === 'rota') pedirCena('rota'); });
+    aoAssentar(casa.mapa, () => { if (telaAtual() === 'rota') pedirCena('rota', true); });
   }
 
   /** DESCER — a volta da Panorâmica: o movimento primeiro, a cena no pouso */
@@ -256,7 +263,9 @@
     // desarme da saída, e sem ele a descida nasce morta (ver `pararDescida`).
     pararDescida();
     descer(TROCA_MS, casa.mapa);
-    aoAssentar(casa.mapa, () => { if (telaAtual() === 'mapa') pedirCena('navegar'); });
+    // (o mesmo "não apague a cidade" da subida — a troca é um gesto só, nos 2
+    // sentidos, e o que o dono vê tem que ser o mesmo brilho nos dois)
+    aoAssentar(casa.mapa, () => { if (telaAtual() === 'mapa') pedirCena('navegar', true); });
   }
 
   /* 🔴 PINO FORA DA TELA NÃO É PINO — é enfeite encostado na moldura. Com a
