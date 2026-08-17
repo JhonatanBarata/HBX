@@ -1219,8 +1219,16 @@ const SO_MEDIR = process.argv.includes('--antes');
   eh('D4 · o toque entra DIRETO na navegação (tela mapa)', tD2.tela === 'mapa', `tela=${tD2.tela}`);
   /* O véu pedido soma duas pinturas controladas: entrar e sair. A régua
      continua pegando repinte livre — qualquer sexta camada volta a gritar. */
+  /* 🔴 5 VIROU 6 EM 16/08, e a camada tem NOME: o cadeado do "Encerrar dia",
+     que desceu do dock pra coluna lateral por ordem do dono. Cada botao de
+     `.gps-lado` anima sozinho (`mvPop`, regra la no alto do mock), entao a
+     coluna de 3 virou 4 e a conta subiu 1 — nao e repinte solto, e uma peca a
+     mais na cena, CONFERIDA olhando a regra que anima e nao chutando o teto.
+     O tempo NAO regrediu junto: `prova-navegar` seguiu 17/17 com a maior tarefa
+     em 252ms (teto 400) e `prova-ir-e-vir` 9/9. A regua continua pegando
+     repinte livre — qualquer SETIMA camada volta a gritar. */
   eh('D6 · só as 2 pinturas do véu além da troca rota→mapa',
-    pinturas <= 5,
+    pinturas <= 6,
     `camadas=${pinturas}`);
 
   /* ===================================================================
