@@ -1134,6 +1134,24 @@ button,input{font:inherit;color:inherit}
 .tela.entra .scrim{animation:mvScrim var(--mv-normal) ease-out both}
 @keyframes mvFolha{from{transform:translateY(100%)}to{transform:none}}
 @keyframes mvScrim{from{opacity:0}to{opacity:1}}
+/* 🔴 O VÉU TEM UM QUADRO PRÓPRIO PRA SAIR, E ISSO ERA A PISCADA DE TODO DIÁLOGO
+   DA CASA (17/08 — MEDIDO no g15 via DevTools, amostrando `opacity` por quadro).
+   O `fechar()` pedia a saída REAPROVEITANDO o nome de entrada
+   (`mvScrim … reverse`), e animação de CSS é casada por NOME+índice: pedir
+   `mvScrim` de novo não cria animação nova, ATUALIZA a que já existe — e a de
+   entrada já terminou. Com o relógio dela além do fim e `reverse`, o valor
+   congelado passa a ser o `from` (opacidade 0): o véu ia a ZERO no primeiro
+   quadro, sem fundido nenhum. Medida: `scrim=0.00` já aos 19 ms, contra a caixa
+   descendo 1.00 → 0.43 em 200 ms do lado dela.
+   Era isso que o dono via como "pisca": o diálogo do cancelar sumindo de uma vez
+   e a tela de trás acendendo de estalo (medido na gravação: a tarja de manobra
+   saltando de luma 29,0 pra 44,3 em UM quadro).
+   Nome PRÓPRIO conserta pela raiz — nome que nunca rodou neste nó é sempre
+   animação nova, então ela começa do 1 e desce. Vale pros CINCO véus que passam
+   pelo `fechar()` (`.erro-wrap`, `.conf-wrap`, `.portao-wrap`, `.chegou-wrap`,
+   `.chat-wrap`): um quadro, cinco superfícies. Mesma lei do `.saindo`, que já
+   fazia certo com `mvSai` — nome só de saída, e por isso a CAIXA nunca piscou. */
+@keyframes mvScrimSai{from{opacity:1}to{opacity:0}}
 @keyframes mvPop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
 
 /* ==========================================================================

@@ -420,6 +420,22 @@ const ROTA_ESTADOS={
      mesma altura, respirando e SEM ação: enquanto o dia não chegou não há o que
      fazer, e prometer botão que não faz nada é pior que dizer "espera". */
   carregando: {main:{glifo:'route', rotulo:'Carregando…'}},
+  /* 🔴 CANCELAR TAMBÉM É TRABALHO EM CURSO, E ERA O ÚNICO VERBO SEM RECIBO
+     (17/08 — MEDIDO no g15, APK 339, gravação de tela do cancelamento real).
+     O "Sim" do portão dispara rede (`POST /rota/continuidade/cancelar`), e até
+     ela voltar o rodapé continuava sendo o de `dirigindo`: **860 ms** com a
+     tela de navegação INTEIRA acesa, o traço verde no lugar e o próprio botão
+     "Cancelar" ainda oferecido — 490 ms deles num quadro CONGELADO (frames
+     pixel-idênticos na medição). Quem tocou lê isso como "o app ignorou meu
+     toque" e toca de novo; o dono leu como "está um lixo, trava".
+     É o MESMO defeito que o `montando` (duas linhas acima) curou pro Montar em
+     15/08, e a cura é a mesma frase daquela nota: *o véu nasce ANTES do 1º
+     pedido, síncrono*. Sem `acao` e sem `ir` de propósito — cancelar duas vezes
+     não cancela mais rápido, e botão vivo no meio da própria destruição é botão
+     que mente (mesma lei do `montando`).
+     Glifo `stop`, o do satélite que abriu o gesto: o recibo veste a cara do
+     verbo que o pediu, senão o olho procura o que mudou. */
+  cancelando: {main:{glifo:'stop', rotulo:'Cancelando…'}},
 };
 function transmux(estado){
   const c=ROTA_ESTADOS[estado]; if(!c) return '';
@@ -1365,6 +1381,17 @@ const temRotaNoDia=e=>e==='pronta'||e==='iniciando'||e==='rodando'||e==='pausada
    LEI: estado que o aparelho consegue mostrar tem que ter porta no mock —
    estado sem porta é estado que se desenha no escuro. */
 function dockDaRota(e){
+  /* 🔴 O CANCELANDO VEM PRIMEIRO, ANTES DO MONTANDO (17/08). Durante o
+     cancelamento o dado da rota ainda diz `rodando`/`dirigindo` — ele só morre
+     quando o servidor responde —, então qualquer teste por ESTADO DA ROTA
+     perderia pro cromo velho e o rodapé continuaria oferecendo "Cancelar".
+     A bandeira do gesto ganha do estado do dado porque ela é a notícia MAIS
+     NOVA: o motorista já decidiu destruir o dia, e é isso que a tela tem que
+     estar dizendo enquanto a rede não volta. Uma linha, e ela serve as DUAS
+     câmeras — o 2D chega aqui pelo `rodapeDoMapa(e)` e o 3D pelo
+     `rodapeDoMapa('dirigindo', …)`, que é o rodapé da gravação onde o defeito
+     foi medido. */
+  if(DADOS.rota.cancelando) return transmux('cancelando');
   if(DADOS.rota.montando) return transmux('montando');
   if(e==='semsinal') return transmux('pronta');
   if(e==='montar'&&!paradasAbertasNaTela()) return transmux('semparada');
@@ -4508,19 +4535,21 @@ function pintar(animar,dir){
      junto tudo o que está pendurado nele.
      Só no REPINTE: TROCAR de tela continua fechando o portão, que é o certo —
      diálogo de uma tela não segue o dedo pra outra. */
-  const portaoVivo = (!animar && antiga) ? antiga.querySelector('.portao-wrap') : null;
+  // `:not(.fechando)` — portão que já está SAINDO fica pra trás e morre com a
+  // camada; carregá-lo reencenava a saída e ele voltava inteiro (ver `fechar`).
+  const portaoVivo = (!animar && antiga) ? antiga.querySelector('.portao-wrap:not(.fechando)') : null;
   // 🔴 O CARTÃO "VOCÊ CHEGOU" ATRAVESSA O REPINTE PELO MESMO MOTIVO DO PORTÃO
   // (LOTE 3, 15/08): sem isto ele renasceria — e reanimaria — a cada fix do
   // GPS na tela de dirigir (1x/s). Só no REPINTE, nunca na troca de tela: a
   // peça morre ao ir pra folha e renasce pelo observador na volta (é o
   // comportamento desejado, armadilha nº5 do desenho).
-  const chegadaViva = (!animar && antiga) ? antiga.querySelector('.chegou-wrap') : null;
+  const chegadaViva = (!animar && antiga) ? antiga.querySelector('.chegou-wrap:not(.fechando)') : null;
   /* 🔴 O POP-UP DO CHAT ATRAVESSA O REPINTE — MESMA LEI DO PORTÃO (17/08, item 9
      do dono). Dirigindo, a ponte repinta a camada UMA VEZ POR SEGUNDO (cada fix
      do GPS); um pop-up que morre no repinte fecharia sozinho no meio da frase, e
      o que o motorista escreveu no campo iria com ele. O nó é MOVIDO, nunca
      redesenhado: mover leva junto o valor do campo e os ouvintes pendurados. */
-  const chatVivo = (!animar && antiga) ? antiga.querySelector('.chat-wrap') : null;
+  const chatVivo = (!animar && antiga) ? antiga.querySelector('.chat-wrap:not(.fechando)') : null;
   const nova=document.createElement('div');
   nova.className='tela';
   nova.innerHTML=T[atual].render();
@@ -5050,9 +5079,31 @@ function avisar(tipo){
    código. Aqui elas têm entrada, saída e regra de fechamento, como o resto.
    ========================================================================== */
 function fechar(wrap){
+  if(!wrap||wrap.__saindo) return;   // 2º toque no "Sim" não reinicia a saída
+  wrap.__saindo=true;
+  /* 🔴 QUEM ESTÁ SAINDO NÃO ATRAVESSA REPINTE (17/08 — MEDIDO no g15, APK 342,
+     gravação do cancelamento com o conserto já dentro).
+     O portão atravessa o repinte de propósito (§ `portaoVivo` no `pintar`) —
+     essa é a cura de 09/08 pro diálogo que morria calado. Mas ela não separava
+     um portão VIVO de um portão que já está indo embora: no cancelamento, o
+     `fechar` marca a saída e agenda a retirada pra 210 ms, e o repinte que cai
+     nesse vão MOVE o nó pra camada nova. Mover é re-inserir, e re-inserir
+     REENCENA todo `@keyframes` do nó: a saída recomeçava do zero, ou seja, o
+     diálogo VOLTAVA a opacidade 1 depois de já ter sumido.
+     Medido: o "Tem certeza que deseja cancelar?" reaparecendo inteiro aos
+     10,28 s — 870 ms DEPOIS do "Sim" —, por cima do rodapé que já dizia
+     "Cancelando…", e sumindo de novo aos 10,54 s. Um fantasma de 250 ms no meio
+     da transição, que é exatamente o "sem sequência" que este lote existe pra
+     matar.
+     A marca é no WRAP (o `.saindo` do `fechar` vai na CAIXA) porque quem o
+     `pintar` procura é o wrap. Vale pras cinco superfícies do `fechar` de uma
+     vez — portão, erro, confirmação, "você chegou" e o pop-up do chat. */
+  wrap.classList.add('fechando');
   const peca=wrap.firstElementChild;
-  peca.classList.add('saindo');
-  wrap.style.animation='mvScrim 200ms ease-in reverse both';
+  if(peca) peca.classList.add('saindo');
+  // 🔴 `mvScrimSai`, NUNCA `mvScrim reverse` — ver a nota do keyframe: nome
+  // reaproveitado não cria animação nova e o véu sumia num quadro só.
+  wrap.style.animation='mvScrimSai 200ms ease-in both';
   setTimeout(()=>wrap.remove(),210);
 }
 function erro(){

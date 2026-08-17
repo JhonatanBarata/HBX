@@ -690,6 +690,11 @@
      mesmo botão "Sim" que o 409 de outro motorista passou a usar no "Forçar
      cancelamento e puxar". Só o DEPOIS muda: aqui é sair pra Rota; lá é
      montar de novo sozinho. */
+  /* 🔴 A TROCA DE TELA VIROU O 2º ARGUMENTO (17/08). Ela era o `depois` — e
+     `depois` roda depois da trava soltar, num tique SEPARADO da faxina: era esse
+     vão que rachava a saída em quatro repintes (a medição inteira está na nota
+     do `confirmarLimparDia`). Como `aoLimpar` ela acontece no MESMO tique do
+     `esquecerRotaCarregada`, então a saída de dirigir é UM evento visual só. */
   async function cancelarRota() {
-    confirmarLimparDia(() => { if (typeof window.ir === 'function') window.ir('rota'); });
+    confirmarLimparDia(null, () => { if (typeof window.ir === 'function') window.ir('rota'); });
   }

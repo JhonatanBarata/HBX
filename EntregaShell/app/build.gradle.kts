@@ -173,7 +173,21 @@ plugins {
 // piso ACIMA do maior número que existe em QUALQUER celular — mas ela tem um
 // corolário novo: build local sideloadado conta, mesmo sem commit nenhum. Quando
 // houver sessão paralela mexendo no APK, CONFERIR o dumpsys antes de publicar.
-val hbxLogisticaVersionCodeFloor = 325
+// 🔴 325 → 341 em 17/08, e é a MESMA lei cobrada pela via de sempre: o piso
+// estava em 325 e o g15 do dono roda **339** (medido agora no `dumpsys`, veio do
+// publish `efcf7e2d`). Build local saiu 325 e o `adb install` recusou com
+// INSTALL_FAILED_VERSION_DOWNGRADE no meio do teste por toque que o dono pediu
+// ("entre no meu apk agora pelo adb") — o mesmo travamento do ciclo
+// "editar → instalar no aparelho" de 148→156 e 310→325.
+// Piso ACIMA do maior número que existe em QUALQUER celular.
+// 🔴 341 → 346 no fim da MESMA sessão, e é o corolário de 310→325 aplicado a mim
+// mesmo: provar o conserto de transição exigiu quatro voltas de
+// "editar → build → instalar no g15" (341, 342, 343 e **344**, este último o que
+// ficou no aparelho). Piso 341 faria o publish carimbar um número ABAIXO do 344
+// sideloadado e o g15 nunca veria o aviso de atualização — exatamente o prejuízo
+// de 201→221, só que autoinfligido pela própria bancada. 346 fica com folga
+// sobre 344 e deixa o publish carimbar 347.
+val hbxLogisticaVersionCodeFloor = 346
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)

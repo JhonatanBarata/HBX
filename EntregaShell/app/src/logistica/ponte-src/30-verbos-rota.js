@@ -205,7 +205,19 @@
      do `carregarRota`, senão o repinte passaria com a rota morta ainda
      desenhada), recarrega — e só então `depois` decide o que vem: sair pra
      Rota (o Cancelar) ou remontar sozinho (o Forçar). */
-  function confirmarLimparDia(depois) {
+  /* 🔴 O RECIBO DO CANCELAR (17/08 — MEDIDO no g15, APK 339, gravação do
+     cancelamento de verdade). O "Sim" some e o servidor leva ~860 ms pra
+     responder; nesse vão a tela continuava sendo a de dirigir INTEIRA e ACESA —
+     traço verde, tarja de manobra, "14 min · 6,1 km · 14:42" e o próprio botão
+     "Cancelar" ainda oferecido —, com 490 ms num quadro CONGELADO (quadros
+     pixel-idênticos na medição). Toque sem recibo é toque que o dono repete.
+     Mesma cura do `montando` (32-verbos-montar-iniciar.js): a bandeira acende
+     SÍNCRONA, antes do 1º pedido, e o rodapé vira "Cancelando…" pelo
+     `dockDaRota` — que serve as duas câmeras de uma vez. */
+  const cancelando = (v) => {
+    try { window.usarDados('rota', { cancelando: v }); } catch (_) { /* sem seam: o verbo continua */ }
+  };
+  function confirmarLimparDia(depois, aoLimpar) {
     if (typeof window.portao !== 'function') return;
     window.portao({
       tom: 'alerta', ico: 'close', titulo: 'Tem certeza que deseja cancelar?',
@@ -213,18 +225,76 @@
     });
     const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;
-    botao.addEventListener('click', () => depoisDaTrava(async () => {
-      if (!rotaRefAtual) {
-        avisoErro(new Error('Atualize a rota antes de cancelar.'));
-        return false;
-      }
-      if (!(await filaOfflinePronta())) return false;
-      try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref: rotaRefAtual }); }
-      catch (e) { await avisoErroContinuidade(e); return false; }
-      esquecerRotaCarregada();
-      await carregarRota();
-      return true;
-    }, depois), { once: true });
+    botao.addEventListener('click', () => {
+      /* 🔴 O RECIBO ESPERA O PORTÃO SAIR — 230 ms, A ESPERA DA CASA (17/08).
+         A 1ª versão desta cura acendia o recibo NO MESMO QUADRO do toque, e
+         MEDI o estrago no g15: um repinte de camada na tela de dirigir custa
+         **~400 ms** de linha principal (o mesmo custo que aparece como os 490 ms
+         da gravação de antes e os 276 ms do teste de transplante isolado). Posto
+         em cima do toque, ele engolia justamente os 200 ms de saída do diálogo —
+         e animação de CSS corre no RELÓGIO, não no quadro: bloqueada, ela termina
+         por dentro e o 1º quadro depois do bloqueio já mostra o véu sumido.
+         Medida: a tarja saltando 29,0 → 44,3 em UM quadro, o MESMO número de
+         antes do conserto. Consertar o `mvScrimSai` não bastava porque não havia
+         quadro nenhum pra ele desenhar.
+         230 ms é a espera que esta casa já usa pro tour (§ delegado do
+         `data-fechar`, no mock: *"o portão fecha primeiro, e a espera cobre a
+         saída dele"*) e fica logo depois dos 210 ms em que o `fechar` tira o nó.
+         A REDE NÃO ESPERA — o `depoisDaTrava` sai no mesmo toque, então o
+         cancelamento não fica 230 ms mais lento; quem espera é só a TINTA. E o
+         resultado é sequência de verdade: o diálogo sai, DEPOIS o rodapé vira
+         "Cancelando…", DEPOIS a tela troca. Nunca duas coisas no mesmo quadro. */
+      let reciboTimer = setTimeout(() => { reciboTimer = 0; cancelando(1); }, 230);
+      // apaga o recibo — e se ele nem chegou a acender, só desarma o relógio
+      // (acender pra apagar no quadro seguinte é o pisca que isto evita).
+      const soltarRecibo = () => {
+        if (reciboTimer) { clearTimeout(reciboTimer); reciboTimer = 0; return; }
+        cancelando(0);
+      };
+      depoisDaTrava(async () => {
+        if (!rotaRefAtual) {
+          soltarRecibo();
+          avisoErro(new Error('Atualize a rota antes de cancelar.'));
+          return false;
+        }
+        if (!(await filaOfflinePronta())) { soltarRecibo(); return false; }
+        try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref: rotaRefAtual }); }
+        catch (e) { soltarRecibo(); await avisoErroContinuidade(e); return false; }
+        /* 🔴 UM EVENTO VISUAL SÓ, E A ORDEM É O CONSERTO INTEIRO (17/08 — o
+           "não tem sequência" do dono, medido quadro a quadro).
+           ANTES daqui a saída era em QUATRO repintes soltos, cada um disparado
+           pelo dado que por acaso mudou, com um `await` no meio pra o olho ver
+           cada pedaço:
+             1. `esquecerRotaCarregada()` → `usarDados` → `pintar` SÍNCRONO:
+                levava o traço, a tarja e a linha "14 min · 6,1 km" embora…
+             2. …e DEIXAVA a fileira de botões, porque a tela ainda era `mapa`.
+                Medida: o "Panorâmica" verde ficou pixel-idêntico (luma 161,323)
+                por 732 ms sobre um mapa que já não tinha rota — meia peça viva,
+                meia peça morta, que é literalmente a metade de uma transição.
+             3. o `await carregarRota()` cedia o quadro e ESSE estado rachado
+                virava imagem na tela;
+             4. só então o `depois` trocava de tela e a fileira sumia de estalo —
+                luma da tela inteira caindo 42,4 → 28,6 em UM quadro, o mapa sem
+                tiles e o cromo novo entrando por cima. O pisca.
+           Agora a troca de tela vem PRIMEIRO e nada espera entre as três linhas:
+           sem `await` no meio, o navegador pinta UMA vez, no fim do tique. A
+           camada que SAI é a de dirigir INTEIRA (com o recibo "Cancelando…" que
+           o dedo acendeu) e ela cumpre o show de `modo-troca` inteiro, 900 ms,
+           sem ser desmontada por dentro; a que ENTRA já nasce com o dia limpo.
+           `aoLimpar` e não `depois`: o `depois` roda DEPOIS da trava soltar (é o
+           contrato do `depoisDaTrava`, e o "Forçar" do 409 depende disso pra
+           remontar), e o que precisa ser atômico com a faxina é a TELA. Quem só
+           passa `depois` (o 409) continua com o comportamento de antes.
+           A faxina segue ANTES do `carregarRota`, como a lei de 09/08 manda: se
+           a rede cair no meio, o servidor já cancelou e a tela tem que estar
+           limpa do mesmo jeito. */
+        if (typeof aoLimpar === 'function') aoLimpar();
+        esquecerRotaCarregada();
+        soltarRecibo();
+        await carregarRota();
+        return true;
+      }, depois);
+    }, { once: true });
   }
 
   /* 409 ROTA_DE_OUTRO_MOTORISTA — fala quem montou e oferece o handoff exato.

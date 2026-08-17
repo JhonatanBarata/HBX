@@ -67,8 +67,11 @@
       n[0] = Math.max(n[0], c[0]); n[1] = Math.max(n[1], c[1]);
     });
     try {
+      // `padDoPlano` e não `PLANO_PAD`: a folga é MEDIDA contra o cromo que
+      // está no ar (o painel flutuante do 2D cobre 133 px do mapa) — ver a nota
+      // em 40-mapa-palcos.js. Sem isso a rota "cabia" atrás do rodapé.
       const cam = casa.mapa.cameraForBounds([o, n], {
-        padding: PLANO_PAD, maxZoom: teto, bearing: 0,
+        padding: padDoPlano(casa), maxZoom: teto, bearing: 0,
       });
       if (cam && cam.center) return { center: cam.center, zoom: cam.zoom };
     } catch (_) { /* mapa saindo de cena */ }
@@ -103,11 +106,29 @@
      O dia inteiro continua a UM toque: é o botão da beirada (`mapa-enquadrar`),
      que está bem ali e não mudou. Fora da rua — dia só montado, ou nenhum — a
      moldura do dia continua sendo o pouso, que é o que aquela tela promete. */
+  /* 🔴 …E O "PARADO" DESFAZ ESSA EXCEÇÃO (17/08 — dono, com o 2D na mão:
+     *"enquadramento 2d parado tem q exibir rota toda, ao notar movimentação no
+     gps aí sim aproxima 30%"*).
+     A moldura das PRÓXIMAS (a nota acima, 16/08) resolvia um problema real —
+     o dia inteiro numa cidade some os números dos pinos —, mas ela resolvia
+     esse problema O TEMPO TODO, inclusive com o caminhão parado na garagem. E
+     aí ela custa o que a tela promete: MEDIDO no g15 agora, com 10 paradas e o
+     motorista parado, o 2D pousava mostrando 9 pinos e cortava a parada 10 fora
+     da tela, com o traço saindo pelas duas beiradas. Quem está parado está
+     PLANEJANDO — é a hora de ver o dia todo, não o que vem pela frente.
+     A régua de "parado" é a MESMA dos 30 m (§ `andouNoPlano`), nunca uma
+     segunda opinião. Então a sequência que o dono descreve fica literal:
+       parado           → rota TODA (esta função cai no `molduraDoPlano`)
+       andou 30 m       → `acompanharNoPlano` aproxima 30% (até 2 passos)
+       andando + Panorâmica → as próximas, que é quando elas fazem falta.
+     O dia inteiro continua a UM toque em qualquer caso: o botão da beirada
+     (`mapa-enquadrar`) não mudou. */
   const PANO_PROXIMAS = 6;
   function alvoDaPanoramica(casa) {
     const eu = ultimaPos || ultimoFix;
     const naRua = typeof rotaNaRua === 'function' ? rotaNaRua() : false;
-    if (naRua && eu && pinoValido(eu.lat, eu.lng)) {
+    const andou = typeof andouNoPlano === 'function' ? andouNoPlano() : true;
+    if (naRua && andou && eu && pinoValido(eu.lat, eu.lng)) {
       const pontos = paradasDoMapa()
         .filter((p) => p.st !== 'entregue' && p.st !== 'cancelada')
         .slice(0, PANO_PROXIMAS)

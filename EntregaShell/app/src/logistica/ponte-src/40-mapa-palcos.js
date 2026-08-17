@@ -381,6 +381,58 @@
   const PLANO_PAD = { top: 74, right: 34, bottom: 34, left: 34 };
   const PLANO_ZOOM_TETO = 16;
 
+  /* 🔴 …E ESSA CONTA VENCEU HOJE DE MANHÃ (17/08 — dono, com o 2D parado na
+     mão: *"enquadramento 2d parado tem q exibir rota toda"*).
+     A nota acima diz "o transmux e as abas NÃO entram nesta conta porque o
+     palco já para em cima deles (`.plano.com-dock`)" — e isso era verdade
+     enquanto o rodapé do 2D ENCURTAVA o palco. Só que hoje o 2D com rota
+     montada ganhou o MESMO PAINEL FLUTUANTE do 3D (§ `rodapeDoMapa` + a folha:
+     `.plano.com-rodape{--map-chao:var(--gps-rodape-h)}`, 133px), e painel
+     flutuante não encurta nada: ele POUSA EM CIMA do mapa.
+     Resultado medido na tela do dono: a moldura reservava 34 px embaixo e o
+     cromo comia 133 — as últimas paradas do dia ficavam matematicamente "dentro
+     do quadro" e visualmente ATRÁS do painel. Rota que não cabe é a promessa
+     desta tela quebrada, e o pior formato: sem erro nenhum, só sumida.
+     A cura é a lei da casa pra cromo (§ `ancoraNaTela`, 70-traco-camera):
+     **MEDIR o desenho, nunca copiar o número**. Aqui se mede o quanto o rodapé
+     INVADE o palco — palco que para em cima dele devolve invasão zero e a conta
+     continua a de sempre, então as duas eras convivem sem `if` de versão.
+     Os valores de `PLANO_PAD` viram PISO, nunca teto: a folga só cresce pra
+     cobrir cromo real. E há teto de sanidade (40% da altura), senão um rodapé
+     medido torto no meio de uma animação enquadraria a rota numa fresta. */
+  const PLANO_PAD_RESPIRO = 12;   // `--map-respiro`
+  const PLANO_PAD_PINO = 18;      // o mesmo respiro do topo: pino não encosta no vidro
+  function padDoPlano(casa) {
+    const pad = {
+      top: PLANO_PAD.top, right: PLANO_PAD.right, bottom: PLANO_PAD.bottom, left: PLANO_PAD.left,
+    };
+    try {
+      const caixa = casa && casa.mapa && casa.mapa.getContainer && casa.mapa.getContainer();
+      if (!caixa) return pad;
+      const rc = caixa.getBoundingClientRect();
+      if (!rc.height || !rc.width) return pad;
+      const invasao = (no, borda) => {
+        if (!no) return 0;
+        const r = no.getBoundingClientRect();
+        if (!r.height) return 0;
+        return borda === 'bottom'
+          ? Math.max(0, rc.bottom - r.top)     // quanto o rodapé sobe pra dentro
+          : Math.max(0, r.bottom - rc.top);    // quanto a barra do topo desce
+      };
+      // `naCamada` = a camada VIVA (a última): medir o cromo de uma camada que
+      // está morrendo daria a folga da tela anterior.
+      const vivo = (sel) => (typeof naCamada === 'function' ? naCamada(sel) : document.querySelector(sel));
+      const debaixo = invasao(vivo('.gps-rodape'), 'bottom');
+      if (debaixo > 0) pad.bottom = Math.max(pad.bottom, Math.round(debaixo + PLANO_PAD_RESPIRO + PLANO_PAD_PINO));
+      const emCima = invasao(vivo('.map-chip'), 'top');
+      if (emCima > 0) pad.top = Math.max(pad.top, Math.round(emCima + PLANO_PAD_RESPIRO + PLANO_PAD_PINO));
+      const teto = rc.height * 0.4;
+      if (pad.bottom > teto) pad.bottom = Math.round(teto);
+      if (pad.top > teto) pad.top = Math.round(teto);
+    } catch (_) { /* mapa saindo de cena: a conta de sempre */ }
+    return pad;
+  }
+
   /* ---- A APROXIMAÇÃO POR MOVIMENTO (16/08 — dono: *"no modo 2d, ao se
      movimentar (uns 30 metros) aproximar uns 30%"*) -------------------------
      O PORQUÊ DOS 30 m, na palavra dele: *"o GPS às vezes se movimenta um pouco,
@@ -450,6 +502,17 @@
   };
   /** e o enquadramento (rota nova ou dedo no botão) devolve a régua zerada */
   function rearmarPlanoZoom() { planoSolto = false; planoZoomPassos = 0; planoZoomAncora = null; }
+  /* 🔴 "ANDOU" É A MESMA RÉGUA DOS 30 m, LIDA POR OUTRO (17/08 — dono:
+     *"enquadramento 2d parado tem q exibir rota toda, ao notar movimentação no
+     gps aí sim aproxima 30%"*). Quem decide se o motorista está PARADO não pode
+     ser um segundo critério (velocidade do fix, relógio, o que for): parado, o
+     GPS balança — foi por isso que a régua daqui virou DISTÂNCIA, e inventar
+     outra medida seria ter duas opiniões sobre a mesma pergunta, que é como
+     elas passam a discordar. `planoZoomPassos` só sai de zero quando os 30 m
+     foram andados de verdade, e `rearmarPlanoZoom` o devolve a zero em todo
+     enquadramento — então "0 passos" é exatamente "parado desde a última vez
+     que a tela se enquadrou". Uma régua, dois leitores. */
+  function andouNoPlano() { return planoZoomPassos > 0; }
 
   /* 🔴 A MOLDURA VIROU CONTA, E APLICAR VIROU OUTRA COISA (16/08). Era uma
      função só que MEDIA e MANDAVA no mesmo fôlego, com `fitBounds` de duração

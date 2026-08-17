@@ -3506,7 +3506,19 @@
      do `carregarRota`, senão o repinte passaria com a rota morta ainda
      desenhada), recarrega — e só então `depois` decide o que vem: sair pra
      Rota (o Cancelar) ou remontar sozinho (o Forçar). */
-  function confirmarLimparDia(depois) {
+  /* 🔴 O RECIBO DO CANCELAR (17/08 — MEDIDO no g15, APK 339, gravação do
+     cancelamento de verdade). O "Sim" some e o servidor leva ~860 ms pra
+     responder; nesse vão a tela continuava sendo a de dirigir INTEIRA e ACESA —
+     traço verde, tarja de manobra, "14 min · 6,1 km · 14:42" e o próprio botão
+     "Cancelar" ainda oferecido —, com 490 ms num quadro CONGELADO (quadros
+     pixel-idênticos na medição). Toque sem recibo é toque que o dono repete.
+     Mesma cura do `montando` (32-verbos-montar-iniciar.js): a bandeira acende
+     SÍNCRONA, antes do 1º pedido, e o rodapé vira "Cancelando…" pelo
+     `dockDaRota` — que serve as duas câmeras de uma vez. */
+  const cancelando = (v) => {
+    try { window.usarDados('rota', { cancelando: v }); } catch (_) { /* sem seam: o verbo continua */ }
+  };
+  function confirmarLimparDia(depois, aoLimpar) {
     if (typeof window.portao !== 'function') return;
     window.portao({
       tom: 'alerta', ico: 'close', titulo: 'Tem certeza que deseja cancelar?',
@@ -3514,18 +3526,76 @@
     });
     const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;
-    botao.addEventListener('click', () => depoisDaTrava(async () => {
-      if (!rotaRefAtual) {
-        avisoErro(new Error('Atualize a rota antes de cancelar.'));
-        return false;
-      }
-      if (!(await filaOfflinePronta())) return false;
-      try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref: rotaRefAtual }); }
-      catch (e) { await avisoErroContinuidade(e); return false; }
-      esquecerRotaCarregada();
-      await carregarRota();
-      return true;
-    }, depois), { once: true });
+    botao.addEventListener('click', () => {
+      /* 🔴 O RECIBO ESPERA O PORTÃO SAIR — 230 ms, A ESPERA DA CASA (17/08).
+         A 1ª versão desta cura acendia o recibo NO MESMO QUADRO do toque, e
+         MEDI o estrago no g15: um repinte de camada na tela de dirigir custa
+         **~400 ms** de linha principal (o mesmo custo que aparece como os 490 ms
+         da gravação de antes e os 276 ms do teste de transplante isolado). Posto
+         em cima do toque, ele engolia justamente os 200 ms de saída do diálogo —
+         e animação de CSS corre no RELÓGIO, não no quadro: bloqueada, ela termina
+         por dentro e o 1º quadro depois do bloqueio já mostra o véu sumido.
+         Medida: a tarja saltando 29,0 → 44,3 em UM quadro, o MESMO número de
+         antes do conserto. Consertar o `mvScrimSai` não bastava porque não havia
+         quadro nenhum pra ele desenhar.
+         230 ms é a espera que esta casa já usa pro tour (§ delegado do
+         `data-fechar`, no mock: *"o portão fecha primeiro, e a espera cobre a
+         saída dele"*) e fica logo depois dos 210 ms em que o `fechar` tira o nó.
+         A REDE NÃO ESPERA — o `depoisDaTrava` sai no mesmo toque, então o
+         cancelamento não fica 230 ms mais lento; quem espera é só a TINTA. E o
+         resultado é sequência de verdade: o diálogo sai, DEPOIS o rodapé vira
+         "Cancelando…", DEPOIS a tela troca. Nunca duas coisas no mesmo quadro. */
+      let reciboTimer = setTimeout(() => { reciboTimer = 0; cancelando(1); }, 230);
+      // apaga o recibo — e se ele nem chegou a acender, só desarma o relógio
+      // (acender pra apagar no quadro seguinte é o pisca que isto evita).
+      const soltarRecibo = () => {
+        if (reciboTimer) { clearTimeout(reciboTimer); reciboTimer = 0; return; }
+        cancelando(0);
+      };
+      depoisDaTrava(async () => {
+        if (!rotaRefAtual) {
+          soltarRecibo();
+          avisoErro(new Error('Atualize a rota antes de cancelar.'));
+          return false;
+        }
+        if (!(await filaOfflinePronta())) { soltarRecibo(); return false; }
+        try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref: rotaRefAtual }); }
+        catch (e) { soltarRecibo(); await avisoErroContinuidade(e); return false; }
+        /* 🔴 UM EVENTO VISUAL SÓ, E A ORDEM É O CONSERTO INTEIRO (17/08 — o
+           "não tem sequência" do dono, medido quadro a quadro).
+           ANTES daqui a saída era em QUATRO repintes soltos, cada um disparado
+           pelo dado que por acaso mudou, com um `await` no meio pra o olho ver
+           cada pedaço:
+             1. `esquecerRotaCarregada()` → `usarDados` → `pintar` SÍNCRONO:
+                levava o traço, a tarja e a linha "14 min · 6,1 km" embora…
+             2. …e DEIXAVA a fileira de botões, porque a tela ainda era `mapa`.
+                Medida: o "Panorâmica" verde ficou pixel-idêntico (luma 161,323)
+                por 732 ms sobre um mapa que já não tinha rota — meia peça viva,
+                meia peça morta, que é literalmente a metade de uma transição.
+             3. o `await carregarRota()` cedia o quadro e ESSE estado rachado
+                virava imagem na tela;
+             4. só então o `depois` trocava de tela e a fileira sumia de estalo —
+                luma da tela inteira caindo 42,4 → 28,6 em UM quadro, o mapa sem
+                tiles e o cromo novo entrando por cima. O pisca.
+           Agora a troca de tela vem PRIMEIRO e nada espera entre as três linhas:
+           sem `await` no meio, o navegador pinta UMA vez, no fim do tique. A
+           camada que SAI é a de dirigir INTEIRA (com o recibo "Cancelando…" que
+           o dedo acendeu) e ela cumpre o show de `modo-troca` inteiro, 900 ms,
+           sem ser desmontada por dentro; a que ENTRA já nasce com o dia limpo.
+           `aoLimpar` e não `depois`: o `depois` roda DEPOIS da trava soltar (é o
+           contrato do `depoisDaTrava`, e o "Forçar" do 409 depende disso pra
+           remontar), e o que precisa ser atômico com a faxina é a TELA. Quem só
+           passa `depois` (o 409) continua com o comportamento de antes.
+           A faxina segue ANTES do `carregarRota`, como a lei de 09/08 manda: se
+           a rede cair no meio, o servidor já cancelou e a tela tem que estar
+           limpa do mesmo jeito. */
+        if (typeof aoLimpar === 'function') aoLimpar();
+        esquecerRotaCarregada();
+        soltarRecibo();
+        await carregarRota();
+        return true;
+      }, depois);
+    }, { once: true });
   }
 
   /* 409 ROTA_DE_OUTRO_MOTORISTA — fala quem montou e oferece o handoff exato.
@@ -4548,8 +4618,13 @@
      mesmo botão "Sim" que o 409 de outro motorista passou a usar no "Forçar
      cancelamento e puxar". Só o DEPOIS muda: aqui é sair pra Rota; lá é
      montar de novo sozinho. */
+  /* 🔴 A TROCA DE TELA VIROU O 2º ARGUMENTO (17/08). Ela era o `depois` — e
+     `depois` roda depois da trava soltar, num tique SEPARADO da faxina: era esse
+     vão que rachava a saída em quatro repintes (a medição inteira está na nota
+     do `confirmarLimparDia`). Como `aoLimpar` ela acontece no MESMO tique do
+     `esquecerRotaCarregada`, então a saída de dirigir é UM evento visual só. */
   async function cancelarRota() {
-    confirmarLimparDia(() => { if (typeof window.ir === 'function') window.ir('rota'); });
+    confirmarLimparDia(null, () => { if (typeof window.ir === 'function') window.ir('rota'); });
   }
   /* ------------------------------------------------------------------------
      6b. O DEDO QUE MEXE NA ROTA — reordenar e retirar, gravados DE VERDADE.
@@ -5059,6 +5134,58 @@
   const PLANO_PAD = { top: 74, right: 34, bottom: 34, left: 34 };
   const PLANO_ZOOM_TETO = 16;
 
+  /* 🔴 …E ESSA CONTA VENCEU HOJE DE MANHÃ (17/08 — dono, com o 2D parado na
+     mão: *"enquadramento 2d parado tem q exibir rota toda"*).
+     A nota acima diz "o transmux e as abas NÃO entram nesta conta porque o
+     palco já para em cima deles (`.plano.com-dock`)" — e isso era verdade
+     enquanto o rodapé do 2D ENCURTAVA o palco. Só que hoje o 2D com rota
+     montada ganhou o MESMO PAINEL FLUTUANTE do 3D (§ `rodapeDoMapa` + a folha:
+     `.plano.com-rodape{--map-chao:var(--gps-rodape-h)}`, 133px), e painel
+     flutuante não encurta nada: ele POUSA EM CIMA do mapa.
+     Resultado medido na tela do dono: a moldura reservava 34 px embaixo e o
+     cromo comia 133 — as últimas paradas do dia ficavam matematicamente "dentro
+     do quadro" e visualmente ATRÁS do painel. Rota que não cabe é a promessa
+     desta tela quebrada, e o pior formato: sem erro nenhum, só sumida.
+     A cura é a lei da casa pra cromo (§ `ancoraNaTela`, 70-traco-camera):
+     **MEDIR o desenho, nunca copiar o número**. Aqui se mede o quanto o rodapé
+     INVADE o palco — palco que para em cima dele devolve invasão zero e a conta
+     continua a de sempre, então as duas eras convivem sem `if` de versão.
+     Os valores de `PLANO_PAD` viram PISO, nunca teto: a folga só cresce pra
+     cobrir cromo real. E há teto de sanidade (40% da altura), senão um rodapé
+     medido torto no meio de uma animação enquadraria a rota numa fresta. */
+  const PLANO_PAD_RESPIRO = 12;   // `--map-respiro`
+  const PLANO_PAD_PINO = 18;      // o mesmo respiro do topo: pino não encosta no vidro
+  function padDoPlano(casa) {
+    const pad = {
+      top: PLANO_PAD.top, right: PLANO_PAD.right, bottom: PLANO_PAD.bottom, left: PLANO_PAD.left,
+    };
+    try {
+      const caixa = casa && casa.mapa && casa.mapa.getContainer && casa.mapa.getContainer();
+      if (!caixa) return pad;
+      const rc = caixa.getBoundingClientRect();
+      if (!rc.height || !rc.width) return pad;
+      const invasao = (no, borda) => {
+        if (!no) return 0;
+        const r = no.getBoundingClientRect();
+        if (!r.height) return 0;
+        return borda === 'bottom'
+          ? Math.max(0, rc.bottom - r.top)     // quanto o rodapé sobe pra dentro
+          : Math.max(0, r.bottom - rc.top);    // quanto a barra do topo desce
+      };
+      // `naCamada` = a camada VIVA (a última): medir o cromo de uma camada que
+      // está morrendo daria a folga da tela anterior.
+      const vivo = (sel) => (typeof naCamada === 'function' ? naCamada(sel) : document.querySelector(sel));
+      const debaixo = invasao(vivo('.gps-rodape'), 'bottom');
+      if (debaixo > 0) pad.bottom = Math.max(pad.bottom, Math.round(debaixo + PLANO_PAD_RESPIRO + PLANO_PAD_PINO));
+      const emCima = invasao(vivo('.map-chip'), 'top');
+      if (emCima > 0) pad.top = Math.max(pad.top, Math.round(emCima + PLANO_PAD_RESPIRO + PLANO_PAD_PINO));
+      const teto = rc.height * 0.4;
+      if (pad.bottom > teto) pad.bottom = Math.round(teto);
+      if (pad.top > teto) pad.top = Math.round(teto);
+    } catch (_) { /* mapa saindo de cena: a conta de sempre */ }
+    return pad;
+  }
+
   /* ---- A APROXIMAÇÃO POR MOVIMENTO (16/08 — dono: *"no modo 2d, ao se
      movimentar (uns 30 metros) aproximar uns 30%"*) -------------------------
      O PORQUÊ DOS 30 m, na palavra dele: *"o GPS às vezes se movimenta um pouco,
@@ -5128,6 +5255,17 @@
   };
   /** e o enquadramento (rota nova ou dedo no botão) devolve a régua zerada */
   function rearmarPlanoZoom() { planoSolto = false; planoZoomPassos = 0; planoZoomAncora = null; }
+  /* 🔴 "ANDOU" É A MESMA RÉGUA DOS 30 m, LIDA POR OUTRO (17/08 — dono:
+     *"enquadramento 2d parado tem q exibir rota toda, ao notar movimentação no
+     gps aí sim aproxima 30%"*). Quem decide se o motorista está PARADO não pode
+     ser um segundo critério (velocidade do fix, relógio, o que for): parado, o
+     GPS balança — foi por isso que a régua daqui virou DISTÂNCIA, e inventar
+     outra medida seria ter duas opiniões sobre a mesma pergunta, que é como
+     elas passam a discordar. `planoZoomPassos` só sai de zero quando os 30 m
+     foram andados de verdade, e `rearmarPlanoZoom` o devolve a zero em todo
+     enquadramento — então "0 passos" é exatamente "parado desde a última vez
+     que a tela se enquadrou". Uma régua, dois leitores. */
+  function andouNoPlano() { return planoZoomPassos > 0; }
 
   /* 🔴 A MOLDURA VIROU CONTA, E APLICAR VIROU OUTRA COISA (16/08). Era uma
      função só que MEDIA e MANDAVA no mesmo fôlego, com `fitBounds` de duração
@@ -5840,8 +5978,11 @@
       n[0] = Math.max(n[0], c[0]); n[1] = Math.max(n[1], c[1]);
     });
     try {
+      // `padDoPlano` e não `PLANO_PAD`: a folga é MEDIDA contra o cromo que
+      // está no ar (o painel flutuante do 2D cobre 133 px do mapa) — ver a nota
+      // em 40-mapa-palcos.js. Sem isso a rota "cabia" atrás do rodapé.
       const cam = casa.mapa.cameraForBounds([o, n], {
-        padding: PLANO_PAD, maxZoom: teto, bearing: 0,
+        padding: padDoPlano(casa), maxZoom: teto, bearing: 0,
       });
       if (cam && cam.center) return { center: cam.center, zoom: cam.zoom };
     } catch (_) { /* mapa saindo de cena */ }
@@ -5876,11 +6017,29 @@
      O dia inteiro continua a UM toque: é o botão da beirada (`mapa-enquadrar`),
      que está bem ali e não mudou. Fora da rua — dia só montado, ou nenhum — a
      moldura do dia continua sendo o pouso, que é o que aquela tela promete. */
+  /* 🔴 …E O "PARADO" DESFAZ ESSA EXCEÇÃO (17/08 — dono, com o 2D na mão:
+     *"enquadramento 2d parado tem q exibir rota toda, ao notar movimentação no
+     gps aí sim aproxima 30%"*).
+     A moldura das PRÓXIMAS (a nota acima, 16/08) resolvia um problema real —
+     o dia inteiro numa cidade some os números dos pinos —, mas ela resolvia
+     esse problema O TEMPO TODO, inclusive com o caminhão parado na garagem. E
+     aí ela custa o que a tela promete: MEDIDO no g15 agora, com 10 paradas e o
+     motorista parado, o 2D pousava mostrando 9 pinos e cortava a parada 10 fora
+     da tela, com o traço saindo pelas duas beiradas. Quem está parado está
+     PLANEJANDO — é a hora de ver o dia todo, não o que vem pela frente.
+     A régua de "parado" é a MESMA dos 30 m (§ `andouNoPlano`), nunca uma
+     segunda opinião. Então a sequência que o dono descreve fica literal:
+       parado           → rota TODA (esta função cai no `molduraDoPlano`)
+       andou 30 m       → `acompanharNoPlano` aproxima 30% (até 2 passos)
+       andando + Panorâmica → as próximas, que é quando elas fazem falta.
+     O dia inteiro continua a UM toque em qualquer caso: o botão da beirada
+     (`mapa-enquadrar`) não mudou. */
   const PANO_PROXIMAS = 6;
   function alvoDaPanoramica(casa) {
     const eu = ultimaPos || ultimoFix;
     const naRua = typeof rotaNaRua === 'function' ? rotaNaRua() : false;
-    if (naRua && eu && pinoValido(eu.lat, eu.lng)) {
+    const andou = typeof andouNoPlano === 'function' ? andouNoPlano() : true;
+    if (naRua && andou && eu && pinoValido(eu.lat, eu.lng)) {
       const pontos = paradasDoMapa()
         .filter((p) => p.st !== 'entregue' && p.st !== 'cancelada')
         .slice(0, PANO_PROXIMAS)
