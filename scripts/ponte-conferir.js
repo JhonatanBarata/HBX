@@ -73,5 +73,6 @@ if (gordos.length) {
 }
 
 const total = costura.partes.reduce((s, p) => s + p.linhas, 0);
-console.log(`✅ ponte conferida: ${costura.partes.length} fontes (maior ${Math.max(...costura.partes.map((p) => p.linhas))} linhas, teto ${TETO}) = ${total} linhas`);
+const teto = Number.isFinite(TETO) ? `teto ${TETO}` : 'sem teto';
+console.log(`✅ ponte conferida: ${costura.partes.length} fontes (maior ${Math.max(...costura.partes.map((p) => p.linhas))} linhas, ${teto}) = ${total} linhas`);
 console.log(`   ${rel(PONTE)} é EXATAMENTE a costura da fonte · sha256 ${sha(embarcado).slice(0, 16)}…`);

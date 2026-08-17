@@ -115,6 +115,13 @@ button,input{font:inherit;color:inherit}
      que não existe mais — e a próxima casca pintaria o vazio. */
   --map-fundo:var(--bg-2); --map-quadra:#0d1727; --map-rua2:#16223a;
   --map-parque:#0f2418; --map-pino:#0c1526; --map-pino-tinta:#eaf6d5;
+  /* 🔴 O NOME DO CLIENTE NO PINO (17/08, item 6). Ele é RÓTULO, não peça de
+     mapa: veste a tinta de texto da casa (`--ink`) sobre a mesma superfície de
+     vidro do resto do cromo flutuante (`--glass`) — assim ele se lê sobre a
+     rua, sobre a quadra e sobre a fita da rota sem precisar de uma terceira
+     tinta. Dois tokens porque ele tem letra E fundo, e o tema claro inverte os
+     dois de uma vez. */
+  --map-pino-nome:var(--ink); --map-pino-nome-fundo:var(--glass);
   --map-rota:var(--lime); --map-rota-borda:#4f8f14; --map-leito:#1d2c47;
   /* 🔴 O ANEL DO PINO VIROU TOKEN PRÓPRIO, e não por capricho: MEDIDO, a borda
      lima contra o chão do mapa CLARO dava 2,83:1 — abaixo do AA de peça gráfica
@@ -571,6 +578,68 @@ button,input{font:inherit;color:inherit}
 .tela.cena.cheio .gps-lado button{animation:mvPop var(--mv-normal) var(--cv-mola) .32s both}
 
 /* ==========================================================================
+   🔴 A TROCA 2D ⇄ 3D: O MAPA FICA PARADO E O CROMO SE MOVE (17/08 — itens 3 e 4
+   do dono: *"efeito recolher foto 4, e entrando a foto 5 de cima, e vice versa
+   · foto 6 surgir no 3d e sumir no 2d · a tela não tem mais motivo para piscar
+   tudo, ambos os estados tem q ser identicos"*).
+
+   O CAMINHO QUE JÁ FOI TENTADO E ESTÁ ERRADO (o histórico importa porque ele se
+   repete): (1) animar a CAMADA inteira nos dois lados — é o `mvCheioEntra`, uma
+   escala de 1,14 com brilho, e ela leva o MAPA junto: o mapa é o mesmo nó
+   transplantado, então escalá-lo é exatamente o "piscar tudo"; (2) matar a
+   coreografia e fazer troca SECA — foi o erro de 16/08 que apagou o efeito de
+   montar rota e o dono viu na hora.
+   O certo é o meio: DUAS camadas no ar (é preciso ter o que sair), camada
+   PARADA (nada de escala, nada de brilho, nada de fundo — § `so-cromo`) e o
+   movimento nas PEÇAS que realmente mudam de um modo pro outro.
+
+   E quais mudam? Exatamente três, e cada uma tem dono num modo só:
+     `.gps-manobra`  a foto 4 — existe dirigindo
+     `.plano-topo`   a foto 5 — existe no 2D (guia + barra do dia)
+     `.gps-bussola`  a foto 6 — existe dirigindo (o mapa só gira lá)
+   Por isso não há regra "na ida" e "na volta": a peça só nasce no modo dela, e
+   as MESMAS duas linhas (`entra` desce / `sai` recolhe) dão os dois sentidos.
+   As marcas `troca-desce`/`troca-sobe` ficam na camada pra quem precisa saber o
+   SENTIDO (a prova, e a ponte que manda a câmera) — não pra a folha.
+
+   O RESTO É IDÊNTICO E NÃO SE MEXE. Rodapé, coluna, velocímetro: mesma peça, no
+   mesmo lugar, com o mesmo conteúdo. Na camada que sai eles somem no primeiro
+   quadro — e ninguém vê, porque a peça nova está exatamente ali. Fundir dois
+   vidros iguais por 520 ms escureceria o painel no meio da troca (duas camadas
+   de `--glass` somadas), que é um pisca de tinta em vez de um pisca de forma. */
+.tela.modo-troca.cheio{animation:none!important}
+@keyframes mvRecolhe{to{opacity:0;transform:translateY(-115%)}}
+.tela.entra.modo-troca .gps-manobra,
+.tela.entra.modo-troca .plano-topo{animation:mvDesce var(--mv-folha) var(--cv-entra) .06s both}
+.tela.sai.modo-troca .gps-manobra,
+.tela.sai.modo-troca .plano-topo{animation:mvRecolhe var(--mv-folha) var(--cv-sai) both}
+/* a foto 6 e o motorista: a bússola nasce com mola no 3D e sai apagando; a seta
+   pousa junto com ela (mesma cena da entrada, com o tempo do gesto). */
+.tela.entra.modo-troca .gps-bussola{animation:mvPop var(--mv-normal) var(--cv-mola) .14s both}
+.tela.sai.modo-troca .gps-bussola{animation:trApaga var(--mv-normal) var(--cv-sai) both}
+.tela.entra.modo-troca .gps-puck{animation:mvPuck .34s var(--cv-mola) .06s both}
+/* 🔴 O BOTÃO DO MEIO TRANSMUXA (item 3). É a ÚNICA peça do rodapé que muda de
+   trabalho entre os modos (Direção ⇄ Panorâmica), então é a única que anima
+   dentro de um painel que, no resto, é o mesmo. O ícone gira e cresce; o rótulo
+   entra atrás dele. Sem isto o painel trocaria de ícone no meio de um quadro —
+   o corte que o dono chama de travação, na menor escala possível. */
+.tela.entra.modo-troca .tmx-main button[data-modo] svg{animation:mvTransmux var(--mv-normal) var(--cv-mola) .04s both}
+@keyframes mvTransmux{from{opacity:0;transform:rotate(-34deg) scale(.55)}to{opacity:1;transform:none}}
+.tela.entra.modo-troca .tmx-main small{animation:mvPop var(--mv-normal) var(--cv-mola) .10s both}
+/* o que é IGUAL nos dois modos passa a vez sem cruzar */
+.tela.sai.modo-troca .gps-rodape,
+.tela.sai.modo-troca .plano-lado,
+.tela.sai.modo-troca .gps-lado,
+.tela.sai.modo-troca .gps-vel,
+.tela.sai.modo-troca .gps-puck,
+.tela.sai.modo-troca .gps-horizonte,
+.tela.sai.modo-troca .gps-mundo,
+.tela.sai.modo-troca .emp,
+.tela.sai.modo-troca .emp-chip,
+.tela.sai.modo-troca .emp-scan,
+.tela.sai.modo-troca .rota-continuidades{opacity:0}
+
+/* ==========================================================================
    A CENA DE ENTRAR NA ROTA (ordem do dono, 07/08) — só na tela de DIRIGINDO.
 
    Três tempos, nesta ordem e por este motivo:
@@ -615,9 +684,16 @@ button,input{font:inherit;color:inherit}
    tela. O `+56px` é o pé do clarão: no primeiro quadro o ponteiro já ilumina
    um palmo de chão em volta dele, que é o farol dele mesmo começando o mapa. */
 @property --veu-r{syntax:'<length>';inherits:false;initial-value:1500px}
+/* 🔴 O VÉU ESCURECE NA COR DO MAPA (17/08 — item 5 do dono: *"escurece a tela
+   (da cor original do mapa)"*). Era `--veu`, o preto-azulado dos scrims de
+   diálogo: no meio de um mapa ele lia como uma cortina POR CIMA do dia. Com
+   `--map-fundo` — o chão do próprio palco — o que se vê é o mapa BAIXANDO A LUZ,
+   e o clarão do ponteiro nasce de dentro dele. A troca não custa nada no tema
+   claro: `--map-fundo` também é claro lá, então o véu continua CLAREANDO em vez
+   de escurecer, que é a lei do bloco do claro no fim da folha. */
 .gps-veu{position:absolute;inset:0;z-index:18;pointer-events:none;opacity:0;--veu-r:1500px;
   background:radial-gradient(circle at 50% 68%,transparent 0,transparent var(--veu-r),
-    var(--veu) calc(var(--veu-r) * 1.25 + 56px))}
+    var(--map-fundo) calc(var(--veu-r) * 1.25 + 56px))}
 /* 🔴 O CLARÃO ENCOLHEU DE PROPÓSITO (ordem do dono, 07/08: "uma cobra
    crescendo"). Ele ia até 840 ms e COMIA o desenho: o mapa nascia todo de
    dentro do clarão e o traço, que já existia, ninguém via. Agora ele é o
@@ -716,6 +792,37 @@ button,input{font:inherit;color:inherit}
 .tela.cena.cheio .dirigindo .gps-vel,
 .tela.cena.cheio .dirigindo .gps-bussola,
 .tela.cena.cheio .dirigindo .gps-lado button{animation-delay:.58s}
+
+/* ==========================================================================
+   🔴 5 — A CENA VALE NO 2D TAMBÉM (17/08 — item 5 do dono: *"montar rota
+   acionado, tela de carregamento terminou? escurece a tela (da cor original do
+   mapa), entra em full screen, aí entra o efeito que já existe e vc tirou,
+   desenhar as rotas, efeitos brilho, depois descendo até o efeito 3d"*).
+
+   O efeito nunca foi apagado — ele ficou SEM PORTA. A coreografia inteira estava
+   pendurada em `.dirigindo`, e o montar passou a pousar no 2D: a rota era
+   montada, a tela trocava, e nada acontecia. São as MESMAS animações, com os
+   mesmos tempos, agora também para o palco do 2D — e o pouso volta a obedecer o
+   modo em que a pessoa estava (§ `pousarNaRota`, na ponte).
+
+   O que acontece no 2D, na ordem: o véu escurece na cor do mapa e abre em clarão
+   (`mvVeu`, a regra é comum aos dois modos e já valia); o mapa assenta vindo de
+   um palmo mais longe (`mvMapaFoco`, sem blur — medido: blur animado derruba
+   esta tela pra 4,8 fps no g15); e SÓ ENTÃO o cromo chega — o topo desce, o
+   painel sobe e a coluna aparece. Os atrasos são os mesmos do 3D (.48 / .50 /
+   .58 s): quem pousa nos dois modos tem que ver a mesma cena, com outra câmera.
+
+   As RUAS crescendo com brilho não estão aqui: elas nascem no mapa DE VERDADE,
+   por `line-gradient` (§ `cenaDasRuas`, na ponte, motivos 'rota' e 'navegar') —
+   a lei de 09/08, *"não remonte coisas, crie DENTRO do mapa mesmo"*. O SVG desta
+   folha é só o palco de espera de quem ainda não tem tile. */
+.tela.cena.cheio .plano .mapa-palco{
+  animation:mvMapaFoco .52s var(--cv-cena) .20s both,
+            mvMapaAcende .20s linear .16s both}
+.tela.cena.cheio .plano-topo{animation:mvDesce var(--mv-folha) var(--cv-entra) .50s both}
+.tela.cena.cheio .plano .gps-rodape{animation:mvFolha var(--mv-folha) var(--cv-entra) .48s both}
+.tela.cena.cheio .plano .gps-vel,
+.tela.cena.cheio .plano-lado button{animation:mvPop var(--mv-normal) var(--cv-mola) .58s both}
 
 /* ==========================================================================
    🔴 A SAÍDA É A ENTRADA AO CONTRÁRIO — e é a MESMA folha (dono, 09/08: *"remova
@@ -923,6 +1030,40 @@ button,input{font:inherit;color:inherit}
    ninguém reanima — é o que impede o repinte de 1x/s do 3D reencenar a
    entrada (armadilha nº2 do desenho). */
 .chegou-wrap.remontado,.chegou-wrap.remontado *:not(.saindo){animation:none}
+
+/* ==========================================================================
+   O CHAT COMO POP-UP (17/08 — item 9 do dono). Terceira irmã do `.portao-wrap`:
+   mesma casca, mesmo scrim, mesma remontagem. Só três coisas mudam, e cada uma
+   tem motivo:
+   · ela SOBE DE BAIXO (`mvFolha`) em vez de crescer no centro — é uma conversa,
+     e conversa é folha; cartão central é pra decidir e pra avisar.
+   · ela tem ALTURA DE TETO (78%), porque a conversa cresce com o dado e o mapa
+     tem que continuar aparecendo por cima dela: o pop-up existe justamente pra
+     não perder de vista onde o motorista está.
+   · `z-index:57` — acima do "Você chegou" (56) porque quem abriu o chat abriu
+     agora, e abaixo de confirmação/portão/erro (58/59/60), que continuam
+     ganhando de tudo.
+   Cor nova: nenhuma. O scrim é o mesmo par dos irmãos e o miolo veste `--card`.
+   ========================================================================== */
+.chat-wrap{position:absolute;inset:0;z-index:57;display:flex;align-items:flex-end;
+  background:rgba(4,7,13,.66);animation:mvScrim 160ms ease-out both}
+.chat-pop{width:100%;max-height:78%;display:flex;flex-direction:column;
+  background:var(--card);border-top:.7px solid var(--line);
+  border-radius:20px 20px 0 0;box-shadow:0 -18px 46px rgba(0,0,0,.55);
+  animation:mvFolha var(--mv-folha) var(--cv-entra) both}
+.chat-pop-topo{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
+  padding:11px 12px 9px;border-bottom:.7px solid var(--line)}
+.chat-pop-topo .tt{display:flex;align-items:center;gap:8px;color:var(--lime);font-size:13px}
+.chat-pop-topo .tt b{color:var(--ink);font-weight:500}
+/* O miolo é o MESMO gerador da tela do chat (§ `corpoDoChat`), então ele precisa
+   da mesma caixa: coluna, conversa empurrada pro pé, campo de escrever no fim.
+   `min-height:0` é obrigatório — sem ele o filho que rola não encolhe e a folha
+   estoura o teto de 78%. */
+.chat-pop .chat-corpo{flex:1;min-height:0;display:flex;flex-direction:column;
+  overflow:auto;scrollbar-width:none;padding:0 11px 11px}
+.chat-pop .chat-corpo::-webkit-scrollbar{display:none}
+.chat-pop .conversa{margin-top:auto}
+.chat-wrap.remontado,.chat-wrap.remontado *:not(.saindo){animation:none}
 
 /* linha de problema: o nome, o que falta, e a seta que leva ao conserto */
 .pt-linha{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 10px;
@@ -1551,13 +1692,58 @@ button,input{font:inherit;color:inherit}
      avesso. Ele é token porque o aviso de radar pousa em cima dele e pergunta
      a altura — a peça encolhe e o chip acompanha sem ninguém refazer conta. */
   --map-gap:10px;--map-vel-l:92px;--map-vel-h:96px;--map-chao:0px;
+  /* 🔴 A ALTURA DO RODAPÉ SUBIU PRA RÉGUA COMPARTILHADA (17/08). Ela morava só no
+     `.gps` porque só a tela de dirigir tinha o painel flutuante; agora o 2D com
+     rota montada tem o MESMO painel (§ `rodapeDoMapa`), então o número tem que
+     ser o mesmo nos dois — e número igual em dois lugares é número que discorda
+     no primeiro conserto. A conta continua a de 16/08, MEDIDA pelo
+     `prova-encaixe-gps` na pele: 132,6px → guarda 133 (arredondar pra cima só
+     custa folga; pra baixo põe a peça dentro do rodapé). */
+  --gps-rodape-h:133px;
   --map-piso:calc(var(--map-chao) + var(--map-respiro))}
+/* O 2D com rota montada pousa no MESMO chão do 3D: o painel flutuante. Sem rota
+   o chão é zero e quem reserva espaço é o `.plano.com-dock` de sempre. */
+.plano.com-rodape{--map-chao:var(--gps-rodape-h)}
 .plano{position:absolute;left:0;right:0;top:0;bottom:60px;overflow:hidden;background:var(--fog)}
 .plano.com-dock{bottom:139px}
+/* 🔴 TELA CHEIA: os 60px que o `.plano` reservava eram da BARRA DE ABAS, e com
+   o dia montado ela não existe (§ `T.rota`). Sem esta linha o mapa pararia
+   acima de um rodapé que ninguém desenhou — uma faixa preta no pé da tela.
+   O dock continua descontado: ele fica, a barra é que sai. */
+.plano.cheio{bottom:0}
+.plano.cheio.com-dock{bottom:79px}
 /* A barra FLUTUA em vez de empurrar: mapa que começa abaixo de uma faixa opaca
    é mapa com menos mapa. Ela é vidro, e o dia continua aparecendo por baixo. */
 .plano-bar{position:absolute;left:9px;right:9px;top:9px;z-index:30;display:flex;align-items:center;gap:9px;
   padding:8px 10px;border-radius:13px;background:var(--glass);border:.7px solid var(--line)}
+/* ==========================================================================
+   🔴 O TOPO DO 2D É UMA PEÇA (17/08 — item 4 do dono: *"efeito recolher foto 4,
+   e entrando a foto 5 de cima, e vice versa"*).
+
+   A foto 5 são duas coisas: o GUIA (cabeçalho com a lâmpada e o "+") e a BARRA
+   DO DIA. Enquanto eram dois nós absolutos, cada um com seu `top`, animar "o
+   topo entrando" seria animar dois relógios em paralelo — e dois relógios que
+   deviam ser um é exatamente o desencontro que o olho lê como pisca. Aqui eles
+   viram UM invólucro: o que se move é ele.
+   As duas peças de dentro perdem o `position:absolute` e voltam pro fluxo (a
+   margem de 9px é a mesma que os `left/right/top` davam, MEDIDA e não deduzida),
+   e o invólucro fica com o `z-index` que era da barra.
+   Os cartões de continuidade entram na mesma peça: eles ficavam cravados em
+   `top:68px` — número que era a altura da barra — e com o guia flutuando por
+   cima virariam sanduíche. No fluxo, eles simplesmente vêm depois.
+   ========================================================================== */
+.plano-topo{position:absolute;left:0;right:0;top:0;z-index:30}
+.plano-topo .plano-bar,.plano-topo .rota-continuidades{position:static;margin:9px}
+.plano-topo .rota-continuidades{margin-top:6px}
+/* O GUIA FLUTUANTE. Ele não pode ser um retângulo opaco (isso é a faixa que a
+   barra abaixo dele existe pra não ser); é um degradê que só escurece o topo o
+   suficiente pro logotipo e os dois botões terem chão. A tinta é o `--fog`, o
+   MESMO chão do mapa — nenhuma cor nova nasce aqui (Lei 1). */
+.hdr.flutua{padding:8px 13px 2px;background:linear-gradient(180deg,var(--fog) 12%,transparent)}
+/* Sem tela cheia o 3D volta a ter abas, e a tela dele para acima delas — como o
+   `.plano` sempre fez. Sem esta linha o mapa corria por baixo da barra de abas
+   e o rodapé flutuante ficava atrás dela. */
+.gps.com-abas{bottom:60px}
 .plano-bar .f{flex:1;min-width:0;display:flex;align-items:center;gap:7px;color:var(--lime)}
 /* A barra vira BOTÃO quando o fato tem porta (hoje: a localização desligada —
    ver `T.rota`). Mesmo desenho, mesma linha, mesmo lugar: o que muda é aceitar
@@ -1703,6 +1889,16 @@ button,input{font:inherit;color:inherit}
    SVG, `z-index:10`), a regra que o apagava e o `pointer-events` que existia só
    porque uma caixa invisível continuava comendo o dedo em cima do mapa. */
 .mapa-palco{position:absolute;inset:0;background:var(--map-fundo)}
+/* 🔴 SÓ CROMO — a camada que SAI na troca 2D⇄3D (quem põe a marca é o `pintar`).
+   O mapa é um nó só e ele já foi transplantado pra camada que entra: o palco
+   desta aqui está VAZIO, e palco vazio pinta `--map-fundo` — um retângulo
+   escuro cobrindo o mapa vivo durante os 520 ms do show. Sem fundo, o que sai
+   é exatamente o que tem que sair: o CROMO velho, por cima do mapa parado.
+   Ela não desliga animação nenhuma — o show da saída continua inteiro. */
+.tela.so-cromo,
+.tela.so-cromo .gps,
+.tela.so-cromo .plano,
+.tela.so-cromo .mapa-palco{background:transparent}
 .mapa-vivo{position:absolute;inset:0}
 /* O mapa de verdade nasce como um `canvas` DENTRO deste palco e, por ser
    pintado antes dos tiles chegarem, ele entra PRETO — 1,0 s medido no g15
@@ -1751,6 +1947,37 @@ button,input{font:inherit;color:inherit}
   box-shadow:0 1px 3px rgba(0,0,0,.4)}
 .map-pino.min.is-delivered,.map-pino.min.is-failed,.map-pino.min.is-cancelled{
   font-size:9px;font-weight:700;border-width:1.5px}
+/* ==========================================================================
+   🔴 O PINO DIZ O NÚMERO E, COM MAIS ZOOM, O NOME (17/08 — item 6 do dono:
+   *"mapa 2d ao se aproximar exibe o número, ao dar zoom + ainda exibe o nome do
+   cliente"*).
+
+   O número já se resolvia por ESPAÇO (a régua de 16/08: quantos pixels separam
+   ESTE pino do vizinho, neste zoom). O nome é o terceiro degrau da mesma régua e
+   a ponte manda a classe (§ `acertarPinos`): `com-nome` só nasce no 2D, com
+   zoom ≥ 15 e vão ≥ 96px até o vizinho — e 96 é a LARGURA deste rótulo (12px,
+   16 letras no máximo, aparado pela própria ponte). O vão medido É o rótulo, e é
+   isso que impede nome de encostar em nome sem nenhuma conta de colisão.
+
+   ⚠️ DUAS ARMADILHAS DE LAYOUT, e as duas são deste bloco:
+   1. o `.map-pino` é `display:grid;place-items:center` de 30×30 — um segundo
+      filho NO FLUXO criaria uma 2ª linha de grid, espremendo o número e
+      deslocando a âncora que o maplibre usa pra plantar o marcador. Por isso o
+      rótulo é `position:absolute`, fora do fluxo: o pino continua 30×30.
+   2. `<b>` traz `font-weight:bolder` do navegador e engordaria o número contra o
+      que está publicado hoje. `font:inherit` no `.n` devolve o 500 do pai —
+      número que muda de peso ao ganhar um irmão é regressão silenciosa.
+   O rótulo não come o dedo (`pointer-events:none`): quem aceita toque é o pino. */
+.map-pino .n{font:inherit;line-height:1}
+.map-pino .nome{position:absolute;left:50%;top:calc(100% + 3px);transform:translateX(-50%);
+  display:none;max-width:96px;white-space:nowrap;pointer-events:none;
+  font:500 11px Inter,sans-serif;font-style:normal;color:var(--map-pino-nome);
+  background:var(--map-pino-nome-fundo);border:.7px solid var(--line);
+  border-radius:7px;padding:1.5px 5px;box-shadow:0 2px 6px rgba(0,0,0,.34)}
+.map-pino.com-nome .nome{display:block;animation:mvPop 180ms var(--cv-mola) both}
+/* rebaixado não tem nome: se o número não cabe, o nome cabe menos. A ponte já
+   garante que as duas marcas nunca convivem — esta linha é o cinto. */
+.map-pino.min .nome{display:none}
 
 /* ==========================================================================
    🔴 ONDE EU ESTOU — três peças, e cada uma responde uma pergunta diferente
@@ -2111,15 +2338,23 @@ button,input{font:inherit;color:inherit}
    chegada continua com o rodapé operacional dela; só a cena `.dirigindo`
    recebe esta composição. As três funções ficam expostas na mesma faixa: não
    existe seta, menu ou segundo toque escondendo Registrar e Sair. */
-.gps.dirigindo .gps-rodape{left:4px;right:4px;bottom:4px;border:.7px solid var(--line);border-radius:20px;
+/* 🔴 E O 2D COM ROTA MONTADA VESTE O MESMÍSSIMO PAINEL (17/08 — itens 2 e 8 do
+   dono: a tira de indicadores nos dois modos e o painel de 4 botões nos dois
+   modos). É a MESMA regra, com o seletor do 2D pendurado nela: dois seletores
+   sobre uma declaração é o que garante que ninguém conserte um modo e esqueça o
+   outro. Antes o 2D usava `.tmx-dock` — faixa opaca de largura cheia, cravada em
+   `bottom:60px` (a altura das ABAS) — e em tela cheia, sem abas, ele flutuava
+   60px acima do pé: a fileira do 2D ficava ~55px mais alta que a do 3D. Duas
+   fileiras que não se encontram é o "pisca tudo" do item 4 com outro nome. */
+.gps.dirigindo .gps-rodape,.plano.com-rodape .gps-rodape{left:4px;right:4px;bottom:4px;border:.7px solid var(--line);border-radius:20px;
   padding:11px 11px 10px;background:var(--glass);box-shadow:0 10px 28px rgba(0,0,0,.46)}
-.gps.dirigindo .gps-rodape .parada{display:none}
-.gps.dirigindo .gps-rodape .linha.indicadores{gap:8px}
-.gps.dirigindo .gps-rodape .n{display:flex;align-items:center;justify-content:center;gap:8px;text-align:left}
-.gps.dirigindo .gps-rodape .n .gps-kpi-ico{display:grid;place-items:center;flex:none;color:var(--lime)}
-.gps.dirigindo .gps-rodape .n b{font-size:16px;font-weight:650;color:var(--ink);white-space:nowrap}
-.gps.dirigindo .gps-rodape .n small{font-size:10.5px;color:var(--ink-2);margin-top:2px;white-space:nowrap}
-.gps.dirigindo .gps-rodape .n.destaque b{color:var(--ink)}
+.gps.dirigindo .gps-rodape .parada,.plano.com-rodape .gps-rodape .parada{display:none}
+.gps.dirigindo .gps-rodape .linha.indicadores,.plano.com-rodape .gps-rodape .linha.indicadores{gap:8px}
+.gps.dirigindo .gps-rodape .n,.plano.com-rodape .gps-rodape .n{display:flex;align-items:center;justify-content:center;gap:8px;text-align:left}
+.gps.dirigindo .gps-rodape .n .gps-kpi-ico,.plano.com-rodape .gps-rodape .n .gps-kpi-ico{display:grid;place-items:center;flex:none;color:var(--lime)}
+.gps.dirigindo .gps-rodape .n b,.plano.com-rodape .gps-rodape .n b{font-size:16px;font-weight:650;color:var(--ink);white-space:nowrap}
+.gps.dirigindo .gps-rodape .n small,.plano.com-rodape .gps-rodape .n small{font-size:10.5px;color:var(--ink-2);margin-top:2px;white-space:nowrap}
+.gps.dirigindo .gps-rodape .n.destaque b,.plano.com-rodape .gps-rodape .n.destaque b{color:var(--ink)}
 /* 🔴 `.gps-encerrar` MORREU EM 16/08 — eram 6 regras e 3 larguras em fração
    (`flex:1 / 1 / 1.45`) mantidas à mão contra o comprimento do rótulo, num
    `overflow:hidden` que cortava em silêncio quem não coubesse. O rodapé daqui
@@ -3240,6 +3475,9 @@ button,input{font:inherit;color:inherit}
      o "3" da parada da vez sumia dentro de um círculo branco gigante — foi o
      "mapa+fila bugado" da foto. Tinta do pino é token, como todo o resto. */
   --map-pino-tinta:#1c3d00;
+  /* o rótulo do nome acompanha o tema: no claro o `--ink` e o `--glass` já são
+     os do modo claro, então basta reapontar (nada de hex novo aqui). */
+  --map-pino-nome:var(--ink); --map-pino-nome-fundo:var(--glass);
   --map-rota:#5a9c10; --map-rota-borda:#3f7a00; --map-leito:#cfd8e6;
   /* 🔴 AQUI O ANEL SAI DO VERDE, e a conta é que mandou (ver o token no escuro).
      Sobre o chão claro (#e6ebf3) a lima do escuro dava 2,83:1 e reprovava; os

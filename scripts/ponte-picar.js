@@ -54,7 +54,10 @@ const CORTES = [
   { linha: 10428, nome: 'D0-porta-entrega' },   // L4 a porta: chegar, entregar, receber · registrar local
 ];
 
-const TETO = 1000; // ordem do dono (10/08): arquivo-fonte JS não passa de 1.000 linhas
+/* 🔴 SEM TETO (17/08, ordem do dono: *"destrave esse teto de 1000 linhas, só
+   remova"*). Aqui ele era o portão do PICADOR — o script que quebra a ponte
+   costurada de volta em fontes. Ver o porquê inteiro em `ponte-costurar.js`. */
+const TETO = Infinity;
 
 /* ------------------------------------------------------------------------
    O VARREDOR — onde é código de verdade e qual a profundidade em cada linha.

@@ -3887,10 +3887,14 @@
      tela que mente sobre dinheiro é defeito mesmo com o caixa fechando certo.
 
      Hoje a corrente é uma só, debaixo de um véu só, e as etapas dizem o passo
-     REAL até a rota estar RODANDO. Quem pousa na tela `rota` (o 2D) pousa num
-     dia que já começou — dock `Cancelar · Dirigindo · Encerrar dia`, que é a
-     lei do dono de 16/08 ("eu já montei a rota, não tenho q clicar em iniciar
-     se o 2d já é um modo iniciado").
+     REAL até a rota estar RODANDO. Quem pousa pousa num dia que já começou —
+     dock `Cancelar · Dirigindo · Encerrar dia`, que é a lei do dono de 16/08
+     ("eu já montei a rota, não tenho q clicar em iniciar se o 2d já é um modo
+     iniciado").
+     🔴 EM QUE MODO ele pousa deixou de ser cravado em 17/08: 2D e 3D são uma
+     tela só e o pouso obedece o ÚLTIMO MODO USADO, com 3D no default (ver
+     `pousarNaRota`, lá embaixo). O dia que começou é o mesmo; muda só a altura
+     da câmera com que ele aparece.
 
      `iniciarRota` continua VIVO logo abaixo, e é de propósito: ele é a porta de
      quem chega com a rota montada e PARADA (app reaberto, rota planejada pelo
@@ -4027,9 +4031,41 @@
          de tela fecha portão; nascendo na camada nova eles sobrevivem à
          transição e os repintes os remontam. */
       const pousarNaRota = () => {
-        pedirCena('rota');
+        /* 🔴 O POUSO OBEDECE O MODO EM QUE A PESSOA ESTAVA (dono, 17/08, com as
+           8 fotos na mão: *"vc removeu o efeito ao montar a rota"*).
+           Nunca removi — o Montar pousava SEMPRE no 2D (`ir('rota')`), e a
+           coreografia inteira que ele descreve (escurece na cor do mapa → tela
+           cheia → as ruas desenhando com brilho → DESCE até o 3D) mora no
+           caminho de `ir('mapa')`: o observador da troca de tela chama
+           `entrarNaDescida` (§ 80-gps-rotas-salvas.js, o `else` do bloco de
+           `telaVistaAqui === 'mapa'`), e é ELE que faz cena + vista de cima
+           (400 ms) + descida (1,8 s). Pousando no 2D não havia por onde a
+           descida acontecer: o efeito não foi apagado, ele ficou sem porta.
+           O modo é o próprio par Panorâmica/Direção, lembrado no aparelho
+           (`mapa-modo`, gravado na troca de modo — § 45-troca-de-modo.js), e o
+           DEFAULT é 'mapa' (3D): quem nunca trocou de modo é exatamente quem o
+           dono está descrevendo, e é o efeito completo que ele pediu de volta.
+           🔴 E O MOTIVO DA CENA ANDA COM O DESTINO. `pedirCena` guarda UM pedido
+           só (`cenaPedido`, § 50-cena-ruas.js) e o motivo manda no ritmo: no 3D
+           quem pede é o `entrarNaDescida`, com motivo 'navegar' — ruas correndo
+           e assentamento curto, porque a descida da câmera está na fila atrás
+           dela. Pedir 'rota' aqui gastaria o pedido no ritmo do 2D e ele seria
+           sobrescrito pelo 'navegar' uma microtarefa depois: pedido que dois
+           donos escrevem é pedido que ninguém sabe de quem é.
+           🔴 E QUEM NÃO VIAJA CONTINUA GANHANDO A CENA DE CIMA. O `ir` só vale
+           pra quem ainda está na Montagem (a lei acima), e o Montar também é
+           tocado do DOCK do mapa — aí ninguém troca de tela e o
+           `entrarNaDescida` nunca corre. Sem este `!viaja` no pedido, o dono
+           que monta de novo olhando o 2D perderia a cena inteira (hoje ela
+           toca ali mesmo, porque o palco já está na camada viva). */
+        let modo = 'mapa';
+        try { modo = String(window.HBX.cache.get('mapa-modo', 'mapa') || 'mapa'); }
+        catch (_) { /* sem cache: 3D, que é o efeito completo */ }
+        if (modo !== 'rota') modo = 'mapa';   // chave estranha cai no default
+        const viaja = telaAtual() === 'montagem' && typeof window.ir === 'function';
+        if (!viaja || modo === 'rota') pedirCena('rota');
         devolverEstado();        // o "Montando…" sai com o dado já na tela
-        if (telaAtual() === 'montagem' && typeof window.ir === 'function') window.ir('rota');
+        if (viaja) window.ir(modo);
       };
       const num = (v) => (isFinite(v) ? String(v).replace('.', ',') : '');
       let debita = 0;
@@ -4844,6 +4880,34 @@
      mora em `acertarPinos`, no 45-troca-de-modo.js, junto com a moldura do 2D
      que a alimenta. */
 
+  /* ---- O NOME DO CLIENTE NO PINO (17/08 — dono: *"Mapa 2d ao se aproximar
+     exibe o numero, ao dar zoom + ainda exibe o nome do cliente"*) ----------
+     Duas verdades desta casa se cruzam aqui:
+     1. O nome chega ESCAPADO da fonte (§ `esc` no 00-nucleo: o mock interpola
+        cru, então quem escapa é a fonte). Aqui ele entra por `textContent`, que
+        escapa DE NOVO — sem desfazer, "Água & Cia" apareceria no mapa como
+        "Água &amp; Cia". É o mesmo pedaço de verdade do `paraFalar` da voz
+        (80-gps), só que pra tela em vez do alto-falante. A ordem importa:
+        `&amp;` sai por ÚLTIMO, senão "&amp;lt;" viraria "<".
+     2. O rótulo tem TAMANHO MEDIDO, e ele é o MESMO número do 3º degrau
+        (`PINO_NOME_PX = 96`, § `acertarPinos`): a folha veste o pino com 12px
+        Inter (`.map-pino`), ~6 px por letra, então 16 letras ≈ 96 px — o
+        retângulo que o degrau garante estar vago ao lado do pino. LEI de
+        acoplamento: quem mexer na fonte do rótulo no mock refaz os DOIS
+        números juntos, senão o nome volta a atravessar a rua do vizinho. */
+  const PINO_NOME_MAX = 16;
+  /** o nome como GENTE lê: sem marcação, sem espaço dobrado. Serve tela E voz */
+  function textoPlano(v) {
+    return String(v == null ? '' : v).replace(/\s+/g, ' ').trim()
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  }
+  function nomeDoPino(v) {
+    const t = textoPlano(v);
+    if (!t) return '';
+    return t.length > PINO_NOME_MAX ? `${t.slice(0, PINO_NOME_MAX - 1).trim()}…` : t;
+  }
+
   function vestirPino(el, p, proximoId) {
     const estado = String(p.mapStatus || '');
     el.classList.remove('is-next', 'is-arrived', 'is-delivered', 'is-failed', 'is-cancelled');
@@ -4855,11 +4919,49 @@
     const sinal = el.classList.contains('is-delivered') ? '✓'
       : el.classList.contains('is-failed') ? '!'
         : el.classList.contains('is-cancelled') ? '×' : String(p.n);
-    el.textContent = sinal;
+    /* 🔴 `el.textContent = sinal` VIROU PROIBIDO AQUI (17/08). O pino agora tem
+       DOIS filhos — `<b class="n">` (o sinal) e `<i class="nome">` (o cliente) —
+       e escrever no pai apagaria o nome a cada repinte. Repinte aqui é 1×/s (o
+       fix do GPS chega e a lista se reescreve): o nome nasceria e morreria uma
+       vez por segundo, que é a lei 6 desta frente ("peça que existe se TROCA,
+       não se recria") sendo quebrada 60 vezes por minuto.
+       Os nós nascem UMA vez por pino e ficam guardados no próprio elemento
+       (`__hbxN`/`__hbxNome`, o mesmo padrão do `__hbxClique` logo abaixo):
+       `querySelector` a cada repinte, 51 pinos, é varredura de DOM paga pra
+       reencontrar um nó que nunca se mexeu. */
+    let noN = el.__hbxN;
+    if (!noN) {
+      noN = document.createElement('b');
+      noN.className = 'n';
+      el.appendChild(noN);
+      el.__hbxN = noN;
+    }
+    // guarda de igualdade: trocar texto igual é style recalc de graça.
+    if (noN.textContent !== sinal) noN.textContent = sinal;
+    const nome = nomeDoPino(p.nome);
+    if (nome) {
+      let noNome = el.__hbxNome;
+      if (!noNome) {
+        noNome = document.createElement('i');
+        noNome.className = 'nome';
+        el.appendChild(noNome);
+        el.__hbxNome = noNome;
+      }
+      if (noNome.textContent !== nome) noNome.textContent = nome;
+    } else if (el.__hbxNome) {
+      // cliente sem nome no cadastro: a peça sem fonte SAI. Rótulo vazio seria
+      // uma tarja de nada por cima do mapa — peça sem dado não existe aqui.
+      try { el.__hbxNome.remove(); } catch (_) { /* já saiu */ }
+      el.__hbxNome = null;
+      el.classList.remove('com-nome');
+    }
     el.dataset.parada = String(p.id || '');
     el.setAttribute('role', 'button');
     el.setAttribute('tabindex', '0');
-    el.setAttribute('aria-label', `${p.nome || 'Parada'} · ${sinal === '✓' ? 'entregue' : sinal === '!' ? 'não entregue' : `parada ${p.n}`}`);
+    // o rótulo da tela é CURTO (16 letras); o do leitor de tela é INTEIRO — e
+    // sem marcação: o TalkBack lê o `aria-label` em voz alta, e "Água &amp; Cia"
+    // sairia com o "e-comercial" soletrado (mesma lei do `paraFalar` da voz).
+    el.setAttribute('aria-label', `${textoPlano(p.nome) || 'Parada'} · ${sinal === '✓' ? 'entregue' : sinal === '!' ? 'não entregue' : `parada ${p.n}`}`);
     if (!el.__hbxClique) {
       el.__hbxClique = true;
       const abrir = (ev) => {
@@ -5781,6 +5883,22 @@
     } catch (_) { /* idem */ }
   }
 
+  /* ---- O MODO LEMBRADO (item 5 do contrato de 17/08) -----------------------
+     Dono, sobre onde a rota recém-montada deve pousar: *"é o próprio
+     Panorâmica/Direção"*. Quer dizer que o pouso não é uma preferência à parte
+     numa tela de Ajustes — é o ÚLTIMO GESTO do motorista, e o único lugar que
+     sabe dele é aqui, onde a troca acontece. Este arquivo só CARIMBA; quem lê é
+     o pouso do montar (§ `pousarNaRota`, 32-verbos-montar-iniciar).
+     🔴 E NÃO VAI PRO SEAM DE PROPÓSITO. Escrever em `DADOS` é pedir repinte, e
+     ninguém na tela muda por causa deste carimbo — repintar as duas camadas a
+     cada toque de Panorâmica seria a tela piscando por uma preferência que só
+     vai ser lida no dia seguinte. Aparelho guarda no aparelho (`HBX.cache`). */
+  function lembrarModo(modo) {
+    try {
+      if (window.HBX && window.HBX.cache) window.HBX.cache.set('mapa-modo', modo);
+    } catch (_) { /* sem cache: o pouso cai no default do montar */ }
+  }
+
   /* SUBIR — o 3D vira 2D NO MESMO MAPA: a inclinação cai, o rumo volta ao norte
      e a câmera abre até o pouso da Panorâmica, tudo num `easeTo` só.
      🔴 NENHUM EFEITO SE PERDEU AQUI (ordem do dono, 16/08: *"não é para regredir
@@ -5788,9 +5906,19 @@
      não existe mais "o mapa que entra" chegando frio de outra câmera — a imagem
      na tela é a mesma, e o movimento acontece nela. */
   function subirNoPlano() {
+    // o carimbo é a PRIMEIRA linha, antes de qualquer saída pelo caminho curto:
+    // o modo mudou de verdade mesmo quando a câmera não tem pra onde ir.
+    lembrarModo('rota');
     const casa = GARAGEM.get(PALCO);
     if (!casa || !casa.mapa) return;
     travarGestos2D(casa.mapa, true);
+    /* 🔴 O DEGRAU DO NOME NÃO ESPERA O ZOOM MEXER (17/08). Quem reavalia os
+       pinos é o evento `zoom` do mapa (§ 55-cena-reversa) — e o nome também
+       depende do ESTADO (só no 2D), que acabou de virar sem o zoom ter mudado
+       um milímetro. Troca de modo com a mesma altura de câmera (motorista que
+       subiu e voltou sem tocar na pinça) deixaria o 2D sem nome nenhum até o
+       próximo gesto. Uma passada de classe em 51 pinos, aqui, resolve. */
+    acertarPinos(casa);
     const alvo = alvoDaPanoramica(casa);
     // a régua dos 30 m recomeça daqui: o pouso é o novo ponto de partida.
     rearmarPlanoZoom();
@@ -5801,9 +5929,13 @@
 
   /** DESCER — a volta da Panorâmica: o movimento primeiro, a cena no pouso */
   function descerDoPlano() {
+    lembrarModo('mapa');
     const casa = GARAGEM.get(PALCO);
     if (!casa || !casa.mapa) { entrarNaDescida(); return; }
     travarGestos2D(casa.mapa, false);
+    // o nome sai ANTES do movimento: rótulo de cadastro descendo junto com a
+    // câmera é enfeite viajando por cima da manobra que está nascendo.
+    acertarPinos(casa);
     // limpa vigias, relógio da vista de cima e o estado 'solta' — é o mesmo
     // desarme da saída, e sem ele a descida nasce morta (ver `pararDescida`).
     pararDescida();
@@ -5862,6 +5994,45 @@
   const PINOS_NUMERADOS_ATE = 12;
   const PINO_ESPACO_PX = 24;
 
+  /* ---- O TERCEIRO DEGRAU: O NOME (17/08) -----------------------------------
+     Dono: *"Mapa 2d ao se aproximar exibe o numero, ao dar zoom + ainda exibe o
+     nome do cliente"*. São três degraus na MESMA régua — quantos pixels separam
+     ESTE pino do vizinho mais próximo dele, neste zoom:
+       · `min`      — não cabe nem o pino (30px): vira ponto anônimo.
+       · normal     — cabe o pino com respiro: o número aparece.
+       · `com-nome` — cabe o pino MAIS o rótulo: o cliente aparece.
+
+     🔴 OS 96 px SÃO O RÓTULO, NÃO UM PALPITE. O nome é escrito na fonte do pino
+     (12px Inter, § `.map-pino` na folha), ~6 px por letra, aparado em 16 letras
+     na ponte (`PINO_NOME_MAX`, § 40-mapa-palcos) = ~96 px de tarja. Exigir 96 px
+     de vizinho é exigir exatamente a largura da peça que vai nascer: nome nunca
+     encosta em nome, porque o vão medido é o próprio rótulo. Dá 4× o respiro do
+     número — e é por isso que ele é escrito como `PINO_ESPACO_PX * 4`: os dois
+     números são o MESMO acoplamento com a folha, e mexer num sem o outro é o
+     defeito voltando por dentro.
+
+     🔴 E TEM PISO DE ZOOM, porque "ao dar zoom +" é uma ORDEM DE GESTO. Sem
+     piso, um dia rural com duas portas a 5 km ganharia nome no zoom da cidade
+     inteira (z≈11,5: 50 m por pixel ⇒ 100 px de vão) — nome flutuando a
+     quilômetros da porta que ele descreve, exatamente a queixa "cadê os pontos"
+     ao contrário. O piso é z=15: em Rio Claro (lat −22,4) isso é ~4,4 m/px, a
+     escala em que a QUADRA enche a tela — o zoom em que o nome de uma porta
+     ainda quer dizer aquela porta. De z=15 pra cima o vão exigido encolhe
+     sozinho (z=17 ⇒ 106 m entre vizinhos; z=18 ⇒ 53 m), que é o nome aparecendo
+     aos poucos conforme o dedo aproxima, e não um interruptor.
+
+     🔴 O NOME É PEÇA DO 2D. Dirigindo, a tela é a MANOBRA (a rua, a seta, a
+     distância): rótulo de cadastro ali é enfeite competindo com a única coisa
+     que o motorista precisa ler a 60 km/h — e a lei desta casa é que enfeite
+     não derruba rota. Por isso `!naNavegacao()`.
+
+     🔴 A FAIXA DOS 12 NÃO VALE PRO NOME. "Até 12 paradas nunca rebaixa" existe
+     pra não deixar três pontinhos anônimos num mapa vazio — é uma exceção do
+     NÚMERO. Nome é tarja larga: dois clientes colados numa rua, mesmo num dia de
+     3 paradas, escreveriam um por cima do outro. Aqui a medida manda sempre. */
+  const PINO_NOME_PX = PINO_ESPACO_PX * 4;
+  const PINO_NOME_ZOOM = 15;
+
   /** distância ao vizinho mais próximo, em metros, POR PARADA (id → m) */
   function espacoDosPinos(paradas) {
     const fora = new Map();
@@ -5889,20 +6060,36 @@
   function acertarPinos(casa) {
     if (!casa || !casa.pinos.size) return;
     const poucos = casa.pinos.size <= PINOS_NUMERADOS_ATE;
-    let mpp = 0;
-    if (!poucos) {
-      let lat = 0;
-      try { lat = casa.mapa.getCenter().lat; } catch (_) { return; }
-      mpp = metrosPorPixel(casa, lat) || 0;
-    }
+    /* A câmera é lida UMA vez por passada, e agora SEMPRE: o degrau do nome
+       precisa dela mesmo em dia curto, onde a faixa dos 12 dispensava a conta.
+       É um `getZoom` + um `getCenter` por zoom — o custo desta função são os 51
+       pinos do laço, não isto. Câmera que não responde é mapa saindo de cena:
+       sem régua ninguém mexe em classe (mexer seria decidir no escuro). */
+    let mpp = 0; let zoom = null;
+    try {
+      zoom = casa.mapa.getZoom();
+      mpp = metrosPorPixel(casa, casa.mapa.getCenter().lat) || 0;
+    } catch (_) { return; }
+    const podeNome = !naNavegacao() && !!mpp
+      && Number.isFinite(zoom) && zoom >= PINO_NOME_ZOOM;
     casa.pinos.forEach((marcador, id) => {
       let el;
       try { el = marcador.getElement(); } catch (_) { return; }
       // sem espaço medido ainda (lista nunca sincronizada) o seguro é NUMERAR:
       // pino sem número não diz nada, e pino apertado ainda diz quem é.
       const d = casa.espacos ? casa.espacos.get(String(id)) : null;
-      const min = !poucos && !!mpp && Number.isFinite(d) && (d / mpp) < PINO_ESPACO_PX;
+      // o vão até o vizinho, em PIXELS desta tela — null quando não há vizinho
+      // (parada única) nem medida: aí não há com quem colidir.
+      const vao = (!!mpp && Number.isFinite(d)) ? (d / mpp) : null;
+      const min = !poucos && vao !== null && vao < PINO_ESPACO_PX;
       el.classList.toggle('min', min);
+      /* O nome só entra onde ele CABE INTEIRO, e nunca em cima do rebaixado:
+         pino que perdeu o número por aperto não ganha uma tarja de 96 px. E só
+         onde a peça EXISTE (`__hbxNome`) — cliente sem nome no cadastro não tem
+         rótulo nenhum pra acender (§ `vestirPino`, 40-mapa-palcos). */
+      const comNome = podeNome && !min && !!el.__hbxNome
+        && (vao === null || vao >= PINO_NOME_PX);
+      el.classList.toggle('com-nome', comNome);
     });
   }
 
@@ -5923,8 +6110,21 @@
       casa.pinos.forEach((marcador, id) => {
         let el;
         try { el = marcador.getElement(); } catch (_) { return; }
+        /* 🔴 `texto` É O NÚMERO, E ELE MUDOU DE ENDEREÇO (17/08). Era
+           `el.textContent` do pino inteiro — com o rótulo do cliente dentro,
+           isso passou a devolver "1Ana Souza" e a prova mediria uma coisa que
+           não existe na tela. O número mora no `.n`; o nome, no `.nome`; e cada
+           um se mede onde mora. Sem o `.n` (pino de um APK anterior a este,
+           vivo numa camada antiga) a sonda cai no pai — medir errado é ruim,
+           medir NADA é pior. */
+        const noN = el.__hbxN || el.querySelector('.n');
+        const noNome = el.__hbxNome || el.querySelector('.nome');
         fora.push({
-          id: String(id), min: el.classList.contains('min'), texto: el.textContent,
+          id: String(id),
+          min: el.classList.contains('min'),
+          comNome: el.classList.contains('com-nome'),
+          texto: noN ? noN.textContent : el.textContent,
+          nome: noNome ? noNome.textContent : '',
           espaco: casa.espacos ? casa.espacos.get(String(id)) : null,
         });
       });
@@ -9517,7 +9717,71 @@
     if (ligado === dirigindoAgora) return;
     dirigindoAgora = ligado;
     try { window.HBX.manterTelaAcesa(ligado); } catch (_) { /* sem ponte nativa */ }
-    try { window.HBX.modoNavegacao(ligado); } catch (_) { /* idem */ }
+  }
+
+  /* as BARRAS do Android (a de status e a de navegação). Saíram de dentro do
+     `modoDirigindo` porque deixaram de andar junto com ele: a tela cheia agora é
+     dos DOIS modos do mapa, e a tela acesa continua sendo só de quem dirige.
+     Mesmo guard de igualdade — sem ele, conversa com o nativo 12x por segundo. */
+  let cheioAgora = null;
+  function modoTelaCheia(ligado) {
+    if (ligado === cheioAgora) return;
+    cheioAgora = ligado;
+    // a casca precisa saber pra tirar o cabeçalho e a barra de abas do 2D
+    try { document.documentElement.dataset.cheio = ligado ? '1' : '0'; } catch (_) { /* sem DOM */ }
+    try { window.HBX.modoNavegacao(ligado); } catch (_) { /* sem ponte nativa */ }
+  }
+
+  /* 🔴 A TELA CHEIA GANHOU INTERRUPTOR, E ELE MORA NO APARELHO (17/08, item 1 do
+     PR17082026 — dono: *"um ícone desliga isso"*). Tela cheia com rota montada é
+     o PADRÃO, porque o mapa É a tela; mas padrão sem recusa é imposição, e
+     escolha que morre no fechar do app obriga o motorista a redecidir toda
+     manhã. O mecanismo é o `HBX.cache` desta casa (§ 00-nucleo.js:202, o
+     `update-avisado`) e o valor gravado é 1/0: número que o `Number()` lê de
+     volta sem discutir com booleano de uma versão antiga.
+     A casca NUNCA lê `localStorage` — ela lê o seam (§ D7 do contrato). */
+  const CHAVE_CHEIO = 'mapa-cheio';
+  let prefCheio = null;               // 1/0; null = ainda não li o aparelho
+  function preferenciaCheio() {
+    if (prefCheio === null) {
+      let g = 1;                      // quem nunca escolheu abre em tela cheia
+      try { g = Number(window.HBX.cache.get(CHAVE_CHEIO, 1)); } catch (_) { g = 1; }
+      prefCheio = g === 0 ? 0 : 1;
+    }
+    return prefCheio === 1;
+  }
+
+  /* A régua da tela cheia num lugar só: TELA DO MAPA × DIA MONTADO × ESCOLHA
+     DELE. Fora do laço do observador porque o TOQUE no interruptor tem de
+     reavaliar na hora — esperar o próximo repinte deixaria as barras do Android
+     entrando um quadro depois do dedo. */
+  function avaliarTelaCheia() {
+    const noMapa = naNavegacao() || telaAtual() === 'rota';
+    const comRota = typeof rotaMontada === 'function' ? rotaMontada() : false;
+    modoTelaCheia(noMapa && comRota && preferenciaCheio());
+  }
+
+  /* A preferência chega na casca pelo SEAM, e só quando MUDA: `usarDados` troca
+     o DOM inteiro (§ o freio do pisca, no mock) e este valor é consultado no
+     laço do GPS — escrever a cada fix seria a tela piscando pra sempre. Mesmo
+     guard de igualdade do `modoTelaCheia`. */
+  let cheioPublicado = null;
+  function publicarTelaCheia() {
+    if (typeof window.usarDados !== 'function') return;
+    const v = preferenciaCheio();
+    if (v === cheioPublicado) return;
+    cheioPublicado = v;
+    try { window.usarDados('rota', { telaCheia: v }); } catch (_) { /* sem seam */ }
+  }
+
+  /* O gancho `tela-cheia` (mapa de ações, D0) cai aqui: inverte, GRAVA no
+     aparelho, repinta a casca e reavalia o nativo. DESLIGADO, as barras do
+     Android voltam mesmo com a rota montada — é o que o interruptor promete. */
+  function virarTelaCheia() {
+    prefCheio = preferenciaCheio() ? 0 : 1;
+    try { window.HBX.cache.set(CHAVE_CHEIO, prefCheio); } catch (_) { /* sem cache: vale a sessão */ }
+    publicarTelaCheia();
+    avaliarTelaCheia();
   }
 
   /* Só se mexe com a tela do GPS à vista. O `watchPosition` é único e vive o
@@ -9773,6 +10037,12 @@
      Era `armarGps()` cru aqui, e era ele quem queimava o "negado" antes de
      qualquer tela existir. */
   armarGpsSeConcedido();
+
+  /* O interruptor precisa nascer com o valor certo: o mock lê `DADOS.rota.telaCheia`
+     e o default dele é o do DESENHO, não o do aparelho. Sem esta escrita única, o
+     ícone nasceria ligado num app que o motorista deixou DESLIGADO ontem — botão
+     mentindo sobre o próprio estado. Uma vez, no boot; depois só o dedo escreve. */
+  publicarTelaCheia();
 
   /* A BUSCA É DE TECLA, NÃO DE CLIQUE — por isso não cabe no mapa de ações.
      Espera o dedo parar (350ms) antes de ir ao servidor: mandar a cada letra
@@ -10044,6 +10314,18 @@
     // off-screen e volta inteiro — com a câmera onde estava.
     estacionarMapas();
     // tela acesa + tela cheia enquanto dirige; ambas voltam ao sair
+    /* 🔴 TELA CHEIA NOS DOIS MODOS (16/08 — dono: *"se tiver rota montada, 2d e
+       3d no full screen"*). Era só a tela de dirigir: o 2D ficava espremido
+       entre as duas barras do Android enquanto mostra o MESMO mapa. Quem manda
+       agora é o par (tela do mapa) × (dia montado) — sem rota, o 2D volta a ser
+       tela de app comum, com as barras no lugar.
+       `manterTelaAcesa` continua SÓ dirigindo: o 2D é tela de olhar, não de
+       rodar o dia inteiro com o aparelho torrando bateria.
+       🔴 …E O TERCEIRO FATOR É O DEDO (17/08): a régua inteira mora em
+       `avaliarTelaCheia` porque ela agora tem DOIS chamadores (este repinte e o
+       toque no interruptor), e régua duplicada é como os dois discordam no
+       primeiro estado novo. */
+    avaliarTelaCheia();
     modoDirigindo(naNavegacao());
     // repinte traz elementos NOVOS, sem `--x/--y`: sem isto as empresas
     // nasciam empilhadas no canto até a câmera se mexer.
@@ -15322,6 +15604,10 @@
     'montar-agora': (alvo) => aguardeNoToque(alvo, () => comOrdemSalva(() => montarRota(alvo))),
     // rota rodando: o botão do meio leva pra navegação (é o que se faz andando)
     navegar: () => window.ir('mapa'),
+    // o interruptor da tela cheia, 1º da coluna lateral (§ 80-gps-rotas-salvas.js:
+    // `virarTelaCheia` — inverte, grava no aparelho, repinta e avisa o nativo).
+    // Vizinho reservado deste gancho: `abrir-chat` (item 9, sessão principal).
+    'tela-cheia': virarTelaCheia,
     'salvar-rota': salvarRota,
     /* 🔴 A INTENÇÃO NASCE NA PORTA (10/08, lei do PR10082026). São DUAS portas
        pro mesmo verbo, e elas querem coisas diferentes:

@@ -29,10 +29,14 @@
      tela que mente sobre dinheiro é defeito mesmo com o caixa fechando certo.
 
      Hoje a corrente é uma só, debaixo de um véu só, e as etapas dizem o passo
-     REAL até a rota estar RODANDO. Quem pousa na tela `rota` (o 2D) pousa num
-     dia que já começou — dock `Cancelar · Dirigindo · Encerrar dia`, que é a
-     lei do dono de 16/08 ("eu já montei a rota, não tenho q clicar em iniciar
-     se o 2d já é um modo iniciado").
+     REAL até a rota estar RODANDO. Quem pousa pousa num dia que já começou —
+     dock `Cancelar · Dirigindo · Encerrar dia`, que é a lei do dono de 16/08
+     ("eu já montei a rota, não tenho q clicar em iniciar se o 2d já é um modo
+     iniciado").
+     🔴 EM QUE MODO ele pousa deixou de ser cravado em 17/08: 2D e 3D são uma
+     tela só e o pouso obedece o ÚLTIMO MODO USADO, com 3D no default (ver
+     `pousarNaRota`, lá embaixo). O dia que começou é o mesmo; muda só a altura
+     da câmera com que ele aparece.
 
      `iniciarRota` continua VIVO logo abaixo, e é de propósito: ele é a porta de
      quem chega com a rota montada e PARADA (app reaberto, rota planejada pelo
@@ -169,9 +173,41 @@
          de tela fecha portão; nascendo na camada nova eles sobrevivem à
          transição e os repintes os remontam. */
       const pousarNaRota = () => {
-        pedirCena('rota');
+        /* 🔴 O POUSO OBEDECE O MODO EM QUE A PESSOA ESTAVA (dono, 17/08, com as
+           8 fotos na mão: *"vc removeu o efeito ao montar a rota"*).
+           Nunca removi — o Montar pousava SEMPRE no 2D (`ir('rota')`), e a
+           coreografia inteira que ele descreve (escurece na cor do mapa → tela
+           cheia → as ruas desenhando com brilho → DESCE até o 3D) mora no
+           caminho de `ir('mapa')`: o observador da troca de tela chama
+           `entrarNaDescida` (§ 80-gps-rotas-salvas.js, o `else` do bloco de
+           `telaVistaAqui === 'mapa'`), e é ELE que faz cena + vista de cima
+           (400 ms) + descida (1,8 s). Pousando no 2D não havia por onde a
+           descida acontecer: o efeito não foi apagado, ele ficou sem porta.
+           O modo é o próprio par Panorâmica/Direção, lembrado no aparelho
+           (`mapa-modo`, gravado na troca de modo — § 45-troca-de-modo.js), e o
+           DEFAULT é 'mapa' (3D): quem nunca trocou de modo é exatamente quem o
+           dono está descrevendo, e é o efeito completo que ele pediu de volta.
+           🔴 E O MOTIVO DA CENA ANDA COM O DESTINO. `pedirCena` guarda UM pedido
+           só (`cenaPedido`, § 50-cena-ruas.js) e o motivo manda no ritmo: no 3D
+           quem pede é o `entrarNaDescida`, com motivo 'navegar' — ruas correndo
+           e assentamento curto, porque a descida da câmera está na fila atrás
+           dela. Pedir 'rota' aqui gastaria o pedido no ritmo do 2D e ele seria
+           sobrescrito pelo 'navegar' uma microtarefa depois: pedido que dois
+           donos escrevem é pedido que ninguém sabe de quem é.
+           🔴 E QUEM NÃO VIAJA CONTINUA GANHANDO A CENA DE CIMA. O `ir` só vale
+           pra quem ainda está na Montagem (a lei acima), e o Montar também é
+           tocado do DOCK do mapa — aí ninguém troca de tela e o
+           `entrarNaDescida` nunca corre. Sem este `!viaja` no pedido, o dono
+           que monta de novo olhando o 2D perderia a cena inteira (hoje ela
+           toca ali mesmo, porque o palco já está na camada viva). */
+        let modo = 'mapa';
+        try { modo = String(window.HBX.cache.get('mapa-modo', 'mapa') || 'mapa'); }
+        catch (_) { /* sem cache: 3D, que é o efeito completo */ }
+        if (modo !== 'rota') modo = 'mapa';   // chave estranha cai no default
+        const viaja = telaAtual() === 'montagem' && typeof window.ir === 'function';
+        if (!viaja || modo === 'rota') pedirCena('rota');
         devolverEstado();        // o "Montando…" sai com o dado já na tela
-        if (telaAtual() === 'montagem' && typeof window.ir === 'function') window.ir('rota');
+        if (viaja) window.ir(modo);
       };
       const num = (v) => (isFinite(v) ? String(v).replace('.', ',') : '');
       let debita = 0;

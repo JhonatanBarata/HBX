@@ -612,6 +612,10 @@
     'montar-agora': (alvo) => aguardeNoToque(alvo, () => comOrdemSalva(() => montarRota(alvo))),
     // rota rodando: o botão do meio leva pra navegação (é o que se faz andando)
     navegar: () => window.ir('mapa'),
+    // o interruptor da tela cheia, 1º da coluna lateral (§ 80-gps-rotas-salvas.js:
+    // `virarTelaCheia` — inverte, grava no aparelho, repinta e avisa o nativo).
+    // Vizinho reservado deste gancho: `abrir-chat` (item 9, sessão principal).
+    'tela-cheia': virarTelaCheia,
     'salvar-rota': salvarRota,
     /* 🔴 A INTENÇÃO NASCE NA PORTA (10/08, lei do PR10082026). São DUAS portas
        pro mesmo verbo, e elas querem coisas diferentes:

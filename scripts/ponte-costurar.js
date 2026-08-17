@@ -32,7 +32,16 @@ const PONTE = path.join(LOGISTICA, 'assets', 'app', 'ponte.js'); // GERADO, vai 
 const SRC = path.join(LOGISTICA, 'ponte-src');                   // FONTE, fica fora do APK
 
 const NOME_VALIDO = /^[0-9A-Z]{2}-[a-z0-9-]+\.js$/;
-const TETO = 1000; // ordem do dono (10/08): fonte JS não passa de 1.000 linhas
+/* 🔴 O TETO DE 1.000 LINHAS CAIU (17/08, ordem do dono: *"destrave esse teto de
+   1000 linhas, só remova"*). Ele valia desde 10/08 e cobrava um preço que virou
+   estorvo agora: `40-mapa-palcos.js` (984) e `D0-porta-entrega.js` (983) estavam
+   a uma linha de reprovar a costura, e "picar o arquivo em dois" no meio de uma
+   cirurgia de tela é criar fronteira de arquivo por causa de régua, não por
+   causa de assunto — arquivo picado no lugar errado é pior que arquivo grande.
+   `TETO = Infinity` em vez de arrancar a variável: ela é exportada e lida pelo
+   `ponte-conferir` e pelo `ponte-picar`; mantê-la deixa o número num lugar só
+   (e o dia em que o dono quiser um teto de novo é uma linha). */
+const TETO = Infinity;
 
 /** lê a fonte em ordem e devolve { partes, buffer } */
 function costurar() {

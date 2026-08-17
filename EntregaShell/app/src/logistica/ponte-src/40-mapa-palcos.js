@@ -211,6 +211,34 @@
      mora em `acertarPinos`, no 45-troca-de-modo.js, junto com a moldura do 2D
      que a alimenta. */
 
+  /* ---- O NOME DO CLIENTE NO PINO (17/08 — dono: *"Mapa 2d ao se aproximar
+     exibe o numero, ao dar zoom + ainda exibe o nome do cliente"*) ----------
+     Duas verdades desta casa se cruzam aqui:
+     1. O nome chega ESCAPADO da fonte (§ `esc` no 00-nucleo: o mock interpola
+        cru, então quem escapa é a fonte). Aqui ele entra por `textContent`, que
+        escapa DE NOVO — sem desfazer, "Água & Cia" apareceria no mapa como
+        "Água &amp; Cia". É o mesmo pedaço de verdade do `paraFalar` da voz
+        (80-gps), só que pra tela em vez do alto-falante. A ordem importa:
+        `&amp;` sai por ÚLTIMO, senão "&amp;lt;" viraria "<".
+     2. O rótulo tem TAMANHO MEDIDO, e ele é o MESMO número do 3º degrau
+        (`PINO_NOME_PX = 96`, § `acertarPinos`): a folha veste o pino com 12px
+        Inter (`.map-pino`), ~6 px por letra, então 16 letras ≈ 96 px — o
+        retângulo que o degrau garante estar vago ao lado do pino. LEI de
+        acoplamento: quem mexer na fonte do rótulo no mock refaz os DOIS
+        números juntos, senão o nome volta a atravessar a rua do vizinho. */
+  const PINO_NOME_MAX = 16;
+  /** o nome como GENTE lê: sem marcação, sem espaço dobrado. Serve tela E voz */
+  function textoPlano(v) {
+    return String(v == null ? '' : v).replace(/\s+/g, ' ').trim()
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  }
+  function nomeDoPino(v) {
+    const t = textoPlano(v);
+    if (!t) return '';
+    return t.length > PINO_NOME_MAX ? `${t.slice(0, PINO_NOME_MAX - 1).trim()}…` : t;
+  }
+
   function vestirPino(el, p, proximoId) {
     const estado = String(p.mapStatus || '');
     el.classList.remove('is-next', 'is-arrived', 'is-delivered', 'is-failed', 'is-cancelled');
@@ -222,11 +250,49 @@
     const sinal = el.classList.contains('is-delivered') ? '✓'
       : el.classList.contains('is-failed') ? '!'
         : el.classList.contains('is-cancelled') ? '×' : String(p.n);
-    el.textContent = sinal;
+    /* 🔴 `el.textContent = sinal` VIROU PROIBIDO AQUI (17/08). O pino agora tem
+       DOIS filhos — `<b class="n">` (o sinal) e `<i class="nome">` (o cliente) —
+       e escrever no pai apagaria o nome a cada repinte. Repinte aqui é 1×/s (o
+       fix do GPS chega e a lista se reescreve): o nome nasceria e morreria uma
+       vez por segundo, que é a lei 6 desta frente ("peça que existe se TROCA,
+       não se recria") sendo quebrada 60 vezes por minuto.
+       Os nós nascem UMA vez por pino e ficam guardados no próprio elemento
+       (`__hbxN`/`__hbxNome`, o mesmo padrão do `__hbxClique` logo abaixo):
+       `querySelector` a cada repinte, 51 pinos, é varredura de DOM paga pra
+       reencontrar um nó que nunca se mexeu. */
+    let noN = el.__hbxN;
+    if (!noN) {
+      noN = document.createElement('b');
+      noN.className = 'n';
+      el.appendChild(noN);
+      el.__hbxN = noN;
+    }
+    // guarda de igualdade: trocar texto igual é style recalc de graça.
+    if (noN.textContent !== sinal) noN.textContent = sinal;
+    const nome = nomeDoPino(p.nome);
+    if (nome) {
+      let noNome = el.__hbxNome;
+      if (!noNome) {
+        noNome = document.createElement('i');
+        noNome.className = 'nome';
+        el.appendChild(noNome);
+        el.__hbxNome = noNome;
+      }
+      if (noNome.textContent !== nome) noNome.textContent = nome;
+    } else if (el.__hbxNome) {
+      // cliente sem nome no cadastro: a peça sem fonte SAI. Rótulo vazio seria
+      // uma tarja de nada por cima do mapa — peça sem dado não existe aqui.
+      try { el.__hbxNome.remove(); } catch (_) { /* já saiu */ }
+      el.__hbxNome = null;
+      el.classList.remove('com-nome');
+    }
     el.dataset.parada = String(p.id || '');
     el.setAttribute('role', 'button');
     el.setAttribute('tabindex', '0');
-    el.setAttribute('aria-label', `${p.nome || 'Parada'} · ${sinal === '✓' ? 'entregue' : sinal === '!' ? 'não entregue' : `parada ${p.n}`}`);
+    // o rótulo da tela é CURTO (16 letras); o do leitor de tela é INTEIRO — e
+    // sem marcação: o TalkBack lê o `aria-label` em voz alta, e "Água &amp; Cia"
+    // sairia com o "e-comercial" soletrado (mesma lei do `paraFalar` da voz).
+    el.setAttribute('aria-label', `${textoPlano(p.nome) || 'Parada'} · ${sinal === '✓' ? 'entregue' : sinal === '!' ? 'não entregue' : `parada ${p.n}`}`);
     if (!el.__hbxClique) {
       el.__hbxClique = true;
       const abrir = (ev) => {

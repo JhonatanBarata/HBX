@@ -79,7 +79,71 @@
     if (ligado === dirigindoAgora) return;
     dirigindoAgora = ligado;
     try { window.HBX.manterTelaAcesa(ligado); } catch (_) { /* sem ponte nativa */ }
-    try { window.HBX.modoNavegacao(ligado); } catch (_) { /* idem */ }
+  }
+
+  /* as BARRAS do Android (a de status e a de navegação). Saíram de dentro do
+     `modoDirigindo` porque deixaram de andar junto com ele: a tela cheia agora é
+     dos DOIS modos do mapa, e a tela acesa continua sendo só de quem dirige.
+     Mesmo guard de igualdade — sem ele, conversa com o nativo 12x por segundo. */
+  let cheioAgora = null;
+  function modoTelaCheia(ligado) {
+    if (ligado === cheioAgora) return;
+    cheioAgora = ligado;
+    // a casca precisa saber pra tirar o cabeçalho e a barra de abas do 2D
+    try { document.documentElement.dataset.cheio = ligado ? '1' : '0'; } catch (_) { /* sem DOM */ }
+    try { window.HBX.modoNavegacao(ligado); } catch (_) { /* sem ponte nativa */ }
+  }
+
+  /* 🔴 A TELA CHEIA GANHOU INTERRUPTOR, E ELE MORA NO APARELHO (17/08, item 1 do
+     PR17082026 — dono: *"um ícone desliga isso"*). Tela cheia com rota montada é
+     o PADRÃO, porque o mapa É a tela; mas padrão sem recusa é imposição, e
+     escolha que morre no fechar do app obriga o motorista a redecidir toda
+     manhã. O mecanismo é o `HBX.cache` desta casa (§ 00-nucleo.js:202, o
+     `update-avisado`) e o valor gravado é 1/0: número que o `Number()` lê de
+     volta sem discutir com booleano de uma versão antiga.
+     A casca NUNCA lê `localStorage` — ela lê o seam (§ D7 do contrato). */
+  const CHAVE_CHEIO = 'mapa-cheio';
+  let prefCheio = null;               // 1/0; null = ainda não li o aparelho
+  function preferenciaCheio() {
+    if (prefCheio === null) {
+      let g = 1;                      // quem nunca escolheu abre em tela cheia
+      try { g = Number(window.HBX.cache.get(CHAVE_CHEIO, 1)); } catch (_) { g = 1; }
+      prefCheio = g === 0 ? 0 : 1;
+    }
+    return prefCheio === 1;
+  }
+
+  /* A régua da tela cheia num lugar só: TELA DO MAPA × DIA MONTADO × ESCOLHA
+     DELE. Fora do laço do observador porque o TOQUE no interruptor tem de
+     reavaliar na hora — esperar o próximo repinte deixaria as barras do Android
+     entrando um quadro depois do dedo. */
+  function avaliarTelaCheia() {
+    const noMapa = naNavegacao() || telaAtual() === 'rota';
+    const comRota = typeof rotaMontada === 'function' ? rotaMontada() : false;
+    modoTelaCheia(noMapa && comRota && preferenciaCheio());
+  }
+
+  /* A preferência chega na casca pelo SEAM, e só quando MUDA: `usarDados` troca
+     o DOM inteiro (§ o freio do pisca, no mock) e este valor é consultado no
+     laço do GPS — escrever a cada fix seria a tela piscando pra sempre. Mesmo
+     guard de igualdade do `modoTelaCheia`. */
+  let cheioPublicado = null;
+  function publicarTelaCheia() {
+    if (typeof window.usarDados !== 'function') return;
+    const v = preferenciaCheio();
+    if (v === cheioPublicado) return;
+    cheioPublicado = v;
+    try { window.usarDados('rota', { telaCheia: v }); } catch (_) { /* sem seam */ }
+  }
+
+  /* O gancho `tela-cheia` (mapa de ações, D0) cai aqui: inverte, GRAVA no
+     aparelho, repinta a casca e reavalia o nativo. DESLIGADO, as barras do
+     Android voltam mesmo com a rota montada — é o que o interruptor promete. */
+  function virarTelaCheia() {
+    prefCheio = preferenciaCheio() ? 0 : 1;
+    try { window.HBX.cache.set(CHAVE_CHEIO, prefCheio); } catch (_) { /* sem cache: vale a sessão */ }
+    publicarTelaCheia();
+    avaliarTelaCheia();
   }
 
   /* Só se mexe com a tela do GPS à vista. O `watchPosition` é único e vive o
@@ -335,6 +399,12 @@
      Era `armarGps()` cru aqui, e era ele quem queimava o "negado" antes de
      qualquer tela existir. */
   armarGpsSeConcedido();
+
+  /* O interruptor precisa nascer com o valor certo: o mock lê `DADOS.rota.telaCheia`
+     e o default dele é o do DESENHO, não o do aparelho. Sem esta escrita única, o
+     ícone nasceria ligado num app que o motorista deixou DESLIGADO ontem — botão
+     mentindo sobre o próprio estado. Uma vez, no boot; depois só o dedo escreve. */
+  publicarTelaCheia();
 
   /* A BUSCA É DE TECLA, NÃO DE CLIQUE — por isso não cabe no mapa de ações.
      Espera o dedo parar (350ms) antes de ir ao servidor: mandar a cada letra
@@ -606,6 +676,18 @@
     // off-screen e volta inteiro — com a câmera onde estava.
     estacionarMapas();
     // tela acesa + tela cheia enquanto dirige; ambas voltam ao sair
+    /* 🔴 TELA CHEIA NOS DOIS MODOS (16/08 — dono: *"se tiver rota montada, 2d e
+       3d no full screen"*). Era só a tela de dirigir: o 2D ficava espremido
+       entre as duas barras do Android enquanto mostra o MESMO mapa. Quem manda
+       agora é o par (tela do mapa) × (dia montado) — sem rota, o 2D volta a ser
+       tela de app comum, com as barras no lugar.
+       `manterTelaAcesa` continua SÓ dirigindo: o 2D é tela de olhar, não de
+       rodar o dia inteiro com o aparelho torrando bateria.
+       🔴 …E O TERCEIRO FATOR É O DEDO (17/08): a régua inteira mora em
+       `avaliarTelaCheia` porque ela agora tem DOIS chamadores (este repinte e o
+       toque no interruptor), e régua duplicada é como os dois discordam no
+       primeiro estado novo. */
+    avaliarTelaCheia();
     modoDirigindo(naNavegacao());
     // repinte traz elementos NOVOS, sem `--x/--y`: sem isto as empresas
     // nasciam empilhadas no canto até a câmera se mexer.

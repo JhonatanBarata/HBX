@@ -87,6 +87,14 @@ bulb:'<path d="M9.2 16.6a6.2 6.2 0 1 1 5.6 0v1.6H9.2v-1.6z" fill="none" stroke="
    "isto é um ponto de comércio" sem precisar de legenda, e é o único selo dos
    três que o dicionário não tinha (cliente é `users`, rua é `map`). */
 store:'<path d="M4.2 9.6h15.6v9.2a1.6 1.6 0 0 1-1.6 1.6H5.8a1.6 1.6 0 0 1-1.6-1.6V9.6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M3.2 9.6 5 4.4h14l1.8 5.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.6 20.4v-5.2h4.8v5.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
+/* 🔴 O INTERRUPTOR DA TELA CHEIA (17/08 — ordem do dono, item 1: *"criar um
+   ícone para desativar isso, logo acima do atalho do chat"*). São DOIS glifos e
+   não um: o botão diz o que vai ACONTECER, não em que estado a tela está — com a
+   tela cheia ligada ele mostra as setas voltando pra dentro ("me devolve o
+   cabeçalho"), e desligada, as setas abrindo. Ícone que descreve o estado atual
+   obriga o dedo a adivinhar o resto. */
+shrink:'<path d="M9.6 4.8v4.8H4.8M14.4 19.2v-4.8h4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.4 4.4l5.2 5.2M19.6 19.6l-5.2-5.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+expand:'<path d="M14.4 4.8h4.8v4.8M9.6 19.2H4.8v-4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.2 4.8l-5.2 5.2M4.8 19.2l5.2-5.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 };
 /* Traço FINO: os ícones nasceram em 1,7–2,6 (grosso demais ao lado de texto
    leve). Aqui o traço é afinado num ponto só — 0,72 do original — em vez de
@@ -162,7 +170,14 @@ function hdr(o={}){
   // 🔴 O LOGO NÃO ANDA. Os flancos entram EMBRULHADOS com a mesma largura
   // mínima: com 1 ou 2 ícones do lado, o HBX fica cravado no centro em toda
   // tela (medido: sem isto o logo passeava 143↔164 entre abas).
-  return `<header class="hdr"><div class="hdr-row">
+  /* 🔴 O GUIA FLUTUA SOBRE O MAPA EM TELA CHEIA (17/08 — decisão do dono no
+     chat: *"cabeçalho + barra, como na foto 5"*). É o MESMO cabeçalho, com o
+     mesmo miolo e os mesmos ganchos: o que muda é ele deixar de EMPURRAR o
+     corpo e passar a ser vidro por cima do dia (a mesma lei que a `.plano-bar`
+     já cumpre logo abaixo dele — "mapa que começa debaixo de uma faixa opaca é
+     mapa com menos mapa"). Cabeçalho clonado pra tela cheia seria a segunda
+     cópia da mesma peça, e cópia é o que discorda no dia seguinte. */
+  return `<header class="hdr${o.flutua?' flutua':''}"><div class="hdr-row">
       <div class="hdr-flanco">${esq}</div>${logo}<div class="hdr-flanco dir">${dir}</div>
     </div></header>`;
 }
@@ -224,6 +239,14 @@ function podarDesligados(tela){
   tela.querySelectorAll('[data-ir]').forEach(el=>{
     if(moduloDesligado(el.dataset.ir)) el.remove();
   });
+  /* 🔴 O ATALHO QUE NÃO TROCA DE TELA TAMBÉM É ATALHO (17/08, item 9 do dono).
+     O chat da coluna do mapa deixou de ser `data-ir` e virou `data-acao`
+     (`abrir-chat`, o pop-up que não sai da tela cheia) — e por isso saiu da
+     varredura de cima sem ninguém notar. Módulo desligado pelo admin tem que
+     levar TODA porta embora, senão o motorista toca num balão que abre um
+     pop-up vazio. A régua é a marca, não o mecanismo: quem aponta pro chat
+     morre junto com o chat. */
+  if(moduloDesligado('chat')) tela.querySelectorAll('[data-acao="abrir-chat"]').forEach(el=>el.remove());
   // Caixa dos Ajustes que ficou vazia leva o título junto — título de pé
   // sobre caixa vazia é a mesma mentira do slot sem fonte.
   tela.querySelectorAll('.cartao-lista').forEach(c=>{
@@ -350,9 +373,27 @@ const ROTA_ESTADOS={
      então ele continua a um toque e agora mora no mesmo lugar nas duas telas.
      `dir` sem `tipo`: Registrar não é perigo nem aviso — é o verbo comum da
      rua, e veste a superfície neutra que o `.tmx-sat` já dá de fábrica. */
+  /* 🔴 O PAINEL VIROU DE 4 (17/08 — ordem do dono, item 8: *"os botões de
+     navegação vão precisar incluir +1, q é o finalizar. ajuste para ser um
+     painel de 4 botões (2 e 3d) — deixe no centro registrar e finalizar, na
+     esquerda cancelar e na direita (Panorâmica e direção)"*).
+     A fileira passa a ser, na ordem do dedo: **Cancelar** (esquerda, perigo),
+     **Registrar** e **Finalizar** (o par do centro, `meio`), e o verbo de TROCAR
+     DE CÂMERA na direita — que continua sendo o botão grande e verde, porque é
+     ele o "próximo passo" (a lei do `.tmx-main`) e é dele que as fotos 2 e 3 são
+     as duas caras.
+     🔴 E O CADEADO VOLTOU PRO RODAPÉ, DE ONDE SAIU HOJE DE MANHÃ. Ele tinha ido
+     pra coluna lateral às 16/08 quando o Registrar ocupou a vaga do satélite;
+     com QUATRO lugares não há mais disputa, e o dono quer o Finalizar na
+     fileira. Ele sai da coluna no mesmo movimento (§ `colunaDoMapa`): botão
+     repetido a 60px de si mesmo é o defeito que esta casa já pagou em 12/08.
+     `tipo:'info'` (azul) e não `perigo`: encerrar o dia é o fim NORMAL do
+     trabalho, e dois vermelhos lado a lado ensinariam que encerrar e destruir
+     são a mesma coisa. */
   rodando:  {main:{acao:'navegar', glifo:'nav', rotulo:'Direção'},
              esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar', acao:'cancelar-rota'},
-             dir:{glifo:'check', rotulo:'Registrar', acao:'registrar-local'}},
+             meio:[{glifo:'check', rotulo:'Registrar', acao:'registrar-local'},
+                   {tipo:'info', glifo:'lock', rotulo:'Finalizar', acao:'fechar-dia'}]},
   /* 🔴 O RODAPÉ DO 3D NASCE DAQUI, DO MESMO LUGAR QUE O DO 2D (16/08). Ele era
      uma faixa própria (`.gps-encerrar`: três textos de 11,5px, sem ícone e sem
      legenda) — outro HTML, outro CSS, outra altura, pro mesmo trabalho. Dois
@@ -363,7 +404,8 @@ const ROTA_ESTADOS={
      `acao` — a volta é uma TELA (o roteador), não uma mutação. */
   dirigindo:{main:{ir:'rota', glifo:'map', rotulo:'Panorâmica'},
              esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar', acao:'cancelar-rota'},
-             dir:{glifo:'check', rotulo:'Registrar', acao:'registrar-local'}},
+             meio:[{glifo:'check', rotulo:'Registrar', acao:'registrar-local'},
+                   {tipo:'info', glifo:'lock', rotulo:'Finalizar', acao:'fechar-dia'}]},
   /* 🔴 O RECIBO DO TOQUE MORA NO BOTÃO TOCADO. Enquanto o servidor monta, o
      meio vira "Montando…": mesmo lugar, mesmo tamanho, SEM ação (dois toques
      não montam duas vezes) e sem satélite — cancelar ou iniciar no meio de uma
@@ -402,11 +444,26 @@ function transmux(estado){
   const gancho=c.main.ir?` data-ir="${c.main.ir}"`
     :c.main.acao?` data-estado="${c.main.acao}"`
     :' class="ocupado" disabled aria-busy="true"';
-  return `<div class="transmux">${sat(c.esq,'esq')}
+  /* 🔴 `meio` É UM ARRAY, E É O QUE FEZ O PAINEL DE 4 (17/08, item 8 do dono).
+     Ele entra ENTRE o satélite da esquerda e o botão grande, na ordem em que foi
+     escrito — então a fileira lê "Cancelar · Registrar · Finalizar · trocar de
+     câmera", que é o pedido literal ("no centro registrar e finalizar").
+     Nenhum estado antigo mudou de forma: quem não declara `meio` continua com
+     os mesmos três lugares de sempre, e `dir` continua existindo pros estados
+     que o usam (`montar`, `pronta`). Slot novo, nunca slot renomeado — trocar o
+     nome do `dir` mexeria em cinco estados pra resolver dois. */
+  const meio=(Array.isArray(c.meio)?c.meio:[]).map(s=>sat(s,'meio')).join('');
+  /* 🔴 O MIOLO DO BOTÃO GRANDE É MARCADO (item 3: *"foto 2 e 3 vão transmuxar o
+     botão entre eles"*). `data-modo` é o que permite a folha animar a TROCA do
+     ícone quando o mesmo botão muda de trabalho (Direção ⇄ Panorâmica) em vez de
+     a peça inteira nascer de novo — é a mesma ideia do `data-vivo` do
+     velocímetro: marca o que muda, pra não derrubar o que ficou. */
+  const modo=c.main.ir==='rota'?'3d':c.main.acao==='navegar'?'2d':'';
+  return `<div class="transmux">${sat(c.esq,'esq')}${meio}
     <span class="tmx-main">
       ${c.main.nota
         ? `<span class="tmx-nota" role="status">${ic(c.main.glifo,24)}</span>`
-        : `<button aria-label="${c.main.rotulo}"${gancho}>${ic(c.main.glifo,24)}</button>`}
+        : `<button aria-label="${c.main.rotulo}"${gancho}${modo?` data-modo="${modo}"`:''}>${ic(c.main.glifo,24)}</button>`}
       <small>${c.main.rotulo}</small>
     </span>
     ${sat(c.dir,'dir')}</div>`;
@@ -533,6 +590,13 @@ const DADOS={
     /* Rotas abertas fora do dia atual ou montadas por outra pessoa. A ponte
        escreve esta lista; vazia = o cartão inteiro não existe. */
     pendencias:[], pendenciasSemConexao:false,
+    /* 🔴 A PREFERÊNCIA DE TELA CHEIA (17/08, item 1). Ela é do APARELHO — mora
+       em `HBX.cache('mapa-cheio')` e chega aqui pela ponte
+       (`publicarTelaCheia`). O default é LIGADO, e ele está escrito AQUI de
+       propósito: a ponte só escreve no seam quando o valor MUDA, então nascer
+       com `true` faz a escrita de boot de um aparelho normal cair no freio de
+       igualdade e não repintar a abertura por nada. */
+    telaCheia:true,
     vazioTitulo:'Sem paradas hoje',
     /* A segunda linha do dia por montar (ver `T.rota`). Ela explica o mapa
        vazio e NOMEIA a ação que já está no dock — não é um segundo botão.
@@ -1300,6 +1364,73 @@ function dockDaRota(e){
   return transmux(e);
 }
 
+/* ==========================================================================
+   🔴 O CROMO DO MAPA NASCE UMA VEZ E SERVE OS DOIS MODOS (17/08 — ordem do
+   dono, itens 1, 2, 4 e 8: *"a tela não tem mais motivo para piscar tudo, ambos
+   os estados têm q ser idênticos"*).
+
+   Até hoje o 2D e o 3D montavam o mesmo cromo em DOIS lugares: a tira de
+   indicadores existia só dentro do `telaGps` (num helper local), a coluna da
+   beirada era escrita à mão nas duas telas com botões diferentes, e o rodapé do
+   2D era um `.tmx-dock` de largura cheia contra o painel flutuante do 3D. Duas
+   cópias da mesma fileira é exatamente o que fez as fotos parecerem apps
+   diferentes — e o que faz a troca de modo PISCAR, porque não há como animar a
+   passagem de uma peça pra outra quando são duas peças.
+
+   Daqui pra baixo são TRÊS geradores, e eles são a fonte única:
+     `tiraDosIndicadores()`  a foto 1 (restante · distância · chegada)
+     `rodapeDoMapa()`        a foto 1 + o painel de 4 botões (fotos 2/3/8)
+     `colunaDoMapa()`        a coluna da beirada (tela cheia, chat, voz, alvo)
+   Quem mexer numa mexe nas duas telas POR CONSTRUÇÃO, em vez de por disciplina.
+   ========================================================================== */
+/* A TIRA — e ela só existe com FONTE. Cada número vem de `DADOS.gps` (o seam) e
+   o rótulo miúdo nunca sobra sozinho: número sem hora é coluna com legenda e
+   sem assunto. `data-vivo` é a marca do que a ponte troca NO NÓ, sem repintar a
+   camada (o que muda a cada segundo não pode derrubar o mapa — lei de 08/08). */
+function tiraDosIndicadores(){
+  const g=DADOS.gps||{};
+  const num=(v,rot,destaque,campo,icone)=>v
+    ?`<span class="n${destaque?' destaque':''}">${icone?`<i class="gps-kpi-ico">${ic(icone,22)}</i>`:''}<span><b${campo?` data-vivo="${campo}"`:''}>${v}</b>${rot?`<small>${rot}</small>`:''}</span></span>`:'';
+  const linha=num(g.restante,g.restanteRotulo,0,'restante','clock')
+    +num(g.distancia,g.distanciaRotulo,0,'distancia','route')
+    +num(g.chegada,g.chegadaRotulo,1,'chegada','flag');
+  return linha?`<div class="linha indicadores">${linha}</div>`:'';
+}
+/* O RODAPÉ FLUTUANTE — a MESMA peça (`.gps-rodape`) nos dois modos. A linha da
+   parada da vez (`parada`) é do 3D: dirigindo, a pergunta é "pra que porta eu
+   estou indo"; no 2D o dia inteiro já está na tela e a barra de cima conta.
+   Vazio de verdade não nasce: rodapé sem número e sem botão seria uma faixa de
+   vidro tapando 133px de mapa pra não dizer nada. */
+function rodapeDoMapa(estado,parada){
+  const dock=dockDaRota(estado);
+  const tira=tiraDosIndicadores();
+  if(!dock&&!tira&&!parada) return '';
+  return `<div class="gps-rodape">${parada||''}${tira}${dock}</div>`;
+}
+/* A COLUNA DA BEIRADA. A ordem é de cima pra baixo e ela é REGRA, não gosto: o
+   que é do APARELHO sobe (o interruptor da tela cheia), o que é de FORA da
+   navegação vem depois (chat), e o que é do MAPA fica embaixo, no polegar
+   (recentralizar). A coluna é ancorada pelo pé, então sobra sempre sai de cima e
+   o botão mais usado nunca se mexe de lugar.
+   🔴 O CHAT SÓ EXISTE AQUI EM TELA CHEIA (item 1 do dono: *"o atalho do chat
+   desaparece se desativar o full screen, pois ele vai aparecer no guia"*). São
+   duas casas pra UMA porta, nunca as duas ao mesmo tempo — botão repetido a
+   60px de si mesmo é o defeito que o "Finalizar" já pagou em 12/08.
+   🔴 E ELE NÃO CARREGA O SELO DE NÃO-LIDAS. O selo é estrutura que NASCE e SOME,
+   e cada nascimento desses repinta a camada do mapa inteira; quem conta as não
+   lidas continua sendo o balão do cabeçalho, na tela em que repintar é barato. */
+function colunaDoMapa(o){
+  const g=DADOS.gps||{};
+  const b=[];
+  if(o.comRota) b.push(`<button data-acao="tela-cheia" aria-label="${o.cheio?'Sair da tela cheia':'Entrar na tela cheia'}">${ic(o.cheio?'shrink':'expand',22)}</button>`);
+  if(o.cheio) b.push(`<button data-acao="abrir-chat" aria-label="Chat com a Central">${ic('chat',22)}</button>`);
+  if(o.voz) b.push(`<button data-acao="gps-voz" class="${g.vozMuda?'mudo':''}"
+    aria-label="${g.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',22)}</button>`);
+  b.push(`<button data-acao="${o.alvo}"${o.buscando?' class="buscando"':''}
+    aria-label="${o.alvoRotulo}">${ic('target',22)}</button>`);
+  return `<div class="${o.classe}">${b.join('')}</div>`;
+}
+
 function cartoesDeContinuidade(){
   const itens=Array.isArray(DADOS.rota.pendencias)?DADOS.rota.pendencias:[];
   if(!itens.length) return '';
@@ -1371,6 +1502,27 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
   const e=estadoRota, d=DADOS.rota;
   const emCurso=e==='rodando'||e==='pausada';
   const dock=dockDaRota(e);
+  /* 🔴 TELA CHEIA COM O DIA MONTADO (16/08 — dono: *"se tiver rota montada, 2d e
+     3d no full screen"*). O 3D já era cheio; o 2D mostra o MESMO mapa e vivia
+     espremido entre o cabeçalho e a barra de abas. Com rota montada as duas
+     saem de cena e o mapa ocupa a tela inteira — quem esconde as barras do
+     ANDROID é a ponte, pelo mesmo par de condições (§ `modoTelaCheia`).
+     Sem rota, nada muda: aí o 2D volta a ser tela de app, com cabeçalho e abas,
+     que é como se chega em tudo o que não é o dia de hoje. */
+  /* 🔴 E A TELA CHEIA TEM INTERRUPTOR (17/08, item 1 do dono: *"criar um ícone
+     para desativar isso"*). São DUAS perguntas e elas não são a mesma:
+     `comRota` = o dia está montado ⇒ esta tela é a NAVEGAÇÃO vista de cima
+        (rodapé flutuante de 4 botões, tira de indicadores, coluna cheia);
+     `cheio`   = ...E a pessoa quer sem as barras (o guia flutua, as abas somem,
+        e a ponte esconde as barras do Android pelo mesmo par — § `modoTelaCheia`).
+     Quem desliga a tela cheia NÃO volta pra tela de planejar: continua na
+     navegação de cima, só com o cabeçalho e as abas de volta. Misturar as duas
+     perguntas foi o que quase levou o rodapé novo embora junto com as barras.
+     O padrão do silêncio é LIGADO: `!==false` — enquanto a ponte não escrever a
+     preferência (bancada, boot, aparelho sem a chave gravada), a tela cheia é o
+     que o dono pediu como comportamento normal. */
+  const comRota=temRotaNoDia(e);
+  const cheio=comRota&&DADOS.rota.telaCheia!==false;
 
   if(e==='vazia') return `${status}${hdr({})}
     <div class="body">
@@ -1463,11 +1615,25 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
         ? `<span class="txt"><span><b>${abertas} paradas agendadas</b></span><em>${d.vazioDica}</em></span>`
         : `<span>${(PARADAS.length||aviso)&&conta?conta:`<b>${d.vazioTitulo}</b>`}</span>`;
 
-  return `${status}${hdr({})}
+  /* 🔴 O TOPO DO 2D É UMA PEÇA SÓ (17/08, item 4 do dono: *"efeito recolher foto
+     4, e entrando a foto 5 de cima"*). A foto 5 são DUAS coisas na tela — o guia
+     (cabeçalho) e a barra do dia —, e coisa que entra junto tem que ser UM nó:
+     duas peças descendo com dois relógios é o desencontro que se lê como pisca.
+     Com rota montada o guia FLUTUA aqui dentro (vidro por cima do mapa, § `hdr`);
+     sem rota ele volta pra cima do corpo, como em qualquer tela de app. */
+  return `${status}${cheio?'':hdr({})}
 <div class="body flush" style="overflow:hidden;padding:0">
-  <div class="plano${dock?' com-dock':''}">
+  <div class="plano${(!comRota&&dock)?' com-dock':''}${cheio?' cheio':''}${comRota?' com-rodape':''}">
     ${mapa()}
-    ${cartoesDeContinuidade()}
+    ${/* 🔴 O VÉU DA CENA EXISTE NO 2D TAMBÉM (item 5). Ele é nó permanente e
+         INERTE — não sabe se o mapa subiu e não guarda dado nenhum; quem o
+         acende é a marca `cena` da camada, e ela cai sozinha. Sem ele, montar a
+         rota e pousar no 2D não tinha o escurecimento que o dono pediu ("escurece
+         a tela da cor original do mapa"), e o efeito só existia descendo pro 3D.
+         (Sem CRASE aqui dentro: este comentario mora num template literal.) */''}
+    <div class="gps-veu"></div>
+   <div class="plano-topo">
+    ${cheio?hdr({flutua:1,semChat:1}):''}
     <div class="plano-bar${aviso&&aviso[2]?' '+aviso[2]:''}${(vazioNoMapa||diaPorMontar)?' estado':''}">
       ${aviso&&aviso[3]
         ? `<button class="f" data-acao="${aviso[3]}">${ic(aviso[0],16)}${fato}</button>`
@@ -1483,6 +1649,8 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
            mesma tela é quem carrega as ações do dia por montar. */''}
       ${temRotaNoDia(e)?`<button class="ghost" data-ir="rotalista">${ic('list',15)} Lista</button>`:''}
     </div>
+    ${cartoesDeContinuidade()}
+   </div>
     ${/* 🔴 O MESMO BOTÃO, DOIS TRABALHOS — e ele tem que DIZER qual é o da vez.
          Com rota, ele devolve o dia inteiro pra tela; sem rota (o dia por
          montar) não há o que enquadrar e o que ele faz é ir até MIM. O código
@@ -1509,22 +1677,16 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
          tela que o motorista abriu justamente pra não dirigir olhando.
          (Sem CRASE aqui dentro: este comentário mora num template literal e a
          crase o fecharia — foi exatamente o que eu fiz na primeira escrita.) */''}
-    ${/* 🔴 O CADEADO MORA AQUI DESDE 16/08, NOS DOIS MODOS. Ele era o satelite
-         direito do dock e cedeu a vaga ao Registrar (ver o estado "rodando" em
-         ROTA_ESTADOS): encerrar o dia acontece UMA vez, registrar acontece em
-         toda porta. A coluna e o rodape sao vizinhos na mesma beirada, entao
-         ele nao ficou mais longe do polegar — mudou de fileira, nao de alcance.
-         So com a rota NA RUA: sem dia rodando nao ha dia pra encerrar, e botao
-         que abre portao pra dizer "nao ha nada aqui" e o beco de 14/08.
+    ${/* 🔴 O CADEADO SAIU DA COLUNA E VOLTOU PRO RODAPÉ (17/08, item 8 do dono).
+         Ele morou aqui por um dia — de manhã, quando o dock tinha três lugares e
+         o Registrar ficou com a vaga do satélite. Com o painel de QUATRO não há
+         disputa, e o dono pediu o "Finalizar" na fileira: ele volta pro
+         `ROTA_ESTADOS` e a coluna o solta no mesmo movimento. Uma porta só pro
+         mesmo verbo, sempre.
          (Sem CRASE aqui dentro: este comentario mora num template literal.) */''}
-    <div class="plano-lado">
-      ${emCurso?`<button data-acao="gps-voz" class="${DADOS.gps.vozMuda?'mudo':''}"
-        aria-label="${DADOS.gps.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',22)}</button>`:''}
-      ${emCurso?`<button data-acao="fechar-dia" class="fechar"
-        aria-label="Encerrar dia">${ic('lock',22)}</button>`:''}
-      <button data-acao="mapa-enquadrar"${d.gps==='procurando'?' class="buscando"':''}
-        aria-label="${temRotaNoDia(e)?'Enquadrar a rota':'Centralizar em mim'}">${ic('target',22)}</button>
-    </div>
+    ${colunaDoMapa({classe:'plano-lado', cheio, comRota, voz:emCurso,
+      alvo:'mapa-enquadrar', buscando:d.gps==='procurando',
+      alvoRotulo:comRota?'Enquadrar a rota':'Centralizar em mim'})}
     ${/* 🔴 O VELOCÍMETRO É O ESPELHO DA COLUNA, E ELE SÓ NASCE COM DADO. Com a
          rota na rua o 2D passa a ter os dois cantos ocupados, como o 3D — e é
          isto que faz os dois modos parecerem a mesma tela com outra câmera, em
@@ -1537,9 +1699,23 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
     ${(emCurso&&DADOS.gps.velocidade)?`<div class="gps-vel"><em class="limite-via"></em>
       <b data-vivo="velocidade">${DADOS.gps.velocidade}</b>
       ${DADOS.gps.velocidadeUnidade?`<small>${DADOS.gps.velocidadeUnidade}</small>`:''}</div>`:''}
+    ${/* 🔴 O RODAPÉ DO DIA MONTADO É O MESMO DO 3D (17/08, itens 2 e 8). Com rota
+         na mão esta tela deixa de ser tela de app e passa a ser a navegação vista
+         de cima: o controle vira o painel FLUTUANTE (`.gps-rodape`), com a tira
+         de indicadores em cima dos 4 botões — a peça inteira, byte a byte, é a
+         mesma que a tela de dirigir monta.
+         Por que isso conserta e não só enfeita: o `.tmx-dock` era largura cheia,
+         opaco, cravado em `bottom:60px` (a altura das ABAS) — e com as abas fora
+         de cena, em tela cheia, ele flutuava 60px acima do pé com uma faixa morta
+         embaixo, deixando a fileira do 2D ~55px mais alta que a do 3D. Duas
+         fileiras que não se encontram é o "pisca tudo" com outro nome.
+         Sem rota montada nada muda: volta o `.tmx-dock` de sempre, que é o rodapé
+         das telas em que o dia ainda não existe.
+         (Sem CRASE aqui dentro: este comentario mora num template literal.) */''}
+    ${comRota?rodapeDoMapa(e):''}
   </div>
 </div>
-${dock?`<div class="tmx-dock">${dock}</div>`:''}${nav('rota')}`;
+${(!comRota&&dock)?`<div class="tmx-dock">${dock}</div>`:''}${cheio?'':nav('rota')}`;
 }};
 
 /* Os chips de dia MUDARAM DE TELA em 07/08 — moram na Montagem, ao lado da
@@ -1824,6 +2000,14 @@ function empresasCromo(){
    boiando no mapa. */
 function telaGps(){
   const g=DADOS.gps||{};
+  /* 🔴 O 3D TAMBÉM OBEDECE O INTERRUPTOR (17/08, item 1). Ele era cheio POR
+     CONSTRUÇÃO — nunca teve cabeçalho nem abas —, e é justamente isso que fazia
+     o interruptor do 2D parecer um botão de meia tela. Desligada a tela cheia,
+     as duas voltam a ser tela de app com o guia e as abas no lugar, e o mapa
+     continua sendo o MESMO nó com a mesma câmera: o que entra e sai é cromo.
+     A rota aqui está sempre montada (não se dirige um dia que não existe), então
+     não há a segunda pergunta que o 2D faz — só a preferência. */
+  const cheio=DADOS.rota.telaCheia!==false;
   const trilha=(ps)=>ps.filter(Boolean).join(' · ');
   const paradaDeM=(g.paradaN&&g.paradaTotal)?`Parada <b>${g.paradaN} de ${g.paradaTotal}</b>`:'';
   /* o número grande + o rótulo embaixo: sem número não sobra rótulo sozinho
@@ -1837,8 +2021,10 @@ function telaGps(){
      lugar e a tela não é derrubada. Só ganha marca o que é texto puro num nó
      só: o que muda a ESTRUTURA da tela (a manobra que nasce, o pedaço que
      some) continua repintando, que é o certo. */
-  const num=(v,rot,destaque,campo,icone)=>v
-    ?`<span class="n${destaque?' destaque':''}">${icone?`<i class="gps-kpi-ico">${ic(icone,22)}</i>`:''}<span><b${campo?` data-vivo="${campo}"`:''}>${v}</b>${rot?`<small>${rot}</small>`:''}</span></span>`:'';
+  /* 🔴 O `num` LOCAL MORREU AQUI (17/08): ele montava a tira de indicadores só
+     desta tela, e por isso o 2D nunca teve a tira. Ele virou o
+     `tiraDosIndicadores()`, gerador de topo, e as duas telas pedem a MESMA peça
+     — que é o item 2 do dono. A marca `data-vivo` viajou junto, inteira. */
 
   /* 🔴 O RAMO "CHEGOU" MORREU AQUI NO LOTE 3 (15/08). `T.mapachegou` (a tela
      que trocava o mapa pra visão geral e desenhava o "Você chegou" dentro do
@@ -1860,9 +2046,9 @@ function telaGps(){
     </div>`:'';
   const rodape=trilha([paradaDeM,g.paradaNome?`<b>${g.paradaNome}</b>`:'']);
 
-  return `${status}
+  return `${status}${cheio?'':hdr({})}
 <div class="body flush" style="overflow:hidden;padding:0">
-  <div class="gps dirigindo">
+  <div class="gps dirigindo${cheio?'':' com-abas'}">
     ${mapaGps()}
     ${empresasChao()}
     <div class="gps-horizonte"></div>
@@ -1931,13 +2117,8 @@ function telaGps(){
          A ordem também é régua: o que é do MAPA fica embaixo, no polegar
          (recentralizar), e o que é de FORA da navegação sobe.
          (Sem CRASE aqui dentro: template literal.) -->
-    <div class="gps-lado">
-      <button data-ir="chat" aria-label="Chat com a Central">${ic('chat',22)}</button>
-      <button data-acao="gps-voz" class="${g.vozMuda?'mudo':''}"
-        aria-label="${g.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',22)}</button>
-      <button data-acao="fechar-dia" class="fechar" aria-label="Encerrar dia">${ic('lock',22)}</button>
-      <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',22)}</button>
-    </div>
+    ${colunaDoMapa({classe:'gps-lado', cheio, comRota:1, voz:1,
+      alvo:'gps-centrar', alvoRotulo:'Recentralizar'})}
 
     <!-- 🔴 A FAIXA MORREU: ESTE RODAPE AGORA E O DOCK DO 2D (16/08, ordem do
          dono: "quero os botoes identicos foto 1 e 2"). Aqui existiam TRES
@@ -1953,20 +2134,16 @@ function telaGps(){
          porque fechamento e chave de MODULO do admin e a poda arrancaria um
          data-ir — o motorista na rua ficaria sem verbo de encerrar.
          (Sem CRASE aqui dentro: este comentario mora num template literal.) -->
-    <div class="gps-rodape">
-      ${rodape?`<div class="parada">${ic('route',14)} <span class="txt">${rodape}</span></div>`:''}
-      <div class="linha indicadores">
-        ${num(g.restante,g.restanteRotulo,0,'restante','clock')}
-        ${num(g.distancia,g.distanciaRotulo,0,'distancia','route')}
-        ${num(g.chegada,g.chegadaRotulo,1,'chegada','flag')}
-      </div>
-      <!-- Os três verbos ficam sempre expostos na mesma fileira. Nenhum deles
-           depende de abrir menu: quem está dirigindo precisa enxergar a saída
-           da câmera e o registro na porta antes de tocar. -->
-      ${transmux('dirigindo')}
-    </div>
+    ${/* 🔴 O RODAPÉ SAIU DAQUI E VIROU GERADOR (17/08, itens 2 e 8). Ele era
+         escrito à mão nesta tela — a tira de indicadores com um helper LOCAL, o
+         dock com `transmux('dirigindo')` cravado — e por isso o 2D não tinha a
+         tira e as duas fileiras nunca se encontraram. Agora as duas telas pedem
+         a MESMA peça ao `rodapeDoMapa`, e os 4 botões nascem do `ROTA_ESTADOS`.
+         A linha da parada continua sendo só desta tela (é o argumento dela).
+         (Sem CRASE aqui dentro: este comentario mora num template literal.) */''}
+    ${rodapeDoMapa('dirigindo', rodape?`<div class="parada">${ic('route',14)} <span class="txt">${rodape}</span></div>`:'')}
   </div>
-</div>`;
+</div>${cheio?'':nav('rota')}`;
 }
 T.mapa={nome:'Rota iniciada (dirigindo)',grupo:'Rota',render:()=>telaGps()};
 /* T.mapachegou MORREU NO LOTE 3 (15/08) — o "Você chegou" não é mais tela,
@@ -3712,10 +3889,17 @@ function anexoDoRecado(a){
       <span><strong>${nome}</strong><span>${a.detalhe||''}</span></span></div>
     ${pe}</div>`;
 }
-T.chat={nome:'Chat com a Central',grupo:'Rota',render(){const d=DADOS.chat;return `${status}
-${hdr({})}
-<div class="body chat-corpo">
-  ${d.recado?`<div class="recado">
+/* 🔴 O MIOLO DO CHAT VIROU GERADOR (17/08 — item 9 do dono: *"abrir chat com
+   rota ativa não pode fugir do full screen, então vai ser um pop up"*).
+   O recado, a conversa e o campo de escrever são os MESMOS na tela do chat e no
+   pop-up do mapa: um gerador, dois lugares. Se fossem duas cópias, a primeira
+   mudança na conversa (um anexo novo, um estado de envio) valeria só num dos
+   dois — e "dado em dois cards" é o bug que esta casa persegue. Os ganchos
+   viajam junto (`responder-recado`, `entendi-recado`, `enviar-recado` e o campo
+   `recado-texto`), então a ponte atende os dois sem saber que existem dois. */
+function corpoDoChat(){
+  const d=DADOS.chat;
+  return `${d.recado?`<div class="recado">
     <div class="topo">
       <span class="ico">${ic('bell',17)}</span>
       <span><strong>${d.recadoTitulo}</strong><span>${d.recado}</span></span>
@@ -3728,7 +3912,12 @@ ${hdr({})}
       : (d.vazio?`<div class="vazio"><span>${ic('chat',26)}</span><b>${d.vazio}</b></div>`:''))}
   </div>
   <label class="escrever">${ic('chat',16)}<input placeholder="Escrever para a Central" data-campo="recado-texto">
-    <button class="enviar" data-acao="enviar-recado">${ic('nav',15)}</button></label>
+    <button class="enviar" data-acao="enviar-recado">${ic('nav',15)}</button></label>`;
+}
+T.chat={nome:'Chat com a Central',grupo:'Rota',render(){return `${status}
+${hdr({})}
+<div class="body chat-corpo">
+  ${corpoDoChat()}
 </div>
 ${nav('chat')}`;}};
 
@@ -3848,7 +4037,25 @@ let atual='entrada';
    agora causado pela cura. 400+40 = 440 ms cobre os 374 com folga. */
 const DUR={escalonado:200,desfoque:180,molinha:180,eixoz:320,eixox:400,conteudo:30,nenhuma:0};
 /** Telas que TOMAM o aparelho inteiro — entram e saem por outro padrão. */
-const TELA_CHEIA=['mapa'];
+const TELA_CHEIA=['mapa','rota'];
+/* 🔴 A TELA CHEIA DEIXOU DE SER UMA LISTA E VIROU UMA PERGUNTA (17/08 — item 1
+   do dono: *"ao montar rota, o 2d e 3d, tem q ambas ficarem full screen, mas
+   criar um ícone para desativar isso"*).
+   Só `mapa` estava na lista, e por isso o 2D nunca teve a cena de entrar (item 5)
+   nem o gesto de tela cheia — ele era uma tela de app como qualquer outra. Agora
+   a resposta depende de TRÊS coisas, e nenhuma delas é o nome da tela sozinho:
+     · a tela é uma das DUAS do mapa;
+     · o dia está montado (no 2D; dirigindo isso é dado — não se dirige um dia
+       que não existe);
+     · e a pessoa não desligou o interruptor (`DADOS.rota.telaCheia`).
+   A lista fica porque ela é a régua do "quem é tela de mapa"; quem decide é a
+   função. Toda leitura antiga (`TELA_CHEIA.includes(x)`) virou `noCheio(x)` —
+   duas leituras diferentes da mesma pergunta é como os dois modos descolam. */
+function noCheio(k){
+  if(!TELA_CHEIA.includes(k)) return false;
+  if(DADOS.rota.telaCheia===false) return false;
+  return k==='mapa'||temRotaNoDia(estadoRota);
+}
 
 function pintarRail(){/* barra lateral do visualizador: não existe no aparelho */}
 
@@ -4117,6 +4324,12 @@ function pintar(animar,dir){
   // peça morre ao ir pra folha e renasce pelo observador na volta (é o
   // comportamento desejado, armadilha nº5 do desenho).
   const chegadaViva = (!animar && antiga) ? antiga.querySelector('.chegou-wrap') : null;
+  /* 🔴 O POP-UP DO CHAT ATRAVESSA O REPINTE — MESMA LEI DO PORTÃO (17/08, item 9
+     do dono). Dirigindo, a ponte repinta a camada UMA VEZ POR SEGUNDO (cada fix
+     do GPS); um pop-up que morre no repinte fecharia sozinho no meio da frase, e
+     o que o motorista escreveu no campo iria com ele. O nó é MOVIDO, nunca
+     redesenhado: mover leva junto o valor do campo e os ouvintes pendurados. */
+  const chatVivo = (!animar && antiga) ? antiga.querySelector('.chat-wrap') : null;
   const nova=document.createElement('div');
   nova.className='tela';
   nova.innerHTML=T[atual].render();
@@ -4156,45 +4369,62 @@ function pintar(animar,dir){
   nova.dataset.dir = marcaDir;
   if(antiga){ antiga.style.setProperty('--dir', dir===-1?-1:1); antiga.dataset.dir = marcaDir; }
 
-  /* 🔴 A TROCA ENTRE 2D E 3D É SECA (16/08 — dono: *"a tela não tem mais motivo
-     para piscar tudo, ambos os estados têm q ser idênticos... MAPA PARADO,
-     transição DENTRO do mapa sem se mexer"*).
-     As duas telas passaram a dividir o MESMO palco de mapa (`data-mapa="rota"`)
-     — e mapa é UM nó só: ele muda de pai no transplante. Se a camada velha
-     ficasse no ar animando a saída, ela ficaria com o palco VAZIO na tela, que
-     é o pisca ao contrário. Então aqui não há camada saindo: a nova entra
-     inteira, no lugar, e quem se mexe são as PEÇAS (o cartão da manobra
-     recolhendo, o cabeçalho entrando, a bússola) e a inclinação do mapa.
-     Vale só pra este par: qualquer outra troca continua com a coreografia de
-     camada de sempre. */
+  /* 🔴 A CAMADA QUE SAI NA TROCA 2D⇄3D VIRA SÓ CROMO (16/08).
+     As duas telas passaram a dividir o MESMO palco de mapa (`data-mapa="rota"`),
+     e mapa é UM nó: ele muda de pai no transplante. Quem sai fica com o palco
+     VAZIO — e palco vazio pinta o chão escuro por cima do mapa vivo, que é o
+     pisca ao contrário.
+     🔴 A 1ª TENTATIVA FOI MATAR A COREOGRAFIA (troca seca) E ISSO FOI UM ERRO
+     MEU, apontado pelo dono na hora: *"vc removeu o efeito ao montar a rota, eu
+     implorei pra vc não fazer isso"*. O show de entrar na tela cheia (`cheio` +
+     `cena`) é de DUAS camadas — sem camada saindo, não há show nenhum.
+     A cura é a marca: a camada que sai cumpre o show INTEIRO, só que sem fundo
+     nenhum (§ `.tela.so-cromo` na folha). O que o olho vê é o mapa parado com o
+     cromo velho saindo e o novo entrando por cima — que é o pedido literal:
+     "transição DENTRO do mapa, quem se movimenta são as transições". */
   const trocaDeModo = (atual==='mapa'&&anterior==='rota')||(atual==='rota'&&anterior==='mapa');
-  if(animar && antiga && trocaDeModo){
-    nova.classList.add('modo-troca');
-    app.appendChild(nova);
-    antiga.remove();
-    clearTimeout(limpezaTimer);
-  }else if(animar && antiga && tr!=='nenhuma'){
+  if(animar && antiga && tr!=='nenhuma'){
     // 🔴 A camada que entrou guardava a classe `entra` pra sempre. Na troca
     // seguinte ela virava a que SAI carregando as duas regras de animação — e
     // quem decidia era a ordem da folha, não o código. Some com a marca antes
     // de marcar a saída: uma camada tem UM papel de cada vez.
     // `cena` some junto: a camada que SAI não pode reencenar a entrada dela.
-    antiga.classList.remove('entra','cheio','voltando','cena');
+    antiga.classList.remove('entra','cheio','voltando','cena','so-cromo','modo-troca','troca-sobe','troca-desce');
     nova.classList.add('entra');
     antiga.classList.add('sai');
+    // o mapa vivo já é da camada nova (um palco só): a velha sai transparente
+    if(trocaDeModo) antiga.classList.add('so-cromo');
     // TELA CHEIA: vale saindo de QUALQUER tela, e o gesto inverte na volta.
-    const entrandoNoCheio=TELA_CHEIA.includes(atual);
-    const saindoDoCheio=TELA_CHEIA.includes(anterior);
+    const entrandoNoCheio=noCheio(atual);
+    const saindoDoCheio=noCheio(anterior);
     let espera=DUR[tr]+40;
     if(entrandoNoCheio || saindoDoCheio){
       nova.classList.add('cheio'); antiga.classList.add('cheio');
       if(saindoDoCheio && !entrandoNoCheio){ nova.classList.add('voltando'); antiga.classList.add('voltando'); }
       espera=580;
     }
+    /* 🔴 A TROCA DE MODO TEM COREOGRAFIA PRÓPRIA, E ELA NÃO É A DA TELA CHEIA
+       (17/08, item 4). Entrar na tela cheia é a camada TOMANDO o aparelho —
+       escala, brilho, véu, cena. Trocar de câmera com a tela JÁ cheia é outro
+       evento: aqui as duas camadas são a mesma tela com outro cromo, e o mapa é
+       o mesmo nó nas duas. Se este par vestisse o show da tela cheia, o
+       `mvCheioEntra` escalaria o MAPA em 1,14 — que é o "piscar tudo" do pedido.
+       Então a marca `modo-troca` desliga a animação de CAMADA (§ folha) e o
+       movimento vai pras PEÇAS que mudam; `troca-sobe`/`troca-desce` guardam o
+       SENTIDO, pra prova e pra ponte lerem sem adivinhar por nome de tela.
+       `cena` NÃO entra aqui: a cena é de quem CHEGA na rota (o montar), não de
+       quem troca de câmera dentro dela — foi a lição de 16/08, quando voltar da
+       Panorâmica reencenava a entrada inteira e o dono viu 3 s de tela parada. */
+    if(trocaDeModo){
+      const sentido=atual==='mapa'?'troca-desce':'troca-sobe';
+      nova.classList.add('modo-troca',sentido);
+      antiga.classList.add('modo-troca',sentido);
+      espera=560;
+    }
     // A CENA (véu → ponteiro → mapa) só existe ENTRANDO na tela cheia, e por
     // 900 ms. O relógio anterior morre aqui: entrar duas vezes seguidas não
     // pode deixar o primeiro relógio apagar a cena do segundo.
-    if(entrandoNoCheio){
+    if(entrandoNoCheio && !trocaDeModo){
       nova.classList.add('cena');
       clearTimeout(cenaTimer);
       cenaTimer=setTimeout(fecharCena, CENA_CHEIA);
@@ -4302,6 +4532,7 @@ function pintar(animar,dir){
     herdarRolagem(rolagem,nova);
     remontarPortao(nova,portaoVivo);
     remontarChegada(nova,chegadaViva);
+    remontarChat(nova,chatVivo);
     // DEPOIS do portão (e do cartão de chegada) voltarem, nunca antes: campo
     // de portão (o "Nome" do Espaço) mora DENTRO do `.portao-wrap`, e
     // enquanto ele não é re-encaixado o campo não existe na camada nova pra
@@ -4366,6 +4597,7 @@ function pintar(animar,dir){
     // ouvintes), e é por isso que eles podem ser re-encaixados aqui embaixo.
     remontarPortao(nova,portaoVivo);
     remontarChegada(nova,chegadaViva);
+    remontarChat(nova,chatVivo);
     // idem ao ramo de cima: o foco volta por ÚLTIMO, com o portão já no lugar.
     herdarFoco(foco,nova);
   }
@@ -4764,6 +4996,56 @@ function cartaoChegada(d){
  *  dele, que já rodou. Sem isto o cartão morreria a cada fix do GPS no 3D
  *  (1x/s) — o risco nº1 do desenho ("funcionou na bancada e sumiu no g15"). */
 function remontarChegada(nova,wrap){
+  if(!wrap) return;
+  wrap.classList.add('remontado');
+  nova.appendChild(wrap);
+}
+
+/* ==========================================================================
+   🔴 O CHAT COMO POP-UP (17/08 — item 9 do dono: *"abrir chat com rota ativa não
+   pode fugir do full screen, então vai ser um pop up, ajuste"*).
+
+   Por que não podia ser tela: com o dia na rua, sair do mapa é sair da NAVEGAÇÃO
+   — o mapa é estacionado na garagem off-screen (§ `estacionarMapas` na ponte), a
+   tela cheia cai, as barras do Android voltam e, na volta, tudo isso acontece de
+   novo ao contrário. Ler um recado de duas linhas passou a custar dois gestos de
+   tela cheia e um transplante de mapa. E o dono nem estava pedindo outra tela:
+   ele quer responder a Central sem perder de vista onde está.
+
+   Terceira peça do mesmo molde — `portao()` e `cartaoChegada()` são as outras
+   duas —, e isso é de propósito: mesma casca (`*-wrap` + peça dentro), mesmo
+   `data-fechar`, mesma remontagem no repinte, mesmo lugar (a camada VIVA, que é
+   a ÚLTIMA). Superfície nova com molde próprio é o que faz uma delas esquecer o
+   repinte e morrer no g15.
+
+   Sem rota na rua o balão do cabeçalho continua abrindo a TELA do chat: ali não
+   há tela cheia pra perder, e a tela inteira é melhor que um pop-up.
+   ========================================================================== */
+function abrirChatPop(){
+  const camadas=document.querySelectorAll('#app .tela');
+  const camada=camadas.length?camadas[camadas.length-1]:null; if(!camada) return;
+  camada.querySelector('.chat-wrap')?.remove();
+  const w=document.createElement('div');
+  w.className='chat-wrap';
+  /* O × carrega `data-fechar` como todo escape desta casa; o scrim também fecha
+     (é o gesto que todo app de mensagem tem), e quem trata isso é o delegado
+     lá embaixo — clique DENTRO do pop-up não fecha. */
+  w.innerHTML=`<div class="chat-pop" role="dialog" aria-label="Chat com a Central" aria-modal="true">
+    <div class="chat-pop-topo">
+      <span class="tt">${ic('chat',17)}<b>Central</b></span>
+      <button class="round" data-fechar="1" aria-label="Fechar">${ic('close',17)}</button>
+    </div>
+    <div class="chat-corpo">${corpoDoChat()}</div>
+  </div>`;
+  camada.appendChild(w);
+  // o dedo já está indo pro campo: abrir o teclado é o passo seguinte inevitável
+  // (e é o que o app de mensagem faz). Depois da entrada, pra não cortar a folha.
+  setTimeout(()=>{ try{ w.querySelector('[data-campo="recado-texto"]')?.focus(); }catch(_){ } },260);
+}
+/** Leva o pop-up pra camada nova do repinte — MOVE o nó, então o texto que o
+ *  motorista já escreveu e os ouvintes da ponte vão junto. Mesmo motivo do
+ *  `remontarChegada`: dirigindo, a camada é trocada 1x por segundo. */
+function remontarChat(nova,wrap){
   if(!wrap) return;
   wrap.classList.add('remontado');
   nova.appendChild(wrap);
@@ -5775,8 +6057,31 @@ document.addEventListener('click',e=>{
   if(sup){ (SUPERFICIES[sup.dataset.superficie]||erro)(); return; }
   const pt=e.target.closest('[data-portao]');
   if(pt){ portao(pt.dataset.portao); return; }
+  /* 🔴 O POP-UP DO CHAT (17/08, item 9). Ele nasce AQUI, no delegado da casca, e
+     não na ponte: abrir uma superfície é DESENHO, e a ponte só precisa do dado
+     (a conversa já chega pelo seam) e dos ganchos de dentro, que são os mesmos
+     da tela do chat. Vem antes do `data-fechar` porque o botão que o abre é
+     vizinho do × que o fecha. */
+  const chatPop=e.target.closest('[data-acao="abrir-chat"]');
+  if(chatPop){ abrirChatPop(); return; }
+  // o scrim fecha (gesto de todo app de mensagem); dentro do pop-up, não.
+  if(e.target.classList&&e.target.classList.contains('chat-wrap')){ fechar(e.target); return; }
+  /* 🔴 O INTERRUPTOR DA TELA CHEIA NO MOCK É SÓ PRO MOCK (17/08, item 1). No
+     aparelho quem manda é a PONTE: ela grava a preferência no aparelho
+     (`HBX.cache('mapa-cheio')`), escreve o seam e avisa o nativo pra as barras do
+     Android entrarem e saírem (§ `virarTelaCheia`). Se os dois virassem a chave
+     no mesmo toque, um desfaria o outro e o botão não faria NADA — que é o pior
+     desfecho possível pra um botão novo. Então aqui só se mexe quando não há
+     ponte viva (`HBXCena` é da ponte, § 50-cena-ruas.js): o desenho no navegador
+     continua demonstrável e o aparelho continua com um dono só. */
+  const tc=e.target.closest('[data-acao="tela-cheia"]');
+  if(tc&&!window.HBXCena){
+    DADOS.rota.telaCheia=DADOS.rota.telaCheia===false;
+    pintar(false);
+    return;
+  }
   const fec=e.target.closest('[data-fechar]');
-  if(fec){ fechar(fec.closest('.erro-wrap,.conf-wrap,.portao-wrap,.chegou-wrap')); }
+  if(fec){ fechar(fec.closest('.erro-wrap,.conf-wrap,.portao-wrap,.chegou-wrap,.chat-wrap')); }
   /* O TUTOR TEM DUAS PORTAS E UM PREFIXO SÓ. `tutor-comecar` é o "Vamos lá" do
      cartão de abertura; `tutor-<id>` é a linha do catálogo dos Ajustes. O
      prefixo mantém o namespace longe do roteador de `data-acao` da ponte —

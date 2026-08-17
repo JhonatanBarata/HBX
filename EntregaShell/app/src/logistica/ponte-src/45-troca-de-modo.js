@@ -164,6 +164,22 @@
     } catch (_) { /* idem */ }
   }
 
+  /* ---- O MODO LEMBRADO (item 5 do contrato de 17/08) -----------------------
+     Dono, sobre onde a rota recém-montada deve pousar: *"é o próprio
+     Panorâmica/Direção"*. Quer dizer que o pouso não é uma preferência à parte
+     numa tela de Ajustes — é o ÚLTIMO GESTO do motorista, e o único lugar que
+     sabe dele é aqui, onde a troca acontece. Este arquivo só CARIMBA; quem lê é
+     o pouso do montar (§ `pousarNaRota`, 32-verbos-montar-iniciar).
+     🔴 E NÃO VAI PRO SEAM DE PROPÓSITO. Escrever em `DADOS` é pedir repinte, e
+     ninguém na tela muda por causa deste carimbo — repintar as duas camadas a
+     cada toque de Panorâmica seria a tela piscando por uma preferência que só
+     vai ser lida no dia seguinte. Aparelho guarda no aparelho (`HBX.cache`). */
+  function lembrarModo(modo) {
+    try {
+      if (window.HBX && window.HBX.cache) window.HBX.cache.set('mapa-modo', modo);
+    } catch (_) { /* sem cache: o pouso cai no default do montar */ }
+  }
+
   /* SUBIR — o 3D vira 2D NO MESMO MAPA: a inclinação cai, o rumo volta ao norte
      e a câmera abre até o pouso da Panorâmica, tudo num `easeTo` só.
      🔴 NENHUM EFEITO SE PERDEU AQUI (ordem do dono, 16/08: *"não é para regredir
@@ -171,9 +187,19 @@
      não existe mais "o mapa que entra" chegando frio de outra câmera — a imagem
      na tela é a mesma, e o movimento acontece nela. */
   function subirNoPlano() {
+    // o carimbo é a PRIMEIRA linha, antes de qualquer saída pelo caminho curto:
+    // o modo mudou de verdade mesmo quando a câmera não tem pra onde ir.
+    lembrarModo('rota');
     const casa = GARAGEM.get(PALCO);
     if (!casa || !casa.mapa) return;
     travarGestos2D(casa.mapa, true);
+    /* 🔴 O DEGRAU DO NOME NÃO ESPERA O ZOOM MEXER (17/08). Quem reavalia os
+       pinos é o evento `zoom` do mapa (§ 55-cena-reversa) — e o nome também
+       depende do ESTADO (só no 2D), que acabou de virar sem o zoom ter mudado
+       um milímetro. Troca de modo com a mesma altura de câmera (motorista que
+       subiu e voltou sem tocar na pinça) deixaria o 2D sem nome nenhum até o
+       próximo gesto. Uma passada de classe em 51 pinos, aqui, resolve. */
+    acertarPinos(casa);
     const alvo = alvoDaPanoramica(casa);
     // a régua dos 30 m recomeça daqui: o pouso é o novo ponto de partida.
     rearmarPlanoZoom();
@@ -184,9 +210,13 @@
 
   /** DESCER — a volta da Panorâmica: o movimento primeiro, a cena no pouso */
   function descerDoPlano() {
+    lembrarModo('mapa');
     const casa = GARAGEM.get(PALCO);
     if (!casa || !casa.mapa) { entrarNaDescida(); return; }
     travarGestos2D(casa.mapa, false);
+    // o nome sai ANTES do movimento: rótulo de cadastro descendo junto com a
+    // câmera é enfeite viajando por cima da manobra que está nascendo.
+    acertarPinos(casa);
     // limpa vigias, relógio da vista de cima e o estado 'solta' — é o mesmo
     // desarme da saída, e sem ele a descida nasce morta (ver `pararDescida`).
     pararDescida();
@@ -245,6 +275,45 @@
   const PINOS_NUMERADOS_ATE = 12;
   const PINO_ESPACO_PX = 24;
 
+  /* ---- O TERCEIRO DEGRAU: O NOME (17/08) -----------------------------------
+     Dono: *"Mapa 2d ao se aproximar exibe o numero, ao dar zoom + ainda exibe o
+     nome do cliente"*. São três degraus na MESMA régua — quantos pixels separam
+     ESTE pino do vizinho mais próximo dele, neste zoom:
+       · `min`      — não cabe nem o pino (30px): vira ponto anônimo.
+       · normal     — cabe o pino com respiro: o número aparece.
+       · `com-nome` — cabe o pino MAIS o rótulo: o cliente aparece.
+
+     🔴 OS 96 px SÃO O RÓTULO, NÃO UM PALPITE. O nome é escrito na fonte do pino
+     (12px Inter, § `.map-pino` na folha), ~6 px por letra, aparado em 16 letras
+     na ponte (`PINO_NOME_MAX`, § 40-mapa-palcos) = ~96 px de tarja. Exigir 96 px
+     de vizinho é exigir exatamente a largura da peça que vai nascer: nome nunca
+     encosta em nome, porque o vão medido é o próprio rótulo. Dá 4× o respiro do
+     número — e é por isso que ele é escrito como `PINO_ESPACO_PX * 4`: os dois
+     números são o MESMO acoplamento com a folha, e mexer num sem o outro é o
+     defeito voltando por dentro.
+
+     🔴 E TEM PISO DE ZOOM, porque "ao dar zoom +" é uma ORDEM DE GESTO. Sem
+     piso, um dia rural com duas portas a 5 km ganharia nome no zoom da cidade
+     inteira (z≈11,5: 50 m por pixel ⇒ 100 px de vão) — nome flutuando a
+     quilômetros da porta que ele descreve, exatamente a queixa "cadê os pontos"
+     ao contrário. O piso é z=15: em Rio Claro (lat −22,4) isso é ~4,4 m/px, a
+     escala em que a QUADRA enche a tela — o zoom em que o nome de uma porta
+     ainda quer dizer aquela porta. De z=15 pra cima o vão exigido encolhe
+     sozinho (z=17 ⇒ 106 m entre vizinhos; z=18 ⇒ 53 m), que é o nome aparecendo
+     aos poucos conforme o dedo aproxima, e não um interruptor.
+
+     🔴 O NOME É PEÇA DO 2D. Dirigindo, a tela é a MANOBRA (a rua, a seta, a
+     distância): rótulo de cadastro ali é enfeite competindo com a única coisa
+     que o motorista precisa ler a 60 km/h — e a lei desta casa é que enfeite
+     não derruba rota. Por isso `!naNavegacao()`.
+
+     🔴 A FAIXA DOS 12 NÃO VALE PRO NOME. "Até 12 paradas nunca rebaixa" existe
+     pra não deixar três pontinhos anônimos num mapa vazio — é uma exceção do
+     NÚMERO. Nome é tarja larga: dois clientes colados numa rua, mesmo num dia de
+     3 paradas, escreveriam um por cima do outro. Aqui a medida manda sempre. */
+  const PINO_NOME_PX = PINO_ESPACO_PX * 4;
+  const PINO_NOME_ZOOM = 15;
+
   /** distância ao vizinho mais próximo, em metros, POR PARADA (id → m) */
   function espacoDosPinos(paradas) {
     const fora = new Map();
@@ -272,20 +341,36 @@
   function acertarPinos(casa) {
     if (!casa || !casa.pinos.size) return;
     const poucos = casa.pinos.size <= PINOS_NUMERADOS_ATE;
-    let mpp = 0;
-    if (!poucos) {
-      let lat = 0;
-      try { lat = casa.mapa.getCenter().lat; } catch (_) { return; }
-      mpp = metrosPorPixel(casa, lat) || 0;
-    }
+    /* A câmera é lida UMA vez por passada, e agora SEMPRE: o degrau do nome
+       precisa dela mesmo em dia curto, onde a faixa dos 12 dispensava a conta.
+       É um `getZoom` + um `getCenter` por zoom — o custo desta função são os 51
+       pinos do laço, não isto. Câmera que não responde é mapa saindo de cena:
+       sem régua ninguém mexe em classe (mexer seria decidir no escuro). */
+    let mpp = 0; let zoom = null;
+    try {
+      zoom = casa.mapa.getZoom();
+      mpp = metrosPorPixel(casa, casa.mapa.getCenter().lat) || 0;
+    } catch (_) { return; }
+    const podeNome = !naNavegacao() && !!mpp
+      && Number.isFinite(zoom) && zoom >= PINO_NOME_ZOOM;
     casa.pinos.forEach((marcador, id) => {
       let el;
       try { el = marcador.getElement(); } catch (_) { return; }
       // sem espaço medido ainda (lista nunca sincronizada) o seguro é NUMERAR:
       // pino sem número não diz nada, e pino apertado ainda diz quem é.
       const d = casa.espacos ? casa.espacos.get(String(id)) : null;
-      const min = !poucos && !!mpp && Number.isFinite(d) && (d / mpp) < PINO_ESPACO_PX;
+      // o vão até o vizinho, em PIXELS desta tela — null quando não há vizinho
+      // (parada única) nem medida: aí não há com quem colidir.
+      const vao = (!!mpp && Number.isFinite(d)) ? (d / mpp) : null;
+      const min = !poucos && vao !== null && vao < PINO_ESPACO_PX;
       el.classList.toggle('min', min);
+      /* O nome só entra onde ele CABE INTEIRO, e nunca em cima do rebaixado:
+         pino que perdeu o número por aperto não ganha uma tarja de 96 px. E só
+         onde a peça EXISTE (`__hbxNome`) — cliente sem nome no cadastro não tem
+         rótulo nenhum pra acender (§ `vestirPino`, 40-mapa-palcos). */
+      const comNome = podeNome && !min && !!el.__hbxNome
+        && (vao === null || vao >= PINO_NOME_PX);
+      el.classList.toggle('com-nome', comNome);
     });
   }
 
@@ -306,8 +391,21 @@
       casa.pinos.forEach((marcador, id) => {
         let el;
         try { el = marcador.getElement(); } catch (_) { return; }
+        /* 🔴 `texto` É O NÚMERO, E ELE MUDOU DE ENDEREÇO (17/08). Era
+           `el.textContent` do pino inteiro — com o rótulo do cliente dentro,
+           isso passou a devolver "1Ana Souza" e a prova mediria uma coisa que
+           não existe na tela. O número mora no `.n`; o nome, no `.nome`; e cada
+           um se mede onde mora. Sem o `.n` (pino de um APK anterior a este,
+           vivo numa camada antiga) a sonda cai no pai — medir errado é ruim,
+           medir NADA é pior. */
+        const noN = el.__hbxN || el.querySelector('.n');
+        const noNome = el.__hbxNome || el.querySelector('.nome');
         fora.push({
-          id: String(id), min: el.classList.contains('min'), texto: el.textContent,
+          id: String(id),
+          min: el.classList.contains('min'),
+          comNome: el.classList.contains('com-nome'),
+          texto: noN ? noN.textContent : el.textContent,
+          nome: noNome ? noNome.textContent : '',
           espaco: casa.espacos ? casa.espacos.get(String(id)) : null,
         });
       });
