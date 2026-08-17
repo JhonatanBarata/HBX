@@ -11,7 +11,17 @@ import java.net.URL
 class TrackingApiClient(private val context: Context) {
     data class Session(val id: String, val routeId: String, val status: String)
 
-    class ApiException(val statusCode: Int, message: String) : IllegalStateException(message)
+    /**
+     * `code` é o contrato do VPS (ver `logistica-tracking.conflitos.ts`). Sem ele
+     * um 409 não diz se a porta fechou de vez ou se é só "espera" — e foi essa
+     * cegueira que virou loop eterno em 17/08. `null` = backend antigo: quem
+     * segura o caso é o teto de tentativas da outbox.
+     */
+    class ApiException(
+        val statusCode: Int,
+        message: String,
+        val code: String? = null,
+    ) : IllegalStateException(message)
 
     private val app = context.applicationContext
     private val credentialStore = DeviceCredentialStore(app)
@@ -83,13 +93,16 @@ class TrackingApiClient(private val context: Context) {
             val json = if (body.isBlank()) JSONObject() else runCatching { JSONObject(body) }.getOrElse { JSONObject() }
             if (status !in 200..299) {
                 if (status == 401) credentialStore.clearDeviceToken()
-                throw ApiException(status, extractMessage(json, status))
+                throw ApiException(status, extractMessage(json, status), extractCode(json))
             }
             json
         } finally {
             connection.disconnect()
         }
     }
+
+    private fun extractCode(json: JSONObject): String? =
+        (json.opt("code") as? String)?.trim()?.takeIf(String::isNotEmpty)
 
     private fun extractMessage(json: JSONObject, status: Int): String {
         json.optString("userMessage").trim().takeIf(String::isNotEmpty)?.let { return it }

@@ -32,6 +32,43 @@ fun trackingEventValidationFailureAction(
 
 fun isTerminalTrackingHttpStatus(statusCode: Int): Boolean = statusCode == 403 || statusCode == 404
 
+/** O que fazer com um 409 do rastreamento. */
+enum class TrackingConflictAction {
+    /** Porta fechada pra sempre: para de capturar esta rota. */
+    TERMINAL,
+
+    /** "Espera" — o servidor ainda vai aceitar. Continua tentando. */
+    RETRY,
+
+    /** Erro de dado: guarda em `tracking_rejected` e segue a fila. */
+    QUARANTINE,
+}
+
+/**
+ * 🔴 O 409 QUE VIROU LOOP ETERNO (17/08 — 5119 tentativas num dia, 26 sessões
+ *    presas, ainda rodando quando o dono mandou olhar). `isTerminalTrackingHttpStatus`
+ *    só conhecia 403 e 404; o 409 "esta execução já foi encerrada" escapava pelo
+ *    `else { needsRetry = true }` dos TRÊS caminhos do dreno (ensureSession,
+ *    uploadPoints e sendEvent) e era retentado para sempre.
+ *
+ *    Não dá pra tratar 409 cru como terminal: "Ainda existem entregas abertas"
+ *    é ESPERA, e descartar o END nessa hora deixaria a rota sem encerrar — um
+ *    bug pior que o loop. Quem separa os dois é o CÓDIGO que o VPS manda
+ *    (`logistica-tracking.conflitos.ts`), nunca a frase: texto muda com uma
+ *    vírgula, código é contrato.
+ *
+ *    Sem código (backend antigo, ou 409 novo que ninguém mapeou) a resposta é
+ *    RETRY — o mesmo de antes, conservador de propósito. O que impede isso de
+ *    voltar a ser eterno é o TETO DE TENTATIVAS da outbox, que vale pra
+ *    qualquer erro e não depende deste mapa estar completo.
+ */
+fun trackingConflictAction(code: String?): TrackingConflictAction =
+    when (code?.trim()?.uppercase()) {
+        "SESSAO_ENCERRADA", "APARELHO_TROCADO", "ROTA_INDISPONIVEL" -> TrackingConflictAction.TERMINAL
+        "EVENTO_REUSADO" -> TrackingConflictAction.QUARANTINE
+        else -> TrackingConflictAction.RETRY
+    }
+
 fun isTerminalTrackingRejection(code: String): Boolean = code.trim().uppercase() == "AFTER_SESSION"
 
 data class TrackingCaptureAuthority(

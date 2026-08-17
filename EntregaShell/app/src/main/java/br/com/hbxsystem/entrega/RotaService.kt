@@ -164,7 +164,7 @@ class RotaService : Service() {
         criarCanais()
         iniciarForeground(buildNotificacaoRota())
         locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-        trackingOutbox = TrackingOutbox(this)
+        trackingOutbox = TrackingOutbox.get(this)
         trackingStore = TrackingSessionStore(this)
         inicializarTts()
     }

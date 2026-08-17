@@ -22,16 +22,47 @@ data class QueuedTrackingEvent(
  * Outbox SQLite durável. Pontos e marcos ficam no aparelho até o VPS confirmar
  * os IDs; fechar o WebView, matar o processo ou perder a rede não apaga a fila.
  */
-class TrackingOutbox(context: Context) : SQLiteOpenHelper(
+class TrackingOutbox private constructor(context: Context) : SQLiteOpenHelper(
     context.applicationContext,
     DATABASE_NAME,
     null,
     DATABASE_VERSION,
 ) {
     companion object {
+        /**
+         * 🔴 UM HELPER SÓ POR PROCESSO (17/08 — logcat do dono, junto do loop de
+         *    409: "A SQLiteConnection object for database
+         *    'hbx_tracking_outbox.db' was leaked!"). Cada `TrackingOutbox(ctx)`
+         *    abria conexão nova e ninguém fechava; o dreno instanciava a cada
+         *    flush, a cada heartbeat e a cada job do scheduler. Helper
+         *    compartilhado é a recomendação do Android e fecha o vazamento —
+         *    de quebra serializa o acesso ao banco, que é justamente o que os
+         *    `@Synchronized` daqui já assumiam ao proteger só a própria
+         *    instância. Ninguém chama `close()`: o helper vive com o processo.
+         */
+        @Volatile
+        private var instancia: TrackingOutbox? = null
+
+        fun get(context: Context): TrackingOutbox = instancia ?: synchronized(this) {
+            instancia ?: TrackingOutbox(context.applicationContext).also { instancia = it }
+        }
+
         private const val DATABASE_NAME = "hbx_tracking_outbox.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2
         private const val MAX_REJECTED_ROWS = 100
+
+        /**
+         * 🔴 O TETO QUE FALTAVA (17/08). O mapa de códigos do 409 cobre o que a
+         *    gente conhece hoje; ESTE número cobre o que ainda não aconteceu.
+         *    Qualquer item que falhe tantas vezes seguidas para de ser tentado —
+         *    não importa o status, o código ou o motivo. É o disjuntor: sem ele,
+         *    todo erro novo que ninguém mapeou vira o loop de novo.
+         *
+         *    25 é folgado de propósito. O dreno roda por JobScheduler com backoff
+         *    exponencial a partir de 30 s, então 25 falhas é MUITO mais que uma
+         *    passagem ruim de túnel — chegou aqui, não é falta de sinal.
+         */
+        private const val MAX_ATTEMPTS = 25
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -42,6 +73,7 @@ class TrackingOutbox(context: Context) : SQLiteOpenHelper(
                 session_id TEXT,
                 start_pending INTEGER NOT NULL DEFAULT 1,
                 terminal_error TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0,
                 updated_at_ms INTEGER NOT NULL
             )
             """.trimIndent(),
@@ -78,6 +110,7 @@ class TrackingOutbox(context: Context) : SQLiteOpenHelper(
                 delivery_id TEXT,
                 captured_at_ms INTEGER NOT NULL,
                 point_json TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0,
                 created_at_ms INTEGER NOT NULL
             )
             """.trimIndent(),
@@ -97,7 +130,18 @@ class TrackingOutbox(context: Context) : SQLiteOpenHelper(
         )
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    /**
+     * v1 → v2: coluna do contador de tentativas. Aditiva e idempotente — banco
+     * de aparelho não tem janela de manutenção, então migration aqui só pode
+     * SOMAR. `runCatching` porque um APK que já subiu a coluna não pode quebrar
+     * ao reabrir o banco.
+     */
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            runCatching { db.execSQL("ALTER TABLE tracking_events ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0") }
+            runCatching { db.execSQL("ALTER TABLE tracking_routes ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0") }
+        }
+    }
 
     @Synchronized
     fun ensureRoute(routeId: String, hintedSessionId: String? = null) {
@@ -379,6 +423,47 @@ class TrackingOutbox(context: Context) : SQLiteOpenHelper(
     }
 
     fun hasPending(): Boolean = pendingRouteIds().isNotEmpty()
+
+    /**
+     * Conta a falha e diz se este item já estourou o teto. Chamado SÓ quando o
+     * dreno decidiu "tenta de novo": sucesso, terminal e quarentena não passam
+     * por aqui, então o contador mede insistência inútil, não uso normal.
+     */
+    @Synchronized
+    fun bumpEventAttempts(eventId: String): Boolean {
+        writableDatabase.execSQL(
+            "UPDATE tracking_events SET attempts = attempts + 1 WHERE event_id = ?",
+            arrayOf(eventId),
+        )
+        return readAttempts("tracking_events", "event_id", eventId) >= MAX_ATTEMPTS
+    }
+
+    @Synchronized
+    fun bumpRouteAttempts(routeId: String): Boolean {
+        writableDatabase.execSQL(
+            "UPDATE tracking_routes SET attempts = attempts + 1 WHERE route_id = ?",
+            arrayOf(routeId),
+        )
+        return readAttempts("tracking_routes", "route_id", routeId) >= MAX_ATTEMPTS
+    }
+
+    /** Passou uma vez, o caminho está vivo: o teto volta ao zero. */
+    @Synchronized
+    fun resetRouteAttempts(routeId: String) {
+        writableDatabase.execSQL(
+            "UPDATE tracking_routes SET attempts = 0 WHERE route_id = ? AND attempts <> 0",
+            arrayOf(routeId),
+        )
+    }
+
+    private fun readAttempts(table: String, column: String, id: String): Int {
+        readableDatabase.rawQuery(
+            "SELECT attempts FROM $table WHERE $column = ? LIMIT 1",
+            arrayOf(id),
+        ).use { cursor ->
+            return if (cursor.moveToFirst()) cursor.getInt(0) else 0
+        }
+    }
 
     private fun Cursor.toTrackingPoint(): TrackingPoint = TrackingPoint(
         routeId = string("route_id"),

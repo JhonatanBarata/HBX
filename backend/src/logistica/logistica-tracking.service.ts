@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -17,6 +16,7 @@ import type {
 } from './dto/logistica-tracking.dto';
 import { isLogisticaTrackingEnabled } from './logistica-tracking.flags';
 import { lockLogisticaRouteTransaction } from './logistica-route-lock';
+import { TRACKING_CONFLICT, conflitoRastreamento } from './logistica-tracking.conflitos';
 
 const MAX_POINT_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_FUTURE_SKEW_MS = 2 * 60 * 1000;
@@ -180,7 +180,8 @@ export class LogisticaTrackingService {
         data: { operationalEndedAt: new Date() },
       });
     } catch (_) { /* o 409 abaixo já conta a verdade ao app */ }
-    throw new ConflictException(
+    throw conflitoRastreamento(
+      TRACKING_CONFLICT.SESSAO_ENCERRADA,
       'A execução anterior desta rota já foi encerrada. Toque em Iniciar de novo para abrir uma nova.',
     );
   }
@@ -213,11 +214,19 @@ export class LogisticaTrackingService {
         route.startedAt ?? new Date(),
       );
     }
-    if (!session) throw new ConflictException('A sessão desta rota ainda não foi inicializada.');
+    if (!session) {
+      throw conflitoRastreamento(
+        TRACKING_CONFLICT.SESSAO_NAO_INICIALIZADA,
+        'A sessão desta rota ainda não foi inicializada.',
+      );
+    }
 
     const replayed = session.deviceId === device.id;
     if (session.deviceId && session.deviceId !== device.id) {
-      throw new ConflictException('Esta rota já está vinculada a outro aparelho.');
+      throw conflitoRastreamento(
+        TRACKING_CONFLICT.APARELHO_TROCADO,
+        'Esta rota já está vinculada a outro aparelho.',
+      );
     }
 
     if (!session.deviceId) {
@@ -237,7 +246,10 @@ export class LogisticaTrackingService {
         where: { companyId: device.companyId, id: session.id },
       });
       if (!session || (claimed.count !== 1 && session.deviceId !== device.id)) {
-        throw new ConflictException('Outro aparelho vinculou esta rota primeiro.');
+        throw conflitoRastreamento(
+          TRACKING_CONFLICT.APARELHO_TROCADO,
+          'Outro aparelho vinculou esta rota primeiro.',
+        );
       }
     }
 
@@ -432,7 +444,10 @@ export class LogisticaTrackingService {
           select: { id: true },
         });
         if (!route || !activeSession) {
-          throw new ConflictException('Esta execução de rastreamento já foi encerrada.');
+          throw conflitoRastreamento(
+            TRACKING_CONFLICT.SESSAO_ENCERRADA,
+            'Esta execução de rastreamento já foi encerrada.',
+          );
         }
         await tx.logisticaTrackingPoint.createMany({
           data: candidates.map((point) => ({
@@ -547,7 +562,10 @@ export class LogisticaTrackingService {
     });
     if (duplicate) {
       if (!sameTrackingEvent(duplicate, dto)) {
-        throw new ConflictException('Identificador de evento reutilizado com outro conteúdo.');
+        throw conflitoRastreamento(
+          TRACKING_CONFLICT.EVENTO_REUSADO,
+          'Identificador de evento reutilizado com outro conteúdo.',
+        );
       }
       const authority = await this.getSessionAuthority(
         this.prisma,
@@ -565,9 +583,17 @@ export class LogisticaTrackingService {
       };
     }
     if (session.route?.operationalEndedAt != null) {
-      throw new ConflictException('Esta execução de rastreamento já foi encerrada.');
+      throw conflitoRastreamento(
+        TRACKING_CONFLICT.SESSAO_ENCERRADA,
+        'Esta execução de rastreamento já foi encerrada.',
+      );
     }
-    if (session.status !== 'ACTIVE') throw new ConflictException('A sessão de rastreamento já foi encerrada.');
+    if (session.status !== 'ACTIVE') {
+      throw conflitoRastreamento(
+        TRACKING_CONFLICT.SESSAO_ENCERRADA,
+        'A sessão de rastreamento já foi encerrada.',
+      );
+    }
 
     const capturedAt = parseCapturedAt(dto.capturedAt);
     // O marco precisa sobreviver a uma outbox offline longa. Mantém limites da
@@ -592,7 +618,12 @@ export class LogisticaTrackingService {
         // 409 é deliberado: o APK mantém o END na fila até as confirmações
         // offline anteriores chegarem ao VPS. A mesma contagem é refeita sob
         // trava na transação terminal para fechar a janela END x append.
-        throw new ConflictException('Ainda existem entregas abertas nesta rota.');
+        // O código é o que separa este 409 (ESPERA) do 409 terminal — sem ele o
+        // freio novo descartaria o END e a rota nunca encerraria.
+        throw conflitoRastreamento(
+          TRACKING_CONFLICT.ENTREGAS_ABERTAS,
+          'Ainda existem entregas abertas nesta rota.',
+        );
       }
     }
 
@@ -621,7 +652,12 @@ export class LogisticaTrackingService {
             deviceId: device.id,
           },
         });
-        if (!lockedSession) throw new ConflictException('Sessão de rastreamento não encontrada para este aparelho.');
+        if (!lockedSession) {
+          throw conflitoRastreamento(
+            TRACKING_CONFLICT.SESSAO_ENCERRADA,
+            'Sessão de rastreamento não encontrada para este aparelho.',
+          );
+        }
 
         // Retry idempotente precisa vencer inclusive depois de END já ter
         // tornado rota/sessão terminais.
@@ -630,7 +666,10 @@ export class LogisticaTrackingService {
         });
         if (winner) {
           if (!sameTrackingEvent(winner, dto)) {
-            throw new ConflictException('Identificador de evento reutilizado com outro conteúdo.');
+            throw conflitoRastreamento(
+              TRACKING_CONFLICT.EVENTO_REUSADO,
+              'Identificador de evento reutilizado com outro conteúdo.',
+            );
           }
           return {
             replayed: true,
@@ -639,13 +678,19 @@ export class LogisticaTrackingService {
           };
         }
         if (lockedSession.status !== 'ACTIVE') {
-          throw new ConflictException('A sessão de rastreamento já foi encerrada.');
+          throw conflitoRastreamento(
+            TRACKING_CONFLICT.SESSAO_ENCERRADA,
+            'A sessão de rastreamento já foi encerrada.',
+          );
         }
         const lockedRoute = await tx.logisticaRoute.findFirst({
           where: { companyId: device.companyId, id: session.routeId },
         });
         if (!lockedRoute || lockedRoute.mode !== 'TRACKED' || lockedRoute.status !== 'ACTIVE' || lockedRoute.operationalEndedAt) {
-          throw new ConflictException('A rota de rastreamento não está mais ativa.');
+          throw conflitoRastreamento(
+            TRACKING_CONFLICT.SESSAO_ENCERRADA,
+            'A rota de rastreamento não está mais ativa.',
+          );
         }
         if (dto.type === 'END') {
           if (lockedSession.lastPointAt && capturedAt < lockedSession.lastPointAt) {
@@ -659,7 +704,10 @@ export class LogisticaTrackingService {
             },
           });
           if (openStops > 0) {
-            throw new ConflictException('Ainda existem entregas abertas nesta rota.');
+            throw conflitoRastreamento(
+              TRACKING_CONFLICT.ENTREGAS_ABERTAS,
+              'Ainda existem entregas abertas nesta rota.',
+            );
           }
         }
 
@@ -701,12 +749,22 @@ export class LogisticaTrackingService {
             },
             data: { status: 'ENDED', endedAt: capturedAt },
           });
-          if (ended.count !== 1) throw new ConflictException('A sessão de rastreamento já foi encerrada.');
+          if (ended.count !== 1) {
+            throw conflitoRastreamento(
+              TRACKING_CONFLICT.SESSAO_ENCERRADA,
+              'A sessão de rastreamento já foi encerrada.',
+            );
+          }
           const completed = await tx.logisticaRoute.updateMany({
             where: { companyId: device.companyId, id: session.routeId, status: 'ACTIVE', mode: 'TRACKED' },
             data: { status: 'COMPLETED', completedAt: capturedAt },
           });
-          if (completed.count !== 1) throw new ConflictException('A rota de rastreamento já foi encerrada.');
+          if (completed.count !== 1) {
+            throw conflitoRastreamento(
+              TRACKING_CONFLICT.SESSAO_ENCERRADA,
+              'A rota de rastreamento já foi encerrada.',
+            );
+          }
         }
         return {
           replayed: false,
@@ -721,7 +779,10 @@ export class LogisticaTrackingService {
       });
       if (!winner) throw error;
       if (!sameTrackingEvent(winner, dto)) {
-        throw new ConflictException('Identificador de evento reutilizado com outro conteúdo.');
+        throw conflitoRastreamento(
+          TRACKING_CONFLICT.EVENTO_REUSADO,
+          'Identificador de evento reutilizado com outro conteúdo.',
+        );
       }
       const currentSession = await (this.prisma as any).logisticaTrackingSession.findFirst({
         where: { companyId: device.companyId, id: session.id },
@@ -1005,7 +1066,12 @@ export class LogisticaTrackingService {
       select: { id: true, entregadorId: true, startedAt: true },
     });
     if (routes.length === 0) throw new NotFoundException('Nenhuma rota rastreada ativa foi encontrada.');
-    if (routes.length > 1) throw new ConflictException('Informe a rota para iniciar o rastreamento.');
+    if (routes.length > 1) {
+      throw conflitoRastreamento(
+        TRACKING_CONFLICT.ROTA_AMBIGUA,
+        'Informe a rota para iniciar o rastreamento.',
+      );
+    }
     return routes[0];
   }
 
@@ -1029,7 +1095,10 @@ export class LogisticaTrackingService {
       throw new NotFoundException('Sessão de rastreamento não encontrada para este aparelho.');
     }
     if (session.route.status === 'FAILED' || session.route.status === 'REFUNDING') {
-      throw new ConflictException('A rota desta sessão não está disponível.');
+      throw conflitoRastreamento(
+        TRACKING_CONFLICT.ROTA_INDISPONIVEL,
+        'A rota desta sessão não está disponível.',
+      );
     }
     return session;
   }

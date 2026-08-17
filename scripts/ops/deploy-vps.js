@@ -399,7 +399,16 @@ function buildRemoteScript(config, fullDeploy, services) {
       'docker rm -f hbx-frontend frontend 2>/dev/null || true',
       `${frontendCompose} up -d --force-recreate frontend`,
       'deploy_webwhats',
-      'systemctl restart nginx',
+      // 🔴 `restart` FECHA O LISTEN SOCKET DO :443 (17/08, print do dono: "Não deu
+      //    certo — Failed to connect to api.hbxsystem.com.br/187.77.47.18:443").
+      //    Todo publish parava o nginx por ~1s (journalctl: "Stopped nginx"), e o
+      //    celular que batesse nessa fresta levava ECONNREFUSED — não 502, e sim
+      //    ConnectException crua, porque não havia ninguém escutando na porta.
+      //    `reload` (SIGHUP) troca os workers MANTENDO o socket aberto: as conexões
+      //    ficam enfileiradas no backlog em vez de serem recusadas. O `|| restart`
+      //    é o fallback pro caso do nginx estar parado (reload não sobe serviço
+      //    morto). O publish não troca binário nem `listen`, então reload basta.
+      'systemctl reload nginx || systemctl restart nginx',
       'wait_backend',
       'wait_frontend',
     );

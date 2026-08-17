@@ -18,6 +18,9 @@ data class TrackingFlushResult(
 object TrackingSync {
     private const val JOB_ID = 0x48425831
     private const val MAX_BATCHES_PER_RUN = 20
+
+    /** Motivo gravado quando o disjuntor do teto de tentativas desarma. */
+    private const val TETO = "teto_de_tentativas"
     private val executor = Executors.newSingleThreadExecutor()
     private val queued = AtomicBoolean(false)
     private val flushLock = Any()
@@ -25,7 +28,7 @@ object TrackingSync {
     fun ensureRoute(context: Context, routeId: String, hintedSessionId: String? = null) {
         if (routeId.isBlank()) return
         val app = context.applicationContext
-        val outbox = TrackingOutbox(app)
+        val outbox = TrackingOutbox.get(app)
         outbox.ensureRoute(routeId, hintedSessionId)
         requestFlush(app)
     }
@@ -58,7 +61,7 @@ object TrackingSync {
 
     fun flushBlocking(context: Context): TrackingFlushResult = synchronized(flushLock) {
         val app = context.applicationContext
-        val outbox = TrackingOutbox(app)
+        val outbox = TrackingOutbox.get(app)
         val sessionStore = TrackingSessionStore(app)
         val api = TrackingApiClient(app)
         var needsRetry = false
@@ -73,9 +76,14 @@ object TrackingSync {
                     blockedByPairing = true
                     break@routes
                 }
-                val status = (error as? TrackingApiClient.ApiException)?.statusCode
+                val apiError = error as? TrackingApiClient.ApiException
+                val status = apiError?.statusCode
                 if (status != null && isTerminalTrackingHttpStatus(status)) {
                     markRouteTerminal(app, outbox, sessionStore, routeId, "http_$status")
+                    continue
+                }
+                if (status == 409 && trackingConflictAction(apiError.code) != TrackingConflictAction.RETRY) {
+                    markRouteTerminal(app, outbox, sessionStore, routeId, conflictReason(apiError))
                     continue
                 }
                 if (isPermanent(error)) {
@@ -83,10 +91,14 @@ object TrackingSync {
                     markRouteTerminal(app, outbox, sessionStore, routeId, rejectionCode(error))
                     continue
                 }
+                if (outbox.bumpRouteAttempts(routeId)) {
+                    outbox.quarantine("route", routeId, TETO, null)
+                    markRouteTerminal(app, outbox, sessionStore, routeId, TETO)
+                    continue
+                }
                 needsRetry = true
                 continue
             }
-
             var batches = 0
             var routeTerminal = false
             routeLoop@ while (batches < MAX_BATCHES_PER_RUN) {
@@ -95,12 +107,23 @@ object TrackingSync {
                 val response = try {
                     api.uploadPoints(sessionId, points)
                 } catch (error: Throwable) {
-                    val status = (error as? TrackingApiClient.ApiException)?.statusCode
+                    val apiError = error as? TrackingApiClient.ApiException
+                    val status = apiError?.statusCode
                     if (isPairingBlocked(error)) {
                         sessionStore.markAuthBlocked()
                         blockedByPairing = true
                     } else if (status != null && isTerminalTrackingHttpStatus(status)) {
                         markRouteTerminal(app, outbox, sessionStore, routeId, "http_$status")
+                        routeTerminal = true
+                    } else if (
+                        status == 409 &&
+                        trackingConflictAction(apiError.code) != TrackingConflictAction.RETRY
+                    ) {
+                        markRouteTerminal(app, outbox, sessionStore, routeId, conflictReason(apiError))
+                        routeTerminal = true
+                    } else if (outbox.bumpRouteAttempts(routeId)) {
+                        outbox.quarantine("route", routeId, TETO, null)
+                        markRouteTerminal(app, outbox, sessionStore, routeId, TETO)
                         routeTerminal = true
                     } else {
                         needsRetry = true
@@ -108,6 +131,11 @@ object TrackingSync {
                     break@routeLoop
                 }
                 if (sessionStore.isAuthBlocked()) sessionStore.clearAuthBlocked()
+                /* O teto só zera com PROGRESSO REAL — uma resposta do VPS.
+                   Zerar no `ensureSession` seria enganação: ele devolve a sessão
+                   do cache sem tocar a rede, então o contador nunca acumularia e
+                   o disjuntor nunca desarmaria. */
+                outbox.resetRouteAttempts(routeId)
                 val accepted = response.stringArray("accepted")
                 val duplicates = response.stringArray("duplicates")
                 val rejected = response.optJSONArray("rejected") ?: JSONArray()
@@ -161,11 +189,43 @@ object TrackingSync {
                         blockedByPairing = true
                         break
                     }
-                    val status = (error as? TrackingApiClient.ApiException)?.statusCode
+                    val apiError = error as? TrackingApiClient.ApiException
+                    val status = apiError?.statusCode
                     if (status != null && isTerminalTrackingHttpStatus(status)) {
                         markRouteTerminal(app, outbox, sessionStore, routeId, "http_$status")
                         routeTerminal = true
                         break
+                    }
+                    /* Conta a falha e diz se ainda pode tentar. Todo caminho que
+                       termina em "tenta de novo" passa por aqui — é o que impede
+                       um erro que ninguém mapeou de virar loop eterno outra vez.
+                       Estourado o teto, o marco vai pra quarentena: a prova fica
+                       guardada em `tracking_rejected` e a fila destrava. */
+                    fun aguentaMaisUma(): Boolean {
+                        if (!outbox.bumpEventAttempts(event.eventId)) return true
+                        outbox.quarantine("event", event.eventId, TETO, event.pointJson)
+                        outbox.deleteEvent(event.eventId)
+                        return false
+                    }
+                    /* 🔴 O 409 SÓ AGORA TEM NOME (17/08). Antes ele escapava por
+                       baixo de tudo isto e voltava pra sempre. TERMINAL aqui é
+                       seguro inclusive pro END, e é a única exceção honesta à lei
+                       "END nunca vira descarte": a lei existe pra não deixar
+                       sessão aberta no VPS — se o servidor está dizendo que ela
+                       JÁ fechou, não há mais nada pro END fechar. ENTREGAS_ABERTAS
+                       continua caindo no RETRY logo abaixo, como sempre foi. */
+                    val conflito = if (status == 409) trackingConflictAction(apiError.code) else null
+                    if (conflito == TrackingConflictAction.TERMINAL) {
+                        outbox.quarantine("event", event.eventId, conflictReason(apiError), event.pointJson)
+                        outbox.deleteEvent(event.eventId)
+                        markRouteTerminal(app, outbox, sessionStore, routeId, conflictReason(apiError))
+                        routeTerminal = true
+                        break
+                    }
+                    if (conflito == TrackingConflictAction.QUARANTINE) {
+                        outbox.quarantine("event", event.eventId, conflictReason(apiError), event.pointJson)
+                        outbox.deleteEvent(event.eventId)
+                        continue
                     }
                     val validationAction = status?.let {
                         trackingEventValidationFailureAction(event.type, it, event.pointJson != null)
@@ -176,11 +236,13 @@ object TrackingSync {
                                 // O timestamp do GPS não é fabricado: remove só o
                                 // fix rejeitado e tenta o mesmo marco novamente.
                                 outbox.clearEventPoint(event.eventId)
+                                if (!aguentaMaisUma()) continue
                                 needsRetry = true
                                 break
                             }
                             TrackingEventFailureAction.RETRY -> {
                                 // END é durável e nunca vira descarte terminal.
+                                if (!aguentaMaisUma()) continue
                                 needsRetry = true
                                 break
                             }
@@ -201,6 +263,8 @@ object TrackingSync {
                     if (event.type == TrackingPointEvent.END.name && status != null) {
                         // END nunca vira descarte terminal no aparelho: manter a
                         // sessão aberta no VPS seria pior do que aguardar correção.
+                        // Só o teto o tira da fila, e ainda assim pra quarentena.
+                        if (!aguentaMaisUma()) continue
                         needsRetry = true
                         break
                     }
@@ -209,10 +273,12 @@ object TrackingSync {
                         outbox.deleteEvent(event.eventId)
                         continue
                     }
+                    if (!aguentaMaisUma()) continue
                     needsRetry = true
                     break
                 }
                 if (sessionStore.isAuthBlocked()) sessionStore.clearAuthBlocked()
+                outbox.resetRouteAttempts(routeId)
                 val authority = response.captureAuthority()
                 val endAcknowledged = event.type == TrackingPointEvent.END.name &&
                     (authority.mustStop || response.optString("status").equals("ENDED", ignoreCase = true))
@@ -281,6 +347,10 @@ object TrackingSync {
     private fun isPairingBlocked(error: Throwable): Boolean =
         error is UnpairedDeviceException || (error as? TrackingApiClient.ApiException)?.statusCode == 401
 
+    /** Guarda POR QUE a rota morreu — o código do VPS quando veio, 409 cru quando não. */
+    private fun conflictReason(error: TrackingApiClient.ApiException?): String =
+        error?.code?.trim()?.takeIf(String::isNotEmpty)?.let { "conflito_$it" } ?: "http_409"
+
     private fun rejectionCode(error: Throwable): String =
         (error as? TrackingApiClient.ApiException)?.statusCode?.let { "http_$it" }
             ?: if (error is TrackingSessionMismatchException) "session_mismatch" else "invalid_session"
@@ -324,7 +394,7 @@ object TrackingSync {
     }
 
     private fun scheduleFallbackIfPending(context: Context) {
-        if (!DeviceCredentialStore(context).readDeviceToken().isNullOrBlank() && TrackingOutbox(context).hasPending()) {
+        if (!DeviceCredentialStore(context).readDeviceToken().isNullOrBlank() && TrackingOutbox.get(context).hasPending()) {
             scheduleFallback(context)
         }
     }
