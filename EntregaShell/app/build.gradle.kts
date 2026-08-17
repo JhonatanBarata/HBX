@@ -155,7 +155,16 @@ plugins {
 // publish carimbaria 253 — número que o g15 JÁ RODOU — e o aparelho de prova
 // ficaria cego pro aviso de atualização. Piso ACIMA do maior número que existe
 // em qualquer celular: a lei de sempre.
-val hbxLogisticaVersionCodeFloor = 258
+// 🔴 258 → 310 em 17/08 — O FREIO QUE NÃO CHEGARIA NO APARELHO. O publish desta
+// madrugada carimbou 289 (max(288, piso 258) + 1) e o `version-logistica.json`
+// no ar anunciou 289 — mas o g15 do dono roda 307, sideloadado em sessões
+// anteriores. 289 < 307: o celular NUNCA baixaria, e o pior é o formato do
+// prejuízo — o backend já estava servindo os códigos novos do 409 enquanto o
+// aparelho seguia sem o freio pra lê-los, ou seja, meio conserto no ar sem
+// ninguém ver erro. É o mesmo caso de 95→110 e 156→170, e a mesma lei: piso
+// ACIMA do maior número que existe em QUALQUER celular, não do último
+// publicado. 310 fica com folga sobre 307.
+val hbxLogisticaVersionCodeFloor = 310
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)

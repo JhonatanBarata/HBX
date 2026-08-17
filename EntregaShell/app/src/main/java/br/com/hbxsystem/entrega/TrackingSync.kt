@@ -285,6 +285,14 @@ object TrackingSync {
                 if (event.type == TrackingPointEvent.END.name && !endAcknowledged) {
                     // 2xx sem estado autoritativo de encerramento não remove o
                     // END: o mesmo eventId pode ser refeito com segurança.
+                    // Mas CONTA: um 200 que nunca confirma é loop igual ao 409 —
+                    // sucesso aparente que não anda é a versão silenciosa do
+                    // mesmo bug, e o disjuntor vale pros dois.
+                    if (outbox.bumpEventAttempts(event.eventId)) {
+                        outbox.quarantine("event", event.eventId, TETO, event.pointJson)
+                        outbox.deleteEvent(event.eventId)
+                        continue
+                    }
                     needsRetry = true
                     break
                 }
