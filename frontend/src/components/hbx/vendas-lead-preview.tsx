@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 
 import type { VendasLead } from "@/app/(app)/vendas/page.client";
 import { CANAL_LABEL, CanalIcon } from "@/components/hbx/canal-icon";
@@ -83,13 +83,34 @@ export function VendasLeadPreview({
   onClose,
   onExpand,
   onSchedule,
+  onFinalize,
 }: {
   lead: VendasLead | null;
   canViewValues: boolean;
   onClose: () => void;
   onExpand: () => void;
   onSchedule: () => void;
+  /** Encerra o lead como negativo com a observação escrita aqui. Devolve a
+   *  mensagem de erro, ou null quando deu certo. */
+  onFinalize: (nota: string) => Promise<string | null>;
 }) {
+  // Os estados nascem ANTES do `return` de ficha vazia: hook depois de saída
+  // antecipada é a regra nº1 do React quebrada — a ordem dos hooks mudaria
+  // entre "sem lead" e "com lead" e o React trocaria um estado pelo outro.
+  const [motivoFinal, setMotivoFinal] = useState("");
+  const [finalBusy, setFinalBusy] = useState(false);
+  const [finalErro, setFinalErro] = useState<string | null>(null);
+
+  async function finalizarLead() {
+    if (finalBusy) return;
+    setFinalBusy(true);
+    setFinalErro(null);
+    const erro = await onFinalize(motivoFinal);
+    setFinalErro(erro);
+    if (!erro) setMotivoFinal("");
+    setFinalBusy(false);
+  }
+
   if (!lead) {
     return (
       <aside className="vnd-lead-peek hbx-panel-shell__context is-empty" aria-label="Lead">
@@ -230,6 +251,40 @@ export function VendasLeadPreview({
           </section>
         )}
       </div>
+
+      {/* ENCERRAR SEM ROLAR (17/08/2026 — ordem do dono).
+          Mora FORA do corpo de propósito: o corpo rola, e o dono pediu para
+          escrever "liguei 2x e não atenderam" sem ir atrás da caixa. Aqui, ao
+          lado do rodapé, o bloco é fixo — nasce na tela e não sai dela, custe
+          o que custar em altura (o corpo cedeu um pouco de folga em troca). */}
+      {lead.block !== "closed" && (
+        <section className="vnd-lead-peek__finish">
+          {/* Sem rótulo em cima de propósito: ele custava 17px de altura e não
+              dizia nada que a caixa e o botão vermelho já não digam. Medido —
+              com o rótulo, a ficha passava a rolar em tela de 700px. */}
+          <textarea
+            className="vnd-lead-peek__finish-text"
+            rows={2}
+            maxLength={280}
+            value={motivoFinal}
+            disabled={finalBusy}
+            onChange={event => setMotivoFinal(event.target.value)}
+            placeholder="O que aconteceu? Ex.: liguei 2x e não atenderam · telefone não existe"
+            aria-label="Observação do encerramento"
+          />
+          {finalErro && <span className="vnd-lead-peek__finish-erro">{finalErro}</span>}
+          {/* A OBSERVAÇÃO É O FREIO. Encerrar é irreversível — o card sai da
+              carteira e não volta —, e o botão mora a um dedo do "Abrir ficha".
+              Sem a observação escrita ele fica desligado: mira errada não apaga
+              lead nenhum, e o que sobrou fica registrado com o motivo do
+              vendedor em vez de um encerramento mudo. */}
+          <button type="button" className="vnd-lead-peek__finish-btn" onClick={finalizarLead}
+            disabled={finalBusy || !motivoFinal.trim()}
+            title={motivoFinal.trim() ? undefined : "Escreva o que aconteceu para poder finalizar"}>
+            {finalBusy ? "Finalizando…" : "Finalizar lead"}
+          </button>
+        </section>
+      )}
 
       <footer className="vnd-lead-peek__footer">
         {links.whatsapp ? (

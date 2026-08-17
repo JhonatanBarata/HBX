@@ -1,9 +1,14 @@
+// 🔴 CADA CHAVE AQUI É UMA CHAVE DE `T` NO MOCK (`/demos/hbx-logistica-real.html`).
+// Chave que não existe lá NÃO dá erro: o mock ignora o `?tela=`, fica na abertura
+// e 3,4s depois cai na "Rota do dia" — a aba "Fechar o dia" mostrava splash e
+// depois a tela ERRADA (visto em 17/08). O fechamento mora em `caderneta`
+// ("Caderneta · fechamento"); "fechamento" nunca existiu no mock.
 export type LogisticaRealScreen =
   | "prospector"
   | "montagem"
   | "rota"
   | "folha"
-  | "fechamento";
+  | "caderneta";
 
 const GPS_PREVIEW_VERSION = "20260808-loop-3";
 

@@ -414,7 +414,10 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
               <strong>A operação na<br />palma da mão.</strong>
               <span className="f1-mobile-app__links">
                 <a href={MOBILE_APK_URL} className="f1-mobile-app__link">Baixar HBX Logística <Icon name="arrow" /></a>
-                <Link href="/rota" className="f1-mobile-app__link f1-mobile-app__link--ghost">Ver planos e preços</Link>
+                {/* 17/08: /rota não mostra mais preço (o dono tirou os 3 planos
+                    da vitrine). Botão que promete tabela e entrega vitrine é
+                    mentira de rótulo — o texto passou a dizer o que existe. */}
+                <Link href="/rota" className="f1-mobile-app__link f1-mobile-app__link--ghost">Ver o HBX Logística</Link>
               </span>
             </div>
             <div className="f1-mobile-app__art-wrap">

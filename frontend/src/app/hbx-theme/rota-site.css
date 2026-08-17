@@ -15,9 +15,12 @@
   margin: 0 auto;
   padding: clamp(12px, 2vh, 26px) clamp(24px, 4vw, 68px);
   flex: 1;
-  grid-template-columns: minmax(390px, 0.9fr) minmax(360px, 1.1fr);
+  /* A coluna do aparelho não passa de ~300px de conteúdo (o berço é capado):
+     dar 1.1fr pra ela sobrava ar dos dois lados do celular enquanto a copy
+     apertava. Agora o texto leva a folga e o aparelho leva o que precisa. */
+  grid-template-columns: minmax(0, 1.12fr) minmax(280px, 0.88fr);
   align-items: center;
-  gap: clamp(28px, 5vw, 78px);
+  gap: clamp(24px, 3.6vw, 60px);
 }
 
 .rt-simple__copy {
@@ -71,60 +74,40 @@
   font-size: var(--fz-n2);
 }
 
-.rt-simple__apk {
-  display: inline-flex;
-  width: max-content;
-  align-items: center;
-  gap: 8px;
-  color: var(--f1-text-soft) !important;
-  font-size: var(--fz-l1);
-  font-weight: var(--weight-bold);
-  transition: color 0.2s ease;
+/* ==========================================================================
+   CARTÕES DE APP (17/08) — a mesma peça da porta única, apertada pra caber
+   no pé da coluna sem rolar a tela. Aqui só muda MEDIDA: cor, borda, fundo e
+   sombra continuam morando em `.f1-mobile-app` (public-entry.css).
+   ========================================================================== */
+.rt-apps {
+  width: 100%;
+  margin: clamp(4px, 1.2vh, 14px) 0 0;
+  gap: var(--space-3);
 }
 
-.rt-simple__apk:hover { color: var(--f1-accent) !important; }
-.rt-simple__apk .f1-icon { width: 16px; height: 16px; }
-
-.rt-planos {
-  display: grid;
-  margin-top: clamp(2px, 1vh, 10px);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+.rt-apps .f1-mobile-app {
+  min-height: 0;
+  padding: var(--space-3) var(--space-4) var(--space-3);
+  gap: var(--space-2);
+  border-radius: var(--f1-radius-lg);
 }
 
-.rt-planos button {
-  display: grid;
-  min-width: 0;
-  padding: 12px;
-  gap: 3px;
-  border: 1px solid var(--f1-line);
-  border-radius: var(--f1-radius-sm);
-  color: var(--f1-text-soft);
-  background: var(--f1-surface);
-  text-align: left;
-  cursor: pointer;
-  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+.rt-apps .f1-mobile-app__copy { gap: var(--space-1); }
+.rt-apps .f1-mobile-app__copy strong { font-size: clamp(0.95rem, 1.3vw, 1.24rem); }
+/* A arte cresce com a ALTURA da tela: é ela que come a sobra que ficava entre
+   os cartões e o rodapé ("preencher a tela", 17/08). Piso pra tela baixa,
+   teto pra não virar pôster no monitor grande. */
+.rt-apps .f1-mobile-app__art-wrap { flex: 0 0 36%; height: clamp(92px, 15vh, 152px); }
+/* A arte sangra pra fora do cartão (é assim na porta única): margem NEGATIVA
+   sai da mesma escada de 4px, via calc, pra não abrir px cravado no fiscal. */
+.rt-apps .f1-mobile-app--android .f1-mobile-app__art-wrap {
+  height: clamp(116px, 19vh, 190px);
+  margin: calc(var(--space-3) * -1) calc(var(--space-2) * -1) calc(var(--space-3) * -1) 0;
 }
-
-.rt-planos button:hover { transform: translateY(-2px); border-color: var(--f1-line-strong); }
-.rt-planos button.is-active { border-color: var(--f1-accent); color: var(--f1-text); background: var(--f1-accent-soft); }
-.rt-planos strong { font-size: var(--fz-n3); font-weight: var(--weight-extrabold); }
-.rt-planos span { color: var(--f1-text); font-size: var(--fz-t8); font-weight: var(--weight-extrabold); white-space: nowrap; }
-.rt-planos span small { color: var(--f1-text-soft); font-size: var(--fz-m1); font-weight: var(--weight-semibold); }
-/* ROTA v2 (10/08): "Paradas ilimitadas · N motorista(s) incluso(s)" é mais
-   longo que a antiga "N paradas" — nowrap cortaria "motoristas inclusos",
-   exatamente o dado novo. Quebra em até 2 linhas (Lei do texto que não cabe,
-   nº2 — texto corrido com contexto) em vez de truncar o valor que decide. */
-.rt-planos em { color: var(--f1-text-soft); font-size: var(--fz-m1); font-style: normal; line-height: 1.25; white-space: normal; }
-
-/* ROTA v2 (10/08) — berço da "Rota Avulsa" (nível CREDITO): linha curta abaixo
-   dos 3 planos, mesma régua tipográfica do link de baixar o app. */
-.rt-planos__avulso {
-  margin: var(--space-1) 0 0;
-  color: var(--f1-text-soft);
-  font-size: var(--fz-m1);
-  font-weight: var(--weight-semibold);
-}
+.rt-apps .f1-mobile-app--apple .f1-mobile-app__art-wrap { margin: 0 calc(var(--space-2) * -1) 0 calc(var(--space-3) * -1); }
+.rt-apps .f1-mobile-app__ribbon { top: 12px; left: -38px; transform: rotate(-34deg) scale(0.82); }
+.rt-apps .f1-mobile-app__link { min-height: 34px; margin-top: var(--space-1); padding: 0 var(--space-3); }
+.rt-apps .f1-mobile-app::after { width: 120px; height: 120px; right: -44px; bottom: -60px; }
 
 .rt-demo {
   display: grid;
@@ -138,7 +121,7 @@
 
 .rt-demo__nav {
   display: grid;
-  width: min(100%, 560px);
+  width: min(100%, 380px);
   padding: 5px;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
@@ -166,9 +149,19 @@
 
 .rt-demo__nav button.is-active { color: var(--f1-text); background: var(--f1-surface-up); }
 
+/* 🔴 O BERÇO É A ÚNICA MOLDURA. O mock não desenha mais aparelho (ver
+   "Recorte público" em /demos/hbx-logistica-real.html): a borda, o raio e a
+   sombra daqui são o celular. Duas molduras concêntricas foi o defeito de
+   17/08. `aspect-ratio` é a MESMA razão do recorte (412x940) — se um lado
+   mudar, o outro muda junto, senão volta a sobrar letterbox.
+
+   ALTURA MANDA NA LARGURA: o berço é a peça mais alta da tela e a página não
+   rola no desktop. `43vh - 92px` é o que sobra depois do cabeçalho, do rodapé,
+   da barra de telas e do respiro — cresce até 300px quando a tela é alta em
+   vez de ficar travado nos 240px de antes. */
 .rt-demo__frame {
   position: relative;
-  width: min(290px, 45vw);
+  width: min(300px, calc(43vh - 96px), 40vw);
   aspect-ratio: 412 / 940;
   overflow: hidden;
   border: 1px solid var(--f1-line-strong);
@@ -189,8 +182,18 @@
   .rt-simple { padding-top: 8px; padding-bottom: 8px; }
   .rt-simple__copy { gap: 10px; }
   .rt-demo { gap: 8px; }
-  .rt-demo__frame { width: min(240px, 30vh, 35vw); }
-  .rt-planos button { padding: 9px; }
+}
+
+/* Coluna estreita (desktop pequeno): dois cartões lado a lado viram duas
+   colunas de ~220px e a arte come o texto. Empilha e encurta a arte. */
+@media (max-width: 1180px) and (min-width: 901px) {
+  .rt-apps { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
+  .rt-apps .f1-mobile-app { padding: var(--space-2) var(--space-3); }
+  .rt-apps .f1-mobile-app__art-wrap { flex-basis: 30%; height: clamp(70px, 9vh, 92px); }
+  .rt-apps .f1-mobile-app--android .f1-mobile-app__art-wrap {
+    height: clamp(86px, 11vh, 112px);
+    margin: calc(var(--space-2) * -1) calc(var(--space-1) * -1) calc(var(--space-2) * -1) 0;
+  }
 }
 
 @media (max-width: 900px) {
@@ -205,6 +208,9 @@
   .rt-simple__copy > p { margin-inline: auto; }
   .rt-simple__actions { justify-content: center; }
   .rt-demo__frame { width: min(300px, 78vw); }
+  /* No celular a página rola: os cartões voltam à medida da porta única. */
+  .rt-apps { text-align: left; }
+  .rt-apps .f1-mobile-app { padding: var(--space-4) var(--space-4) var(--space-3); }
 }
 
 @media (max-width: 520px) {
@@ -212,9 +218,7 @@
   .rt-simple__actions { width: 100%; }
   .rt-simple__actions .f1-primary-cta,
   .rt-simple__actions .f1-secondary-cta { flex: 1 1 100%; }
-  .rt-planos { width: 100%; grid-template-columns: 1fr; }
-  .rt-planos button { grid-template-columns: 1fr auto; align-items: center; }
-  .rt-planos span { grid-row: 1 / 3; grid-column: 2; }
+  .rt-apps { grid-template-columns: minmax(0, 1fr); }
   .rt-demo__nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 

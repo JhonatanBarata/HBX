@@ -8,50 +8,21 @@ import {
   type LogisticaRealScreen,
 } from "@/components/hbx/logistica-real-preview";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
-import { apiFetch } from "@/lib/api";
 import { MOBILE_APK_URL } from "@/lib/app-mobile";
 import { CONTACT_WHATSAPP_URL } from "@/lib/contato";
 
-type NivelKey = "BASIC" | "ADVANCED" | "FULL";
-
-interface NivelPublico {
-  nivel: NivelKey;
-  titulo: string;
-  precoMensal: number;
-  // ROTA v2 (10/08) — franquia de paradas morreu, rota virou ILIMITADA; o que
-  // diferencia os planos agora é o Nº de motoristas incluso.
-  assentosInclusos: number;
-}
-
-const ORDEM: NivelKey[] = ["BASIC", "ADVANCED", "FULL"];
-
-// Mesma verdade comercial do backend (paridade com FALLBACK de janela-creditos):
-// Basic 1 / Advanced 2 / Full 3 motoristas, rota sempre ilimitada. Fallback só
-// aparece com a API fora — não é o mock, é o preço real congelado no build.
-const FALLBACK: Record<NivelKey, NivelPublico> = {
-  BASIC: { nivel: "BASIC", titulo: "Rota Basic", precoMensal: 99, assentosInclusos: 1 },
-  ADVANCED: { nivel: "ADVANCED", titulo: "Rota Advanced", precoMensal: 199, assentosInclusos: 2 },
-  FULL: { nivel: "FULL", titulo: "Rota Full", precoMensal: 299, assentosInclusos: 3 },
-};
-
-// "Rota Avulsa" (nível CREDITO) — sem plano, cobra por dia de rota rodado.
-const FALLBACK_DIA_AVULSO_CREDITOS = 6;
-
-function motoristasTexto(n: number): string {
-  return `${n} motorista${n === 1 ? "" : "s"} incluso${n === 1 ? "" : "s"}`;
-}
-
-const NIVEL_LABEL: Record<NivelKey, string> = {
-  BASIC: "Basic",
-  ADVANCED: "Advanced",
-  FULL: "Full",
-};
+// 🔴 PREÇO SAIU DA VITRINE (17/08, ordem do dono: "remover esses planos da
+// tela"). Junto com os 3 cartões morreram o catálogo local, o fetch de
+// `/public/logistica/planos` e a linha da Rota Avulsa — nada de deixar estado
+// morto buscando preço que ninguém mostra. O endpoint continua vivo pra
+// janela-de-créditos; quem quiser o preço fala no WhatsApp ou cria a conta.
+// O buraco que os planos deixaram virou os cartões de app (foto 6 do dono).
 
 const DEMOS: Array<{ key: LogisticaRealScreen; label: string }> = [
   { key: "prospector", label: "Prospector" },
   { key: "montagem", label: "Montar rota" },
   { key: "folha", label: "Entregar" },
-  { key: "fechamento", label: "Fechar o dia" },
+  { key: "caderneta", label: "Fechar o dia" },
 ];
 
 const ICONS = {
@@ -71,45 +42,9 @@ function Icon({ name }: { name: keyof typeof ICONS }) {
   );
 }
 
-function moeda(valor: number): string {
-  return valor.toLocaleString("pt-BR", {
-    minimumFractionDigits: Number.isInteger(valor) ? 0 : 2,
-    maximumFractionDigits: 2,
-  });
-}
-
 export function RotaSiteClient() {
-  const [niveis, setNiveis] = useState<Record<NivelKey, NivelPublico>>(FALLBACK);
-  const [nivel, setNivel] = useState<NivelKey>("ADVANCED");
-  const [diaAvulsoCreditos, setDiaAvulsoCreditos] = useState<number>(FALLBACK_DIA_AVULSO_CREDITOS);
   const [demo, setDemo] = useState<LogisticaRealScreen>("prospector");
   const [themeMode, setThemeModeState] = useState<"dark" | "light">("light");
-
-  useEffect(() => {
-    let vivo = true;
-    void apiFetch<{ niveis?: NivelPublico[]; diaDeRotaCreditos?: number }>("/public/logistica/planos")
-      .then((res) => {
-        if (!vivo) return;
-        const recebidos = res?.niveis;
-        if (Array.isArray(recebidos)) {
-          setNiveis((atual) => {
-            const proximo = { ...atual };
-            for (const item of recebidos) {
-              if (item?.nivel !== "BASIC" && item?.nivel !== "ADVANCED" && item?.nivel !== "FULL") continue;
-              // campo ausente (backend em rollout) preserva o valor local em vez
-              // de virar `undefined` — {...item} só sobrescreve o que veio.
-              proximo[item.nivel] = { ...atual[item.nivel], ...item };
-            }
-            return proximo;
-          });
-        }
-        if (typeof res?.diaDeRotaCreditos === "number" && res.diaDeRotaCreditos > 0) {
-          setDiaAvulsoCreditos(res.diaDeRotaCreditos);
-        }
-      })
-      .catch(() => { /* O catálogo local mantém os preços visíveis sem a API. */ });
-    return () => { vivo = false; };
-  }, []);
 
   useEffect(() => {
     const mode = document.documentElement.getAttribute("data-theme-mode");
@@ -124,7 +59,7 @@ export function RotaSiteClient() {
   }
 
   return (
-    <main className="public-entry rota-site" data-nivel={nivel}>
+    <main className="public-entry rota-site">
       <div className="f1-backdrop" aria-hidden="true">
         <span className="f1-orb f1-orb--one" />
         <span className="f1-orb f1-orb--two" />
@@ -156,29 +91,40 @@ export function RotaSiteClient() {
             <a className="f1-secondary-cta" href={CONTACT_WHATSAPP_URL} target="_blank" rel="noreferrer">Falar no WhatsApp <Icon name="whatsapp" /></a>
           </div>
 
-          <a className="rt-simple__apk" href={MOBILE_APK_URL}>
-            <Icon name="download" /> Baixar app para Android
-          </a>
-
-          <div className="rt-planos" role="group" aria-label="Planos do HBX Logística">
-            {ORDEM.map((chave) => {
-              const plano = niveis[chave];
-              return (
-                <button
-                  className={chave === nivel ? "is-active" : ""}
-                  key={chave}
-                  type="button"
-                  aria-pressed={chave === nivel}
-                  onClick={() => setNivel(chave)}
-                >
-                  <strong>{NIVEL_LABEL[chave]}</strong>
-                  <span>R$ {moeda(plano.precoMensal)}<small>/mês</small></span>
-                  <em>Paradas ilimitadas · {motoristasTexto(plano.assentosInclusos)}</em>
-                </button>
-              );
-            })}
-          </div>
-          <p className="rt-planos__avulso">Sem plano: {diaAvulsoCreditos} créditos por dia de rota · 1 motorista</p>
+          {/* Os cartões de app são os MESMOS da porta única (`f1-mobile-apps`
+              em public-entry) — mesma marcação, mesma pele, mesmos tokens. O
+              /rota só aperta a régua de tamanho (`rt-apps`) pra caber no rodapé
+              da coluna sem rolar a tela. Peça copiada perde tudo que a original
+              ganha depois; aqui ela é REUSADA. */}
+          <section className="f1-mobile-apps rt-apps" aria-label="Aplicativos móveis HBX">
+            <article className="f1-mobile-app f1-mobile-app--apple">
+              <div className="f1-mobile-app__art-wrap">
+                <img src="/hbx-theme/assets/mobile-apps/apple-coming.png" alt="Ilustração de uma maçã tecnológica" />
+                <span className="f1-mobile-app__ribbon">Em breve</span>
+              </div>
+              <div className="f1-mobile-app__copy">
+                <small>HBX para iPhone</small>
+                <strong>Seu negócio também<br />no iOS.</strong>
+              </div>
+            </article>
+            <article className="f1-mobile-app f1-mobile-app--android">
+              <div className="f1-mobile-app__copy">
+                <small>HBX Logística para Android</small>
+                <strong>A operação na<br />palma da mão.</strong>
+                <span className="f1-mobile-app__links">
+                  {/* Aqui o download é o ÚNICO destino: o link solto "Baixar app
+                      para Android" saiu, e "Ver planos e preços" apontaria pra
+                      esta mesma página. Dois botões pro mesmo lugar é ruído. */}
+                  <a href={MOBILE_APK_URL} className="f1-mobile-app__link">
+                    <Icon name="download" /> Baixar HBX Logística
+                  </a>
+                </span>
+              </div>
+              <div className="f1-mobile-app__art-wrap">
+                <img src="/hbx-theme/assets/mobile-apps/android-hero.png" alt="Android futurista do HBX Logística" />
+              </div>
+            </article>
+          </section>
         </div>
 
         <div className="rt-demo">

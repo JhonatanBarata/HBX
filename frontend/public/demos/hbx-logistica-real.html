@@ -1994,13 +1994,28 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .splash-barra{background:var(--splash-trilho)}
 </style>
 <style>
-/* Recorte público: somente o aparelho e as telas reais do mock aprovado. */
+/* Recorte público: somente as TELAS reais do mock aprovado.
+
+   🔴 O APARELHO FALSO MORRE AQUI. Quem faz moldura é o site (`.rt-demo__frame`
+   em /rota); o mock entregava por cima DELA a sua própria casca de celular —
+   bisel metálico de 7px, canto de 44px e notch — e o resultado eram DUAS
+   molduras concêntricas com raios e cores diferentes (o dono viu e chamou de
+   "bordas q nem o cú" nas 3 telas de 17/08).
+
+   Pior que feio: a caixa era 426x954 (aparelho) contra o `aspect-ratio:412/940`
+   (tela) do berço no site, então a escala `min(w/426,h/954)` sempre sobrava
+   letterbox — a faixa clara nas beiradas era o FUNDO do berço aparecendo, não
+   desenho nenhum. Recortando na tela (412x940) a razão fecha com o berço e o
+   app encosta nas 4 bordas. O `?video` do prospector já nascia assim; esta é a
+   mesma régua nas telas do 2.0. */
 html,body{width:100%;height:100%;overflow:hidden;background:transparent}
 body{display:block}
 .doc-top,.rail{display:none!important}
-.doc-body{display:block;width:426px;height:954px;min-height:0;flex:none;transform-origin:top left}
+.doc-body{display:block;width:412px;height:940px;min-height:0;flex:none;transform-origin:top left}
 .stage{display:block;padding:0;overflow:visible;background:transparent}
-.phone{zoom:1!important;box-shadow:none}
+.phone{zoom:1!important;width:412px;height:940px;flex:none;padding:0;border-radius:0;background:none;box-shadow:none}
+.app{border-radius:0}
+.notch{display:none!important}
 </style>
 </head>
 <body>
@@ -5283,7 +5298,9 @@ pintar(false);
   const quadro = document.querySelector('.doc-body');
   const ajustar = () => {
     if (!quadro) return;
-    const escala = Math.min(window.innerWidth / 426, window.innerHeight / 954);
+    // 412x940 é a TELA (ver "Recorte público" no CSS): a mesma razão do berço
+    // no site, então a escala fecha nas duas pontas e não sobra letterbox.
+    const escala = Math.min(window.innerWidth / 412, window.innerHeight / 940);
     quadro.style.transform = `scale(${escala})`;
   };
   ajustar();

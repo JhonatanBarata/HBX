@@ -4182,7 +4182,14 @@ const CENA_DA_CAMADA='mvCenaEnche';
 const FILA=['escurece','ruas','descida','pronto'];
 /* a tabela do contrato, usada só quando a casca é a guia (mock sem ponte):
    420 de véu + o que as ruas levam (1,06 s medido + folga) + os 420 do cromo. */
-const CENA_TETO={escurece:420,ruas:1200,descida:1900,pronto:420};
+/* 🔴 `pronto` 420 → 1100 (17/08). A última fase deixou de ser um gesto só: o
+   cromo entra em FILA (rodapé 0→380, topo 380→760, redondas 760→1040, § a regra
+   de `[data-cena="pronto"]`), porque o dono cobrou *"dê um tempo de um transition
+   acabar para entrar em outro"*. Este número é o que mantém a marca na raiz até o
+   último gesto fechar — fechando aos 420 o topo e as redondas eram ARRANCADAS no
+   meio (medido no g15: `plano-topo` em 0 e `gps-vel` em 0 no quadro do fecho, as
+   duas pulando pro valor final). Os 60 ms de sobra são o padrão da casa. */
+const CENA_TETO={escurece:420,ruas:1200,descida:1900,pronto:1100};
 /* 🔴 7 s É PRAZO DE SILÊNCIO, NÃO DURAÇÃO DE CENA — e o número tem que ser MAIOR
    que o pior teto da ponte, senão o socorro da casca vira o caminho normal (a lei
    que o próprio `50-cena-ruas.js` escreve no `FASE_TETO`). O pior deles é o da

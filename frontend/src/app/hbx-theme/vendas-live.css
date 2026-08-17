@@ -2587,6 +2587,37 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   gap: 2px;
   padding-inline: 4px;
 }
+/* ── O TRILHO DE AÇÕES QUE NÃO SAI DA TELA (17/08/2026) ───────────────────
+   A última trilha carrega o ⋯ e o →, e a grade rola de lado: com colunas
+   suficientes escolhidas, as duas ações abriam fora da vista.
+
+   `position: sticky` NÃO resolve isto, e é bom estar escrito: o bloco
+   continente de um item de grade é a ÁREA DE GRADE dele, e a célula ocupa a
+   área inteira — sobra zero para o pegajoso se deslocar, então ele fica
+   declarado e inerte (o mesmo motivo pelo qual coluna lateral pegajosa em
+   grade só anda com `align-self: start`).
+
+   Quem anda é o TRANSFORM, alimentado por `--vnd-trilho` (page.client.tsx: o
+   quanto ainda falta rolar até o fim). Transform não mexe em layout: a trilha
+   segue reservada no lugar de sempre e só o desenho flutua por cima das
+   colunas do meio. Com tudo cabendo na tela a sobra é 0 e nada se move —
+   inclusive quando o JavaScript ainda não mediu nada (o fallback é 0px).
+
+   A cor de fundo vem por `inherit` de propósito: é o que faz o trilho mudar
+   junto com a faixa embaixo do mouse e com a faixa selecionada, sem esta folha
+   ter que reescrever os três estados. */
+.vnd-sales-rail {
+  position: relative;
+  z-index: 2;
+  background-color: inherit;
+  transform: translateX(calc(-1 * var(--vnd-trilho, 0px)));
+}
+/* Encostado no fim da rolagem o trilho é uma coluna comum: sem borda, sem
+   sombra. A moldura só existe enquanto ele está flutuando sobre o dado. */
+.vnd-sales-grade[data-trilho="flutuando"] .vnd-sales-rail {
+  border-left: 1px solid var(--vnd-grade-linha);
+  box-shadow: -9px 0 12px -12px color-mix(in srgb, var(--hbx-shadow) 45%, transparent);
+}
 .vnd-sales-row__actions button {
   width: 23px;
   height: 26px;
@@ -3180,10 +3211,13 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   font-size: var(--hbx-font-min);
   font-weight: 600;
 }
+/* AS ALTURAS APERTARAM UM DEGRAU (17/08/2026): a caixa de encerrar nasceu
+   colada ao rodapé e cobra altura fixa. Quem paga é a folga dos cartões — o
+   dado continua inteiro, só o ar entre eles diminuiu. */
 .vnd-lead-peek__deal {
-  min-height: 84px;
-  margin: 8px 0;
-  padding: 10px 11px;
+  min-height: 70px;
+  margin: var(--space-1) 0;
+  padding: var(--space-2);
   display: grid;
   /* `auto` e não `54px`: quem manda na largura da célula de prioridade é o
      texto que ela abriga. */
@@ -3260,11 +3294,11 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 5px;
-  margin-bottom: 7px;
+  margin-bottom: var(--space-1);
 }
 .vnd-lead-peek__minis > span {
   min-width: 0;
-  min-height: 45px;
+  min-height: 40px;
   display: grid;
   align-content: center;
   gap: 4px;
@@ -3296,7 +3330,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 }
 .vnd-lead-peek__facts > span {
   min-width: 0;
-  min-height: 38px;
+  min-height: 28px;
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   align-items: center;
@@ -3323,7 +3357,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 }
 .vnd-lead-peek__next {
   min-width: 0;
-  min-height: 64px;
+  min-height: 54px;
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr) 16px;
   align-items: center;
@@ -3362,8 +3396,8 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   min-width: 0;
   display: grid;
   gap: 4px;
-  margin-top: 7px;
-  padding: 8px 9px;
+  margin-top: var(--space-1);
+  padding: 6px 9px;
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-md);
   background: var(--hbx-surface-soft);
@@ -3383,6 +3417,71 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
+/* ── ENCERRAR SEM ROLAR (17/08/2026) ──────────────────────────────────────
+   Irmão do rodapé, e não filho do corpo: o corpo rola, e o pedido do dono foi
+   escrever "liguei 2x e não atenderam" sem caçar a caixa. Aqui o bloco é
+   fixo — 3 degraus de altura (rótulo, campo de 2 linhas, botão) que a ficha
+   devolveu apertando os cartões de cima. */
+.vnd-lead-peek__finish {
+  display: grid;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+  padding: var(--space-2);
+  border-top: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-soft);
+}
+.vnd-lead-peek__finish-text {
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface);
+  color: var(--text-strong);
+  font-family: inherit;
+  font-size: var(--fz-m2);
+  font-weight: 600;
+  line-height: 1.35;
+  /* Redimensionar à mão brigaria com a altura fixa do bloco — 2 linhas é o
+     tamanho do recado, e o resto da história mora na ficha completa. */
+  resize: none;
+}
+.vnd-lead-peek__finish-text::placeholder {
+  color: var(--text-muted);
+  font-weight: 550;
+}
+.vnd-lead-peek__finish-text:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--hbx-brand) 40%, var(--border-hairline));
+  box-shadow: 0 0 0 2px var(--ring-brand);
+}
+.vnd-lead-peek__finish-erro {
+  color: var(--hbx-danger);
+  font-size: var(--hbx-font-min);
+  font-weight: 700;
+}
+/* Verbo de saída: legível, mas sem competir com o "Abrir ficha" logo abaixo —
+   quem encerra já sabe o que quer, quem está lendo a ficha não pode tropeçar
+   no botão que apaga o lead da carteira. */
+.vnd-lead-peek__finish-btn {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--hbx-danger) 30%, var(--border-hairline));
+  border-radius: var(--control-radius);
+  background: color-mix(in srgb, var(--hbx-danger) 8%, var(--hbx-surface));
+  color: color-mix(in srgb, var(--hbx-danger) 62%, var(--text-strong));
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--hbx-font-min);
+  font-weight: 800;
+  transition: background var(--motion-fast), border-color var(--motion-fast);
+}
+.vnd-lead-peek__finish-btn:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--hbx-danger) 52%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-danger) 16%, var(--hbx-surface));
+}
+.vnd-lead-peek__finish-btn:disabled { cursor: default; opacity: 0.55; }
+
 .vnd-lead-peek__footer {
   min-height: 53px;
   display: flex;

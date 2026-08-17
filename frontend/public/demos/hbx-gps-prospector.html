@@ -93,6 +93,13 @@
   --emp-nome:#f4f9ff; --emp-ponto:#b2ff43; --emp-ponto-brilho:rgba(178,255,67,.75);
   --emp-trilho:rgba(120,140,170,.35); --emp-barra:#b2ff43;
   --emp-guia:rgba(178,255,67,.5);
+  /* O DADO DENTRO DO BALÃO — CNPJ e telefone. O CNPJ é dado FRIO (o cadastro
+     que a Receita entrega): ele veste o cinza do vidro. O telefone é o que o
+     dono vai USAR, então é o único aí que ganha o azul de ação — mesma regra
+     de "verde/azul só significam uma coisa na tela". */
+  --emp-dado:#a9bcd6; --emp-dado-ico:rgba(133,163,204,.85);
+  --emp-selo-bg:rgba(120,150,190,.12); --emp-selo-fio:rgba(120,150,190,.24);
+  --emp-fone:#7eb4ff; --emp-fone-bg:rgba(61,139,255,.15); --emp-fone-fio:rgba(61,139,255,.32);
   --emp-radar:rgba(75,157,255,.55); --emp-linha-scan:rgba(85,180,255,.22);
 
   --cv-entra:cubic-bezier(.2,.8,.2,1); --cv-sai:cubic-bezier(.4,0,1,1);
@@ -136,6 +143,9 @@
   --emp-nome:#0d1726; --emp-ponto:#4f9310; --emp-ponto-brilho:rgba(79,147,16,.4);
   --emp-trilho:rgba(120,140,170,.3); --emp-barra:#4f9310;
   --emp-guia:rgba(79,147,16,.55);
+  --emp-dado:#54637a; --emp-dado-ico:rgba(84,99,122,.8);
+  --emp-selo-bg:rgba(84,99,122,.07); --emp-selo-fio:rgba(120,140,170,.28);
+  --emp-fone:#1f66e0; --emp-fone-bg:rgba(31,102,224,.09); --emp-fone-fio:rgba(31,102,224,.26);
   --emp-radar:rgba(31,102,224,.4); --emp-linha-scan:rgba(31,102,224,.14);
 }
 
@@ -312,6 +322,13 @@ body{background:#04070d;display:grid;place-items:center;
 .emp.no-ar{opacity:1}
 .emp.possivel{opacity:.5}
 .emp.passou{opacity:.62}
+/* 🔴 O BALÃO PASSA NA FRENTE DE QUALQUER PRÉDIO. Sem z-index quem decide é a
+   ordem do DOM: as empresas nascem em ordem de estação, então o prédio APAGADO
+   da empresa seguinte era desenhado por cima do rótulo da anterior — medido no
+   claro aos 7 s, um cubo cinza sentado em cima do CNPJ do "Auto Center
+   Avenida". Prédio é cenário, dado é a razão da cena: quem acendeu sobe.
+   (A briga de rótulo × rótulo continua sendo resolvida por `mudo`, não aqui.) */
+.emp.on{z-index:6}
 
 .emp-obj{position:absolute;left:-30px;top:-56px;width:60px;height:64px;
   transform:scale(var(--esc,1));transform-origin:50% 87.5%}
@@ -386,12 +403,38 @@ body{background:#04070d;display:grid;place-items:center;
 .emp.mudo .emp-rotulo{opacity:0 !important}
 .emp-guia{position:absolute;left:calc(50% - var(--rx,0px));bottom:-9px;width:1px;height:9px;
   background:var(--emp-guia)}
-.emp-chip-nome{display:flex;align-items:center;gap:7px;padding:5px 10px 6px;border-radius:9px;
+/* 🔴 O RÓTULO VIROU BALÃO (17/08, ordem do dono: "coloque CNPJ mock e telefone
+   mock, com balões e as cores do token — isso existe realmente").
+   Ele deixou de ser um chip de nome e passou a mostrar as TRÊS coisas que o
+   prospector de verdade entrega quando acende uma empresa: quem é, o CNPJ que
+   veio da Receita e o telefone pra ligar. Era exatamente a crítica: a cena
+   vendia "achei uma empresa" e escondia o que o produto acha de verdade.
+   Vira balão de fala (com BICO apontando pro prédio) e não chip flutuante,
+   porque o dado é DAQUELE prédio — o bico é quem diz isso sem legenda. */
+.emp-balao{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:6px 9px 7px;
+  border-radius:11px;
   background:var(--emp-chip-bg);border:.7px solid var(--emp-chip-fio);position:relative;overflow:hidden;
   backdrop-filter:blur(8px);box-shadow:0 4px 12px rgba(0,0,0,.3);white-space:nowrap}
-.app.claro .emp-chip-nome{box-shadow:0 4px 12px rgba(30,48,74,.14)}
-.emp-chip-nome .pt{width:6px;height:6px;border-radius:50%;flex:0 0 6px;background:var(--emp-ponto);
+.app.claro .emp-balao{box-shadow:0 4px 12px rgba(30,48,74,.14)}
+.emp-linha-nome{display:flex;align-items:center;gap:7px}
+.emp-balao .pt{width:6px;height:6px;border-radius:50%;flex:0 0 6px;background:var(--emp-ponto);
   box-shadow:0 0 8px var(--emp-ponto-brilho)}
+/* cada dado é um selo — o balão fala, os selos citam a fonte */
+.emp-dado{display:inline-flex;align-items:center;gap:4px;padding:1.5px 6px 2px;border-radius:6px;
+  font-size:10.5px;font-weight:500;letter-spacing:-.1px;color:var(--emp-dado);
+  background:var(--emp-selo-bg);border:.6px solid var(--emp-selo-fio)}
+.emp-dado svg{width:9px;height:9px;flex:0 0 9px;color:var(--emp-dado-ico)}
+/* tabular-nums: CNPJ e telefone são COLUNA de número. Fonte proporcional faz
+   o "1" ficar estreito e os selos dançarem de largura entre uma empresa e a
+   outra — em 15 balões o olho lê isso como tremida, não como dado. */
+.emp-dado b{font-weight:500;font-variant-numeric:tabular-nums}
+.emp-dado--fone{color:var(--emp-fone);background:var(--emp-fone-bg);border-color:var(--emp-fone-fio)}
+.emp-dado--fone svg{color:var(--emp-fone)}
+/* o BICO: quadrado girado 45°, ancorado no mesmo ponto do fio guia (e com o
+   mesmo empurrão invertido), senão o balão perto da borda aponta pro nada. */
+.emp-bico{position:absolute;left:calc(50% - var(--rx,0px));bottom:-3.5px;width:8px;height:8px;
+  margin-left:-4px;transform:rotate(45deg);background:var(--emp-chip-bg);
+  border-right:.7px solid var(--emp-chip-fio);border-bottom:.7px solid var(--emp-chip-fio)}
 .emp-nome{font-size:12.5px;font-weight:500;color:var(--emp-nome);overflow:hidden;
   display:inline-block;white-space:nowrap;letter-spacing:-.1px}
 /* o sublinhado enche MAIS DEVAGAR que a digitação: é ele que dá o ar de "o app
@@ -409,6 +452,21 @@ body{background:#04070d;display:grid;place-items:center;
 .emp.on .emp-nome{animation:empDigita calc(var(--n,1)*66ms) steps(var(--n,1),end) 40ms both}
 .emp.on .emp-rotulo{animation:empSurge 200ms ease both}
 .emp.on .emp-barra{animation:empSublinha 1.9s linear 180ms both}
+/* 🔴 A ORDEM É A DO PRODUTO: o app ACHA (nome digitando), ENRIQUECE (CNPJ da
+   Receita) e entrega o CONTATO (telefone) — nessa ordem, 120 ms e 220 ms.
+
+   ⚠️ POR QUE O ATRASO É FIXO E NÃO `calc(var(--n)*66ms)`. A primeira versão
+   esperava o nome TERMINAR de datilografar pra soltar os selos. Ficou bonito na
+   teoria e ERRADO na tela: o selo escondido continua OCUPANDO LUGAR (opacity
+   não tira do fluxo), então por até 1,5 s (nome de 23 letras) o balão ficava
+   aberto no tamanho final com dois buracos brancos embaixo do nome — medido no
+   retrato das 12 s, "Lanchonete Ponto Certo" era um balão vazio. Empurrar o
+   dado pra fora do fluxo (display/height) seria animar layout: pior. Atraso
+   curto e fixo resolve na raiz — a sequência continua legível, e o balão nunca
+   é visto vazio porque nesses 220 ms ele ainda está entrando (`empSurge`). */
+@keyframes empDado{from{opacity:0;transform:translateY(3px)}}
+.emp.on .emp-dado--cnpj{animation:empDado 240ms var(--cv-entra) 120ms both}
+.emp.on .emp-dado--fone{animation:empDado 240ms var(--cv-entra) 220ms both}
 .emp.passou .emp-rotulo{opacity:0}
 .emp.passou .emp-luz{animation:none;opacity:.4}
 
@@ -749,15 +807,40 @@ const CURVAS=ROTA.segs.filter(g=>g.t==='a').map(g=>({i0:g.i0,i1:g.i0+g.len,lado:
    sobram ~11 m limpos entre o meio-fio e a parede. Nem o prédio nem o nome
    tocam a pista, e a empresa continua sendo do quarteirão — não foi pro fundo
    do lote. */
+/* 🔴 CNPJ E TELEFONE DE VITRINE — COMO ESTES NÚMEROS FORAM ESCOLHIDOS (17/08).
+   Esta cena roda em página PÚBLICA (/ e /rota). Número inventado no olho tem
+   duas formas de dar errado, e as duas foram fechadas:
+
+   1) CNPJ — todos os 15 têm DÍGITO VERIFICADOR VÁLIDO (quem for conferir na
+      calculadora não pega o mock no colo), e NENHUM existe na base real da
+      Receita: os 15 foram consultados um a um contra `CnpjPublicCompany`
+      (28.458.554 empresas, prod, 17/08) e voltaram ZERO linhas. Formato certo,
+      dono nenhum. Na primeira rodada 7 de 15 batiam em empresa real — por isso
+      a consulta virou parte da receita, não capricho.
+      Trocar qualquer número daqui: refazer a consulta antes de publicar.
+
+   2) TELEFONE — todos em `(11) 95555-XXXX`. Celular no Brasil é 9 + [6-9], ou
+      seja `95555` NÃO É DISCÁVEL: ninguém recebe ligação por causa da vitrine.
+      Conferido também contra a base (`phoneDigits LIKE '1195555%'` = 0). O
+      truque é o mesmo do `555` do cinema americano: parece, mas não chama.
+
+   Ordem dos campos: estação na rota, lado da rua, recuo, nome, CNPJ, telefone. */
 const NOMES=[
-  [  95,-1,28,'Mercadinho Bela Vista'],[ 176, 1,29,'Auto Center Avenida'],
-  [ 262,-1,27,'Padaria Pão Nosso'],   [ 330, 1,28,'Pet Shop Amigo Fiel'],
-  [ 452,-1,26,'Lanchonete Ponto Certo'],[ 556, 1,27,'Drogaria Nova Vida'],
-  [ 648,-1,26,'Salão Beleza Real'],   [ 742, 1,27,'Academia Corpo & Ação'],
-  [ 838,-1,28,'Restaurante do Zé'],   [ 962, 1,28,'Materiais Ribeiro'],
-  [1048,-1,27,'Sorveteria Gelato'],   [1136, 1,28,'Contábil Souza'],
-  [1228,-1,27,'Oficina do Nardo'],    [1315, 1,28,'Empório Central'],
-  [1420,-1,26,'Distribuidora São Judas']
+  [  95,-1,28,'Mercadinho Bela Vista',  '93.013.396/0001-92','(11) 95555-0182'],
+  [ 176, 1,29,'Auto Center Avenida',    '68.043.498/0001-03','(11) 95555-0347'],
+  [ 262,-1,27,'Padaria Pão Nosso',      '96.129.528/0001-34','(11) 95555-0521'],
+  [ 330, 1,28,'Pet Shop Amigo Fiel',    '28.192.110/0001-11','(11) 95555-0669'],
+  [ 452,-1,26,'Lanchonete Ponto Certo', '25.593.400/0001-89','(11) 95555-0714'],
+  [ 556, 1,27,'Drogaria Nova Vida',     '26.423.525/0001-23','(11) 95555-0803'],
+  [ 648,-1,26,'Salão Beleza Real',      '21.439.185/0001-05','(11) 95555-0928'],
+  [ 742, 1,27,'Academia Corpo & Ação',  '84.317.256/0001-17','(11) 95555-1046'],
+  [ 838,-1,28,'Restaurante do Zé',      '10.545.085/0001-47','(11) 95555-1173'],
+  [ 962, 1,28,'Materiais Ribeiro',      '90.299.518/0001-60','(11) 95555-1284'],
+  [1048,-1,27,'Sorveteria Gelato',      '74.403.631/0001-98','(11) 95555-1359'],
+  [1136, 1,28,'Contábil Souza',         '10.970.443/0001-69','(11) 95555-1408'],
+  [1228,-1,27,'Oficina do Nardo',       '47.022.570/0001-46','(11) 95555-1522'],
+  [1315, 1,28,'Empório Central',        '40.253.014/0001-31','(11) 95555-1637'],
+  [1420,-1,26,'Distribuidora São Judas','75.622.379/0001-70','(11) 95555-1745']
 ];
 /* fora do corredor: existem, mas o app NÃO acende — é o corredor ficando
    visível por CONTRASTE, que é o que o prospector faz de verdade */
@@ -772,9 +855,9 @@ function fila(n,semente){
   for(let i=n-1;i>0;i--){r=(r*9301+49297)%233280;const j=Math.floor(r/233280*(i+1));[a[i],a[j]]=[a[j],a[i]];}
   return a;
 }
-const EMPRESAS=NOMES.map(([s,lado,off,nome],i)=>{
+const EMPRESAS=NOMES.map(([s,lado,off,nome,cnpj,fone],i)=>{
   const p=lateral(s,lado,off);
-  return {i,s,nome,x:p.x,y:p.y,ordem:fila(6,i+3),el:null,fase:0};
+  return {i,s,nome,cnpj,fone,x:p.x,y:p.y,ordem:fila(6,i+3),el:null,fase:0};
 });
 const POSSIVEIS=FORA.map(([s,lado,off])=>lateral(s,lado,off));
 
@@ -915,6 +998,13 @@ function svgPredio(ordem){
     <circle class="emp-pe" cx="0" cy="0" r="2.2"/>
   </svg>`;
 }
+/* Ícones dos selos do balão. `currentColor` de propósito: quem pinta é o token
+   do selo (--emp-dado-ico / --emp-fone), então o ícone segue a cor do dado sem
+   uma segunda régua de cor pra manter em dia. */
+const ICO_DADO={
+  cnpj:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M7 10h4M7 14.5h10"/></svg>',
+  fone:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 3h3l1.6 4-2.1 1.5a12.4 12.4 0 0 0 6.3 6.3L16.5 13l4 1.6v3a2 2 0 0 1-2.2 2A17.2 17.2 0 0 1 3.4 5.2A2 2 0 0 1 6.2 3Z"/></svg>'
+};
 function montarEmpresas(){
   const P=[];
   POSSIVEIS.forEach((p,i)=>P.push(`<div class="emp possivel" data-pos="${i}">
@@ -922,8 +1012,13 @@ function montarEmpresas(){
   EMPRESAS.forEach(e=>P.push(`<div class="emp" data-i="${e.i}" style="--n:${e.nome.length}">
     <span class="emp-obj">${svgPredio(e.ordem)}</span>
     <span class="emp-rotulo">
-      <span class="emp-chip-nome"><i class="pt"></i><b class="emp-nome">${e.nome}</b>
-        <span class="emp-trilho"><i class="emp-barra"></i></span></span>
+      <span class="emp-balao">
+        <span class="emp-linha-nome"><i class="pt"></i><b class="emp-nome">${e.nome}</b></span>
+        <span class="emp-dado emp-dado--cnpj">${ICO_DADO.cnpj}<b>${e.cnpj}</b></span>
+        <span class="emp-dado emp-dado--fone">${ICO_DADO.fone}<b>${e.fone}</b></span>
+        <span class="emp-trilho"><i class="emp-barra"></i></span>
+      </span>
+      <span class="emp-bico"></span>
       <span class="emp-guia"></span>
     </span></div>`));
   $('#camadaEmp').innerHTML=P.join('');
@@ -984,10 +1079,18 @@ function posicionarEmpresas(){
     e.el.style.setProperty('--py',t.y.toFixed(1)+'px');
     e.el.style.setProperty('--esc',esc.toFixed(3));
     if(e.fase===3){
-      const larg=40+e.nome.length*7.1, base=t.y-(56*esc+8);
+      /* 🔴 A CAIXA TEM QUE CRESCER COM O BALÃO. Ela é a MEDIDA do rótulo pra
+         briga de sobreposição — e continuou de 28 px de altura por um quadro
+         só depois que o rótulo virou 3 linhas: rótulo grande brigando com
+         caixa pequena = balão em cima de balão, que é justo o ruído que esta
+         briga existe pra evitar.
+         Largura: o piso de 156 px é o selo do CNPJ (18 dígitos em 10,5 px +
+         ícone + selo + respiro do balão), que é mais largo que a maioria dos
+         nomes. Altura: nome 16 + dois selos de 15 + gaps + padding ≈ 68. */
+      const larg=Math.max(40+e.nome.length*7.1,156), base=t.y-(56*esc+8);
       const meio=Math.max(larg/2+9,Math.min(W-larg/2-9,t.x));   // preso na tela
       e.el.style.setProperty('--rx',(meio-t.x).toFixed(1)+'px');
-      const cx={a:meio-larg/2-5,b:meio+larg/2+5,c:base-28,d:base+4};
+      const cx={a:meio-larg/2-5,b:meio+larg/2+5,c:base-68,d:base+4};
       const bate=caixas.some(o=>!(cx.b<o.a||cx.a>o.b||cx.d<o.c||cx.c>o.d));
       e.el.classList.toggle('mudo',bate);
       if(!bate) caixas.push(cx);

@@ -396,8 +396,19 @@ const GRID_COLUMNS: GridColumn[] = [
   { key: "source", label: "Origem", width: 130, text: c => c.primarySource || c.sourceType || "" },
   { key: "created", label: "Criado em", width: 110, mono: true, text: c => (c.createdAt ? new Date(c.createdAt).toLocaleDateString("pt-BR") : "") },
 ];
-const GRID_DEFAULT_KEYS = ["name", "segment", "city", "stage", "score", "next", "agenda", "engage", "value", "owner", "icons", "phone", "email", "note"];
-const GRID_COLS_STORAGE = "hbx:vendas-list-fields-v2";
+// O PADRÃO ENXUTO (17/08/2026 — ordem do dono). Eram 14 campos ligados de
+// fábrica: a lista nascia com 2224px de trilha numa tela de 1341, então ela já
+// abria rolada de lado e a coluna de ações ficava fora da vista. O padrão agora
+// é o que o vendedor lê para decidir ligar — empresa, segmento, engajamento, os
+// canais, telefone e e-mail. O resto continua inteiro no lado direito do
+// organizador, a um duplo clique de distância.
+const GRID_DEFAULT_KEYS = ["name", "segment", "engage", "icons", "phone", "email"];
+// A CHAVE SUBIU PARA v3 DE PROPÓSITO: quem já usou a tela tem os 14 antigos
+// gravados no navegador, e mudar só a constante não mexeria em UMA tela sequer
+// (o localStorage vence o padrão na montagem). Trocar a chave é o que faz o
+// padrão novo chegar. Largura de coluna não se perde — ela mora em outras
+// chaves (`hbx:medida:vendas-col-*`).
+const GRID_COLS_STORAGE = "hbx:vendas-list-fields-v3";
 const GRID_SORT_STORAGE = "hbx:vendas-list-sort-v2";
 const GRID_COLUMN_GROUPS = [
   { label: "Dados da empresa", keys: ["name", "icons", "phone", "city", "state", "segment", "email", "address", "cnpj", "razao"] },
@@ -847,22 +858,41 @@ export function VendasClient() {
     }
   }
 
-  // Negativar via popup "Sem Interesse" (3 motivos fixos, contrato com backend).
-  async function negativarLead(motivo: string) {
-    if (!sel?.id || !motivo || acaoBusy) return;
+  // Negativar: um caminho só para o popup "Sem Interesse" (3 motivos fixos,
+  // contrato com backend) e para o "Finalizar lead" da ficha, que manda motivo
+  // genérico + a observação escrita à mão. O `note` já era aceito pelo endpoint
+  // — quem não mandava era a tela.
+  //
+  // Devolve a mensagem de erro (ou null quando deu certo) porque os dois
+  // chamadores mostram a falha em lugares diferentes: o popup no próprio popup,
+  // a ficha dentro da caixa de finalizar.
+  async function negativarLead(motivo: string, nota?: string): Promise<string | null> {
+    // Sair calado aqui seria mentir para a ficha: ela limparia a caixa de
+    // observação como se tivesse encerrado o lead. Bloqueio tem que ter voz.
+    const alvo = sel?.id;
+    if (!alvo || !motivo) return "Selecione um lead antes de finalizar.";
+    if (acaoBusy) return "Espere a ação anterior terminar.";
     setAcaoBusy(true);
     setAcaoMsg(null);
     try {
-      await apiFetch<{ message?: string }>(`/vendas/lead/${encodeURIComponent(sel.id)}/negativar`, {
+      const observacao = String(nota || "").trim().slice(0, 280);
+      await apiFetch<{ message?: string }>(`/vendas/lead/${encodeURIComponent(alvo)}/negativar`, {
         method: "POST",
-        body: JSON.stringify({ status: motivo }),
+        body: JSON.stringify({ status: motivo, ...(observacao ? { note: observacao } : {}) }),
       });
       setSemInteresseOpen(false);
       setSemInteresseMotivo("");
       await loadBoard();
-      setSel(null);
+      // Solta a seleção SÓ se ela ainda for o lead que acabou de sair. Quem
+      // clicou em Finalizar e, enquanto carregava, foi olhar outro lead não
+      // pode ver a ficha do NOVO fechar sozinha na cara dele — a tela estaria
+      // roubando um clique que já era de outro assunto.
+      setSel(prev => (prev?.id === alvo ? null : prev));
+      return null;
     } catch (err) {
-      setAcaoMsg(err instanceof Error ? err.message : "Não foi possível negativar o lead.");
+      const msg = err instanceof Error ? err.message : "Não foi possível negativar o lead.";
+      setAcaoMsg(msg);
+      return msg;
     } finally {
       setAcaoBusy(false);
     }
@@ -1518,6 +1548,78 @@ export function VendasClient() {
     "72px",
   ].join(" ");
 
+  /**
+   * O TRILHO DE AÇÕES SEMPRE VISÍVEL (17/08/2026 — ordem do dono).
+   *
+   * O ⋯ e o → moram na ÚLTIMA trilha da grade, e a grade rola de lado. Com
+   * coluna suficiente escolhida, a lista abre já rolada e as duas ações ficam
+   * fora da tela: para agir num lead o vendedor tinha que rolar até o fim da
+   * planilha primeiro. Ação que existe mas não se alcança é ação que não existe.
+   *
+   * A saída óbvia — `position: sticky; right: 0` na célula — NÃO funciona aqui,
+   * e a razão é de especificação, não de navegador: o bloco continente de um
+   * item de grade é a ÁREA DE GRADE dele. A célula ocupa a área inteira (72px
+   * numa trilha de 72px), então o `sticky` não tem para onde se deslocar e vira
+   * enfeite. É o mesmo motivo pelo qual barra lateral pegajosa em grade só
+   * funciona com `align-self: start`.
+   *
+   * Então quem desloca é o TRANSFORM, que não mexe em layout nenhum: a trilha
+   * continua reservada no mesmo lugar e só o desenho anda. A conta é uma linha
+   * — o quanto ainda falta rolar até o fim — e ela vale para o cabeçalho e para
+   * todas as faixas de uma vez, porque a variável nasce no container. Com a
+   * grade inteira cabendo na tela a sobra é ZERO e nada se move: o efeito só
+   * existe enquanto existe rolagem, que é exatamente quando ele é necessário.
+   */
+  const gradeRef = useRef<HTMLDivElement | null>(null);
+  const medirTrilho = useCallback(() => {
+    const el = gradeRef.current;
+    if (!el) return;
+    const sobra = Math.max(0, Math.round(el.scrollWidth - el.clientWidth - el.scrollLeft));
+    el.style.setProperty("--vnd-trilho", `${sobra}px`);
+    // O selo é o que acende a borda e a sombra do trilho: encostado no fim da
+    // rolagem ele é uma coluna comum de novo, sem enfeite nenhum.
+    el.dataset.trilho = sobra > 0 ? "flutuando" : "encostado";
+  }, []);
+  /**
+   * QUEM AVISA QUE A CONTA MUDOU (corrigido 17/08 — a 1ª versão media de menos).
+   *
+   * A primeira versão escutava `window.resize` e as dependências de render.
+   * Medido depois, isso deixava passar os três gestos mais comuns da tela, e
+   * todos os três deixavam o trilho com número velho — parado no MEIO da
+   * tabela, com borda de flutuante por cima da coluna do vizinho, ou já fora da
+   * vista pela direita, que é exatamente o defeito que ele nasceu para matar:
+   *
+   *  1. a ALÇA DA FICHA escreve `--context-width` direto no DOM do pai
+   *     (divisoria.tsx: "a largura não é estado do React", e é de propósito) —
+   *     a lista encolhe 255px sem um render sequer;
+   *  2. o PINO DA BARRA LATERAL troca a 1ª coluna da casca de 200px para 56px
+   *     (`data-rail`, kit.css) — 144px entrando e saindo sem `resize` de janela;
+   *  3. arrastar a LARGURA DE UMA COLUNA QUE MEDE não muda a string da trilha,
+   *     porque para ela a string diz `max-content` — o número real mora no
+   *     `min-width` do cabeçalho. Mesma armadilha quando o dado cresce sozinho:
+   *     o lead recebe telefone no enriquecimento e a coluna estica sem que a
+   *     contagem de leads mude.
+   *
+   * Encolher também não gera `scroll`: com menos espaço o `scrollLeft` atual
+   * continua válido e o navegador não tem o que reposicionar.
+   *
+   * O `ResizeObserver` mede o fato em vez de adivinhar o gesto, e são DOIS
+   * elementos porque são duas contas: a GRADE dá o quanto cabe (`clientWidth`)
+   * e o CABEÇALHO — que atravessa todas as trilhas — dá o quanto o conteúdo
+   * pede (`scrollWidth`). Zoom do navegador e a régua de tipografia entram de
+   * graça, e nenhum dos dois emite `resize` também.
+   */
+  useEffect(() => {
+    const el = gradeRef.current;
+    if (!el) return;
+    medirTrilho();
+    const observador = new ResizeObserver(() => medirTrilho());
+    observador.observe(el);
+    const cabecalho = el.querySelector(".vnd-sales-head");
+    if (cabecalho) observador.observe(cabecalho);
+    return () => observador.disconnect();
+  }, [medirTrilho, view, board]);
+
   const arrastoDeColunaRef = useRef<{ key: string; inicial: number } | null>(null);
   const arrastoDeColuna = useArrastar({
     eixo: "x",
@@ -1656,7 +1758,21 @@ export function VendasClient() {
                       moverCampo(key, e.key === "ArrowUp" ? -1 : 1);
                     }}
                   >⠿</span><b className="vnd-colrow__num">{String(i + 1).padStart(2, "0")}</b><span className="vnd-colrow__name">{col.label}</span>
-                  <button type="button" className="vnd-colrow__remove" onClick={() => removeDraftColumn(key)} aria-label={`Remover ${col.label}`}>✕</button>
+                  {/* O ✕ QUE NÃO REMOVIA (17/08/2026).
+                      O gesto de arrasto mora na LINHA inteira, e ele chama
+                      `setPointerCapture` no `pointerdown`. A partir da captura
+                      TODO evento de ponteiro é entregue à linha — inclusive o
+                      `pointerup`. E o `click` nasce no ancestral comum entre
+                      quem recebeu o down e quem recebeu o up: com a captura,
+                      os dois viraram a LINHA, então o clique nunca chegava ao
+                      botão e o `onClick` daqui jamais rodava. Nada aparecia no
+                      console; o dono via um ✕ que simplesmente não removia.
+                      Barrar o `pointerdown` aqui faz o arrasto nem começar
+                      quando a mão mira o ✕ — o resto da linha continua
+                      arrastável. */}
+                  <button type="button" className="vnd-colrow__remove"
+                    onPointerDown={e => e.stopPropagation()}
+                    onClick={() => removeDraftColumn(key)} aria-label={`Remover ${col.label}`}>✕</button>
                 </div>;
               })}
               {columnDraft.length === 0 && <span className="vnd-colspick__empty">Arraste campos para cá</span>}
@@ -1900,7 +2016,8 @@ export function VendasClient() {
                     </div>
                   )}
 
-                  <div className="vnd-sales-grade" style={{ "--vnd-grade-cols": trilhaDaGrade } as React.CSSProperties}>
+                  <div className="vnd-sales-grade" ref={gradeRef} onScroll={medirTrilho}
+                    style={{ "--vnd-grade-cols": trilhaDaGrade } as React.CSSProperties}>
                   <div className="vnd-sales-head" role="row">
                     <span className="vnd-sales-check">
                       <input type="checkbox" checked={todosSelecionados} onChange={toggleTodos}
@@ -1941,7 +2058,9 @@ export function VendasClient() {
                         />
                       </span>
                     ))}
-                    <span aria-hidden="true" />
+                    {/* A ponta do trilho no cabeçalho: sem ela, a coluna de
+                        ações andaria por cima de um vão vazio lá em cima. */}
+                    <span className="vnd-sales-rail" aria-hidden="true" />
                   </div>
 
                   <div className="vnd-sales-list" role="listbox" data-tut="vendas-funil" aria-label="Leads do funil">
@@ -2076,7 +2195,7 @@ export function VendasClient() {
                             return <span key={col.key} className="vnd-sales-td" data-col={col.key}>{miolo}</span>;
                           })}
 
-                          <span className="vnd-sales-row__actions" onClick={event => event.stopPropagation()}>
+                          <span className="vnd-sales-row__actions vnd-sales-rail" onClick={event => event.stopPropagation()}>
                             <button type="button" aria-label="Ações do lead" title="Ações"
                               onClick={event => { setSel(card); setRowMenu({ id: card.id, x: event.clientX, y: event.clientY }); }}>⋯</button>
                             <button type="button" aria-label="Abrir ficha completa" title="Abrir ficha completa"
@@ -2241,6 +2360,21 @@ export function VendasClient() {
                       setAcaoMsg(null);
                       setRetornoOpen(true);
                     }}
+                    /* FINALIZAR DAQUI (17/08/2026 — ordem do dono): "tentei 2x,
+                       cliente não respondeu" tinha que virar menu de contexto →
+                       popup → escolher um dos 3 motivos fixos, e nenhum deles
+                       dizia isso. Agora a ficha escreve o que aconteceu e
+                       encerra no mesmo lugar.
+
+                       O motivo canônico é `unsatisfactory` de propósito: na
+                       matriz de disposição (radar-disposition-rules.ts) ele é o
+                       LEVE — some da carteira de quem finalizou e nunca mais
+                       volta pra esta empresa, e continua limpo na lagoa pras
+                       outras. É o "finaliza como negativo e não volta pra
+                       empresa" que o dono pediu, sem queimar o card no Brasil
+                       inteiro (isso é `voicemail`, e é escolha consciente do
+                       popup Sem Interesse). */
+                    onFinalize={nota => negativarLead("unsatisfactory", nota)}
                   />
                 </div>{/* /content (Meu funil) */}
             </div>{/* /vnd-layer funil */}

@@ -596,6 +596,17 @@ button,input{font:inherit;color:inherit}
    Uma animação de opacidade, no compositor, os 420 ms da fase 1 inteira. */
 .tela.cena.cheio{animation:mvCenaEnche var(--cena-escurece) var(--cv-cena) both!important}
 @keyframes mvCenaEnche{from{opacity:0}to{opacity:1}}
+/* 🔴 E O QUE APARECE POR TRÁS DO PALCO TAMBÉM É CHÃO DE MAPA (17/08, medido no
+   g15 a 30 quadros/s: UM quadro de azul-marinho no começo da fase 2). A causa é
+   legítima e continua existindo — o palco ACENDE de zero (`mvMapaAcende`, 200 ms)
+   no mesmo instante em que o véu abre o buraco do clarão —, só que atrás dele
+   moravam o gradiente do `.tela` e o `--fog` do `.gps`/`.plano`: o azul da casca
+   de novo, agora por um piscar. Durante a fila inteira as três camadas vestem o
+   MESMO chão, e aí não existe buraco possível: o que estiver por baixo de
+   qualquer coisa é a cor do mapa. */
+:root[data-cena] .tela.cena.cheio,
+:root[data-cena] .tela.cena.cheio .gps,
+:root[data-cena] .tela.cena.cheio .plano{background:var(--map-chao,var(--map-fundo))}
 /* 🔴 E A CAMADA QUE SAI FICA PARADA DURANTE A FILA (mesma ordem: *"está travando
    no celular, pq tem muita coisa acontecendo ao mesmo tempo"*). Quem saía rodava
    `mvCheioSai` — escala .9 + `filter:brightness(.4)` na tela CHEIA por 520 ms —
@@ -791,7 +802,19 @@ button,input{font:inherit;color:inherit}
    troca, nunca no mesmo instante. */
 .tela.entra.modo-troca .gps-bussola{animation:mvPop var(--mv-folha) var(--cv-mola) var(--troca-espera) both}
 .tela.sai.modo-troca .gps-bussola{animation:trApaga var(--troca-recolhe) var(--cv-sai) both}
-.tela.entra.modo-troca .gps-puck{animation:mvPuck .34s var(--cv-mola) var(--troca-espera) both}
+/* 🔴 `backwards`, NUNCA `both`, E A SETA INTEIRA DEPENDE DISSO (17/08). Animação
+   vence estilo INLINE na cascata — e com `forwards` ela continua vencendo depois
+   de terminada, congelando o `transform:none` do último quadro. A marca `entra`
+   fica na camada pra sempre (lei desta folha), então esse congelamento durava o
+   resto da vida da tela: TODO `transform` que a ponte escrevesse no ponteiro era
+   silenciosamente ignorado. Foi o que segurou a seta pregada no vidro depois da
+   primeira troca de modo — medido no g15: a ponte mandando `translate(-106px,
+   -193px)` e o retângulo da peça parado no mesmo pixel.
+   `backwards` mantém a única metade que interessa (segurar o quadro inicial
+   durante o atraso) e devolve a propriedade à cascata no fim — que é onde a
+   ponte escreve. O `to` do keyframe já é o estado natural da peça: não há nada
+   pra "manter" depois. */
+.tela.entra.modo-troca .gps-puck{animation:mvPuck .34s var(--cv-mola) var(--troca-espera) backwards}
 /* 🔴 O BOTÃO DO MEIO TRANSMUXA (item 3). É a ÚNICA peça do rodapé que muda de
    trabalho entre os modos (Direção ⇄ Panorâmica), então é a única que anima
    dentro de um painel que, no resto, é o mesmo. O ícone gira e cresce; o rótulo
@@ -949,7 +972,10 @@ button,input{font:inherit;color:inherit}
    E na fase 1 ele nem existe: sem esta linha ele ficaria parado por cima da cor
    (z-index 19 contra os 18 do véu), estragando a única coisa que a fase 1 tem. */
 :root[data-cena="escurece"] .tela.cena.cheio .gps-puck{opacity:0}
-:root[data-cena="ruas"] .tela.cena.cheio .gps-puck{animation:mvPuck .44s var(--cv-mola) .06s both}
+/* (`backwards` pelo mesmo motivo da irmã da troca de modo, § lá em cima: com
+   `forwards` o `transform:none` do último quadro fica congelado por cima do
+   inline e a ponte perde o ponteiro pro resto da vida da tela.) */
+:root[data-cena="ruas"] .tela.cena.cheio .gps-puck{animation:mvPuck .44s var(--cv-mola) .06s backwards}
 @keyframes mvPuck{from{opacity:0;transform:scale(.28)}to{opacity:1;transform:none}}
 :root[data-cena="ruas"] .tela.cena.cheio .gps-puck::after{animation:mvPouso .54s var(--cv-sai) .16s both}
 @keyframes mvPouso{from{opacity:.8;transform:scale(.1)}}
@@ -2348,6 +2374,11 @@ button,input{font:inherit;color:inherit}
    não existe (opacidade 0) — é peça de cena, não de tela. */
 .gps-puck::after{content:"";position:absolute;left:-90px;top:-90px;width:180px;height:180px;
   border-radius:50%;border:1.5px solid var(--puck-anel);opacity:0;pointer-events:none}
+/* 🔴 O PULSO DA BORDA NASCEU E MORREU NO MESMO DIA (17/08). Ele foi pedido
+   ("ela pulsa quando tem ação, movimento") e o dono o reprovou VENDO na tela:
+   *"remover a borda pulsando apenas, ficou feio"*. Fica o registro pra ninguém
+   propor de novo: o anel continua sendo peça de CENA (o pouso), e a tela de
+   dirigir não ganha enfeite em laço. */
 /* O facho é um CONE recortado, não um gradiente cônico: o `conic-gradient`
    pintava um retângulo azul na frente da seta (visível no claro, horrível).
    Recorte em polígono garante a forma; o gradiente só dá a queda de luz.
@@ -2370,15 +2401,19 @@ button,input{font:inherit;color:inherit}
    ponte projeta o ponto de verdade e escreve em `--px/--py`, exatamente como
    já faz com os prédios do prospector. Mesma peça, mesmo facho, mesmo anel —
    muda só quem decide onde ela mora. */
-/* 🔴 O `bottom:auto` É OBRIGATÓRIO, e o padrão do `--py` tem que ser o MESMO
-   lugar de onde a seta saiu (11/08). Solta, quem manda é `top`; deixar o
-   `bottom` da regra de cima de pé seria dois donos na mesma peça. E o padrão do
-   `--py` vale por um quadro de verdade — `marcarSolta` liga a classe ANTES de a
-   ponte projetar o ponto —, então um número velho aqui faz a seta PULAR toda
-   vez que o dedo encosta no mapa: defeito de um quadro, que não reproduz em
-   foto. Ele é derivado da âncora, nunca digitado de novo. */
-.gps.solta .gps-puck{left:var(--px,50%);
-  top:var(--py,calc(100% - var(--gps-piso) - var(--gps-puck-sobe) - 22.5px));bottom:auto}
+/* 🔴 E ISTO VALE AGORA NAS DUAS FASES — a seta é peça do MAPA sempre (17/08,
+   dono: *"a seta muitas vezes fica deslocada e encaixa depois; fixar na ponta do
+   caminho, igual GPS funciona"*). Seguindo o motorista ela também sai do vidro:
+   a câmera leva 900 ms pra chegar no ponto novo e, pregada na tela, a seta só
+   reencontrava a ponta do traço no fim da animação.
+   🔴 O `left/top` COM `--px/--py` MORREU, e a troca é o que faz a coisa parar de
+   pé: quem move a seta agora é um `transform: translate()` escrito pela ponte
+   (§ `puckNaRua`). O motivo é a CÂMERA — ela mira na âncora medindo o `bottom`
+   COMPUTADO desta regra (§ `ancoraDoPuck`), e `bottom:auto` apagava justamente o
+   número que ela lê; com `top`, a seta que a câmera moveu viraria a âncora da
+   câmera. `transform` não mexe em estilo computado: a âncora fica firme no
+   desenho e a peça viaja por cima dela. O `.solta` continua existindo como
+   ESTADO (o dedo pegou o mapa) — só não é mais ele quem posiciona. */
 
 /* 🔴 O CARTÃO CRESCEU 15% (11/08 — dono: *"400m a direita tá ok, pode aumentar
    um pouco, av 25, depois continue na rua 2 (ilegível dirigindo) — aumente um
@@ -8091,7 +8126,14 @@ const CENA_DA_CAMADA='mvCenaEnche';
 const FILA=['escurece','ruas','descida','pronto'];
 /* a tabela do contrato, usada só quando a casca é a guia (mock sem ponte):
    420 de véu + o que as ruas levam (1,06 s medido + folga) + os 420 do cromo. */
-const CENA_TETO={escurece:420,ruas:1200,descida:1900,pronto:420};
+/* 🔴 `pronto` 420 → 1100 (17/08). A última fase deixou de ser um gesto só: o
+   cromo entra em FILA (rodapé 0→380, topo 380→760, redondas 760→1040, § a regra
+   de `[data-cena="pronto"]`), porque o dono cobrou *"dê um tempo de um transition
+   acabar para entrar em outro"*. Este número é o que mantém a marca na raiz até o
+   último gesto fechar — fechando aos 420 o topo e as redondas eram ARRANCADAS no
+   meio (medido no g15: `plano-topo` em 0 e `gps-vel` em 0 no quadro do fecho, as
+   duas pulando pro valor final). Os 60 ms de sobra são o padrão da casa. */
+const CENA_TETO={escurece:420,ruas:1200,descida:1900,pronto:1100};
 /* 🔴 7 s É PRAZO DE SILÊNCIO, NÃO DURAÇÃO DE CENA — e o número tem que ser MAIOR
    que o pior teto da ponte, senão o socorro da casca vira o caminho normal (a lei
    que o próprio `50-cena-ruas.js` escreve no `FASE_TETO`). O pior deles é o da

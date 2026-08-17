@@ -589,20 +589,46 @@
      fase; a guarda existe pra ela não voltar torta no `voltarASeguir`. */
   const ANCORA_MIN = 0.3;
   const ANCORA_MAX = 0.99;
-  const ancoraDoPuck = (mapa) => {
+  /* 🔴 A ÂNCORA SAI DO DESENHO, NUNCA DO RETÂNGULO NA TELA (17/08). O retângulo
+     era leitura honesta enquanto a seta era peça de TELA e ficava parada; agora
+     ela é peça do MAPA e se move a cada quadro (§ `puckNaRua`) — medir o
+     retângulo seria a câmera perseguindo a seta que a própria câmera moveu, e a
+     realimentação não tem fundo.
+     `bottom` e `left` COMPUTADOS são o mesmo `--gps-piso + --gps-puck-sobe` que a
+     folha escreve, resolvidos em pixel pelo navegador: continua sendo MEDIR o
+     desenho (nenhum número copiado aqui), só que o valor não anda com o gesto.
+     A translação não os altera — `transform` não mexe em estilo computado —, e é
+     exatamente por isso que a seta se move POR TRANSLATE e não por `top/left`. */
+  function ancoraNaTela(puck, mapa) {
     try {
       const caixa = mapa && mapa.getContainer && mapa.getContainer();
-      const puck = naCamada('.gps-puck');
-      if (!caixa || !puck) return NAV_ANCORA;
-      const gps = puck.closest('.gps');
-      if (gps && gps.classList.contains('solta')) return NAV_ANCORA;
+      const pai = puck && puck.offsetParent;
+      if (!caixa || !pai) return null;
       const rc = caixa.getBoundingClientRect();
-      if (!rc.height) return NAV_ANCORA;
-      const f = (puck.getBoundingClientRect().top - rc.top) / rc.height;
-      // fora da faixa = o puck não está onde deveria (tela trocando, palco
-      // estacionado off-screen): o número de reserva erra menos que ele.
-      return (f > ANCORA_MIN && f < ANCORA_MAX) ? f : NAV_ANCORA;
-    } catch (_) { return NAV_ANCORA; }
+      const rp = pai.getBoundingClientRect();
+      if (!rc.height || !rp.height) return null;
+      const cs = getComputedStyle(puck);
+      const de = parseFloat(cs.bottom);
+      const esq = parseFloat(cs.left);
+      if (!Number.isFinite(de) || !Number.isFinite(esq)) return null;
+      /* 🔴 DUAS CAIXAS, NÃO UMA — e confundi-las custa 63 px (17/08, medido no
+         g15 na tela SEM tela cheia). `left/bottom` do puck são do PAI dele (o
+         `.gps`); a projeção do mapa é do CONTÊINER do maplibre. Em tela cheia os
+         dois coincidem e a conta curta passava; com as abas embaixo, o `.gps`
+         acaba onde a barra começa e o palco não — a seta ficava 63 px acima da
+         ponta do traço, parada, o dia inteiro. Converte-se pela viewport, que é
+         a régua que as duas caixas dividem. */
+      const y = (rp.bottom - de) - rc.top;
+      return { x: (rp.left + esq) - rc.left, y, alto: rc.height };
+    } catch (_) { return null; }
+  }
+  const ancoraDoPuck = (mapa) => {
+    const alvo = ancoraNaTela(naCamada('.gps-puck'), mapa);
+    if (!alvo || !alvo.alto) return NAV_ANCORA;
+    const f = alvo.y / alvo.alto;
+    // fora da faixa = o puck não está onde deveria (tela trocando, palco
+    // estacionado off-screen): o número de reserva erra menos que ele.
+    return (f > ANCORA_MIN && f < ANCORA_MAX) ? f : NAV_ANCORA;
   };
 
   /** o encaixe do puck é o mesmo nas três fases — por isso mora sozinho aqui */
@@ -911,38 +937,60 @@
   function marcarSolta(solta) {
     const gps = naCamada('.gps');
     if (gps) gps.classList.toggle('solta', !!solta);
-    if (!solta) {
-      const puck = naCamada('.gps-puck');
-      if (puck) {
-        puck.style.removeProperty('--px');
-        puck.style.removeProperty('--py');
-        puck.style.removeProperty('transform');
-      }
-    }
   }
-  function sincronizarPuckSolto(ligado) {
-    if (!ligado) return;
+
+  /* ---- A SETA MORA NA RUA, NÃO NO VIDRO (17/08) ---------------------------
+     Dono, com três fotos do ponteiro fora do traço: *"a seta muitas vezes fica
+     deslocada e encaixa (depois encaixa perfeitamente) — fixar na ponta do
+     caminho, igual GPS funciona"*.
+
+     🔴 A CAUSA É DE RELÓGIO, e ela é uma só: a fita é aparada no ponto PRESO na
+     rua a cada fix (§ `tracoDaVez`, que já projeta na linha desde 08/08), mas a
+     câmera leva 900 ms de `easeTo` pra chegar lá. Enquanto ela viaja, o traço já
+     está desenhado no lugar novo e a seta — pregada no vidro, numa posição de
+     TELA — ainda não. Os dois só se encontram quando a animação termina: é o
+     "encaixa depois" das fotos, uma vez por segundo, o dia inteiro.
+
+     Todo GPS do mercado resolve do mesmo jeito, e é literalmente o que ele
+     pediu: o ponteiro é peça do MAPA. Projetado a cada quadro, ele fica grudado
+     na ponta do traço durante a viagem inteira da câmera — o que "encaixa" passa
+     a ser a moldura, que é justamente o que ninguém enxerga.
+
+     🔴 E NADA NASCEU AQUI: é o mesmo sincronizador do dedo no mapa (08/08), que
+     já projetava o ponto a cada quadro. Ele ganhou duas coisas — um CHAMADOR na
+     fase de seguir (não só na solta) e um jeito de se mover que não briga com a
+     câmera: TRANSLATE, e não `top/left`, senão `ancoraDoPuck` mediria a seta que
+     a câmera acabou de mover (ver a nota lá em cima). */
+  function puckNaRua() {
     const mapa = mapaDaNavegacao();
     const puck = naCamada('.gps-puck');
     if (!mapa || !puck) return;
     const eu = posicaoDaTela();
     if (!eu) return;
-    // a marca vive na camada VIVA, e o repinte troca a camada: reafirmar aqui
-    // (e não só no toque) é o que mantém a seta no chão depois de um repinte.
-    const gps = puck.closest('.gps');
-    if (gps && !gps.classList.contains('solta')) gps.classList.add('solta');
     let ponto;
     try { ponto = mapa.project([eu.lng, eu.lat]); } catch (_) { return; }
-    puck.style.setProperty('--px', `${ponto.x.toFixed(1)}px`);
-    puck.style.setProperty('--py', `${ponto.y.toFixed(1)}px`);
-    /* 🔴 O RUMO AGORA É RELATIVO À TELA. Seguindo, a câmera gira junto com o
-       motorista e a seta aponta pra cima sempre; solta, o mapa ficou parado no
-       rumo que estava — então o bico tem que compensar a diferença, senão ele
-       aponta pro norte da tela em vez da rua dele. */
+    const alvo = ancoraNaTela(puck, mapa);
+    if (!alvo) return;
+    /* 🔴 O RUMO É RELATIVO À TELA. Seguindo, a câmera gira junto com o motorista
+       e a diferença é ~zero (a seta aponta pra cima, como sempre); solta, o mapa
+       ficou parado no rumo que estava — então o bico compensa, senão ele aponta
+       pro norte da tela em vez da rua dele. É a mesma conta nas duas fases. */
     const rumo = rumoDaTela();
     let bussola = 0;
     try { bussola = mapa.getBearing() || 0; } catch (_) { bussola = 0; }
-    if (rumo != null) puck.style.transform = `rotate(${(rumo - bussola).toFixed(1)}deg)`;
+    const giro = rumo != null ? ` rotate(${(rumo - bussola).toFixed(1)}deg)` : '';
+    puck.style.transform =
+      `translate(${(ponto.x - alvo.x).toFixed(1)}px,${(ponto.y - alvo.y).toFixed(1)}px)${giro}`;
+  }
+  // o nome antigo continua valendo pra quem chamava com bandeira (o dedo no mapa)
+  function sincronizarPuckSolto(ligado) {
+    if (!ligado) return;
+    const puck = naCamada('.gps-puck');
+    // a marca vive na camada VIVA, e o repinte troca a camada: reafirmar aqui
+    // (e não só no toque) é o que mantém o estado depois de um repinte.
+    const gps = puck && puck.closest('.gps');
+    if (gps && !gps.classList.contains('solta')) gps.classList.add('solta');
+    puckNaRua();
   }
 
   /** o dedo pegou o mapa: a câmera cala a boca até ele desistir ou pedir volta */
@@ -978,6 +1026,13 @@
     if (navRota && navRota.geometria) {
       if (mapa.getSource(TRACO)) desenharTraco(mapa); else pintarTraco();
     }
+    /* 🔴 A SETA ANDA JUNTO COM O TRAÇO, no MESMO tique (§ `puckNaRua`). Os
+       quadros da viagem da câmera são cobertos pelo `move` do mapa; este
+       chamador aqui é o do fix que NÃO mexe na câmera — carro parado no farol
+       (`mesmaPose` corta o `easeTo`) e o quadro seguinte a um repinte, que nasce
+       com a seta na âncora do desenho. Sem ele, a seta ficaria um segundo fora
+       da rua justamente quando nada se move. */
+    puckNaRua();
     // durante a descida a câmera tem dono: o `easeTo` de 2,4 s
     if (camFase === 'descendo') return;
     // 🔴 E COM O DEDO NA TELA O DONO É ELE. Este `return` é o conserto do

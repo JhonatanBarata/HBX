@@ -454,12 +454,20 @@
         quadroArmado = false;
         posicionarEmpresas();
         pinosVisiveis(nova);
-        if (camFase === 'solta') sincronizarPuckSolto(true);
       });
     };
     mapa.on('move', acompanharCamera);
     mapa.on('zoom', acompanharCamera);
     mapa.on('resize', acompanharCamera);
     mapa.on('load', acompanharCamera);
+    /* 🔴 A SETA NÃO ESPERA O rAF, E ESTA É A ÚNICA EXCEÇÃO À REGRA DE CIMA
+       (17/08). O `acompanharCamera` coalesce porque o que mora nele é O(n) — 51
+       pinos e as empresas do corredor. O ponteiro é UMA projeção: um multiplicar
+       de matriz, o mesmo custo de ler o zoom. E ele é a peça que o dono está
+       olhando: MEDIDO no g15, dentro do rAF ela ficava 145 px atrás no primeiro
+       quadro do `easeTo` (a câmera arranca rápido, curva de saída) — o "encaixa
+       depois" voltando pela janela em escala menor. Fora do rAF: 0 px em 25 de 25
+       amostras. Ver `puckNaRua`, em 70-traco-camera. */
+    mapa.on('move', () => puckNaRua());
   }
 
