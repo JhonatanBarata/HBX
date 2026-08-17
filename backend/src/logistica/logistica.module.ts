@@ -73,6 +73,8 @@ import { LogisticaPlanosPublicoController } from './logistica-planos-publico.con
 import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
 import { LogisticaEstoqueService } from './logistica-estoque.service';
 import { LogisticaTutorialService } from './logistica-tutorial.service';
+// VASILHAME (17/08) — casco emprestado por cliente.
+import { LogisticaVasilhameService } from './logistica-vasilhame.service';
 // BUSCA DA PARADA AVULSA (12/08, PR12082026-PESQUISA-PAINEL-AVULSA F1):
 // `GET /logistica/busca` — 3 fontes locais (clientes fuzzy, CNEFE, RFB), zero
 // Nominatim no digitar. Arquivos novos, dono próprio (mesmo precedente F3 de
@@ -273,6 +275,8 @@ import { LogisticaRotaContinuidadeService } from './logistica-rota-continuidade.
     LogisticaTutorialService,
     LogisticaBuscaService,
     LogisticaRotaContinuidadeService,
+    // VASILHAME (17/08) — casco emprestado por cliente (garrafão/botijão/engradado).
+    LogisticaVasilhameService,
   ],
   exports: [
     LogisticaService,

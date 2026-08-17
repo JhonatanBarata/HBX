@@ -4129,6 +4129,15 @@ html, body { height: 100%; }
 .cli-ext__badge--paid { color: var(--hbx-ok, var(--hbx-brand-strong)); border-color: color-mix(in srgb, var(--hbx-ok, var(--hbx-brand)) 40%, transparent); background: color-mix(in srgb, var(--hbx-ok, var(--hbx-brand)) 12%, transparent); }
 .cli-ext__badge--pending { color: var(--hbx-danger, var(--text-body)); border-color: color-mix(in srgb, var(--hbx-danger, var(--text-muted)) 34%, transparent); background: color-mix(in srgb, var(--hbx-danger, var(--text-muted)) 10%, transparent); }
 
+/* VASILHAME (17/08) — casco emprestado por cliente. Reusa a linha do extrato
+   (.cli-ext__row/__main/__side) e só acrescenta o total do bloco e o par de
+   ações por linha; nenhuma cor, borda ou fonte nova — tudo em token. */
+.cli-vas__total { font-size: var(--fz-l3); font-weight: 800; color: var(--text-strong); }
+.cli-vas__acoes { display: flex; align-items: center; gap: 6px; }
+.cli-vas__qtd { width: 56px; text-align: center; padding: 4px 6px; }
+.cli-vas__row-off .cli-ext__desc,
+.cli-vas__row-off .cli-ext__amount { color: var(--text-muted); }
+
 /* ══════════════════════════════════════════════════════════════════════════
    LOGÍSTICA-MOBILE M9 — "Instalar o app de entrega" (painel do admin).
    Card com o QR (canvas, gerado no cliente) + link copiável do /entrega.

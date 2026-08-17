@@ -377,3 +377,70 @@ test('importProductsForUser bloqueia preço sem products.changePrice', async () 
   const ok = await service.importProductsForUser(user, [{ name: 'Serviço' }]);
   assert.equal(ok.imported, 1);
 });
+
+// ── VASILHAME (17/08) — casco só existe COM preço ────────────────────────────
+// Sem valor, o saldo do cliente vira contagem e a soma do patrimônio na tela
+// nasce envenenada com zero. Por isso flag e preço nascem juntos.
+
+test('createProductForUser recusa vasilhame ligado sem valor do casco', async () => {
+  const { service, user } = buildHarness({
+    access: { 'products.edit': true, 'products.changePrice': true },
+  });
+  await assert.rejects(
+    () => service.createProductForUser(user, { name: 'Galão 20L', possuiVasilhame: true }),
+    (error: any) => error?.status === 400,
+  );
+  await assert.rejects(
+    () => service.createProductForUser(user, { name: 'Galão 20L', possuiVasilhame: true, vasilhamePrecoCents: 0 }),
+    (error: any) => error?.status === 400,
+  );
+});
+
+test('createProductForUser grava vasilhame com valor e mantém desligado por padrão', async () => {
+  const { service, user } = buildHarness({
+    access: { 'products.edit': true, 'products.changePrice': true },
+  });
+
+  const comCasco = await service.createProductForUser(user, {
+    name: 'Galão 20L',
+    priceCents: 1200,
+    possuiVasilhame: true,
+    vasilhamePrecoCents: 3500,
+  });
+  assert.equal(comCasco.possuiVasilhame, true);
+  assert.equal(comCasco.vasilhamePrecoCents, 3500);
+
+  const semCasco = await service.createProductForUser(user, { name: 'Água 500ml', priceCents: 300 });
+  assert.equal(semCasco.possuiVasilhame, false, 'padrão é DESLIGADO');
+  assert.equal(semCasco.vasilhamePrecoCents, null);
+});
+
+test('updateProductForUser mede o ESTADO FINAL do vasilhame, não só o corpo do PATCH', async () => {
+  const { service, user } = buildHarness({
+    access: { 'products.edit': true, 'products.changePrice': true },
+    products: [
+      {
+        id: 1,
+        companyId: 1,
+        name: 'Galão 20L',
+        price: 12,
+        priceCents: 1200,
+        status: 'active',
+        sortOrder: 0,
+        stock: 0,
+        possuiVasilhame: false,
+        vasilhamePrecoCents: 3500,
+      },
+    ],
+  });
+
+  // Ligar a flag sozinha VALE: o produto já tem preço de casco gravado.
+  const ligado = await service.updateProductForUser(user, 1, { possuiVasilhame: true });
+  assert.equal(ligado.possuiVasilhame, true);
+
+  // Zerar o preço de um produto que empresta casco é o mesmo erro pelo avesso.
+  await assert.rejects(
+    () => service.updateProductForUser(user, 1, { vasilhamePrecoCents: 0 }),
+    (error: any) => error?.status === 400,
+  );
+});

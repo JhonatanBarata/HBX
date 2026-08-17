@@ -84,6 +84,10 @@ type Produto = {
   price: number | null;
   priceCents: number | null;
   usaLogistica: boolean;
+  // VASILHAME (17/08) — o casco que vai emprestado e volta (garrafão, botijão,
+  // engradado). Desligado por padrão: quem não trabalha com casco não vê o campo.
+  possuiVasilhame: boolean;
+  vasilhamePrecoCents: number | null;
   description: string | null;
   sku: string | null;
 };
@@ -115,6 +119,13 @@ function ProdutoModal({
     return typeof v === "number" ? String(v).replace(".", ",") : "";
   });
   const [usaLogistica, setUsaLogistica] = useState(edit?.usaLogistica ?? false);
+  // VASILHAME (17/08) — flag + valor de UM casco. O valor vive em centavos no
+  // banco e como texto "35,00" aqui, igual ao preço de venda logo acima.
+  const [possuiVasilhame, setPossuiVasilhame] = useState(edit?.possuiVasilhame ?? false);
+  const [vasilhamePreco, setVasilhamePreco] = useState(() => {
+    const cents = edit?.vasilhamePrecoCents;
+    return typeof cents === "number" && cents > 0 ? String(cents / 100).replace(".", ",") : "";
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -130,6 +141,16 @@ function ProdutoModal({
       setError("Preço inválido.");
       return;
     }
+    // VASILHAME — casco só existe COM valor: sem preço, "o cliente está com 6
+    // garrafões" é contagem, e a soma do patrimônio na rua nasce zerada. O
+    // backend recusa igual; barrar aqui evita a viagem só pra tomar 400.
+    const vasilhameCents = vasilhamePreco.trim()
+      ? Math.round(Number(vasilhamePreco.replace(/\./g, "").replace(",", ".")) * 100)
+      : 0;
+    if (possuiVasilhame && !(Number.isFinite(vasilhameCents) && vasilhameCents > 0)) {
+      setError("Informe quanto vale o vasilhame (maior que zero).");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -138,6 +159,10 @@ function ProdutoModal({
         unidade: unidade.trim() || undefined,
         price: precoNum,
         usaLogistica,
+        possuiVasilhame,
+        // Desligar o casco limpa o valor: campo escondido guardando número velho
+        // é a origem de "mas eu tinha tirado isso" na próxima edição.
+        vasilhamePrecoCents: possuiVasilhame ? vasilhameCents : null,
       };
       if (edit) {
         await apiFetch(`/products/${edit.id}`, { method: "PATCH", body: JSON.stringify(body) });
@@ -206,6 +231,36 @@ function ProdutoModal({
           <span className="prod-toggle__note">
             Marque para itens que o cliente recebe fisicamente. Serviços e planos ficam desmarcados.
           </span>
+
+          {/* VASILHAME (17/08) — casco emprestado. Some inteiro quando desligado. */}
+          <label className="prod-toggle">
+            <input
+              type="checkbox"
+              checked={possuiVasilhame}
+              onChange={(e) => setPossuiVasilhame(e.target.checked)}
+            />
+            <span>Possui vasilhame (garrafão, botijão, engradado que volta)</span>
+          </label>
+          {possuiVasilhame ? (
+            <div className="f">
+              <label htmlFor="prod-vasilhame-preco">Valor do vasilhame (R$) *</label>
+              <input
+                id="prod-vasilhame-preco"
+                className="field-dark"
+                placeholder="0,00"
+                inputMode="decimal"
+                value={vasilhamePreco}
+                onChange={(e) => setVasilhamePreco(e.target.value)}
+              />
+              <span className="prod-toggle__note">
+                Quanto custa UM casco. É o valor que soma o patrimônio que está na casa dos clientes.
+              </span>
+            </div>
+          ) : (
+            <span className="prod-toggle__note">
+              Marque para controlar quantos vazios cada cliente está com você.
+            </span>
+          )}
 
           {error && <p className="hint ctt-form__err">{error}</p>}
         </div>
@@ -460,6 +515,14 @@ export function ProdutosClient() {
       </HbxContextMetrics>
       <HbxContextFacts>
         <HbxContextFact label="Situação" value={selected.status === "archived" ? "Inativo" : "Ativo"} />
+        <HbxContextFact
+          label="Vasilhame"
+          value={
+            selected.possuiVasilhame
+              ? `Sim — ${fmtPrice(null, selected.vasilhamePrecoCents)} cada`
+              : "Não trabalha com casco"
+          }
+        />
         <HbxContextFact label="Unidade" value={selected.unidade || "Não definida"} />
         <HbxContextFact label="SKU" value={selected.sku || "Não informado"} />
         <HbxContextFact label="Descrição" value={selected.description || "Não informada"} />

@@ -104,6 +104,18 @@ export class UpdateProductDto {
   @IsBoolean()
   usaLogistica?: boolean;
 
+  // VASILHAME (17/08) — produto que empresta casco (garrafão, botijão, engradado).
+  @IsOptional()
+  @IsBoolean()
+  possuiVasilhame?: boolean;
+
+  // Valor de UM casco, em centavos. Obrigatório quando possuiVasilhame = true.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  vasilhamePrecoCents?: number;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()

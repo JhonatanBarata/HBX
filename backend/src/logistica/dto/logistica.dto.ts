@@ -201,10 +201,25 @@ export class ConfirmarEntregaItemDto {
   @MaxLength(60)
   id!: string;
 
+  // VASILHAME onda 2 (17/08) — OPCIONAL desde que a folha ganhou o campo de
+  // vazios. O item pode vir só pra dizer quanto casco voltou, sem tocar em
+  // quantidade nenhuma; e item sem `qtdEntregue` NÃO entra na conta do valor da
+  // entrega (ver `itensValidos`/`mexeuNoDinheiro` em logistica.service.ts).
+  // Todo APK anterior continua mandando o campo — nada quebra por ele sumir.
+  @IsOptional()
   @IsInt()
   @Min(0)
   @Max(9999)
-  qtdEntregue!: number;
+  qtdEntregue?: number;
+
+  // VASILHAME onda 2 (17/08) — quantos VAZIOS o entregador recolheu neste item.
+  // AUSENTE ≠ 0: ausente é "a folha não falou de casco" (APK velho, produto sem
+  // vasilhame) e não move saldo nenhum; 0 é "conferi, não voltou nada" e MOVE.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(9999)
+  vasilhameRetornado?: number;
 
   // PREÇO DE HOJE (22/07, pedido do dono: "clicou em cima do valor, altera —
   // MAS É O VALOR ATUAL: se ontem vendeu por 10 e hoje é 50, vai ficar 60").
@@ -231,6 +246,14 @@ export class ConfirmarNovoItemDto {
   @Min(0)
   @Max(9999)
   qtdEntregue!: number;
+
+  // VASILHAME onda 2 (17/08) — produto com casco incluído NA porta também deixa
+  // vazio pra trás. Mesma regra do item planejado: ausente não move saldo.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(9999)
+  vasilhameRetornado?: number;
 
   // Mesma abertura do ConfirmarEntregaItemDto.valorUnit (preço de HOJE, escopo
   // de UMA entrega). Ausente = preço de catálogo, como sempre foi.
@@ -1485,4 +1508,30 @@ export class FinalizarDiaDto {
   @Min(1)
   @Max(7)
   dia!: number;
+}
+
+// ── VASILHAME / CASCO (17/08) ────────────────────────────────────────────────
+// O SINAL NÃO VEM NO NÚMERO: `qtd` é sempre positivo e quem decide se soma ou
+// subtrai é o `tipo`. Deixar a tela mandar negativo é a cicatriz da manobra
+// fantasma do APK (número sem sinal combinado entre as duas pontas).
+export class MoverVasilhameDto {
+  @IsString()
+  @MaxLength(60)
+  customerProfileId!: string;
+
+  @IsInt()
+  productId!: number;
+
+  @IsIn(['INJECAO', 'DEVOLUCAO', 'AJUSTE', 'PERDA'])
+  tipo!: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(9999)
+  qtd!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  motivo?: string;
 }

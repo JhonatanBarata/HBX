@@ -306,6 +306,9 @@ model Company {
   prospectorSemanas            LogisticaProspectorSemana[]
   entregaComprovantes          EntregaComprovante[]
   clienteProdutos              ClienteProduto[]
+  // VASILHAME (17/08) — casco emprestado por cliente + extrato que move o saldo.
+  vasilhameSaldos              VasilhameSaldo[]
+  vasilhameMovimentos          VasilhameMovimento[]
   logisticaRoutes              LogisticaRoute[]
   logisticaRouteStops          LogisticaRouteStop[]
   // PR18072026 W1 — roteiros salvos (rota-modelo) da empresa.
@@ -1176,6 +1179,12 @@ model CustomerProfile {
   financeiroCharges          FinanceiroCharge[]
   recoveryDebtItems          RecoveryDebtItem[]
   conversations              CompanyConversation[]
+  // VASILHAME (17/08) — quantos cascos desta CONTA estão na mão do cliente.
+  // Saldo mora na conta, não no vínculo ClienteProduto: o mesmo produto pode ter
+  // N vínculos no mesmo cliente (ver nota do @@unique removido em ClienteProduto),
+  // e dois vínculos contariam o mesmo garrafão duas vezes.
+  vasilhameSaldos            VasilhameSaldo[]
+  vasilhameMovimentos        VasilhameMovimento[]
 
   @@unique([companyId, phoneNormalized])
   @@unique([id, companyId])
@@ -2022,6 +2031,70 @@ model ClienteProduto {
   @@index([companyId, productId])
 }
 
+// ── VASILHAME / CASCO (17/08/2026) ───────────────────────────────────────────
+// Distribuidora de água, gás e bebida empresta embalagem: o garrafão, o botijão,
+// o engradado. Cada casco custa R$25–40, some na casa do cliente e ninguém sabe
+// quanto tem na rua. Duas tabelas resolvem: uma guarda QUANTO cada cliente está
+// com você (saldo), a outra guarda POR QUE (extrato).
+//
+// Por que o saldo mora na CONTA (CustomerProfile) e não no vínculo ClienteProduto:
+// o @@unique de ClienteProduto foi removido de propósito (ver nota acima) porque o
+// mesmo produto pode ter 2 vínculos no mesmo cliente — galão na segunda, outro na
+// sexta. Saldo por vínculo contaria o MESMO garrafão duas vezes e o patrimônio na
+// tela viraria ficção.
+model VasilhameSaldo {
+  id                String          @id @default(cuid())
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId         Int
+  customerProfile   CustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
+  customerProfileId String
+  product           Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId         Int
+  /// Quantos cascos deste produto estão com este cliente AGORA. Nunca negativo —
+  /// saldo negativo é sempre erro de digitação, e erro de digitação não pode virar
+  /// patrimônio inventado na soma da tela.
+  qtd               Int             @default(0)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([companyId, customerProfileId, productId])
+  @@index([companyId, customerProfileId])
+  @@index([companyId, productId])
+}
+
+// EXTRATO append-only. Existe porque saldo sem história é briga sem prova: o
+// cliente jura que devolveu, o entregador jura que não, e sem linha do tempo o
+// dono perde a discussão e o casco. É uma tabela e um insert — barato agora,
+// impossível de reconstruir depois.
+model VasilhameMovimento {
+  id                String          @id @default(cuid())
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId         Int
+  customerProfile   CustomerProfile @relation(fields: [customerProfileId], references: [id], onDelete: Cascade)
+  customerProfileId String
+  product           Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productId         Int
+  /// INJECAO (saiu casco pro cliente) | DEVOLUCAO (voltou) | AJUSTE (contagem/
+  /// correção) | PERDA (quebrou/sumiu — sai do saldo e vira cobrança um dia).
+  tipo              String          @db.VarChar(16)
+  /// Assinado: positivo quando o cliente FICA com mais casco, negativo quando devolve.
+  qtd               Int
+  /// Foto do saldo depois deste movimento — auditar o extrato sem re-somar tudo.
+  saldoDepois       Int
+  motivo            String?         @db.VarChar(240)
+  /// Quem fez. Escalar solto, SEM relation, de propósito: apagar um funcionário não
+  /// pode apagar (nem anular em cascata) o histórico patrimonial da empresa.
+  userId            Int?
+  /// ONDA 2 — quando a entrega passar a mover o saldo sozinha, o movimento aponta
+  /// pra entrega que o gerou. Null em todo movimento feito pela mão no cadastro.
+  entregaId         String?
+  createdAt         DateTime        @default(now())
+
+  @@index([companyId, customerProfileId, createdAt])
+  @@index([companyId, productId, createdAt])
+  @@index([companyId, entregaId])
+}
+
 // MULTILOCAL (10/07, docs/PLANEJAMENTOS/MULTILOCAL-10072026/CONTRATOS.md) — 1 CONTA
 // (CustomerProfile) pode receber em N endereços, cobrada 1 vez só. A cobrança segue da
 // CONTA (FinanceiroCharge.customerProfileId); multi-local é só ONDE se entrega — NADA de
@@ -2079,6 +2152,13 @@ model EntregaItem {
   qtdPrevista Int      @default(1)
   qtdEntregue Int?
   valorUnit   Float    @default(0)
+  /// VASILHAME onda 2 (17/08) — quantos VAZIOS o entregador recolheu neste item.
+  /// `null` e `0` NÃO são a mesma coisa: null é "a folha nunca falou de casco"
+  /// (entrega legada, produto sem vasilhame, APK velho) e 0 é "conferi e não
+  /// voltou nenhum" — que MOVE o saldo (entregou 2, voltou 0 = +2 na casa do
+  /// cliente). Confundir os dois faria toda entrega antiga injetar casco
+  /// retroativo no primeiro deploy.
+  vasilhameRetornado Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -5402,6 +5482,14 @@ model Product {
   // Colunas ADITIVAS — default preserva o comportamento legado (planos/checkout).
   unidade                    String?
   usaLogistica               Boolean                     @default(false)
+  // VASILHAME (17/08) — item que vai emprestado junto com o produto e VOLTA
+  // (garrafão 20L, botijão de gás, engradado). Desligado por padrão: quem não
+  // trabalha com casco não vê nada mudar em tela nenhuma. `vasilhamePrecoCents`
+  // é o valor de UM casco — serve pra somar o patrimônio que está na rua e pra
+  // cobrar quebra/perda. Um preço só, de propósito: caução/multa/aluguel
+  // separados seriam três campos pra responder a mesma pergunta.
+  possuiVasilhame            Boolean                     @default(false)
+  vasilhamePrecoCents        Int?
   company                    Company?                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId                  Int?
   categoryRef                Category?                   @relation(fields: [categoryId], references: [id])
@@ -5427,6 +5515,9 @@ model Product {
   recoveryDebtItemProducts   RecoveryDebtItemProduct[]
   // F2 (27/07, PR27072026-ROTA-3-NIVEIS) — itens do estoque de carga do caminhão.
   logisticaCargaDiaItens     LogisticaCargaDiaItem[]
+  // VASILHAME (17/08) — saldo de casco por cliente e o extrato que o move.
+  vasilhameSaldos            VasilhameSaldo[]
+  vasilhameMovimentos        VasilhameMovimento[]
 
   @@unique([id, companyId])
   @@index([companyId, status, sortOrder])

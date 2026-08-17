@@ -139,7 +139,14 @@
         // Entregador comum não recebe — e aí a linha diz só "previsto 2", sem
         // "R$ 0,00 cada", que seria um "não sei" com cara de preço.
         const preco = typeof it.valorUnit === 'number' ? ` · ${dinheiro(it.valorUnit)} cada` : '';
-        return ['box', esc(prod.nome), `previsto ${it.qtdPrevista}${preco}`, String(qtd == null ? '' : qtd)];
+        // VASILHAME onda 2 (17/08) — os dois slots do fim: quantos vazios estão
+        // contados e o id do item (o − e o + da linha do casco precisam dele).
+        // `slotVazios` devolve '' pra produto sem casco, e aí a linha nem nasce.
+        // Ver `C7-vasilhame-vazios.js`.
+        return [
+          'box', esc(prod.nome), `previsto ${it.qtdPrevista}${preco}`, String(qtd == null ? '' : qtd),
+          slotVazios(it), String(it.id || ''),
+        ];
       }),
       anterior: anterior != null ? dinheiro(anterior) : '',
       hoje: hojeVal != null ? dinheiro(hojeVal) : '',
@@ -217,6 +224,9 @@
     const c = reg.item.cliente || {};
     forma = String(reg.item.receiptMethod || c.metodoPadrao || '');
     motivo = '';
+    // VASILHAME onda 2 — a contagem de vazios é DESTA porta. Sobrar o "2" da
+    // parada anterior daria casco ao cliente errado (mesma lei do `motivo`).
+    zerarVazios();
     const simples = !financeiroAtivo || cobrancaSimples;
     if (simples) { encherVenda(reg.item, reg.n); window.ir('venda'); }
     else { encherFolha(reg.item, reg.n); window.ir('folha'); }
@@ -517,6 +527,13 @@
       if (!idem) { idem = window.HBX.uuid(); window.HBX.cache.set(chave, idem); }
       const corpo = { idempotencyKey: idem, arrivedAt: carimbarChegada(aberta.id) };
       if (escolhido) corpo.receiptMethod = escolhido;
+      /* VASILHAME onda 2 (17/08) — os vazios recolhidos pegam carona no MESMO
+         desfecho, pela mesma razão do carimbo de chegada logo acima: a folha
+         tem que fechar sem rede, e o desfecho já é idempotente e já drena da
+         fila offline. Só item com casco entra, e sem quantidade nenhuma junto
+         — contar vazio não pode reprecificar a entrega (ver C7). */
+      const vazios = itensDoDesfecho(aberta.item);
+      if (vazios.length) corpo.itens = vazios;
       /* O GPS da confirmação é o que realimenta o cadastro do cliente — vai
          quando existe, e a falta dele NUNCA barra a entrega.
 

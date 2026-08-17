@@ -1213,6 +1213,47 @@
 .log-saude__stats .is-warn { color: var(--hbx-warning); }
 .log-saude__stats .is-danger { color: var(--hbx-danger); }
 
+/* VASILHAME onda 2 (17/08) — os três números do "Patrimônio na rua".
+   Mesma família visual do .log-saude__stats logo acima (número grande em cima,
+   rótulo miúdo embaixo), em fileira porque aqui são poucos e é o cartaz da
+   tela. Tudo em token: nenhuma cor, borda ou tamanho solto (5 Leis). */
+.log-vas__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.log-vas__stat {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md, 12px);
+  background: var(--hbx-surface-soft);
+}
+
+.log-vas__stat b {
+  font-size: var(--fz-t5);
+  font-weight: 700;
+  color: var(--text-strong);
+  line-height: 1.15;
+}
+
+.log-vas__stat small {
+  font-size: var(--fz-l1);
+  color: var(--text-muted);
+}
+
+/* O dinheiro é o número que vende o módulo — e é o único que ganha cor. */
+.log-vas__stat--dinheiro b { color: var(--hbx-success); }
+
+.log-vas__nota {
+  margin-top: 8px;
+  font-size: var(--fz-l1);
+  color: var(--text-muted);
+}
+
 /* Filtro por semáforo — Lei nº2 do Design System: grupo de chips com 1 ativo
    por vez usa Glass Pill; a track/tab aqui é a MESMA receita visual de
    .log-agenda-action-tabs (existente), só com 4 colunas em vez de 2. */

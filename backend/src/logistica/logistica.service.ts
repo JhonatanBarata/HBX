@@ -41,6 +41,8 @@ import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.uti
 // F3 (27/07) — {eta} no aviso de chegada (minutos até chegar, do etaAt).
 import { formatEtaMinutos } from './logistica-tracking-public.util';
 import { lockLogisticaRouteTransaction } from './logistica-route-lock';
+// VASILHAME onda 2 (17/08) — a entrega confirmada move o casco sozinha.
+import { LogisticaVasilhameService } from './logistica-vasilhame.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -106,6 +108,11 @@ export class LogisticaService {
     // fechamento CONCILIA). Gate estoqueAtivo + dedup por entrega+produto moram
     // DENTRO do serviço. @Optional() (ausente nos testes = no-op).
     @Optional() private readonly fiscalEstoque?: EstoqueService,
+    // VASILHAME onda 2 (17/08) — o casco que ficou na casa do cliente. Gate
+    // (produto com vasilhame), idempotência por entrega+produto e a recusa de
+    // saldo negativo moram DENTRO do serviço. @Optional() (ausente nos testes
+    // legados = no-op). Sem ciclo: o vasilhame não injeta LogisticaService.
+    @Optional() private readonly vasilhame?: LogisticaVasilhameService,
   ) {}
 
   /**
@@ -285,7 +292,9 @@ export class LogisticaService {
           },
         },
         contato: { select: { id: true, nome: true, whatsapp: true, phone: true } },
-        product: { select: { id: true, name: true, unidade: true } },
+        // `possuiVasilhame` (onda 2, 17/08) é o que faz o campo "vazios
+        // recolhidos" existir na folha de chegada — só pra produto com casco.
+        product: { select: { id: true, name: true, unidade: true, possuiVasilhame: true } },
         // M4 — itens previstos por entrega (multi-produto do M2). O stepper da folha
         // de chegada vem pré-preenchido com qtdPrevista de cada item.
         itens: {
@@ -298,7 +307,10 @@ export class LogisticaService {
             // fora do billingAudience. A saída pro billingAudience (valorUnit cru
             // por item) continua gateada abaixo — só o SELECT abriu.
             valorUnit: true,
-            product: { select: { id: true, name: true, unidade: true } },
+            // Onda 2 — o que JÁ foi recolhido neste item: reabrir a parada tem
+            // que mostrar o número que o motorista digitou, não um zero novo.
+            vasilhameRetornado: true,
+            product: { select: { id: true, name: true, unidade: true, possuiVasilhame: true } },
           },
         },
       },
@@ -689,7 +701,14 @@ export class LogisticaService {
         contato: r.contato
           ? { id: r.contato.id, nome: r.contato.nome, whatsapp: r.contato.whatsapp ?? null, phone: r.contato.phone ?? null }
           : null,
-        produto: r.product ? { id: r.product.id, nome: r.product.name, unidade: r.product.unidade ?? null } : null,
+        produto: r.product
+          ? {
+              id: r.product.id,
+              nome: r.product.name,
+              unidade: r.product.unidade ?? null,
+              possuiVasilhame: !!r.product.possuiVasilhame,
+            }
+          : null,
         // M4 — itens previstos (multi-produto). Fallback p/ o produto/qtd legado da
         // Entrega quando ainda não há EntregaItem (entregas antigas do N6).
         itens:
@@ -699,8 +718,15 @@ export class LogisticaService {
                 qtdPrevista: it.qtdPrevista,
                 qtdEntregue: it.qtdEntregue ?? null,
                 ...(billingAudience ? { valorUnit: it.valorUnit ?? 0 } : {}),
+                // Onda 2 — null = ninguém falou de casco nesta entrega ainda.
+                vasilhameRetornado: it.vasilhameRetornado ?? null,
                 produto: it.product
-                  ? { id: it.product.id, nome: it.product.name, unidade: it.product.unidade ?? null }
+                  ? {
+                      id: it.product.id,
+                      nome: it.product.name,
+                      unidade: it.product.unidade ?? null,
+                      possuiVasilhame: !!it.product.possuiVasilhame,
+                    }
                   : null,
               }))
             : r.product
@@ -719,7 +745,20 @@ export class LogisticaService {
                     ...(billingAudience
                       ? { valorUnit: r.quantidade > 0 ? round2(Number(r.valor || 0) / r.quantidade) : 0 }
                       : {}),
-                    produto: { id: r.product.id, nome: r.product.name, unidade: r.product.unidade ?? null },
+                    vasilhameRetornado: null,
+                    produto: {
+                      id: r.product.id,
+                      nome: r.product.name,
+                      unidade: r.product.unidade ?? null,
+                      // 🔴 SEMPRE false NESTE RAMO, mesmo com o casco ligado no
+                      // catálogo (onda 2, 17/08). Este item é SINTÉTICO: a entrega
+                      // legada não tem EntregaItem nenhum, e o `id` acima é o da
+                      // ENTREGA. Um campo de vazios aqui aceitaria o número do
+                      // motorista e o `updateMany` do confirmar não acharia linha
+                      // pra gravar — o pior tipo de campo, o que parece ter
+                      // funcionado. Entrega nova sempre nasce com item.
+                      possuiVasilhame: false,
+                    },
                   },
                 ]
               : [],
@@ -995,17 +1034,37 @@ export class LogisticaService {
     const reabertaParaCorrecao = !jaEntregue && entrega.deliveredAt != null;
     // `preco` = preço de HOJE editado na chegada (22/07). Só entra quando veio
     // número finito >= 0; undefined = mantém o valorUnit que já está no item.
+    // 🔴 VASILHAME onda 2 (17/08) — UM ITEM PODE VIR SÓ PELO CASCO. Até aqui o
+    // filtro exigia `qtdEntregue` finito, e item sem quantidade era descartado
+    // INTEIRO. A folha nova manda os vazios recolhidos de um item cuja
+    // quantidade ninguém mexeu — e esse item precisa entrar. O que NÃO muda: só
+    // quantidade e preço mexem em DINHEIRO (ver `mexeuNoDinheiro` abaixo); casco
+    // sozinho nunca recalcula o valor da entrega.
     const itensValidos = Array.isArray(gps.itens)
       ? gps.itens
-          .map((it) => ({ id: String(it?.id || '').trim(), qtd: Number(it?.qtdEntregue), preco: precoEditado((it as any)?.valorUnit) }))
-          .filter((it) => it.id && Number.isFinite(it.qtd))
+          .map((it) => ({
+            id: String(it?.id || '').trim(),
+            qtd: Number(it?.qtdEntregue),
+            preco: precoEditado((it as any)?.valorUnit),
+            vazios: vaziosRecolhidos((it as any)?.vasilhameRetornado),
+          }))
+          .filter((it) => it.id && (Number.isFinite(it.qtd) || it.preco !== undefined || it.vazios !== undefined))
       : [];
+    // Só quantidade e preço são dinheiro. Casco é patrimônio, e patrimônio não
+    // reprecifica entrega: sem esta separação, tocar no stepper de vazios
+    // reescreveria `Entrega.valor` pela soma dos itens.
+    const mexeuNoDinheiro = itensValidos.some((it) => Number.isFinite(it.qtd) || it.preco !== undefined);
     // F2 — produtos NOVOS a criar (qtd<=0 é no-op: nada a adicionar). productId
     // precisa ser um inteiro positivo; o resto (existência/empresa) é resolvido
     // DENTRO da tx (company-scoped — regra de ouro do preço vem junto).
     const novosItensValidos = Array.isArray(gps.novosItens)
       ? gps.novosItens
-          .map((it) => ({ productId: Math.trunc(Number(it?.productId)), qtd: Number(it?.qtdEntregue), preco: precoEditado((it as any)?.valorUnit) }))
+          .map((it) => ({
+            productId: Math.trunc(Number(it?.productId)),
+            qtd: Number(it?.qtdEntregue),
+            preco: precoEditado((it as any)?.valorUnit),
+            vazios: vaziosRecolhidos((it as any)?.vasilhameRetornado),
+          }))
           .filter((it) => Number.isInteger(it.productId) && it.productId > 0 && Number.isFinite(it.qtd) && it.qtd > 0)
       : [];
     // M8 — grava a idempotencyKey (unique) JUNTO com o status/GPS. Só grava se ainda
@@ -1098,11 +1157,18 @@ export class LogisticaService {
           await tx.entregaItem.updateMany({
             where: { id: it.id, entregaId: entrega.id },
             data: {
-              qtdEntregue: Math.max(0, Math.trunc(it.qtd)),
+              // Item que veio SÓ pelo casco não mexe na quantidade (onda 2): sem
+              // este guarda, `Math.trunc(NaN)` zeraria o que o motorista entregou.
+              ...(Number.isFinite(it.qtd) ? { qtdEntregue: Math.max(0, Math.trunc(it.qtd)) } : {}),
               // Preço de HOJE (22/07): escopo de UMA entrega, dentro da mesma tx da
               // quantidade. Não existe caminho daqui pro catálogo nem pro preço
               // acordado do cliente — o passado não é reescrito.
               ...(it.preco !== undefined ? { valorUnit: it.preco } : {}),
+              // VASILHAME onda 2 — os vazios recolhidos ficam gravados NO ITEM, na
+              // mesma transação do desfecho. Quem move o saldo é o serviço de
+              // vasilhame depois do commit (best-effort), lendo daqui: o número da
+              // porta não pode depender de um efeito externo ter dado certo.
+              ...(it.vazios !== undefined ? { vasilhameRetornado: it.vazios } : {}),
             },
           });
         }
@@ -1140,6 +1206,8 @@ export class LogisticaService {
                 // Preço editado na chegada vence o catálogo — SÓ neste item desta
                 // entrega (22/07). Sem edição, segue a regra de ouro de sempre.
                 valorUnit: novo.preco !== undefined ? novo.preco : Math.max(0, precoCatalogo),
+                // VASILHAME onda 2 — produto incluído NA porta também deixa casco.
+                ...(novo.vazios !== undefined ? { vasilhameRetornado: novo.vazios } : {}),
               },
             });
             itensNovosCriados += 1;
@@ -1152,7 +1220,12 @@ export class LogisticaService {
         // ou ignora o produto que acabou de entrar. Só recalcula quando o payload
         // TROUXE itens/novoItem e há item com preço; entrega legada intocada (sem
         // EntregaItem/sem valorUnit) mantém o valor escalar de sempre.
-        if (!jaEntregue && (itensValidos.length > 0 || itensNovosCriados > 0)) {
+        // 🔴 `mexeuNoDinheiro` no lugar de `itensValidos.length` (onda 2, 17/08):
+        // a folha nova manda item só com os vazios recolhidos, e casco NÃO
+        // reprecifica entrega. Com a régua velha, recolher um galão vazio faria
+        // `Entrega.valor` ser reescrito pela soma dos itens — mexendo no que o
+        // cliente paga por causa de um número que não é dinheiro.
+        if (!jaEntregue && (mexeuNoDinheiro || itensNovosCriados > 0)) {
           // F2 — só importa quando um item NOVO entrou (é a única situação em que a
           // contagem de ANTES difere de AGORA): decide se a soma dos itens SUBSTITUI
           // o valor (já havia EntregaItem — comportamento F1 clássico) ou se SOMA ao
@@ -1327,6 +1400,25 @@ export class LogisticaService {
       await this.fiscalEstoque.baixaPorEntrega(companyId, entrega.id).catch((e: any) => {
         this.logger.warn(`[logistica] baixa de estoque entrega=${entrega.id} falhou: ${String(e?.message || e)}`);
       });
+    }
+
+    // VASILHAME onda 2 (17/08) — o casco anda sozinho: saldo += entregue −
+    // recolhido, por produto com vasilhame. MESMO contrato da baixa de estoque
+    // acima: best-effort (patrimônio nunca derruba operação de rua) e seguro na
+    // reconfirmação, porque o dedup por (entrega, produto) vive DENTRO do
+    // serviço — ele move o DELTA, não repete o movimento. Item sem o campo de
+    // vazios (APK velho) não move nada: ausente ≠ zero.
+    if (this.vasilhame) {
+      await this.vasilhame
+        .moverPorEntrega(companyId, entrega.id, actorIdOrNull(actor))
+        .then((r) => {
+          for (const aviso of r.avisos) {
+            this.logger.warn(`[logistica] vasilhame entrega=${entrega.id} company=${companyId}: ${aviso}`);
+          }
+        })
+        .catch((e: any) => {
+          this.logger.warn(`[logistica] vasilhame entrega=${entrega.id} falhou: ${String(e?.message || e)}`);
+        });
     }
 
     // HISTÓRICO DO CLIENTE (22/07) — a linha que o entregador mostra na porta.
@@ -3769,6 +3861,22 @@ function precoEditado(v: unknown): number | undefined {
   return round2(n);
 }
 
+/**
+ * VASILHAME onda 2 (17/08) — vazios recolhidos neste item da folha de chegada.
+ *
+ * 🔴 AUSENTE NÃO É ZERO, e é a linha inteira da onda: `undefined` é "a folha não
+ * falou de casco" (APK velho, produto sem vasilhame) e não move saldo nenhum;
+ * `0` é "o entregador conferiu e não voltou nada" e MOVE (entregou 2, voltou 0 =
+ * +2 na casa do cliente). Por isso a peneira devolve `undefined` — e nunca 0 —
+ * pra lixo: um `Number('abc')` virando zero injetaria casco que ninguém contou.
+ */
+function vaziosRecolhidos(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  const n = Math.trunc(Number(v));
+  if (!Number.isFinite(n) || n < 0 || n > 9999) return undefined;
+  return n;
+}
+
 // W2 — limite de página do histórico: default quando ausente/inválido, teto duro.
 function clampLimit(v: number | undefined, def: number, max: number): number {
   const n = Math.trunc(Number(v));
@@ -3914,6 +4022,9 @@ export interface RotaProduto {
   id: number;
   nome: string;
   unidade: string | null;
+  // VASILHAME onda 2 (17/08) — é ele que faz o campo "vazios recolhidos" nascer
+  // na folha de chegada. Quem não trabalha com casco não vê o assunto existir.
+  possuiVasilhame?: boolean;
 }
 
 export interface RotaEntregaItem {
@@ -3923,6 +4034,9 @@ export interface RotaEntregaItem {
   // F1 — preço unitário do item (0 = sem preço): o QR Pix da chegada recalcula o
   // valor ao vivo conforme o stepper (mesma conta do backend no confirmar).
   valorUnit?: number;
+  // VASILHAME onda 2 — vazios já recolhidos neste item. null = ninguém falou de
+  // casco ainda (é o que reabrir a parada precisa distinguir de "recolhi zero").
+  vasilhameRetornado?: number | null;
   produto: RotaProduto | null;
 }
 
@@ -4048,11 +4162,13 @@ export interface ConfirmarGps {
   receiptMethod?: string;
   // `valorUnit` = preço de HOJE editado na chegada (22/07). Escopo de UMA entrega
   // (ver ConfirmarEntregaItemDto): nunca vai pro catálogo nem pro preço acordado.
-  itens?: Array<{ id: string; qtdEntregue: number; valorUnit?: number }>;
+  // `vasilhameRetornado` = vazios recolhidos neste item (onda 2, 17/08). AUSENTE
+  // ≠ 0 e é o que decide se o casco anda: ver LogisticaVasilhameService.
+  itens?: Array<{ id: string; qtdEntregue?: number; valorUnit?: number; vasilhameRetornado?: number }>;
   // F2 (08/07) — produtos NOVOS incluídos/trocados na folha de chegada (não
   // previstos). O preço vem do servidor (regra de ouro), EXCETO quando o entregador
   // editou o valor de hoje na tela (valorUnit explícito — 22/07).
-  novosItens?: Array<{ productId: number; qtdEntregue: number; valorUnit?: number }>;
+  novosItens?: Array<{ productId: number; qtdEntregue: number; valorUnit?: number; vasilhameRetornado?: number }>;
   // Botão [Pago] da chegada: quita todo o saldo em aberto do cliente, não só a
   // entrega de hoje. Só vale com receiptMethod imediato (pix|dinheiro).
   quitarAberto?: boolean;

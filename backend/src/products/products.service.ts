@@ -146,12 +146,31 @@ export class ProductsService {
     return fallback;
   }
 
+  /**
+   * VASILHAME (17/08) — casco só existe COM preço.
+   *
+   * Sem valor, "cliente X está com 6 garrafões" é uma contagem; com valor vira
+   * "R$210 na casa dele" e "R$11 mil na rua", que é a tela que o dono da
+   * distribuidora abre pra decidir. Um saldo sem preço envenenaria essa soma com
+   * zero — por isso a flag e o valor nascem juntos, e a checagem é fail-closed:
+   * sem o produto atual em mãos (import em massa), ligar sem preço é erro.
+   */
+  private assertVasilhameCoerente(possui: boolean, precoCents: number | null | undefined) {
+    if (possui && !(Number(precoCents) > 0)) {
+      throw new BadRequestException('Produto com vasilhame precisa do valor do vasilhame (maior que zero).');
+    }
+  }
+
   private buildCreateData(companyId: number, dto: CreateProductDto, authorId?: number | null) {
     const name = normalizeText(dto.name, 140);
     if (!name) throw new BadRequestException('Nome do produto e obrigatorio.');
 
     const priceCents = this.normalizePriceCents(dto, 0) ?? 0;
     const createdByUserId = authorId || null;
+
+    const possuiVasilhame = normalizeBoolean(dto.possuiVasilhame, false);
+    const vasilhamePrecoCents = normalizePositiveInteger(dto.vasilhamePrecoCents, 'vasilhamePrecoCents', null);
+    this.assertVasilhameCoerente(possuiVasilhame, vasilhamePrecoCents);
 
     return {
       kind: normalizeKey(dto.kind, 'tenant_product', 40),
@@ -176,6 +195,9 @@ export class ProductsService {
       // NÚCLEO-CRM N5 — catálogo do tenant: unidade de venda + flag Logística.
       unidade: normalizeText(dto.unidade, 60),
       usaLogistica: normalizeBoolean(dto.usaLogistica, false),
+      // VASILHAME (17/08) — casco emprestado + valor de UM casco.
+      possuiVasilhame,
+      vasilhamePrecoCents,
       companyId,
       categoryId: normalizePositiveInteger(dto.categoryId, 'categoryId', null),
       metadataJson: normalizeText(dto.metadataJson, 5000),
@@ -184,7 +206,11 @@ export class ProductsService {
     };
   }
 
-  private buildUpdateData(dto: UpdateProductDto, authorId?: number | null) {
+  private buildUpdateData(
+    dto: UpdateProductDto,
+    authorId?: number | null,
+    atual?: { possuiVasilhame?: boolean | null; vasilhamePrecoCents?: number | null } | null,
+  ) {
     const data: Record<string, any> = {};
 
     if (hasOwn(dto, 'kind')) data.kind = normalizeKey(dto.kind, 'tenant_product', 40);
@@ -224,6 +250,18 @@ export class ProductsService {
     // NÚCLEO-CRM N5 — catálogo do tenant: unidade de venda + flag Logística.
     if (hasOwn(dto, 'unidade')) data.unidade = normalizeText(dto.unidade, 60);
     if (hasOwn(dto, 'usaLogistica')) data.usaLogistica = normalizeBoolean(dto.usaLogistica, false);
+    // VASILHAME (17/08) — a coerência é medida no ESTADO FINAL, não no que veio no
+    // corpo: ligar a flag sozinha vale se o produto já tem preço de casco gravado,
+    // e zerar o preço de um produto que empresta casco é o mesmo erro pelo avesso.
+    if (hasOwn(dto, 'possuiVasilhame')) data.possuiVasilhame = normalizeBoolean(dto.possuiVasilhame, false);
+    if (hasOwn(dto, 'vasilhamePrecoCents')) {
+      data.vasilhamePrecoCents = normalizePositiveInteger(dto.vasilhamePrecoCents, 'vasilhamePrecoCents', null);
+    }
+    if (hasOwn(dto, 'possuiVasilhame') || hasOwn(dto, 'vasilhamePrecoCents')) {
+      const possuiFinal = hasOwn(dto, 'possuiVasilhame') ? data.possuiVasilhame : Boolean(atual?.possuiVasilhame);
+      const precoFinal = hasOwn(dto, 'vasilhamePrecoCents') ? data.vasilhamePrecoCents : atual?.vasilhamePrecoCents;
+      this.assertVasilhameCoerente(possuiFinal, precoFinal);
+    }
     if (hasOwn(dto, 'categoryId')) data.categoryId = normalizePositiveInteger(dto.categoryId, 'categoryId', null);
     if (hasOwn(dto, 'metadataJson')) data.metadataJson = normalizeText(dto.metadataJson, 5000);
     data.updatedByUserId = authorId || null;
@@ -346,7 +384,7 @@ export class ProductsService {
 
     const updated = await this.prisma.product.update({
       where: { id },
-      data: this.buildUpdateData(updateDto, access.userId),
+      data: this.buildUpdateData(updateDto, access.userId, product as any),
     });
     return this.presentProduct(updated, access);
   }

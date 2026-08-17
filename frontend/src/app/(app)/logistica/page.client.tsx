@@ -505,6 +505,12 @@ export function LogisticaClient() {
           <Link href="/logistica/estoque" className="cok__menu-item" role="menuitem">
             <I d={ICONS.produtos} size={13} /> Estoque
           </Link>
+          {/* VASILHAME onda 2 (17/08) — quanto casco (e quanto dinheiro) está
+              na casa dos clientes. Vizinho do Estoque de propósito: os dois
+              respondem "onde está o meu produto", um no caminhão e o outro na rua. */}
+          <Link href="/logistica/vasilhames" className="cok__menu-item" role="menuitem">
+            <I d={ICONS.produtos} size={13} /> Patrimônio na rua
+          </Link>
           <Link href="/logistica/config" className="cok__menu-item" role="menuitem">
             <I d={ICONS.config} size={13} /> Regras
           </Link>

@@ -700,6 +700,145 @@ function AgendaEventosPanel({ clienteId }: { clienteId: string }) {
 }
 
 // Drawer com a lista + o formulário de adicionar produto ao cliente.
+// ── VASILHAME / CASCO (17/08) — "quantos vazios este cliente está com você" ──
+// A pergunta mais cara da distribuidora: cada garrafão custa R$25–40, fica na
+// casa do cliente e ninguém sabe quantos são. Aqui o dono vê a quantidade E o
+// dinheiro — é o número que faz o módulo valer a mensalidade.
+//
+// O SINAL NÃO VEM DA TELA: ela manda o VERBO (INJECAO/DEVOLUCAO) e sempre uma
+// quantidade positiva; quem soma ou subtrai é o backend, num lugar só.
+type VasilhameLinha = {
+  productId: number;
+  nome: string;
+  unidade: string | null;
+  qtd: number;
+  precoCents: number;
+  totalCents: number;
+};
+
+type VasilhameSaldo = {
+  customerProfileId: string;
+  linhas: VasilhameLinha[];
+  totalQtd: number;
+  totalCents: number;
+};
+
+function VasilhamesPanel({ clienteId, admin }: { clienteId: string; admin: boolean }) {
+  const [saldo, setSaldo] = useState<VasilhameSaldo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [movendo, setMovendo] = useState<number | null>(null);
+  // Quantidade por linha; vazio = 1. Digitar 3 numa linha não pode mexer na outra.
+  const [qtds, setQtds] = useState<Record<number, string>>({});
+
+  const load = useCallback(() => {
+    setLoading(true);
+    const qs = new URLSearchParams({ customerProfileId: clienteId });
+    return apiFetch<VasilhameSaldo>(`/logistica/vasilhames?${qs.toString()}`)
+      .then((res) => { setSaldo(res); setError(null); })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "Não foi possível carregar os vasilhames.");
+      })
+      .finally(() => setLoading(false));
+  }, [clienteId]);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar ou trocar de cliente; efeito legítimo, não estado derivado.
+  useEffect(() => { load(); }, [load]);
+
+  async function mover(linha: VasilhameLinha, tipo: "INJECAO" | "DEVOLUCAO") {
+    const qtd = Math.trunc(Number(qtds[linha.productId] ?? "1")) || 1;
+    if (qtd <= 0) {
+      setError("Quantidade precisa ser maior que zero.");
+      return;
+    }
+    setMovendo(linha.productId);
+    setError(null);
+    try {
+      await apiFetch("/logistica/vasilhames/mover", {
+        method: "POST",
+        body: JSON.stringify({ customerProfileId: clienteId, productId: linha.productId, tipo, qtd }),
+      });
+      setQtds((atual) => ({ ...atual, [linha.productId]: "1" }));
+      await load();
+    } catch (err: unknown) {
+      // O 400 do backend ("o cliente está com 1 — não dá pra baixar 10") é a
+      // mensagem certa pro dono: mostrar cru em vez de traduzir pra genérico.
+      setError(err instanceof Error ? err.message : "Não foi possível mover o vasilhame.");
+    } finally {
+      setMovendo(null);
+    }
+  }
+
+  if (loading) return null;
+  // Nenhum produto com casco: o bloco inteiro não existe. Quem vende serviço não
+  // precisa saber que o assunto vasilhame existe.
+  if (!saldo || saldo.linhas.length === 0) return error ? <p className="hint cli-prod__err">{error}</p> : null;
+
+  return (
+    <div className="cli-ext">
+      <div className="cli-ext__head">
+        <strong className="cli-fin__title">Vasilhames com este cliente</strong>
+        <span className="cli-vas__total">
+          {saldo.totalQtd} {saldo.totalQtd === 1 ? "vasilhame" : "vasilhames"}
+          {saldo.totalCents > 0 ? `  ·  ${fmtMoney(saldo.totalCents / 100)}` : ""}
+        </span>
+      </div>
+      <div className="cli-ext__list">
+        {saldo.linhas.map((linha) => (
+          <div
+            className={`cli-ext__row${linha.qtd === 0 ? " cli-vas__row-off" : ""}`}
+            key={linha.productId}
+          >
+            <span className="cli-ext__main">
+              <span className="cli-ext__desc">
+                {linha.nome}{linha.unidade ? ` (${linha.unidade})` : ""}
+              </span>
+              <span className="cli-ext__meta">
+                {linha.qtd} {linha.qtd === 1 ? "vasilhame" : "vasilhames"}
+                {linha.precoCents > 0 ? `  ·  ${fmtMoney(linha.precoCents / 100)} cada` : ""}
+              </span>
+            </span>
+            <span className="cli-ext__side">
+              <span className="cli-ext__amount">{fmtMoney(linha.totalCents / 100)}</span>
+              {admin && (
+                <span className="cli-vas__acoes">
+                  <input
+                    className="field-dark cli-vas__qtd"
+                    type="number"
+                    min={1}
+                    max={9999}
+                    inputMode="numeric"
+                    aria-label={`Quantidade de ${linha.nome}`}
+                    value={qtds[linha.productId] ?? "1"}
+                    onChange={(e) => setQtds((atual) => ({ ...atual, [linha.productId]: e.target.value }))}
+                  />
+                  <button
+                    type="button"
+                    className="btn-ghost btn-xs"
+                    disabled={movendo === linha.productId}
+                    onClick={() => mover(linha, "INJECAO")}
+                  >
+                    Injetar
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost btn-xs"
+                    disabled={movendo === linha.productId || linha.qtd === 0}
+                    onClick={() => mover(linha, "DEVOLUCAO")}
+                  >
+                    Devolver
+                  </button>
+                </span>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+      {error && <p className="hint cli-prod__err">{error}</p>}
+    </div>
+  );
+}
+
 function ClienteProdutosDrawer({
   cliente,
   admin,
@@ -864,6 +1003,11 @@ function ClienteProdutosDrawer({
         {!loading && vinculos.length === 0 && (
           <p className="cli-prod__muted">Nenhum produto vinculado ainda. Adicione abaixo.</p>
         )}
+
+        {/* VASILHAME (17/08) — o casco que está na casa dele, em quantidade e em
+            dinheiro. A `key` amarra o painel à lista de vínculos: vincular um
+            produto com casco faz o bloco renascer já com a linha nova. */}
+        {!loading && <VasilhamesPanel clienteId={cliente.id} admin={admin} key={`vas-${vinculos.length}`} />}
 
         <form className="cli-prod__form" onSubmit={addVinculo}>
           <div className="cli-prod__form-row">

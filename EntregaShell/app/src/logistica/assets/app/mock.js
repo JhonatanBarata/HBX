@@ -775,9 +775,13 @@ const DADOS={
     endereco:'R. Sargento Silva Nunes, 72 • Moema', pill:'Chegou',
     cabecalho:'Parada 3 · Maria Aparecida',
     nota:'Portão azul · deixar na área · <b>cachorro solto</b>',
+    /* `itens` é [ícone, nome, linha de baixo, quantidade, VAZIOS RECOLHIDOS, id
+       do item]. Os dois últimos são da onda 2 do vasilhame (17/08): o galão tem
+       casco e ganha a segunda linha; a água c/ gás não tem, e por isso o 5º
+       slot vem VAZIO — não é zero, é "este produto não empresta embalagem". */
     itens:[
-      ['gallon','Galão 20 Litros','previsto 2 · R$ 11,00 cada','2'],
-      ['box','Água c/ gás 1,5L','previsto 1 · R$ 24,00 cada','0'],
+      ['gallon','Galão 20 Litros','previsto 2 · R$ 11,00 cada','2','1',''],
+      ['box','Água c/ gás 1,5L','previsto 1 · R$ 24,00 cada','0','',''],
     ],
     anterior:'R$ 21,00', hoje:'R$ 22,00', total:'R$ 43,00',
     forma:'dinheiro',
@@ -3812,9 +3816,18 @@ ${hdr({semChat:1})}
         <div style="display:flex;align-items:center;justify-content:space-between">
           <span class="box-t">Conferir o que saiu</span>
           <button class="ghost">${ic('plus',13)} Produto</button></div>
-        ${d.itens.map(it=>`<div class="item-linha"><span class="thumb" style="width:40px;height:40px;flex:0 0 40px">${ic(it[0],20)}</span>
+        ${/* VASILHAME (17/08) — it[4] e it[5] chegaram na onda 2: o número de
+             VAZIOS RECOLHIDOS e o id do item. A linha do vazio só nasce pra
+             produto com casco (it[4] vazio = o assunto não existe pra este
+             produto, e quem não trabalha com vasilhame nunca vê a pergunta). */''}
+        ${d.itens.map(it=>{const vaz=it[4];const temCasco=vaz!==''&&vaz!=null;const iid=it[5]||'';
+          return `<div class="item-linha${temCasco?' com-casco':''}"><span class="thumb" style="width:40px;height:40px;flex:0 0 40px">${ic(it[0],20)}</span>
           <span><strong>${it[1]}</strong><span>${it[2]}</span></span>
-          <span class="passo"><button>−</button><b>${it[3]}</b><button>+</button></span></div>`).join('')}
+          <span class="passo"><button>−</button><b>${it[3]}</b><button>+</button></span></div>`
+          +(temCasco?`<div class="item-linha item-vazio"><span class="thumb" style="width:30px;height:30px;flex:0 0 30px">${ic('refresh',16)}</span>
+          <span><strong>Vazios recolhidos</strong><span>casco que voltou pro caminhão</span></span>
+          <span class="passo"><button data-acao="vazio-menos" data-item="${iid}">−</button><b>${vaz}</b><button data-acao="vazio-mais" data-item="${iid}">+</button></span></div>`:'');
+        }).join('')}
       </div>
 
       <div class="box">

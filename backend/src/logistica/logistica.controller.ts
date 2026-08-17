@@ -50,6 +50,8 @@ import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.servic
 import { LogisticaGeoService } from './logistica-geo.service';
 import { LogisticaAgendaService } from './logistica-agenda.service';
 import { LogisticaTutorialService } from './logistica-tutorial.service';
+// VASILHAME (17/08) — casco emprestado por cliente (garrafão, botijão, engradado).
+import { LogisticaVasilhameService } from './logistica-vasilhame.service';
 import { LogisticaPasseioService } from './logistica-passeio.service';
 // PROSPECTOR v2 (12/08) — a escolha de TIPO que a PESSOA faz na semana.
 import { LogisticaProspectorSemanaService } from './logistica-prospector-semana.service';
@@ -100,6 +102,7 @@ import {
   UpdateRotaModeloDto,
   TipoComprovanteDto,
   VarrerRecoveryDto,
+  MoverVasilhameDto,
 } from './dto/logistica.dto';
 
 /**
@@ -173,6 +176,9 @@ export class LogisticaController {
     // PROSPECTOR v2 (12/08) — a escolha da semana, por pessoa. Mesmo padrão de
     // default acima (testes legados instanciam o controller direto).
     private readonly prospectorSemana: LogisticaProspectorSemanaService = null as any,
+    // VASILHAME (17/08) — casco emprestado por cliente. Mesmo padrão de default
+    // acima (testes legados instanciam o controller direto com poucos argumentos).
+    private readonly vasilhame: LogisticaVasilhameService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -748,6 +754,57 @@ export class LogisticaController {
       ? await this.agenda.espelharVinculoCadastro(companyId, null, anterior)
       : { avisos: [] as string[] };
     return espelho.avisos.length ? { success: true, agendaAvisos: espelho.avisos } : { success: true };
+  }
+
+  // ── VASILHAME / CASCO (17/08) — o patrimônio que fica na casa do cliente ────
+  // Leitura é do módulo (o entregador precisa ver quantos vazios o cliente tem);
+  // MOVER patrimônio é do dono/gerente (mesmo `ensureBillingOwner` dos vínculos).
+  // Guard `this.vasilhame` = mesmo padrão dos providers novos deste controller.
+
+  private vasilhameOuErro(): LogisticaVasilhameService {
+    if (!this.vasilhame) throw new ServiceUnavailableException('Módulo de vasilhame indisponível');
+    return this.vasilhame;
+  }
+
+  /** Quantos cascos este cliente está com você, por produto, com o valor. */
+  @Get('vasilhames')
+  listVasilhames(@Req() req: any, @Query('customerProfileId') customerProfileId: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.vasilhameOuErro().saldoDoCliente(companyId, customerProfileId);
+  }
+
+  /** Extrato: quem levou, quem devolveu, quando e por quê. */
+  @Get('vasilhames/extrato')
+  extratoVasilhames(
+    @Req() req: any,
+    @Query('customerProfileId') customerProfileId: string,
+    @Query('limite') limite?: string,
+  ) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.vasilhameOuErro().extratoDoCliente(companyId, customerProfileId, Number(limite) || 50);
+  }
+
+  /** Total da empresa: quanto casco (e quanto dinheiro) está na rua hoje. */
+  @Get('vasilhames/patrimonio')
+  patrimonioVasilhames(@Req() req: any, @Query('limite') limite?: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
+    return this.vasilhameOuErro().patrimonioNaRua(companyId, Number(limite) || 20);
+  }
+
+  /** Move o saldo: injetar, devolver, ajustar ou dar baixa por perda/quebra. */
+  @Post('vasilhames/mover')
+  moverVasilhame(@Req() req: any, @Body() dto: MoverVasilhameDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
+    return this.vasilhameOuErro().registrarMovimento(companyId, {
+      customerProfileId: dto?.customerProfileId,
+      productId: dto?.productId,
+      tipo: dto?.tipo,
+      qtd: dto?.qtd,
+      motivo: dto?.motivo ?? null,
+      userId: Number(req.user?.id) || null,
+    });
   }
 
   /**
