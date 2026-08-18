@@ -75,7 +75,7 @@ html[data-hbx-authed] .public-entry { overflow-x: clip; display: none; }
   opacity: 0.035;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 160 160' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.92' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.9'/%3E%3C/svg%3E");
 }
-.f1-orb { position: absolute; display: block; width: 38vw; aspect-ratio: 1; border-radius: 50%; filter: blur(110px); opacity: 0.12; animation: f1-orb-drift 14s ease-in-out infinite alternate; }
+.f1-orb { position: absolute; display: block; width: 38vw; aspect-ratio: 1; border-radius: 50%; filter: blur(110px); opacity: 0.34; animation: f1-orb-drift 14s ease-in-out infinite alternate; }
 .f1-orb--one { top: -28%; right: 5%; background: var(--f1-accent); }
 .f1-orb--two { bottom: -40%; left: 20%; background: var(--f1-blue); animation-delay: -7s; }
 
@@ -264,11 +264,12 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-pulso {
   position: absolute;
   display: block;
-  width: 30vw;
-  max-width: 460px;
+  width: 17vw;
+  min-width: 190px;
+  max-width: 290px;
   aspect-ratio: 1;
   border-radius: 50%;
-  filter: blur(70px);
+  filter: blur(34px);
   opacity: 0;
   pointer-events: none;
   will-change: transform, opacity;
@@ -298,26 +299,26 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
    pro próximo canto — nunca duas no mesmo lugar */
 @keyframes f1-pulso-um {
   0% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.8); }
-  12% { opacity: 0.15; }
-  30% { opacity: 0.1; transform: translate3d(58vw, 22vh, 0) scale(1.15); }
-  52% { opacity: 0.16; transform: translate3d(74vw, 58vh, 0) scale(0.95); }
-  76% { opacity: 0.09; transform: translate3d(22vw, 66vh, 0) scale(1.2); }
-  92% { opacity: 0.04; }
+  12% { opacity: 0.4; }
+  30% { opacity: 0.26; transform: translate3d(58vw, 22vh, 0) scale(1.15); }
+  52% { opacity: 0.44; transform: translate3d(74vw, 58vh, 0) scale(0.95); }
+  76% { opacity: 0.24; transform: translate3d(22vw, 66vh, 0) scale(1.2); }
+  92% { opacity: 0.1; }
   100% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.8); }
 }
 @keyframes f1-pulso-dois {
   0% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.9); }
-  14% { opacity: 0.13; }
-  36% { opacity: 0.08; transform: translate3d(-46vw, 40vh, 0) scale(1.18); }
-  60% { opacity: 0.14; transform: translate3d(-68vw, 6vh, 0) scale(0.88); }
-  84% { opacity: 0.07; transform: translate3d(-16vw, -12vh, 0) scale(1.1); }
+  14% { opacity: 0.36; }
+  36% { opacity: 0.22; transform: translate3d(-46vw, 40vh, 0) scale(1.18); }
+  60% { opacity: 0.4; transform: translate3d(-68vw, 6vh, 0) scale(0.88); }
+  84% { opacity: 0.2; transform: translate3d(-16vw, -12vh, 0) scale(1.1); }
   100% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.9); }
 }
 @keyframes f1-pulso-tres {
   0% { opacity: 0; transform: translate3d(0, 0, 0) scale(1); }
-  18% { opacity: 0.11; transform: translate3d(-30vw, -26vh, 0) scale(1.14); }
-  46% { opacity: 0.07; transform: translate3d(26vw, -48vh, 0) scale(0.92); }
-  72% { opacity: 0.12; transform: translate3d(40vw, -8vh, 0) scale(1.2); }
+  18% { opacity: 0.3; transform: translate3d(-30vw, -26vh, 0) scale(1.14); }
+  46% { opacity: 0.2; transform: translate3d(26vw, -48vh, 0) scale(0.92); }
+  72% { opacity: 0.34; transform: translate3d(40vw, -8vh, 0) scale(1.2); }
   100% { opacity: 0; transform: translate3d(0, 0, 0) scale(1); }
 }
 
@@ -326,27 +327,28 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-stage-track button.is-active::before {
   content: "";
   position: absolute;
-  z-index: -1;
   inset: 2px 4px;
+  border: 1px solid color-mix(in srgb, var(--f1-accent) 55%, transparent);
   border-radius: 12px;
-  background: radial-gradient(ellipse at center, var(--f1-accent-soft), transparent 72%);
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--f1-accent) 26%, transparent), transparent 74%);
+  box-shadow: 0 0 22px color-mix(in srgb, var(--f1-accent) 30%, transparent);
   opacity: 0;
   animation: f1-acende 6.3s var(--f1-ease) both;
   pointer-events: none;
 }
 @keyframes f1-acende {
-  0% { opacity: 0; transform: scale(0.7); }
-  16% { opacity: 1; transform: scale(1); }
-  62% { opacity: 0.5; }
-  100% { opacity: 0; transform: scale(1.04); }
+  0% { opacity: 0; transform: scale(0.72); }
+  10% { opacity: 1; transform: scale(1.02); }
+  22% { opacity: 0.72; transform: scale(1); }
+  70% { opacity: 0.5; }
+  100% { opacity: 0; transform: scale(1.05); }
 }
 .f1-guias button.is-active::before {
   content: "";
   position: absolute;
-  z-index: -1;
   inset: -2px 2px;
   border-radius: 11px;
-  background: radial-gradient(ellipse at center, var(--f1-accent-soft), transparent 74%);
+  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--f1-accent) 22%, transparent), transparent 76%);
   opacity: 0;
   animation: f1-acende 6.3s var(--f1-ease) both;
   pointer-events: none;
@@ -787,7 +789,7 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   background: transparent;
   cursor: pointer;
 }
-.f1-guias button strong { overflow: hidden; color: var(--f1-text-soft); font-size: 0.82rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1; text-overflow: ellipsis; white-space: nowrap; transition: color 0.3s ease; }
+.f1-guias button strong { overflow: hidden; color: var(--f1-text-soft); font-size: 0.82rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; transition: color 0.3s ease; }
 .f1-guias button.is-active strong { color: var(--f1-text); }
 
 /* ==========================================================================

@@ -25,7 +25,7 @@ export type LogisticaRealScreen =
   | "v-estoque";
 
 const GPS_PREVIEW_VERSION = "20260808-loop-3";
-const TORRE_PREVIEW_VERSION = "20260817-cena-1";
+const TORRE_PREVIEW_VERSION = "20260818-contraste";
 const VENDAS_PREVIEW_VERSION = "20260818-cena-1";
 
 function sourceFor(screen: LogisticaRealScreen, themeMode: "dark" | "light") {
