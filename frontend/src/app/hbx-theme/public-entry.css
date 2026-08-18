@@ -114,7 +114,7 @@ html[data-hbx-authed] .public-entry { display: none; }
   min-height: calc(100dvh - 82px - 72px);
   margin: 0 auto;
   padding: clamp(14px, 2vh, 26px) clamp(18px, 2vw, 40px) clamp(14px, 2vh, 26px);
-  grid-template-columns: minmax(316px, 424px) minmax(0, 1fr) minmax(268px, 306px);
+  grid-template-columns: minmax(290px, 356px) minmax(0, 1fr) minmax(335px, 382px);
   grid-template-rows: minmax(0, 1fr) auto auto;
   grid-template-areas: "copy product logi" "dados dados dados" "stages stages stages";
   align-items: center;
@@ -275,13 +275,17 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-payment-list article:last-child i { background: var(--f1-blue); }
 .f1-payment-list article:last-child small { color: var(--f1-blue); }
 
-.f1-stage-shell { position: relative; grid-area: stages; display: grid; min-width: 0; padding: 8px; grid-template-columns: minmax(0, 1fr) 48px; align-items: center; gap: 10px; border: 1px solid var(--f1-line); border-radius: 22px; background: var(--f1-surface); box-shadow: 0 24px 50px var(--f1-shadow-soft), inset 0 1px 0 var(--f1-line); backdrop-filter: blur(24px); animation: f1-rise-in 0.9s 0.82s var(--f1-ease) both; }
+.f1-stage-shell { position: relative; grid-area: stages; display: grid; min-width: 0; padding: 8px; grid-template-columns: auto minmax(0, 1fr) 48px; align-items: center; gap: 10px; border: 1px solid var(--f1-line); border-radius: 22px; background: var(--f1-surface); box-shadow: 0 24px 50px var(--f1-shadow-soft), inset 0 1px 0 var(--f1-line); backdrop-filter: blur(24px); animation: f1-rise-in 0.9s 0.82s var(--f1-ease) both; }
 .f1-stage-track { position: relative; display: grid; height: 54px; padding: 5px; grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--f1-line); border-radius: 16px; background: color-mix(in srgb, var(--f1-surface-solid) 74%, transparent); }
 .f1-stage-pill { position: absolute; z-index: 0; left: 5px; top: 5px; width: calc((100% - 10px) / 5); height: 42px; border: 1px solid var(--f1-line-strong); border-radius: 12px; background: var(--f1-surface-up); box-shadow: 0 10px 24px var(--f1-shadow-soft), inset 0 1px 0 var(--f1-line-strong); transition: transform 1.08s var(--f1-ease); }
 .public-entry[data-stage="vendas"] .f1-stage-pill { transform: translateX(100%); }
 .public-entry[data-stage="whatsapp"] .f1-stage-pill { transform: translateX(200%); }
 .public-entry[data-stage="entrega"] .f1-stage-pill { transform: translateX(300%); }
 .public-entry[data-stage="cobranca"] .f1-stage-pill { transform: translateX(400%); }
+/* No trecho do HBX Rota a trilha do Desktop descansa: a pílula sai e o realce
+   passa pra lista da direita. */
+.public-entry:not([data-logi="off"]) .f1-stage-pill { opacity: 0; }
+.public-entry:not([data-logi="off"]) .f1-stage-track button.is-active::after { display: none; }
 .f1-stage-track button { position: relative; z-index: 1; display: flex; min-width: 0; padding: 0 8px; align-items: center; justify-content: center; gap: 7px; overflow: hidden; border: 0; background: transparent; cursor: pointer; }
 .f1-stage-track button > .f1-icon { width: 19px; height: 19px; flex: 0 0 auto; color: var(--f1-text-soft); stroke-width: 1.8; transition: color 0.35s ease, transform 0.35s var(--f1-ease); }
 .f1-stage-track button > strong { overflow: hidden; color: var(--f1-text-soft); font-size: clamp(calc(0.55rem + calc(2px * var(--hbx-font-scale))), calc(calc(0.7vw * var(--hbx-font-scale)) + calc(2px * var(--hbx-font-scale))), calc(0.68rem + calc(2px * var(--hbx-font-scale)))); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; transition: color 0.35s ease; }
@@ -372,6 +376,68 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   pointer-events: auto;
 }
 
+.public-entry.is-login .f1-mobile-apps {
+  display: none;
+}
+
+.f1-mobile-apps {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: min(1200px, calc(100% - clamp(32px, 8vw, 136px)));
+  margin: 24px auto 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.f1-mobile-app {
+  position: relative;
+  display: flex;
+  min-height: 250px;
+  overflow: hidden;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px 28px 20px;
+  border: 1px solid var(--f1-line-strong);
+  border-radius: 28px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--f1-surface-solid) 94%, transparent), color-mix(in srgb, var(--f1-surface) 68%, transparent));
+  box-shadow: 0 20px 60px var(--f1-shadow-soft);
+}
+.f1-mobile-app::after { content: ""; position: absolute; width: 170px; height: 170px; right: -54px; bottom: -78px; border-radius: 50%; background: var(--f1-accent-soft); filter: blur(20px); opacity: 0.65; pointer-events: none; }
+.f1-mobile-app--apple { flex-direction: row-reverse; }
+.f1-mobile-app__copy { position: relative; z-index: 1; display: grid; gap: 8px; }
+.f1-mobile-app__copy small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.f1-mobile-app__copy strong { color: var(--f1-text); font-size: clamp(1.2rem, calc(2.2vw * var(--hbx-font-scale)), 1.72rem); line-height: 1.04; letter-spacing: -0.045em; }
+.f1-mobile-app__art-wrap { position: relative; z-index: 1; flex: 0 0 40%; height: 220px; }
+.f1-mobile-app__art-wrap img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; filter: drop-shadow(0 22px 20px rgba(0, 0, 0, 0.2)); }
+.f1-mobile-app--android .f1-mobile-app__art-wrap { align-self: flex-end; height: 275px; margin: -15px -10px -26px 0; }
+.f1-mobile-app--apple .f1-mobile-app__art-wrap { height: 195px; margin: 0 -10px 0 -18px; }
+.f1-mobile-app__ribbon { position: absolute; z-index: 2; top: 20px; left: -33px; width: 142px; padding: 7px 0; color: #18202c; background: #e5ebf2; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); font-size: var(--hbx-font-min); font-weight: 900; letter-spacing: 0.08em; text-align: center; text-transform: uppercase; transform: rotate(-34deg); }
+.f1-mobile-app__link { display: inline-flex; width: fit-content; min-height: 38px; margin-top: 5px; padding: 0 14px; align-items: center; gap: 7px; border: 1px solid color-mix(in srgb, var(--f1-accent) 45%, transparent); border-radius: 12px; color: var(--f1-text); background: color-mix(in srgb, var(--f1-accent) 16%, transparent); font-size: 0.72rem; font-weight: 800; transition: transform 0.25s ease, background 0.25s ease; }
+.f1-mobile-app__link:hover { background: color-mix(in srgb, var(--f1-accent) 26%, transparent); transform: translateY(-2px); }
+.f1-mobile-app__link .f1-icon { width: 14px; height: 14px; }
+/* Card do Android leva a DOIS destinos: baixar o app (ação) e a vitrine do
+   Gerenciador de Rota em /rota (venda). O segundo é fantasma pra não brigar
+   com o primeiro. */
+.f1-mobile-app__links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.f1-mobile-app__link--ghost { border-color: var(--f1-line-strong); color: var(--f1-text-soft); background: transparent; }
+.f1-mobile-app__link--ghost:hover { color: var(--f1-text); background: var(--f1-surface); }
+
+@media (max-width: 800px) {
+  .f1-mobile-apps { width: calc(100% - 32px); margin-top: 8px; grid-template-columns: 1fr; gap: 14px; }
+  .f1-mobile-app { min-height: 205px; padding: 18px 20px; border-radius: 23px; }
+  .f1-mobile-app__art-wrap { flex-basis: 38%; height: 185px; }
+  .f1-mobile-app--android .f1-mobile-app__art-wrap { height: 225px; margin: -12px -10px -21px 0; }
+  .f1-mobile-app--apple .f1-mobile-app__art-wrap { height: 165px; margin-left: -12px; }
+}
+@media (max-width: 420px) {
+  .f1-mobile-app__copy strong { font-size: 1.16rem; }
+  .f1-mobile-app__art-wrap { flex-basis: 36%; }
+  .f1-mobile-app--android .f1-mobile-app__art-wrap { height: 205px; }
+  .f1-mobile-app--apple .f1-mobile-app__art-wrap { height: 145px; }
+  .f1-mobile-app__ribbon { top: 16px; left: -39px; transform: rotate(-35deg) scale(0.9); }
+}
+
 /* ==========================================================================
    HBX LOGÍSTICA — coluna da direita: o celular do motorista, as 5 telas, o
    que a operação registra e o download. A tela "Torre de controle" não pinta
@@ -383,7 +449,7 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   display: grid;
   grid-area: logi;
   min-width: 0;
-  grid-template-columns: clamp(128px, 10vw, 158px) minmax(0, 1fr);
+  grid-template-columns: clamp(160px, 12.5vw, 198px) minmax(0, 1fr);
   grid-template-areas: "fone telas" "fone baixar";
   align-content: center;
   align-items: center;
@@ -397,15 +463,25 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-baixar { grid-area: baixar; }
 .public-entry.is-login .f1-logi { display: none; }
 
-.f1-logi__nav { display: grid; width: 100%; gap: 4px; }
+.f1-logi__nav { display: grid; width: 100%; gap: 5px; }
+.f1-trilha-nome {
+  color: var(--f1-text-soft);
+  font-size: var(--hbx-font-min);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+.f1-logi__nav .f1-trilha-nome { padding: 0 10px 2px; }
+.f1-trilha-nome--barra { padding: 0 4px 0 10px; white-space: nowrap; }
 .f1-logi__nav button {
   position: relative;
   display: grid;
-  min-height: 32px;
+  min-height: 40px;
   padding: 0 10px;
-  grid-template-columns: 16px minmax(0, 1fr);
+  grid-template-columns: 20px minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
+  gap: 11px;
   border: 1px solid transparent;
   border-radius: 11px;
   background: transparent;
@@ -415,12 +491,12 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 }
 .f1-logi__nav button:hover { background: var(--f1-surface); }
 .f1-logi__nav button.is-active { border-color: var(--f1-line-strong); background: var(--f1-surface-up); }
-.f1-logi__nav button .f1-icon { width: 16px; height: 16px; color: var(--f1-text-soft); }
+.f1-logi__nav button .f1-icon { width: 20px; height: 20px; color: var(--f1-text-soft); }
 .f1-logi__nav button.is-active .f1-icon { color: var(--f1-accent); }
 .f1-logi__nav button strong {
   overflow: hidden;
   color: var(--f1-text-soft);
-  font-size: 0.76rem;
+  font-size: 0.95rem;
   font-weight: 750;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -459,25 +535,25 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-baixar { display: flex; width: 100%; flex-wrap: wrap; align-items: center; gap: 10px; }
 .f1-baixar__apk {
   display: inline-flex;
-  min-height: 38px;
+  min-height: 48px;
   flex: 1 1 auto;
   padding: 0 14px;
   align-items: center;
   justify-content: center;
   gap: 9px;
   border: 1px solid color-mix(in srgb, var(--f1-accent) 45%, transparent);
-  border-radius: 12px;
+  border-radius: 14px;
   color: var(--f1-text);
   background: color-mix(in srgb, var(--f1-accent) 14%, transparent);
-  font-size: 0.75rem;
+  font-size: 0.94rem;
   font-weight: 800;
   transition: transform 0.25s ease, background 0.25s ease;
 }
 .f1-baixar__apk:hover { transform: translateY(-2px); background: color-mix(in srgb, var(--f1-accent) 24%, transparent); }
-.f1-baixar__apk .f1-icon { width: 15px; height: 15px; }
+.f1-baixar__apk .f1-icon { width: 19px; height: 19px; }
 .f1-baixar__apk span { display: grid; line-height: 1.15; }
 .f1-baixar__apk small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-.f1-baixar__ios { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.f1-baixar__ios { color: var(--f1-text-soft); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 
 /* a torre veste o monitor por inteiro: o trilho e o cabeçalho da cena saem
    pra ela ganhar a mesa toda */
@@ -603,7 +679,7 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   .f1-baixar__apk { width: auto; }
   .f1-dados { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .f1-dados__titulo { display: none; }
-  .f1-stage-shell { grid-template-columns: minmax(0, 1fr) 48px; }
+  .f1-stage-shell { grid-template-columns: auto minmax(0, 1fr) 48px; }
 }
 
 @media (max-width: 800px) {
@@ -626,6 +702,7 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   .f1-copy > p { margin-top: 22px; }
   .f1-cta-row { margin-top: 32px; }
   .f1-stage-shell { padding: 6px; grid-template-columns: minmax(0, 1fr) 44px; border-radius: 18px; }
+  .f1-trilha-nome--barra { display: none; }
   .f1-stage-track { height: 50px; border-radius: 13px; }
   .f1-stage-pill { height: 38px; border-radius: 9px; }
   .f1-stage-track button { padding: 0 2px; }

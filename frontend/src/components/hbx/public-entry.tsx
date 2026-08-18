@@ -85,6 +85,15 @@ const LOGI: Array<{ key: LogisticaRealScreen; label: string; icon: IconName }> =
   { key: "caderneta", label: "Fechar o dia", icon: "wallet" },
 ];
 
+const ADS_LOGI: Record<LogisticaRealScreen, { lines: [string, string, string]; subline: string }> = {
+  prospector: { lines: ["Ache", "clientes", "na sua rota."], subline: "Empresas com CNPJ e telefone no corredor da entrega." },
+  montagem: { lines: ["Monte", "o dia", "em um toque."], subline: "A ordem das paradas sai pronta." },
+  folha: { lines: ["Entregue", "com prova", "na mão."], subline: "Foto, assinatura e código a cada parada." },
+  torre: { lines: ["Veja", "a rua", "em tempo real."], subline: "Desvio, parada não prevista e o motorista no mapa." },
+  caderneta: { lines: ["Feche", "o caixa", "no fim do dia."], subline: "Dinheiro, Pix, cartão e fiado conferidos." },
+  rota: { lines: ["Rota", "pronta", "todo dia."], subline: "A operação inteira na palma da mão." },
+};
+
 const PROVAS: Array<{ icon: IconName; texto: string }> = [
   { icon: "check", texto: "Comprovante com foto e assinatura" },
   { icon: "bell", texto: "Alerta de parada não prevista" },
@@ -246,12 +255,14 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
   const [screen, setScreen] = useState<EntryScreen>(initialScreen);
   const [themeMode, setThemeModeState] = useState<"dark" | "light">("light");
   const [cookieVisible, setCookieVisible] = useState(true);
-  const [logi, setLogi] = useState<LogisticaRealScreen>("prospector");
-  const stage = STAGES[stageIndex];
-  const ad = ADS[stage.key];
-  // A torre é do gestor: ela toma o monitor central e a esteira para de girar.
+  // 10 passos numa fita só: 0-4 é o HBX Desktop, 5-9 é o HBX Rota. Chegou no
+  // fim do Desktop, cai sozinho no Rota e volta.
+  const noRota = stageIndex >= STAGES.length;
+  const logi = noRota ? LOGI[stageIndex - STAGES.length].key : null;
+  const stage = noRota ? STAGES[3] : STAGES[stageIndex];
+  const ad = noRota && logi ? ADS_LOGI[logi] : ADS[stage.key];
   const naTorre = logi === "torre";
-  const noFone = naTorre ? "prospector" : logi;
+  const noFone: LogisticaRealScreen = !logi || naTorre ? "prospector" : logi;
 
   // Logado nunca vê a landing: cargas de documento são resolvidas pelo boot
   // inline de app/page.tsx (antes da pintura); este efeito cobre a navegação
@@ -261,10 +272,11 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
   }, [router]);
 
   useEffect(() => {
-    if (manual || naTorre || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const timer = window.setInterval(() => setStageIndex((current) => (current + 1) % STAGES.length), STAGE_ROTATION_MS);
+    if (manual || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const total = STAGES.length + LOGI.length;
+    const timer = window.setInterval(() => setStageIndex((current) => (current + 1) % total), STAGE_ROTATION_MS);
     return () => window.clearInterval(timer);
-  }, [manual, naTorre]);
+  }, [manual]);
 
   useEffect(() => {
     if (!manual) return;
@@ -301,7 +313,6 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
   function chooseStage(index: number) {
     setStageIndex(index);
     setManual(true);
-    setLogi((atual) => (atual === "torre" ? "prospector" : atual));
   }
 
   function openLogin() {
@@ -335,7 +346,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
   }
 
   return (
-    <main className={"public-entry" + (screen !== "home" ? " is-login" : "")} data-stage={stage.key} data-logi={logi}>
+    <main className={"public-entry" + (screen !== "home" ? " is-login" : "")} data-stage={stage.key} data-logi={logi ?? "off"}>
       <div className="f1-backdrop" aria-hidden="true">
         <span className="f1-orb f1-orb--one" />
         <span className="f1-orb f1-orb--two" />
@@ -418,14 +429,15 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
 
         <aside className="f1-logi" aria-label="HBX Logística">
           <PhoneVisual screen={noFone} themeMode={themeMode} />
-          <nav className="f1-logi__nav" aria-label="Telas do HBX Logística">
-            {LOGI.map((item) => (
+          <nav className="f1-logi__nav" aria-label="HBX Rota">
+            <span className="f1-trilha-nome">HBX Rota</span>
+            {LOGI.map((item, index) => (
               <button
                 className={item.key === logi ? "is-active" : ""}
                 key={item.key}
                 type="button"
                 aria-pressed={item.key === logi}
-                onClick={() => setLogi(item.key)}
+                onClick={() => chooseStage(STAGES.length + index)}
               >
                 <Icon name={item.icon} />
                 <strong>{item.label}</strong>
@@ -453,7 +465,8 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
         </div>
 
         <div className="f1-stage-shell">
-          <div className="f1-stage-track" role="group" aria-label="Etapas da esteira HBX">
+          <span className="f1-trilha-nome f1-trilha-nome--barra">HBX Desktop</span>
+          <div className="f1-stage-track" role="group" aria-label="Etapas do HBX Desktop">
             <span className="f1-stage-pill" aria-hidden="true" />
             {STAGES.map((item, index) => (
               <button className={index === stageIndex ? "is-active" : ""} type="button" key={item.key} onClick={() => chooseStage(index)} aria-pressed={index === stageIndex}>
@@ -476,6 +489,33 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           </div>
         )}
       </section>
+
+      {screen === "home" && (
+        <section className="f1-mobile-apps" aria-label="Aplicativos móveis HBX">
+          <article className="f1-mobile-app f1-mobile-app--apple">
+            <div className="f1-mobile-app__art-wrap">
+              <img src="/hbx-theme/assets/mobile-apps/apple-coming.png" alt="Ilustração de uma maçã tecnológica" />
+              <span className="f1-mobile-app__ribbon">Em breve</span>
+            </div>
+            <div className="f1-mobile-app__copy">
+              <small>HBX para iPhone</small>
+              <strong>Seu negócio também<br />no iOS.</strong>
+            </div>
+          </article>
+          <article className="f1-mobile-app f1-mobile-app--android">
+            <div className="f1-mobile-app__copy">
+              <small>HBX Logística para Android</small>
+              <strong>A operação na<br />palma da mão.</strong>
+              <span className="f1-mobile-app__links">
+                <a href={MOBILE_APK_URL} className="f1-mobile-app__link">Baixar HBX Logística <Icon name="arrow" /></a>
+              </span>
+            </div>
+            <div className="f1-mobile-app__art-wrap">
+              <img src="/hbx-theme/assets/mobile-apps/android-hero.png" alt="Android futurista do HBX Logística" />
+            </div>
+          </article>
+        </section>
+      )}
 
       <footer className="f1-footer">
         <span>© 2026 HBX</span>
