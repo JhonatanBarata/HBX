@@ -75,39 +75,73 @@
 }
 
 /* ==========================================================================
-   CARTÕES DE APP (17/08) — a mesma peça da porta única, apertada pra caber
-   no pé da coluna sem rolar a tela. Aqui só muda MEDIDA: cor, borda, fundo e
-   sombra continuam morando em `.f1-mobile-app` (public-entry.css).
+   PROVAS + DOWNLOAD (17/08, "remova o aspecto IA") — no lugar dos cartões
+   ilustrados. Provas são feature viva dita em uma linha; o download é uma
+   régua sóbria com um destino só. Nenhuma arte, nenhum mascote.
    ========================================================================== */
-.rt-apps {
+.rt-provas {
+  display: grid;
   width: 100%;
-  margin: clamp(4px, 1.2vh, 14px) 0 0;
+  margin: clamp(2px, 0.8vh, 8px) 0 0;
+  padding: 0;
+  gap: clamp(6px, 1vh, 10px);
+  list-style: none;
+}
+
+.rt-provas li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--f1-text-soft);
+  font-size: var(--fz-n2);
+  font-weight: var(--weight-semibold);
+}
+
+/* o ícone herda 1.25em do .f1-icon — medida proporcional, sem px travado */
+.rt-provas .f1-icon {
+  flex: none;
+  color: var(--f1-accent);
+}
+
+.rt-baixar {
+  display: flex;
+  width: 100%;
+  margin: clamp(4px, 1vh, 12px) 0 0;
+  flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-3);
 }
 
-.rt-apps .f1-mobile-app {
-  min-height: 0;
-  padding: var(--space-3) var(--space-4) var(--space-3);
+.rt-baixar__apk {
+  display: inline-flex;
+  align-items: center;
   gap: var(--space-2);
-  border-radius: var(--f1-radius-lg);
+  min-height: 46px;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--f1-line-strong);
+  border-radius: var(--f1-radius-md);
+  background: var(--f1-surface);
+  color: var(--f1-text);
+  font-size: var(--fz-n2);
+  font-weight: var(--weight-bold);
+  text-decoration: none;
+  transition: border-color 0.2s ease, background 0.2s ease;
 }
 
-.rt-apps .f1-mobile-app__copy { gap: var(--space-1); }
-.rt-apps .f1-mobile-app__copy strong { font-size: clamp(0.95rem, 1.3vw, 1.24rem); }
-/* A arte cresce com a ALTURA da tela: é ela que come a sobra que ficava entre
-   os cartões e o rodapé ("preencher a tela", 17/08). Piso pra tela baixa,
-   teto pra não virar pôster no monitor grande. */
-.rt-apps .f1-mobile-app__art-wrap { flex: 0 0 36%; height: clamp(92px, 15vh, 152px); }
-/* A arte sangra pra fora do cartão (é assim na porta única): margem NEGATIVA
-   sai da mesma escada de 4px, via calc, pra não abrir px cravado no fiscal. */
-.rt-apps .f1-mobile-app--android .f1-mobile-app__art-wrap {
-  height: clamp(116px, 19vh, 190px);
-  margin: calc(var(--space-3) * -1) calc(var(--space-2) * -1) calc(var(--space-3) * -1) 0;
+.rt-baixar__apk:hover { border-color: var(--f1-accent); background: var(--f1-surface-up); }
+.rt-baixar__apk .f1-icon { color: var(--f1-accent); }
+.rt-baixar__apk span { display: grid; line-height: 1.2; }
+.rt-baixar__apk small {
+  color: var(--f1-text-soft);
+  font-size: var(--fz-l1);
+  font-weight: var(--weight-medium);
 }
-.rt-apps .f1-mobile-app--apple .f1-mobile-app__art-wrap { margin: 0 calc(var(--space-2) * -1) 0 calc(var(--space-3) * -1); }
-.rt-apps .f1-mobile-app__ribbon { top: 12px; left: -38px; transform: rotate(-34deg) scale(0.82); }
-.rt-apps .f1-mobile-app__link { min-height: 34px; margin-top: var(--space-1); padding: 0 var(--space-3); }
-.rt-apps .f1-mobile-app::after { width: 120px; height: 120px; right: -44px; bottom: -60px; }
+
+.rt-baixar__ios {
+  color: var(--f1-text-soft);
+  font-size: var(--fz-l1);
+  font-weight: var(--weight-semibold);
+}
 
 .rt-demo {
   display: grid;
@@ -119,11 +153,15 @@
   animation: f1-product-in 0.9s 0.08s var(--f1-ease) both;
 }
 
+/* 5 abas desde 17/08 (a torre entrou). `auto` em vez de 1fr: "Torre de
+   controle" é a etiqueta mais longa e as outras não precisam da mesma
+   largura — coluna igual cortava a torre em reticências. */
 .rt-demo__nav {
   display: grid;
-  width: min(100%, 380px);
+  width: fit-content;
+  max-width: 100%;
   padding: 5px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, auto);
   gap: 4px;
   border: 1px solid var(--f1-line);
   border-radius: var(--f1-radius-md);
@@ -168,6 +206,17 @@
   border-radius: var(--f1-radius-lg);
   background: var(--f1-surface-solid);
   box-shadow: 0 30px 80px var(--f1-shadow);
+  /* o berço MUDA de aparelho quando a aba muda (celular ↔ monitor da torre):
+     a transição é o próprio berço se esticando — trocar de peça piscaria. */
+  transition: width 0.45s var(--f1-ease), aspect-ratio 0.45s var(--f1-ease);
+}
+
+/* Torre de controle é tela de COMPUTADOR do gestor: o berço vira paisagem,
+   na MESMA razão do mock (760x484) pra não sobrar letterbox. A largura sai
+   da mesma conta de altura da moldura do celular (altura x razão). */
+.rt-demo__frame[data-demo="torre"] {
+  width: min(560px, calc((43vh - 96px) * 1.5702), 44vw);
+  aspect-ratio: 760 / 484;
 }
 
 .rt-demo__iframe {
@@ -184,18 +233,6 @@
   .rt-demo { gap: 8px; }
 }
 
-/* Coluna estreita (desktop pequeno): dois cartões lado a lado viram duas
-   colunas de ~220px e a arte come o texto. Empilha e encurta a arte. */
-@media (max-width: 1180px) and (min-width: 901px) {
-  .rt-apps { grid-template-columns: minmax(0, 1fr); gap: var(--space-2); }
-  .rt-apps .f1-mobile-app { padding: var(--space-2) var(--space-3); }
-  .rt-apps .f1-mobile-app__art-wrap { flex-basis: 30%; height: clamp(70px, 9vh, 92px); }
-  .rt-apps .f1-mobile-app--android .f1-mobile-app__art-wrap {
-    height: clamp(86px, 11vh, 112px);
-    margin: calc(var(--space-2) * -1) calc(var(--space-1) * -1) calc(var(--space-2) * -1) 0;
-  }
-}
-
 @media (max-width: 900px) {
   .rota-site { overflow: auto; }
   .rt-simple {
@@ -208,9 +245,11 @@
   .rt-simple__copy > p { margin-inline: auto; }
   .rt-simple__actions { justify-content: center; }
   .rt-demo__frame { width: min(300px, 78vw); }
-  /* No celular a página rola: os cartões voltam à medida da porta única. */
-  .rt-apps { text-align: left; }
-  .rt-apps .f1-mobile-app { padding: var(--space-4) var(--space-4) var(--space-3); }
+  .rt-demo__frame[data-demo="torre"] { width: min(560px, 92vw); }
+  /* No celular a coluna centraliza; a prova continua lendo da esquerda. */
+  .rt-provas { width: fit-content; }
+  .rt-provas li { text-align: left; }
+  .rt-baixar { justify-content: center; }
 }
 
 @media (max-width: 520px) {
@@ -218,8 +257,7 @@
   .rt-simple__actions { width: 100%; }
   .rt-simple__actions .f1-primary-cta,
   .rt-simple__actions .f1-secondary-cta { flex: 1 1 100%; }
-  .rt-apps { grid-template-columns: minmax(0, 1fr); }
-  .rt-demo__nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rt-demo__nav { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
