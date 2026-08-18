@@ -849,7 +849,7 @@
       sub: `Cada dia da semana guarda ${MAX_ESPACOS} rotas suas, com o nome que você escolher.`,
       corpo: `${passo(1, 'Deixe a lista na ordem que você dirige', 'arraste as paradas pelo punho')}
         ${passo(2, 'Salve neste espaço', 'com um nome curto: Manhã, Centro, Bairro…')}
-        ${passo(3, `Na próxima ${ROTULO_DIA[diaDosEspacos()] || 'vez'}`, 'um toque no botão e a ordem volta')}`,
+        ${passo(3, diaDosEspacos() > 0 ? `Na próxima ${ROTULO_DIA[diaDosEspacos()] || 'vez'}` : 'Na próxima rota avulsa', 'um toque no botão e a ordem volta')}`,
       acoes: [['Agora não', ''], ['Salvar aqui', 'principal']], classe: 'duas',
     });
     const botao = naCamada('.portao-wrap .principal');
@@ -894,7 +894,7 @@
       // Sem nome não fica sem saída: o dia + o número do espaço é curto, único
       // dentro do dia e diz de onde veio. Portão fechado com erro na cara seria
       // obrigar o motorista a começar tudo de novo.
-      const nome = digitado || `${ROTULO_DIA[dia] || 'Rota'} ${idx + 1}`;
+      const nome = digitado || `${dia > 0 ? (ROTULO_DIA[dia] || 'Rota') : 'Avulsa'} ${idx + 1}`;
       /* 🔴 O `depois` CORRE FORA DA TRAVA. `comTrava` joga fora quem chega com
          ela levantada — e Montar/Iniciar levantam a sua própria. Chamado aqui
          dentro, o toque de montar morria em silêncio depois de um salvar que
@@ -914,9 +914,9 @@
     let idSalvo = espaco ? String(espaco.id) : '';
     try {
       if (espaco) {
-        await window.API.patch(`/logistica/rota-modelos/${encodeURIComponent(espaco.id)}`, { nome, diaSemana: dia, paradas });
+        await window.API.patch(`/logistica/rota-modelos/${encodeURIComponent(espaco.id)}`, { nome, diaSemana: diaNoServidor(dia), paradas });
       } else {
-        const novo = await window.API.post('/logistica/rota-modelos', { nome, diaSemana: dia, paradas });
+        const novo = await window.API.post('/logistica/rota-modelos', { nome, diaSemana: diaNoServidor(dia), paradas });
         idSalvo = novo && novo.id ? String(novo.id) : '';
       }
     } catch (e) { return avisoErro(e); }
@@ -946,7 +946,7 @@
     if (!semRecibo) {
       window.portao({
         tom: 'ok', ico: 'check', titulo: 'Rota salva',
-        sub: `${esc(nome)} é o Espaço ${naFileira + 1} de ${ROTULO_DIA[dia] || 'hoje'}.`,
+        sub: `${esc(nome)} é o Espaço ${naFileira + 1} de ${rotuloDoBalde(dia)}.`,
         acoes: [['Fechar', 'principal']],
       });
     }
@@ -962,7 +962,7 @@
     if (!espaco || typeof window.portao !== 'function') return;
     window.portao({
       tom: 'info', ico: 'route', titulo: esc(espaco.nome),
-      sub: `Espaço ${idx + 1} de ${ROTULO_DIA[diaDosEspacos()] || 'hoje'} · ${(espaco.paradas || []).length} paradas`,
+      sub: `Espaço ${idx + 1} de ${rotuloDoBalde(diaDosEspacos())} · ${(espaco.paradas || []).length} paradas`,
       acoes: [['Renomear e regravar', 'principal'], ['Apagar este espaço', 'perigo'], ['Fechar', '']],
     });
     const renomear = naCamada('.portao-wrap .principal');

@@ -344,6 +344,109 @@
      primeira carga ⇒ `fonteCaiu` (aviso + "Tentar de novo"), nunca tela vazia:
      "não entrou nada hoje" e "a rede caiu" não podem ter a mesma cara.
      ------------------------------------------------------------------------ */
+  /* 🔴 O CRU DA ÚLTIMA CARGA FICA GUARDADO (17/08, ordem 8 do dono: *"garanta
+     q todos os dados de fechamento sejam clicáveis, e tenham os dados do
+     /financeiro. (pop up com extrato completo)"*).
+
+     O extrato sai DAQUI e não de uma segunda ida à rede, e o motivo é de
+     domínio: dois pedidos ao mesmo endpoint em momentos diferentes podem trazer
+     números diferentes (uma venda entrou no meio), e aí o pop-up contradiria o
+     cartão que o dedo acabou de tocar. Em tela de dinheiro, o detalhe TEM que
+     ser a explicação do total que está na tela — nunca uma segunda medição.
+     Se ninguém carregou ainda, o pop-up diz isso em vez de mostrar zero. */
+  let caixaCrua = null;      // a resposta de /logistica/fechamento/resumo
+  let devedoresCrus = null;  // { customerProfileId: centavos }
+  let nomesDosDevedores = null; // Map(id -> nome)
+
+  /* ==========================================================================
+     O EXTRATO COMPLETO (17/08 — ordem 8 do dono).
+
+     Cinco portas, uma peça: `portao()` com corpo montado aqui. Ele já é a
+     superfície certa (o `.portao` tem `max-height:82%` + `overflow:auto`), e
+     peça nova seria a 2ª folha de dinheiro do app.
+
+     Cada porta responde a pergunta que o número em cima dela levanta:
+       recebido → POR FORMA, com o total conferindo com o cartão;
+       aberto   → QUEM deve, do maior pro menor, com o total;
+       forma    → o valor daquela forma isolado, com o peso dela no dia;
+       devedor  → a linha de UMA pessoa;
+       semana   → dia a dia, com o total da semana.
+     Nada de conta nova: tudo sai do MESMO `caixa` que pintou a tela.
+     ========================================================================== */
+  function extratoFinanceiro(bloco, quem) {
+    if (typeof window.portao !== 'function') return;
+    const c = caixaCrua;
+    if (!c) {
+      return window.portao({
+        tom: 'alerta', ico: 'wallet', titulo: 'Ainda não carreguei o dia',
+        sub: 'Toque em "Tentar de novo" na tela pra buscar os números.',
+        acoes: [['Fechar', 'principal', true]],
+      });
+    }
+    const f = (c.fechamento && c.fechamento.formas) || {};
+    const linha = (rot, val, cor) => '<div class="rowline"><span>' + rot + '</span><b'
+      + (cor ? ' style="color:' + cor + '"' : '') + '>' + (val || centavos(0)) + '</b></div>';
+    const somaEntrou = (Number(f.dinheiroCents) || 0) + (Number(f.pixCents) || 0) + (Number(f.cartaoCents) || 0);
+
+    if (bloco === 'recebido' || bloco === 'forma') {
+      const corpo = linha('Dinheiro', centavos(Number(f.dinheiroCents) || 0), 'var(--lime)')
+        + linha('Pix', centavos(Number(f.pixCents) || 0), 'var(--blue-l)')
+        + linha('Cartão', centavos(Number(f.cartaoCents) || 0), 'var(--purple)')
+        + linha('Entrou hoje', centavos(somaEntrou))
+        + linha('Marcou (fiado)', centavos(Number(f.fiadoCents) || 0), 'var(--amber)')
+        + linha('Total do dia', centavos(Number(f.totalCents) || (somaEntrou + (Number(f.fiadoCents) || 0))));
+      return window.portao({
+        tom: 'info', ico: 'wallet',
+        titulo: bloco === 'forma' ? String(quem || 'Forma de pagamento') : 'Recebido hoje',
+        sub: 'Fechamento do dia, forma por forma. Marcado NÃO entra no recebido.',
+        corpo: '<div class="box" style="margin:0">' + corpo + '</div>',
+        acoes: [['Fechar', 'principal', true]],
+      });
+    }
+
+    if (bloco === 'aberto' || bloco === 'devedor') {
+      const deve = devedoresCrus || {};
+      const nomes = nomesDosDevedores || new Map();
+      const ids = Object.keys(deve)
+        .filter((id) => (Number(deve[id]) || 0) > 0)
+        .sort((a, b) => (Number(deve[b]) || 0) - (Number(deve[a]) || 0));
+      const alvo = String(quem || '');
+      const lista = (alvo && bloco === 'devedor') ? ids.filter((id) => id === alvo) : ids;
+      const total = ids.reduce((s2, id) => s2 + (Number(deve[id]) || 0), 0);
+      const corpo = lista.length
+        ? lista.map((id) => linha(esc(nomes.get(String(id)) || 'Cliente'), centavos(Number(deve[id]) || 0), 'var(--amber)')).join('')
+          + (bloco === 'aberto' ? linha('Total em aberto', centavos(total), 'var(--amber)') : '')
+        : '<span class="sub">Ninguém está devendo agora.</span>';
+      return window.portao({
+        tom: 'info', ico: 'note',
+        titulo: bloco === 'devedor' ? 'Quanto esta pessoa deve' : 'Em aberto',
+        /* A frase diz o que o número É: saldo ACUMULADO, não dívida do dia.
+           Confundir os dois é a leitura errada mais cara desta tela. */
+        sub: 'Saldo acumulado de quem marcou — não é só de hoje.',
+        corpo: '<div class="box" style="margin:0">' + corpo + '</div>',
+        acoes: [['Fechar', 'principal', true]],
+      });
+    }
+
+    if (bloco === 'semana') {
+      const dias = Array.isArray(c.historicoDias) ? c.historicoDias : [];
+      const total = dias.reduce((s2, d) => s2 + (Number(d && d.totalCents) || 0), 0);
+      const corpo = dias.length
+        ? dias.map((d) => linha(esc(String((d && d.data) || '')), centavos(Number(d && d.totalCents) || 0))).join('')
+          + linha('Total da semana', centavos(total))
+        : '<span class="sub">Sem dias fechados nesta semana.</span>';
+      return window.portao({
+        tom: 'info', ico: 'calendar', titulo: 'Semana, dia a dia',
+        /* ⚠️ O servidor só manda o TOTAL de cada dia (`totalCents`) — sem quebra
+           por forma. Então esta porta não promete "recebido da semana": ela diz
+           o total, que é o que existe. Prometer a quebra aqui seria inventar. */
+        sub: 'Total de cada dia. A quebra por forma existe só no dia de hoje.',
+        corpo: '<div class="box" style="margin:0">' + corpo + '</div>',
+        acoes: [['Fechar', 'principal', true]],
+      });
+    }
+  }
+
   async function carregarFinanceiro() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     const dia = diaOperacional();
@@ -366,6 +469,10 @@
       const itens = (rosterR.value && Array.isArray(rosterR.value.items)) ? rosterR.value.items : [];
       itens.forEach((c) => { if (c && c.id && String(c.name || '').trim()) nomes.set(String(c.id), String(c.name)); });
     }
+    // guarda o cru pro extrato da ordem 8 (ver a nota lá em cima)
+    caixaCrua = caixa;
+    devedoresCrus = deve;
+    nomesDosDevedores = nomes;
     const linhasDevedor = deve
       ? Object.keys(deve)
         .filter((id) => nomes.has(String(id)) && (Number(deve[id]) || 0) > 0)
@@ -406,6 +513,9 @@
         devedores: linhasDevedor.map((id) => [
           iniciais(nomes.get(String(id))), esc(nomes.get(String(id))), '',
           centavos(Number(deve[id]) || 0), '',
+          // 17/08 (ordem 8) — o 6º campo é o ID: é ele que o pop-up usa pra
+          // achar a pessoa de volta sem uma segunda conta de dívida.
+          String(id),
         ]),
       } : {}),
       /* 🔴 A SEMANA NÃO TEM FONTE — e some INTEIRA, com o título junto.
@@ -597,6 +707,10 @@
       fatos.chat = moduloLigado('chat');
     }
     window.usarDados('tutorial', fatos);
+    /* As portas de contato da tela "você ainda não tem clientes" dependem da
+       MESMA config, e este é o ponto que já sabe que ela chegou (17/08). Um
+       relógio próprio lá dentro decidia no escuro e apagava as duas portas. */
+    try { publicarPortasDeSuporte(); } catch (_) { /* módulo ausente */ }
     /* 🔴 A PORTA ABRE AQUI, E SÓ AQUI — depois de os fatos estarem NA TELA.
        Abrir direto no fim da resposta do tutorial era abrir cedo demais: a
        config pode chegar depois, e o motor filtraria os capítulos por `se:`

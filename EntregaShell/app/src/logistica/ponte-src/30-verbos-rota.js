@@ -525,6 +525,11 @@
           quantidade: 1,
           scheduledAt: `${hojeISO()}T12:00:00.000Z`,
           paraMinhaRota: true,
+          // 17/08 — o SELO viaja do rascunho pra entrega (ordem 3b). Quem marcou
+          // "Prioridade" antes de montar a rota escolheu ali; a materialização é
+          // só o momento em que a decisão vira linha no banco. Sem esta linha o
+          // caminho do rascunho perderia a escolha calado.
+          ...(c.prioridade ? { prioridade: true } : {}),
         });
         entraram += 1;
       } catch (_) { falharam.push(c.nome || 'Cliente'); }

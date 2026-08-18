@@ -29,7 +29,7 @@ button,input{font:inherit;color:inherit}
 .app button:focus{outline:none}
 .app button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 
-/* ---------- cromo do documento ---------- */
+/* ---------- cromo do documento ---------- */
 
 /* ==========================================================================
    O CELULAR — 400x900 lógico, ampliado por zoom (padrão 1.7)
@@ -227,7 +227,7 @@ button,input{font:inherit;color:inherit}
    fábrica. Peso alto fica só no logotipo, que é marca, não texto. */
 .app b,.app strong{font-weight:500}
 .app h2{font-weight:400;letter-spacing:-.018em}
-.app .v,.app .eta b,.app .price,.app .form-c.total b{letter-spacing:-.02em}
+.app .v,.app .eta b,.app .price,.app .form-c.total b{letter-spacing:-.02em}
 
 /* ==========================================================================
    PADRÕES DE MOVIMENTO — as 7 leis. Nada nesta casca aparece do nada.
@@ -372,7 +372,7 @@ button,input{font:inherit;color:inherit}
        Dos 260 ms da saída v1, 110 já rodavam atrás dessa parede — invisíveis.
        A tentação é alargar o `trXFade` pra "dar palco". NÃO ALARGUE: eu tentei
        .3s e o print dos 120 ms mostrou as DUAS telas legíveis ao mesmo tempo,
-       "João da Silva" escrito duas vezes deslocado — vira defeito de pintura,
+       "Cliente 1" escrito duas vezes deslocado — vira defeito de pintura,
        não transição. O fade fica em .15s, e quem cabe na janela é o PASSO: com
        16 ms, as 8 linhas de uma tela comum COMEÇAM a sair entre 0 e 112 ms,
        todas dentro dos 150 ms. É o começo escalonado que o olho lê como
@@ -1636,7 +1636,7 @@ button,input{font:inherit;color:inherit}
    as abas (60) e 7 pro último cartão não encostar no vidro do controle. */
 .body.com-dock-1{padding-bottom:132px}
 /* 🔴 RODAPÉ NÃO MUDA DE ALTURA. A linha de baixo do botão ("Iniciar rota /
-   João da Silva") existe em uns estados e não em outros — sem piso, a barra
+   Cliente 1") existe em uns estados e não em outros — sem piso, a barra
    encolhia 11px no meio do trabalho e a lista inteira dava um pulo. Altura de
    controle é do CONTROLE, não do texto que calhou de caber nele. */
 .pe-montagem .act{min-height:48px}
@@ -3355,7 +3355,7 @@ button,input{font:inherit;color:inherit}
 .msg small{display:block;font-size:9.5px;color:var(--ink-3);margin-top:3px}
 /* RECADO COM ROTA/PARADA EMBUTIDA (12/08) — o anexo mora DENTRO da bolha, e não
    num cartão separado como o `.recado` do portão. A razão é de leitura: o texto
-   ("passa no Mercado Estrela antes das 11h") e o alvo são a MESMA frase; separar
+   ("passa no Cliente 6 antes das 11h") e o alvo são a MESMA frase; separar
    os dois faria a pessoa parear mensagem com anexo pelo horário. E, sendo bolha,
    o histórico do que foi encaixado/negado fica no fio de graça — que é o que o
    dono pediu que sobrasse. Bolha larga só quando tem anexo: 82% é medida de
@@ -3413,6 +3413,94 @@ button,input{font:inherit;color:inherit}
   background:var(--ink-2);transition:left .2s,background .2s}
 .chave.on{background:var(--lime);border-color:#c6f27a}
 .chave.on i{left:18px;background:var(--go-ink)}
+
+/* ---------- tutorial e demonstração ---------- */
+/* 🔴 O TUTORIAL SAIU DO MEIO DOS AJUSTES (17/08, ordem do dono: *"nos ajustes tem
+   um monte de coisa, não quero isso! deixar uma tela Tutorial, e injetar todas
+   features dentro dele"*). Ele era o grupo "Aprenda a usar" espremido entre
+   Fechamento e "Som e tela" — sete linhas de aula no meio de sete linhas de
+   configuração, e a pessoa que abria os Ajustes pra aprender tinha que
+   reconhecer qual bloco ensinava. Agora é UMA linha lá e uma TELA aqui. */
+.tut-hero{position:relative;overflow:hidden;border-radius:15px;padding:15px 14px 14px;
+  background:linear-gradient(158deg,var(--blue-bg-2),var(--card) 78%);
+  border:.8px solid var(--blue-line)}
+/* O halo é o único enfeite, e ele é DESENHO: um facho que sai do play e some.
+   No claro o brilho vira sujeira (lei do modo claro), então lá ele é apagado. */
+.tut-hero::after{content:'';position:absolute;right:-38px;top:-46px;width:150px;height:150px;
+  border-radius:50%;background:var(--blue);opacity:.13;filter:blur(26px);pointer-events:none}
+.tut-hero .tut-play{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;
+  background:var(--blue-bg);border:1px solid var(--blue-line);color:var(--blue-l)}
+.tut-hero h3{margin:11px 0 0;font-size:15px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.tut-hero p{margin:4px 0 0;font-size:11.5px;line-height:1.45;color:var(--ink-2)}
+.tut-hero .tut-selo{position:absolute;right:12px;top:13px;font-size:9.5px;font-weight:600;
+  padding:3px 8px;border-radius:999px;background:var(--lime-bg-2);color:var(--lime);
+  border:.7px solid var(--lime-line)}
+/* Botão de largura cheia: é a ÚNICA ação da caixa, e ação única não divide
+   linha com nada — o dedo não tem que escolher. */
+.tut-b{margin-top:12px;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;
+  padding:11px;border:0;border-radius:12px;font-size:13.5px;font-weight:600;cursor:pointer;
+  background:linear-gradient(180deg,var(--go-1),var(--go-2));color:var(--go-ink)}
+.tut-b.fraco{background:transparent;border:.8px solid var(--line);color:var(--ink)}
+/* A dica da lâmpada fecha a tela: ela ensina o que NENHUM capítulo cobre — que
+   toda tela tem a própria aula a um toque. */
+.tut-dica{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:start;margin-top:13px;
+  padding:11px;border-radius:12px;background:var(--bg-2);border:.7px solid var(--line)}
+.tut-dica span{font-size:11px;line-height:1.45;color:var(--ink-2)}
+.tut-dica b{color:var(--ink);font-weight:600}
+
+/* ---------- "você ainda não tem clientes" (a saída da demonstração) ---------- */
+/* 🔴 ESTA TELA EXISTE PORQUE A DEMONSTRAÇÃO CRIA UM BURACO. O cliente vê 8
+   paradas, rota montada e caixa do dia; fecha, e a tela fica VAZIA. O contraste
+   que vendeu o app é o mesmo que faz desistir — então a demonstração não
+   termina em "parabéns", termina AQUI, com as duas saídas na mão. */
+.cap-tit{margin:14px 2px 0;font-size:21px;font-weight:700;letter-spacing:-.02em;color:var(--ink);text-align:center}
+.cap-sub{margin:6px 12px 0;font-size:12.5px;line-height:1.5;color:var(--ink-2);text-align:center}
+/* O cartão do SUPORTE é o herói: é a saída que o dono quer que seja escolhida,
+   e o peso visual diz isso antes da letra. */
+.cap-heroi{position:relative;overflow:hidden;margin-top:16px;border-radius:16px;padding:16px 14px 14px;
+  background:linear-gradient(160deg,var(--lime-bg-2),var(--card) 72%);
+  border:.9px solid var(--lime-line)}
+.cap-heroi::after{content:'';position:absolute;left:-30px;bottom:-52px;width:160px;height:160px;
+  border-radius:50%;background:var(--lime);opacity:.11;filter:blur(28px);pointer-events:none}
+.cap-heroi .cap-selo{display:inline-flex;align-items:center;gap:5px;font-size:9.5px;font-weight:700;
+  letter-spacing:.03em;text-transform:uppercase;padding:4px 9px;border-radius:999px;
+  background:var(--lime);color:var(--go-ink)}
+.cap-heroi h3{margin:10px 0 0;font-size:17px;font-weight:700;letter-spacing:-.015em;color:var(--ink)}
+.cap-heroi p{margin:5px 0 0;font-size:12px;line-height:1.5;color:var(--ink-2)}
+.cap-heroi p b{color:var(--ink);font-weight:600}
+/* AS TRÊS PORTAS. Cabem numa fileira só porque são três e o rótulo é uma
+   palavra — em duas linhas viraria menu, e menu é escolha, não convite. */
+.cap-portas{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:13px}
+.cap-porta{display:grid;place-items:center;gap:6px;padding:12px 4px 10px;border-radius:13px;
+  border:.8px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;font:inherit}
+.cap-porta i{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;
+  background:var(--bg-2);color:var(--ink-2)}
+.cap-porta.destaque{border-color:var(--lime-line);background:var(--lime-bg)}
+.cap-porta.destaque i{background:var(--lime-bg-2);color:var(--lime)}
+.cap-porta strong{font-size:11px;font-weight:600}
+/* A linha do "do jeito que estiver" é o que derruba a desculpa de não mandar —
+   quem tem a lista num caderno amassado acha que a foto dele não serve. */
+.cap-aceita{margin-top:11px;font-size:10.5px;line-height:1.5;color:var(--ink-2);text-align:center}
+.cap-ou{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center;margin:16px 0 0;
+  font-size:10.5px;color:var(--ink-3)}
+.cap-ou::before,.cap-ou::after{content:'';height:.8px;background:var(--line)}
+/* O caminho manual não é escondido — é MENOR. Esconder a saída que o cliente
+   pode preferir é a mesma armadilha do botão que mente. */
+.cap-manual{margin-top:12px;width:100%;display:grid;grid-template-columns:auto 1fr auto;gap:10px;
+  align-items:center;padding:13px 12px;border-radius:13px;border:.8px solid var(--line);
+  background:var(--card);color:var(--ink);text-align:left;cursor:pointer;font:inherit}
+.cap-manual .ico{width:32px;height:32px;border-radius:11px;display:grid;place-items:center;
+  background:var(--bg-2);color:var(--ink-2)}
+.cap-manual strong{display:block;font-size:13px;font-weight:600}
+.cap-manual span{display:block;font-size:10.5px;color:var(--ink-2);margin-top:1px}
+/* O RECIBO. Depois de mandar, a tela não volta ao convite: quem já mandou
+   precisa ver que chegou, senão manda de novo achando que falhou. */
+.cap-ok{margin-top:16px;padding:15px 14px;border-radius:15px;text-align:center;
+  background:var(--lime-bg);border:.9px solid var(--lime-line)}
+.cap-ok .ico{width:46px;height:46px;margin:0 auto;border-radius:50%;display:grid;place-items:center;
+  background:var(--lime-bg-2);color:var(--lime);border:1px solid var(--lime-line)}
+.cap-ok h3{margin:10px 0 0;font-size:15.5px;font-weight:700;color:var(--ink)}
+.cap-ok p{margin:5px 0 0;font-size:11.5px;line-height:1.5;color:var(--ink-2)}
 
 /* ---------- clientes ---------- */
 /* 🔴 A LINHA DE CLIENTE TAMBÉM É BOTÃO. No mock ela é `<div>` (nada clica), mas
@@ -3520,6 +3608,37 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .tempo button,[data-luz="claro"] .search,[data-luz="claro"] .filt{
   box-shadow:0 1px 2px rgba(15,23,38,.05),0 1px 8px rgba(15,23,38,.04);
 }
+/* AS PEÇAS NOVAS DO TUTORIAL E DA CAPTURA, no claro (17/08). Duas correções e
+   nenhuma é cosmética: (1) o halo — `filter:blur` sobre branco vira sujeira
+   cinza, então ele APAGA e quem cria a camada é a sombra, como no resto da
+   pele; (2) o `.cap-selo` e o `.tut-b` escrevem em `--go-ink` sobre lima vivo,
+   que é o ÚNICO par que sobrevive nas duas peles — por isso eles não têm par
+   claro: já nasceram certos. */
+/* 🔴 MEDIDO, NÃO ADIVINHADO (17/08). A primeira versão destas peças usava
+   `--blue-bg-2`, `--lime-bg-2` e `--lime-line` nos FUNDOS — e nenhum dos três
+   tem par no modo claro (só `--lime-bg` tem). Resultado, visto na foto da tela:
+   o cartão "Veja o app funcionando" nascia com fundo QUASE PRETO no meio da
+   tela branca, com o texto cinza por cima, e o selo "1 minuto" igual. É a lei
+   do CSS que morre calado na veia: token sem par claro não avisa, só aparece.
+   Aqui os fundos são REDESENHADOS com os pares que a pele clara já usa
+   (`#eef3fc` do `.num`, `#f0f8e4`/`#a8cc6e` do `.tag.lime`); o brilho vira
+   sombra, porque halo sobre branco é sujeira. */
+[data-luz="claro"] .tut-hero::after,[data-luz="claro"] .cap-heroi::after{display:none}
+[data-luz="claro"] .tut-hero,[data-luz="claro"] .cap-heroi,[data-luz="claro"] .cap-porta,
+[data-luz="claro"] .cap-manual,[data-luz="claro"] .cap-ok,[data-luz="claro"] .tut-dica{
+  box-shadow:0 1px 2px rgba(15,23,38,.05),0 1px 8px rgba(15,23,38,.04);
+}
+[data-luz="claro"] .tut-hero{background:linear-gradient(158deg,#eef3fc,var(--card) 76%);border-color:#c9d8ef}
+[data-luz="claro"] .tut-hero .tut-play{background:#eef3fc;border-color:#c9d8ef;color:var(--blue)}
+[data-luz="claro"] .tut-hero .tut-selo{background:#f0f8e4;border-color:#a8cc6e;color:var(--lime)}
+[data-luz="claro"] .tut-dica{background:#fff}
+[data-luz="claro"] .cap-heroi{background:linear-gradient(160deg,#f0f8e4,var(--card) 70%);border-color:#a8cc6e}
+[data-luz="claro"] .cap-porta i{background:#eef1f7}
+[data-luz="claro"] .cap-porta.destaque{background:#f7fcef;border-color:#a8cc6e}
+[data-luz="claro"] .cap-porta.destaque i{background:#eef7e2}
+[data-luz="claro"] .cap-manual .ico{background:#eef1f7}
+[data-luz="claro"] .cap-ok{background:#f0f8e4;border-color:#a8cc6e}
+[data-luz="claro"] .cap-ok .ico{background:#e4f3d2;border-color:#a8cc6e}
 [data-luz="claro"] .round,[data-luz="claro"] .marc,[data-luz="claro"] .pay,
 [data-luz="claro"] .campo input,[data-luz="claro"] .campo textarea,
 [data-luz="claro"] .pt-linha,[data-luz="claro"] .motivo,[data-luz="claro"] .foto,

@@ -694,17 +694,41 @@
     [String((res && res.cidade) || '').trim(), String((res && res.uf) || '').trim()].filter(Boolean).join(' — '),
   ].filter(Boolean).join(' · ');
 
+  /* 🔴 A RESPOSTA DA PERGUNTA "PRIORIDADE OU COMUM?" ESPERA AQUI (17/08, ordem
+     3b do dono: *"Prioridade: coloca na prioridade, comum encaixa na rota"*).
+
+     Ela não pode viajar como argumento porque quem abre a tela é o ROTEADOR
+     (`window.ir('rapida')`, § 80-gps-rotas-salvas) e o portão responde ANTES
+     dele — então o valor fica de molho aqui e o nascimento da tela o consome.
+     Consome MESMO: `rapidaEmBranco` zera de volta pra 'perto' na saída, senão a
+     escolha de uma parada vazaria pra próxima, que é o mesmo furo do `motivo`
+     que a porta de entrega já pagou.
+     'perto' (Comum) é o padrão do silêncio: quem entra por qualquer outra porta
+     — o tour, uma prova, um `window.ir` de dentro — cai no encaixe automático,
+     que é o comportamento de sempre. */
+  let posicaoDaProximaRapida = 'perto';
+  function definirPosicaoDaProximaRapida(p) {
+    posicaoDaProximaRapida = p === 'primeira' ? 'primeira' : 'perto';
+  }
+
   /** a tela nasce EM BRANCO — mesma lei do `novoEmBranco` do cadastro */
   function rapidaEmBranco(veioDe) {
     // Porta de entrada MARCADA, nunca deduzida (mesma lei do `ficha.volta`): quem
     // entrou pela Rota tem que voltar pra Rota, senão o Voltar do Android mente.
-    const volta = veioDe === 'rotalista' || veioDe === 'rota' ? veioDe : 'montagem';
+    /* 🔴 'mapa' (o 3D) ENTROU NA LISTA em 17/08, com as ordens 1 e 2 do dono: o
+       "+" passou a morar no rodapé dos DOIS modos, e a navegação virou porta de
+       entrada desta tela. Sem ela, quem tocasse o "+" dirigindo e voltasse
+       caía na MONTAGEM — a tela mais longe possível de quem está com o carro
+       parado na rua. Porta de entrada é MARCADA, nunca deduzida. */
+    const volta = (veioDe === 'rotalista' || veioDe === 'rota' || veioDe === 'mapa') ? veioDe : 'montagem';
     rapida = {
       volta,
       origem: '',            // '' | 'ponto' | 'busca' | 'cep'
       resolvido: null, opcoes: [], duplicado: null,
       cep: '', numero: '', nome: '',
-      modo: 'direcao', posicao: 'perto',
+      // 17/08 — a resposta do portão Prioridade/Comum (ordem 3b). Ver
+      // `definirPosicaoDaProximaRapida`: ela é consumida e zerada logo abaixo.
+      modo: 'direcao', posicao: posicaoDaProximaRapida,
       aviso: '', buscando: false, salvando: false,
       /* A PORTA "MEUS CLIENTES" (09/08). Ela abre PRIMEIRO de propósito: a
          pergunta "quem entra na rota?" quase sempre se responde com gente que
@@ -713,11 +737,14 @@
       buscaCliente: '', lista: [], escolhidos: [],
       listaCarregando: true, listaSemFonte: false,
     };
+    const posicaoDesta = posicaoDaProximaRapida;
+    // CONSUMIDA: a escolha vale pra ESTA abertura e morre aqui.
+    posicaoDaProximaRapida = 'perto';
     if (typeof window.usarDados !== 'function') return;
     window.usarDados('rapida', {
       volta, busca: '', buscando: 0, salvando: 0, opcoes: [], achado: null,
       aviso: '', modo: 'direcao', soDirecao: 0, nome: '', pedeNome: 0,
-      temRota: paradasAbertas().length ? 1 : 0, posicao: 'perto',
+      temRota: paradasAbertas().length ? 1 : 0, posicao: posicaoDesta, entraram: 0,
       porta: 'cadastro', buscaCliente: '', clientes: [], escolhidos: [],
       listaCarregando: 1, listaSemFonte: 0,
     });
@@ -781,6 +808,8 @@
       pedeNome: modo === 'cadastro' && vaiBatizar ? 1 : 0,
       temRota: paradasAbertas().length ? 1 : 0,
       posicao: r.posicao,
+      // ORDEM 3 — quantas paradas ja entraram nesta passada do 'Procurar'.
+      entraram: Number(r.entraram) || 0,
       /* A porta "Meus clientes" vai JUNTO em todo repinte — as duas portas são
          uma tela só, e publicar meia tela deixaria a lista sumindo cada vez que
          a busca de endereço escrevesse. */

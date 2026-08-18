@@ -51,6 +51,7 @@ import { LogisticaGeoService } from './logistica-geo.service';
 import { LogisticaAgendaService } from './logistica-agenda.service';
 import { LogisticaTutorialService } from './logistica-tutorial.service';
 // VASILHAME (17/08) — casco emprestado por cliente (garrafão, botijão, engradado).
+import { LogisticaCadastroMassaService } from './logistica-cadastro-massa.service';
 import { LogisticaVasilhameService } from './logistica-vasilhame.service';
 import { LogisticaPasseioService } from './logistica-passeio.service';
 // PROSPECTOR v2 (12/08) — a escolha de TIPO que a PESSOA faz na semana.
@@ -179,6 +180,9 @@ export class LogisticaController {
     // VASILHAME (17/08) — casco emprestado por cliente. Mesmo padrão de default
     // acima (testes legados instanciam o controller direto com poucos argumentos).
     private readonly vasilhame: LogisticaVasilhameService = null as any,
+    // CADASTRO EM MASSA (17/08) — foto da lista de clientes vira e-mail pro
+    // suporte, sem tabela. Mesmo padrão de default acima.
+    private readonly cadastroMassa: LogisticaCadastroMassaService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -1600,6 +1604,17 @@ export class LogisticaController {
    * com JwtAuthGuard (o app do entregador também lê a config); cria o default se
    * ainda não existir. company-scoped.
    */
+  /* CADASTRO EM MASSA POR FOTO (17/08) — a segunda porta da tela "você ainda
+     não tem clientes", que fecha a demonstração do app do entregador. A foto
+     chega em BASE64, dentro do JSON: o app não fala HTTP direto — passa por uma
+     ponte Kotlin que `JSON.stringify` o corpo, e multipart não atravessa (ver o
+     service). Sem tabela nova. */
+  @Post('cadastro-em-massa')
+  cadastroEmMassa(@Req() req: any, @Body() dto: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.cadastroMassa.registrar(companyId, req.user, dto);
+  }
+
   @Get('config')
   getConfig(@Req() req: any) {
     const companyId = this.ensureCompanyIdFromUser(req.user);

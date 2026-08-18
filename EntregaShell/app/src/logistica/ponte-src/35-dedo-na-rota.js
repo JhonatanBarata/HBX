@@ -94,6 +94,46 @@
     });
   });
 
+  /* 🔴 REORGANIZAR = DEVOLVER O VOLANTE AO OTIMIZADOR (17/08, ordem 5 do
+     dono: *"colocar um botão na esquerda de 'Fila 13', Reorganizar = Reorganiza
+     por distancia, porém o q foi adicionado como prioridade fica em vermelho, e
+     não entra nesse filtro"*).
+
+     Ele mora AQUI e não em arquivo novo porque este arquivo é "O DEDO QUE MEXE
+     NA ROTA": é o terceiro gesto da mesma família (reordenar, retirar,
+     reorganizar), na mesma fila SÉRIE (`naFila`), com o mesmo guarda de
+     consulta e o mesmo par `carregarRota`/`avisoErro` do arrasto.
+
+     É UMA CHAMADA SÓ, e isso é o conserto: `POST /rota/planejar` SEM
+     `ordemManual` é exatamente o NN+2-opt a partir do GPS. A prioridade não
+     precisa de conta nenhuma aqui porque quem a segura no topo é o SERVIDOR
+     (o selo `Entrega.prioridade`, lido pelo `priorizarPrimeiro` dos dois
+     motores do planejador). Fazer a lista calcular isso do lado de cá seria a
+     segunda régua do mesmo fato — e duas réguas divergem no primeiro ajuste.
+
+     💰 Dinheiro: mesma nota do arrasto, 30 linhas acima — re-planejar o mesmo
+     conjunto não cria parada nem debita (claim ÚNICO por empresa+motorista+
+     data+bloco). */
+  async function reorganizarPorDistancia() {
+    if (!temPonte()) return;
+    if (continuidadeAtiva) {
+      return avisoErro(new Error('Esta rota está em modo de consulta. Continue ou puxe antes de alterar a ordem.'));
+    }
+    return naFila(async () => {
+      try {
+        // Sem `deliveryIds` de propósito: quem decide o CONJUNTO continua sendo
+        // o servidor (as abertas do dia); daqui só se pede a SEQUÊNCIA dele.
+        await window.API.post('/logistica/rota/planejar', {
+          date: dataDaRotaNaTela(), ...origemGps(),
+        });
+      } catch (e) {
+        await carregarRota();     // desfaz a mentira primeiro, avisa depois
+        return avisoErro(e);
+      }
+      await carregarRota();
+    });
+  }
+
   /* 🔴 RETIRAR É CANCELAR — o app tem UM verbo destrutivo só (lei do dono,
      29/07). Não nasce aqui um segundo caminho de exclusão: a parada retirada
      é uma entrega DECIDIDA (ele resolveu não passar lá hoje), e é o

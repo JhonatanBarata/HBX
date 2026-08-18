@@ -387,6 +387,18 @@
      português continua a mesma (é ela que vai pra tela por padrão); o status e
      o corpo viajam JUNTO pra quem quiser dizer a frase certa daquele caso. */
   const chamar = (metodo, caminho, corpo) => {
+    /* 🔴 A DEMONSTRAÇÃO INTERCEPTA AQUI, E SÓ AQUI (17/08 — ver
+       `C8-demonstracao.js`). Este é o cano por onde TODA chamada do app passa,
+       e é por isso que a trava mora nele: com a demonstração no ar, nenhum
+       POST/PATCH/DELETE alcança a rede — nem o `rota/iniciar`, que DEBITA
+       CRÉDITO DE VERDADE. Uma lista de verbos barrados um a um sempre esquece
+       um; um cano fechado não esquece nenhum.
+       `undefined` = "não é comigo, pode ir pra rede" — que é a resposta em 100%
+       das aberturas normais do app, e por isso esta linha não custa nada. */
+    if (typeof window.__demoIntercepta === 'function') {
+      const fingido = window.__demoIntercepta(metodo, caminho, corpo);
+      if (fingido !== undefined) return fingido;
+    }
     if (!temPonte()) return Promise.reject(new Error('Abra esta tela pelo HBX Logística.'));
     return window.HBX.api(caminho, { method: metodo, body: corpo }).catch((e) => {
       const erro = new Error(humano(e));

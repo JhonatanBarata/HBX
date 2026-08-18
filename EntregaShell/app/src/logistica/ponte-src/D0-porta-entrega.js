@@ -14,6 +14,12 @@
      06/08): 0 uso na história do produto. Não é esquecimento.
      ------------------------------------------------------------------------ */
   const ENTREGAS = new Map();
+  /* O WhatsApp do SUPORTE (ordem 6 do dono, 17/08) — número completo, com país
+     e DDD. Constante e não campo de servidor: é o telefone do dono, não
+     configuração de tenant, e uma linha de socorro que depende de a rede
+     responder é justamente a que falta na hora que ela some. Ver a ação
+     `suporte`, lá embaixo. */
+  const SUPORTE_WHATSAPP = '5519997024884';
   let financeiroAtivo = true;
   let cobrancaSimples = false;
   let aberta = null;              // { id, n, item } — a parada com a folha aberta
@@ -160,6 +166,9 @@
          mostrava um e o banco gravava outro. Agora o seam recebe EXATAMENTE o
          que vai ser enviado, inclusive o padrão da 1ª abertura. */
       motivo: motivo || (DADOS_MOTIVO_PADRAO() || ''),
+      // DE QUAL FOLHA a `folhanao` foi aberta. Aqui é a COMPLETA — e ela ESTÁ
+      // preenchida, então voltar pra ela é honesto. O par mora em `encherVenda`.
+      voltarPara: 'folha',
     });
   }
 
@@ -190,6 +199,33 @@
       recebido: forma && forma !== 'fiado' && hojeVal != null ? dinheiro(hojeVal) : dinheiro(0),
       paraMarcado: anterior != null ? dinheiro(anterior + (forma === 'fiado' ? (hojeVal || 0) : 0)) : '',
       forma,
+    });
+    /* 🔴 A FOLHA SIMPLES GANHOU A SAÍDA DO "NÃO ENTREGUE" (17/08, ordem 9 do
+       dono: *"fui em entregas, e nem achei onde clicar para isso acontecer!!!
+       isso já existe, não invente ache e religue"*).
+
+       O elo cortado era ESTE arquivo, uma linha abaixo em `abrirParada`:
+       `const simples = !financeiroAtivo || cobrancaSimples` manda a chegada pra
+       `venda` (a folha simples), e o botão "Não entregue" só existia na folha
+       COMPLETA. Nada tinha sumido — ele nunca esteve na folha que o dono usa, e
+       por isso o único verbo da porta era "Confirmar venda": o histórico do
+       cliente marcava como atendido o que ninguém conseguiu entregar.
+
+       A porta é a mesma peça (`folhanao`), e ela lê o seam da folha COMPLETA
+       (`folhaCompleta` desenha com `DADOS.folha`). São duas chaves, e cada uma
+       mata um defeito já medido nesta casa:
+       · `motivo` — o MESMO par que `encherFolha` semeia (§ "A TELA E O SERVIDOR
+         TÊM QUE DIZER O MESMO MOTIVO", acima). Sem ele o furo curado lá
+         ressuscitaria pela porta nova: marcar "Endereço não encontrado" na
+         parada 3 deixaria o motivo aceso ao abrir a parada 5, enquanto o
+         `registrarNaoEntregue` mandaria "Ninguém atendeu" pro servidor.
+       · `voltarPara` — o Voltar da `folhanao` cravava `folha`; em cobrança
+         simples a folha COMPLETA nunca foi preenchida, e como o seam `folha`
+         não entra no apagador da demonstração, voltar por ali cuspiria o
+         DESENHO na cara do motorista (Maria Aparecida · R$ 21,00). */
+    window.usarDados('folha', {
+      motivo: motivo || (DADOS_MOTIVO_PADRAO() || ''),
+      voltarPara: 'venda',
     });
   }
 
@@ -600,6 +636,29 @@
     try { return (DADOS.folha.motivos || [])[0] || ''; } catch (_) { return ''; }
   }
 
+  /* A PERGUNTA (ordens 3/3b) e a porta que ela abre. Ficam juntas de propósito:
+     é uma decisão só, em dois toques. */
+  function abrirPortaDaParada() {
+    if (typeof window.portao !== 'function') return entrarNaRapida('perto');
+    window.portao({
+      tom: 'info', ico: 'plus', titulo: 'Como esta parada entra?',
+      sub: 'Dá pra mudar depois arrastando o cartão na lista.',
+      corpo: '<div class="pt-linha"><span class="m">1</span><span><strong>Prioridade</strong>'
+        + '<span>vai pro topo da fila e fica em vermelho</span></span></div>'
+        + '<div class="pt-linha"><span class="m">2</span><span><strong>Comum</strong>'
+        + '<span>encaixa onde custar menos desvio</span></span></div>',
+      acoes: [
+        ['Agora não', '', true],
+        ['Prioridade', 'perigo', false, 'parada-prioridade'],
+        ['Comum', 'principal', false, 'parada-comum'],
+      ],
+    });
+  }
+  function entrarNaRapida(posicao) {
+    definirPosicaoDaProximaRapida(posicao);
+    if (typeof window.ir === 'function') window.ir('rapida');
+  }
+
   const ACOES = {
     /* 🔴 DOIS PASSOS, NÃO TRÊS (dono, 08/08: "MONTAR ROTA → MONTAGEM DE ROTA
        (BOTÃO INICIAR)"). Este botão abre a Montagem — e abrir a Montagem só
@@ -654,6 +713,11 @@
     }, alvo))),
     iniciar: (alvo) => comOrdemSalva(() => iniciarRota({ escopo: 'dia' }, alvo)),
     'cancelar-rota': cancelarRota,
+    /* ORDEM 5 — o botão à esquerda de "Fila N" na lista. Devolve a sequência ao
+       otimizador; a prioritária fica no topo porque o SERVIDOR a segura lá
+       (§ priorizarPrimeiro). `aguardeNoToque` porque o verbo é rede, e botão que
+       não responde no quadro do dedo é defeito que esta casa já pagou. */
+    'reorganizar-rota': (alvo) => aguardeNoToque(alvo, reorganizarPorDistancia),
     'rota-pendente-abrir': abrirRotaPendente,
     'rota-pendente-continuar': continuarRotaPendente,
     'rota-pendente-puxar': puxarRotaPendente,
@@ -707,7 +771,14 @@
     'criar-cliente-assim': () => comTrava(() => criarCliente(null)),
     // o "+" da Montagem e da Rota: a parada avulsa
     'rapida-buscar': () => comTrava(rapidaBuscar),
-    'rapida-confirmar': () => comTrava(rapidaConfirmar),
+    /* 🔴 `comTrava(rapidaConfirmar)` passava o ARGUMENTO DA TRAVA como `ficar`.
+       Por isso os dois verbos são funções próprias, com o argumento escrito à
+       mão: repassar a função nua fazia `ficar` receber o que o `comTrava`
+       resolvesse — e "sai da tela" viraria "fica" por acidente. */
+    'rapida-confirmar': () => comTrava(() => rapidaConfirmar(false)),
+    // ORDEM 3 — a opção de adicionar MÚLTIPLOS pelo "Procurar": mesma gravação,
+    // item a item, sem sair da tela. Ver a nota do `ficar` no C0.
+    'rapida-confirmar-continuar': () => comTrava(() => rapidaConfirmar(true)),
     'rapida-adicionar-escolhidos': () => comTrava(rapidaAdicionarEscolhidos),
     'rapida-recarregar': () => {
       if (!rapida) return;
@@ -861,7 +932,59 @@
        chip no cabeçalho, sem linha nos Ajustes, sem nada pra tocar. `forcado`
        fura a trava de 30 min E a memória do "já avisei" — e responde SEMPRE,
        inclusive quando não há novidade. */
+    /* 🔴 O "+" PERGUNTA ANTES DE ABRIR (17/08, ordens 3 e 3b do dono:
+       *"comportamento adicionar rota: pergunta: Prioridade / Comum: Ao escolher
+       entrar direto na foto 3"* e *"Prioridade: coloca na prioridade, comum
+       encaixa na rota"*).
+
+       Nenhuma peça nova: o portão é o `window.portao` de sempre (o 4º campo de
+       cada ação dá `data-acao` a QUALQUER botão — a mesma receita do "Registrar
+       local", que abre três portas num portão só), e a RESPOSTA é um campo que
+       já existe e já funciona ponta a ponta: `rapida.posicao`
+       ('primeira' | 'perto'), lido pelo `encaixarAvulsa` — 'primeira' cai em
+       `indice = 0`, 'perto' roda o custo de inserção (OSRM quando responde,
+       Haversine quando não). O botão dele tinha SUMIDO da casca em 12/08
+       ("onde ela entra virou letra miúda"), e o handler ficou órfão esperando
+       dono. A pergunta do dono é esse dono.
+
+       Duas frases e não uma: quem está em pé na calçada tem que ler a
+       CONSEQUÊNCIA, não o rótulo. E sem escape mudo — fechar sem escolher é
+       'Agora não', que não cria parada nenhuma. */
+    'parada-nova': abrirPortaDaParada,
+    'parada-prioridade': () => entrarNaRapida('primeira'),
+    'parada-comum': () => entrarNaRapida('perto'),
     'buscar-update': () => { checkAppUpdate(true); },
+    /* 🔴 SUPORTE ABRE O WHATSAPP DO DONO (17/08, ordem 6: *"Colocar Suporte
+       nele, para admin e motoristas: Clicou já abre meu whatsapp no celular da
+       pessoa +5519997024884"*).
+
+       Zero Kotlin novo: `NativeAppBridge.openWhatsapp` já existe (ele normaliza
+       o número, monta `https://wa.me/<digitos>?text=…` e abre por ACTION_VIEW),
+       o `AndroidManifest` já declara `<queries>` pros dois pacotes do WhatsApp,
+       e `native.js` já expõe `window.HBX.whatsapp`. O que faltava era a LINHA
+       na tela e este gancho.
+
+       O número viaja COMPLETO (55 + DDD): o Kotlin só prefixa o 55 sozinho
+       quando recebe 10 ou 11 dígitos, e mandar "19997024884" daqui deixaria a
+       regra do país escrita em dois lugares.
+
+       O texto já vai carimbado com a versão e a empresa — quem abre um chamado
+       nunca sabe dizer em qual APK está, e essa é a primeira pergunta que o
+       dono faria. `appInfo` é a MESMA fonte da linha da Versão nos Ajustes. */
+    suporte: () => {
+      let versao = '';
+      try {
+        const info = window.HBX.info() || {};
+        versao = [info.versionName, info.versionCode ? `(${info.versionCode})` : ''].filter(Boolean).join(' ');
+      } catch (_) { versao = ''; }
+      let empresa = '';
+      try { empresa = String((DADOS.ajustes && DADOS.ajustes.empresa) || ''); } catch (_) { empresa = ''; }
+      const texto = ['Olá, preciso de ajuda no HBX Logística.',
+        empresa ? `Empresa: ${empresa}` : '',
+        versao ? `App: ${versao}` : ''].filter(Boolean).join('\n');
+      try { window.HBX.whatsapp(SUPORTE_WHATSAPP, texto); }
+      catch (_) { avisoErro(new Error('Não consegui abrir o WhatsApp agora.')); }
+    },
     'enviar-recado': enviarRecado,
     // "Responder" não manda nada: ele leva o dedo pro campo. O texto é dele.
     'responder-recado': () => {
@@ -885,6 +1008,24 @@
   }, true);
 
   // captura na fase de subida, DEPOIS do mock: quem não é meu segue o caminho dele.
+  /* 🔴 TODA PORTA DO "+" PERGUNTA (17/08, ordem 3). As portas são três — o
+     rodapé dos dois modos do mapa (`data-acao="parada-nova"`, que já cai no
+     mapa de ações), o "+" da Montagem e o vazio-porta da rota avulsa (os dois
+     `data-ir="rapida"`). Interceptar em fase de CAPTURA é o que permite manter
+     o ATRIBUTO `data-ir="rapida"` intacto: ele é a agulha do TOUR e da AULA
+     (dois passos apontam pra ele), e renomear o atributo quebraria os dois em
+     silêncio. Mesmo precedente do `soltarDia`, 30 linhas abaixo.
+     Só morde a porta do DEDO: quem chama `window.ir('rapida')` por dentro (uma
+     prova, o roteador) continua caindo direto na tela, com o padrão 'perto'. */
+  document.addEventListener('click', (e) => {
+    if (!temPonte()) return;
+    const porta = e.target.closest('[data-ir="rapida"]');
+    if (!porta) return;
+    e.preventDefault();
+    e.stopPropagation();
+    abrirPortaDaParada();
+  }, true);
+
   document.addEventListener('click', (e) => {
     const alvo = e.target.closest('[data-acao], [data-estado]');
     if (!alvo || !temPonte()) return;
@@ -953,6 +1094,24 @@
       if (i >= 0) rapida.escolhidos.splice(i, 1); else rapida.escolhidos.push(id);
       rapida.aviso = '';
       return publicarRapida();
+    }
+    /* ORDENS 7 e 10 — o cartao do historico ABRE o dia; reutilizar virou o
+       botao de dentro. Os dois carregam a DATA no proprio botao, entao ficam
+       aqui e nao no mapa nome->funcao. */
+    /* ORDEM 8 — cada dado do fechamento abre o extrato dele. O BLOCO e o QUEM
+       viajam no próprio botão: é o mesmo padrão do `abrir-parada`. */
+    if (chave === 'financeiro-extrato') {
+      return void extratoFinanceiro(String(alvo.dataset.bloco || ''), String(alvo.dataset.quem || ''));
+    }
+    // ORDENS 7/10 — a tela do dia se recarrega pela mesma porta que a abriu.
+    if (chave === 'historico-recarregar') {
+      return void abrirDiaDoHistorico(String((DADOS.historicodia && DADOS.historicodia.data) || ''));
+    }
+    if (chave === 'historico-abrir') {
+      return void abrirDiaDoHistorico(String(alvo.dataset.data || ''));
+    }
+    if (chave === 'historico-fechamento') {
+      return void abrirFechamentoDoDia(String(alvo.dataset.data || ''));
     }
     if (chave === 'historico-usar') {
       return void usarHistorico(String(alvo.dataset.data || ''));

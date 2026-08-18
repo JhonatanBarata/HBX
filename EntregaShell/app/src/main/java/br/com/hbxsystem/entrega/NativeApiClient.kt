@@ -416,6 +416,13 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             // painel ficaria "Aguardando o aparelho…" pra sempre com o servidor
             // 100% ok. Regra da casa: app.js + allowlist + rebuild, os TRÊS.
             listOf("logistica", "espelho", "quadro"),
+            /* 🔴 CADASTRO EM MASSA POR FOTO (17/08) — a segunda porta da tela
+               "você ainda não tem clientes", que fecha a demonstração. Sem esta
+               linha o toque em "Tirar foto" morreria AQUI, dentro do aparelho,
+               com o servidor 100% ok e o log do backend LIMPO — o defeito mudo
+               que esta allowlist já custou três vezes. Regra da casa: endpoint
+               novo = ponte + allowlist + rebuild do APK, os TRÊS ou nada. */
+            listOf("logistica", "cadastro-em-massa"),
         ) -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "entregas") && segments[3] in setOf("confirmar", "cancelar", "reabrir", "comprovantes", "chegando") -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "rota-modelos") && segments[3] == "gerar" -> true

@@ -352,6 +352,120 @@
     });
   }
 
+  /* ==========================================================================
+     O DIA DO HISTORICO, ABERTO DE VERDADE (17/08 - ordens 7 e 10 do dono).
+
+     Ate hoje o toque no cartao tinha UM destino: `usarHistorico`, que enche o
+     rascunho e mostra o portao de tres linhas ("Nada gravado ainda - Salvar ou
+     Iniciar e que gravam"). Era a foto 8 que ele mandou, e a queixa dele era
+     literal: *"eu queria que tivesse o historico mesmo!!"*.
+
+     Agora o toque ABRE o dia (GET /logistica/rota/historico/dia?date=), com
+     desfecho por parada, motivo de quem nao foi feita, dinheiro e o credito que
+     aquele dia custou. Reutilizar continua existindo - virou o botao verde de
+     DENTRO da tela, que e onde ele faz sentido: depois de ver o que aconteceu.
+     ========================================================================== */
+  async function abrirDiaDoHistorico(data) {
+    const dia = String(data || '');
+    if (!dia || !temPonte() || typeof window.usarDados !== 'function') return;
+    const doSeam = (DADOS.montagem && Array.isArray(DADOS.montagem.historico)) ? DADOS.montagem.historico : [];
+    const cartao = doSeam.find((h) => h && h.data === dia) || {};
+    /* A TELA ABRE JA COM O QUE O CARTAO SABIA (titulo, contagem, cor) e enche
+       quando a rede chega - a mesma lei da ficha do cliente. Tela em branco
+       esperando rede e tela quebrada, e aqui a espera e a pior possivel: quem
+       tocou acabou de ver os numeros no cartao. */
+    window.usarDados('historicodia', {
+      carregando: 1, semFonte: 0, data: dia, volta: 'montagem',
+      titulo: esc(cartao.titulo || 'Dia do historico'),
+      sub: esc(cartao.sub || ''), desfecho: '',
+      paradas: '', entregues: '', naoFez: '',
+      recebido: '', marcado: '', total: '',
+      creditosGastos: '', creditosPresos: 0, creditosNota: '', vazioTitulo: '', itens: [],
+    });
+    window.ir('historicodia');
+    let r;
+    try { r = await window.API.get('/logistica/rota/historico/dia?date=' + encodeURIComponent(dia)); }
+    catch (_) { return window.usarDados('historicodia', { carregando: 0, semFonte: 1 }); }
+    if (telaAtual() !== 'historicodia') return;   // ele ja saiu: resposta velha nao escreve
+    encherDiaDoHistorico(dia, cartao, r);
+  }
+
+  function encherDiaDoHistorico(dia, cartao, r) {
+    const itens = Array.isArray(r && r.itens) ? r.itens : [];
+    const cr = (r && r.creditos) || {};
+    const din = (r && r.dinheiro) || {};
+    const presos = Number(cr.presos) || 0;
+    const gastos = Number(cr.gastos) || 0;
+    /* A NOTA DO CREDITO E A FRASE MAIS CARA DESTA TELA, entao ela diz SO o que
+       o banco sabe: o debito e 1x por EMPRESA+DATA, sem rateio por cliente.
+       "X creditos presos no cliente Y" seria numero inventado - o dono pediu o
+       fato, e o fato e este. */
+    const nota = presos > 0
+      ? (Number(r.naoCompletadas) || 0) + ' parada(s) ficaram por fazer'
+      : (gastos > 0 ? 'o dia foi cobrado uma vez' : '');
+    window.usarDados('historicodia', {
+      carregando: 0, semFonte: 0,
+      data: dia,
+      titulo: esc((r && r.data) ? (cartao.titulo || diaPorExtenso(r.data)) : (cartao.titulo || '')),
+      sub: rotuloDoDesfecho(r && r.desfecho),
+      desfecho: String((r && r.desfecho) || ''),
+      paradas: String(Number(r && r.paradas) || 0),
+      entregues: String(Number(r && r.entregues) || 0),
+      naoFez: (Number(r && r.naoCompletadas) || 0) ? String(r.naoCompletadas) : '',
+      recebido: centavosSeTiver(din.recebidoCents),
+      marcado: centavosSeTiver(din.marcadoCents),
+      total: centavosSeTiver(din.totalCents),
+      creditosGastos: gastos > 0 ? String(gastos) : '',
+      creditosPresos: presos > 0 ? 1 : 0,
+      creditosNota: nota,
+      vazioTitulo: itens.length ? '' : 'Nada ficou registrado neste dia',
+      itens: itens.map((p) => ({
+        ini: iniciaisDoNome(p && p.nome),
+        nome: esc((p && p.nome) || 'Cliente'),
+        endereco: esc((p && p.endereco) || ''),
+        st: String((p && p.status) || ''),
+        feito: !!(p && p.feito),
+        motivo: esc((p && p.motivo) || ''),
+        pill: pilhaDoDesfechoDaParada(p),
+        valor: centavosSeTiver(p && p.valorCents),
+      })),
+    });
+  }
+
+  /* Os quatro tradutores desta tela. Ficam AQUI e nao no mock porque sao DADO
+     (o mock e desenho): a mesma regra do `st` da parada. */
+  const rotuloDoDesfecho = (d) => (d === 'completa' ? 'Dia completo'
+    : d === 'incompleta' ? 'Dia incompleto' : d === 'cancelada' ? 'Rota cancelada' : '');
+  const iniciaisDoNome = (n) => String(n || '')
+    .split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0]).join('').toUpperCase() || '?';
+  function pilhaDoDesfechoDaParada(p) {
+    if (!p) return null;
+    if (p.feito) return ['Entregue', 'lime'];
+    if (String(p.status) === 'cancelada') return ['Nao entregue', 'mute'];
+    return ['Nao feita', 'mute'];
+  }
+  /** so pro caso do cartao nao ter titulo (ex.: entrou pelo link direto) */
+  function diaPorExtenso(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+    return m ? (m[3] + '/' + m[2]) : String(iso || '');
+  }
+
+  /* 🔴 O FECHAMENTO DE UM DIA PASSADO (a outra metade da ordem 7: *"nem o
+     fechamento"*). O SERVIDOR SEMPRE SOUBE responder por data - o
+     `GET /logistica/fechamento/resumo` aceita `?date=` e deriva tudo dela
+     (medidores, formas, devedores, pagina). Quem cravava HOJE era ESTA PONTE,
+     que so pedia o `diaOperacional()`. Nao nasce endpoint nenhum: nasce a
+     PERGUNTA. */
+  async function abrirFechamentoDoDia(data) {
+    const dia = String(data || '');
+    if (!dia || !temPonte()) return;
+    let caixa;
+    try { caixa = await window.API.get('/logistica/fechamento/resumo?date=' + encodeURIComponent(dia)); }
+    catch (e) { return avisoErro(e); }
+    try { encherFechamento(caixa, [], 0); } catch (_) { /* o tradutor e best-effort */ }
+    window.ir('fechamento');
+  }
+
   async function usarHistorico(data) {
     if (!data || !temPonte()) return;
     if (rotaNaRua()) {
@@ -455,8 +569,44 @@
     return m ? Number(m[1]) - 1 : -1;
   };
   const modeloDoModo = () => ESPACOS[idxDoModo(modoSel)] || null;
-  // -1 (rota avulsa) não é um dia: os espaços mostrados seguem os de hoje.
-  const diaDosEspacos = () => (montarDia > 0 ? montarDia : diaDaSemana());
+  /* 🔴 A AVULSA TEM OS ESPAÇOS DELA (17/08, ordem 10 do dono: *"JOWJOW E
+     QUINZENAL são salvos de segunda feira, blz, eu removo a flag de 'seg', e
+     eles ficam. Esses salvos deveriam ser de rotas avulsas"*).
+
+     Até aqui `-1` caía em `diaDaSemana()` — o dia de HOJE. Numa segunda-feira,
+     desligar o chip "Seg" deixava os espaços da segunda na tela: o dono lia
+     JOWJOW/QUINZENAL numa rota que não é de dia nenhum, e o "Salvar rota" dali
+     REGRAVAVA por cima do roteiro da segunda dele. Espaço mostrado num balde e
+     gravado noutro é perda de trabalho, não confusão de rótulo.
+
+     O balde da avulsa já existe no servidor desde sempre e não custa migration:
+     `LogisticaRotaModelo.diaSemana` é `Int?` com "null = sem dia fixo"
+     (schema.prisma:1503), o DTO aceita null (`@IsOptional`) e o
+     `assertNomeUnico` já trata as sem-dia como namespace próprio
+     ("as sem dia fixo entre si"). O que faltava era a ponte PEDIR esse balde.
+
+     `-1` continua sendo o vocabulário desta casa (é o valor do `montarDia`);
+     quem traduz pro servidor é o `diaNoServidor`, num lugar só — duas traduções
+     é como as duas pontas passam a discordar de qual espaço é de quem.
+
+     ⚠️ `montarDia` TEM TRÊS FAIXAS, e confundir duas delas apaga o caso mais
+     comum: `-1` é a avulsa, `1..7` é OUTRO dia da semana e **`0` é HOJE** — o
+     chip do dia corrente nasce com 0 (`10-geofence-montagem.js`, o
+     `n === hoje ? 0 : n` da fileira). Por isso o teste é `=== -1` e não
+     `> 0`: com `> 0` o dia de hoje cairia no balde da avulsa e o motorista
+     perderia os espaços do dia em que ele está trabalhando. */
+  const diaDosEspacos = () => (montarDia === -1 ? -1 : (montarDia > 0 ? montarDia : diaDaSemana()));
+  /** -1 (avulsa) vira `null` no servidor; 1..7 viaja como número. */
+  const diaNoServidor = (d) => (Number(d) > 0 ? Number(d) : null);
+  /** o dia de um rota-modelo no vocabulário da tela: sem dia fixo = -1.
+   *  `Number(null)` é 0 e `Number(undefined)` é NaN — os dois caem no -1, que
+   *  é o que "sem dia fixo" significa aqui. */
+  const diaDoModelo = (m) => {
+    const n = Number(m && m.diaSemana);
+    return n >= 1 && n <= 7 ? n : -1;
+  };
+  /** o nome do balde na frase do portão ("Espaço 1 de …") */
+  const rotuloDoBalde = (d) => (Number(d) > 0 ? (ROTULO_DIA[Number(d)] || '') : 'rota avulsa');
 
   /* ------------------------------------------------------------------------
      🔴 A ÚLTIMA ESCOLHA DO DIA FICA LEMBRADA (dono, 10/08: "sempre q abrir essa
@@ -526,7 +676,7 @@
     try { r = await window.API.get('/logistica/rota-modelos'); } catch (_) { return publicarModos(); }
     ESPACOS.length = 0;
     (Array.isArray(r) ? r : [])
-      .filter((m) => m && Number(m.diaSemana) === dia)
+      .filter((m) => m && diaDoModelo(m) === dia)
       .sort((a, b) => String(a.criadoEm || '').localeCompare(String(b.criadoEm || ''))
         || String(a.id || '').localeCompare(String(b.id || '')))
       .slice(0, MAX_ESPACOS)

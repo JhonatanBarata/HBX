@@ -705,6 +705,17 @@ export function saudacaoPorHorario(now: Date): string {
 
 // ── helpers ─────────────────────────────────────────────────────────────────────
 /** Remove diacríticos ("São Paulo" → "Sao Paulo") — exigência prática do EMV. */
+/* CADASTRO EM MASSA (17/08) — onde o cliente novo fala com a HBX pra mandar a
+   lista dele por foto. Mesmas envs que o financeiro já lê (`ADMIN_SUPPORT_*`):
+   duas fontes pro mesmo "telefone da HBX" é como uma delas fica velha sem
+   ninguém perceber. Só dígitos no telefone, porque quem consome é um `wa.me/`. */
+function suporteWhatsappDigits(): string {
+  return String(process.env.ADMIN_SUPPORT_PHONE || '+5519997024884').replace(/\D/g, '');
+}
+function suporteEmailAlvo(): string {
+  return String(process.env.ADMIN_SUPPORT_EMAIL || 'jbinformatica1100@gmail.com').trim();
+}
+
 function semAcento(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '');
 }
@@ -884,6 +895,13 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     // Traduzido na LEITURA também: o app novo poda por `data-ir="fechamento"`,
     // e a linha antiga do banco ainda diz 'caderneta'.
     appModulosDesativados: traduzirModulosRenomeados(c.appModulosDesativados ?? null),
+    // CADASTRO EM MASSA (17/08) — o canal de suporte que a tela "você ainda não
+    // tem clientes" oferece. OPERACIONAL: quem desenha essa tela é o APK, e
+    // cravar telefone/e-mail dentro do APK obrigaria uma publicação nova pra
+    // trocar um número. Mesma fonte que o financeiro já usa (ADMIN_SUPPORT_*),
+    // pra não nascer uma segunda verdade sobre "onde fala com a HBX".
+    suporteWhatsapp: suporteWhatsappDigits(),
+    suporteEmail: suporteEmailAlvo(),
   };
 
   // O GET também é consumido pelo app do entregador. Campos administrativos,
@@ -1164,6 +1182,9 @@ export interface LogisticaConfigDTO {
   prospectorDisponivel: boolean;
   // ITEM 9 (07/08) — CSV dos módulos desligados; null = tudo ligado. Operacional.
   appModulosDesativados: string | null;
+  // CADASTRO EM MASSA (17/08) — canal de suporte da tela de captura. Operacional.
+  suporteWhatsapp: string;
+  suporteEmail: string;
   // PROSPECTOR — automação cobrada: SÓ billing owner lê, SÓ o Master grava.
   prospectorAutomacaoAtiva?: boolean;
   prospectorAutomacaoMaxDia?: number;

@@ -344,7 +344,24 @@
     },
     call(phone) { bridge && bridge.openCall && bridge.openCall(String(phone || "")); },
     vibrate(ms) { const d = Math.max(1, Math.min(200, Number(ms) || 12)); try { if (bridge && bridge.vibrate) { bridge.vibrate(d); return; } } catch (_) {} try { if (navigator.vibrate) navigator.vibrate(d); } catch (_) {} },
-    whatsapp(phone, message) { bridge && bridge.openWhatsapp && bridge.openWhatsapp(String(phone || ""), String(message || "")); },
+    // 🔴 SEM PONTE, ABRE NO NAVEGADOR (17/08, ordem 6 — a linha "Suporte" dos
+    // Ajustes). Os vizinhos daqui (speak, maps, modoNavegacao) são no-op fora do
+    // app porque não existe equivalente web pra eles; conversa TEM equivalente,
+    // é uma URL. Sem esta metade o toque na bancada fica indistinguível de botão
+    // morto — e a prova não teria o que medir. Mesmo formato do `vibrate` acima:
+    // tenta a ponte, cai no web.
+    // A regra do "55" NÃO se repete aqui: ela mora no Kotlin
+    // (NativeAppBridge.openWhatsapp) e duas cópias divergem no primeiro ajuste.
+    // Quem chama passa o número COMPLETO; este caminho só limpa o que não é dígito.
+    whatsapp(phone, message) {
+      const p = String(phone || "");
+      const m = String(message || "");
+      try { if (bridge && bridge.openWhatsapp) { bridge.openWhatsapp(p, m); return; } } catch (_) {}
+      const d = p.replace(/\D/g, "");
+      if (!d) return;
+      const alvo = `https://wa.me/${d}${m ? `?text=${encodeURIComponent(m)}` : ""}`;
+      try { window.open(alvo, "_blank", "noopener"); } catch (_) {}
+    },
     maps(lat, lng, address) { bridge && bridge.openMaps && bridge.openMaps(lat == null ? null : String(lat), lng == null ? null : String(lng), String(address || "")); },
     // S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — TTS nativo pt-BR (android.speech.tts).
     // Mesmo padrão de guard de maps()/vibrate: bridge ausente (preview fora do

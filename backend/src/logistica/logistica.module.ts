@@ -74,6 +74,8 @@ import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
 import { LogisticaEstoqueService } from './logistica-estoque.service';
 import { LogisticaTutorialService } from './logistica-tutorial.service';
 // VASILHAME (17/08) — casco emprestado por cliente.
+import { MailModule } from '../mail/mail.module';
+import { LogisticaCadastroMassaService } from './logistica-cadastro-massa.service';
 import { LogisticaVasilhameService } from './logistica-vasilhame.service';
 // BUSCA DA PARADA AVULSA (12/08, PR12082026-PESQUISA-PAINEL-AVULSA F1):
 // `GET /logistica/busca` — 3 fontes locais (clientes fuzzy, CNEFE, RFB), zero
@@ -214,7 +216,7 @@ import { LogisticaRotaContinuidadeService } from './logistica-rota-continuidade.
  * que já existia (UsersService#stampOnboardingEvent/getOnboardingEvents).
  */
 @Module({
-  imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule, NucleoModule, FiscalModule, PulsoAppModule, UsersModule],
+  imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule, NucleoModule, FiscalModule, PulsoAppModule, UsersModule, MailModule],
   controllers: [
     LogisticaController,
     LogisticaRecadoMobileController,
@@ -277,6 +279,7 @@ import { LogisticaRotaContinuidadeService } from './logistica-rota-continuidade.
     LogisticaRotaContinuidadeService,
     // VASILHAME (17/08) — casco emprestado por cliente (garrafão/botijão/engradado).
     LogisticaVasilhameService,
+    LogisticaCadastroMassaService,
   ],
   exports: [
     LogisticaService,

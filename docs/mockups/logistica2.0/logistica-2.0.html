@@ -3642,16 +3642,31 @@ button,input{font:inherit;color:inherit}
    pele; (2) o `.cap-selo` e o `.tut-b` escrevem em `--go-ink` sobre lima vivo,
    que é o ÚNICO par que sobrevive nas duas peles — por isso eles não têm par
    claro: já nasceram certos. */
+/* 🔴 MEDIDO, NÃO ADIVINHADO (17/08). A primeira versão destas peças usava
+   `--blue-bg-2`, `--lime-bg-2` e `--lime-line` nos FUNDOS — e nenhum dos três
+   tem par no modo claro (só `--lime-bg` tem). Resultado, visto na foto da tela:
+   o cartão "Veja o app funcionando" nascia com fundo QUASE PRETO no meio da
+   tela branca, com o texto cinza por cima, e o selo "1 minuto" igual. É a lei
+   do CSS que morre calado na veia: token sem par claro não avisa, só aparece.
+   Aqui os fundos são REDESENHADOS com os pares que a pele clara já usa
+   (`#eef3fc` do `.num`, `#f0f8e4`/`#a8cc6e` do `.tag.lime`); o brilho vira
+   sombra, porque halo sobre branco é sujeira. */
 [data-luz="claro"] .tut-hero::after,[data-luz="claro"] .cap-heroi::after{display:none}
 [data-luz="claro"] .tut-hero,[data-luz="claro"] .cap-heroi,[data-luz="claro"] .cap-porta,
 [data-luz="claro"] .cap-manual,[data-luz="claro"] .cap-ok,[data-luz="claro"] .tut-dica{
   box-shadow:0 1px 2px rgba(15,23,38,.05),0 1px 8px rgba(15,23,38,.04);
 }
-[data-luz="claro"] .tut-hero .tut-play{background:#eef3fc;color:var(--blue)}
+[data-luz="claro"] .tut-hero{background:linear-gradient(158deg,#eef3fc,var(--card) 76%);border-color:#c9d8ef}
+[data-luz="claro"] .tut-hero .tut-play{background:#eef3fc;border-color:#c9d8ef;color:var(--blue)}
+[data-luz="claro"] .tut-hero .tut-selo{background:#f0f8e4;border-color:#a8cc6e;color:var(--lime)}
 [data-luz="claro"] .tut-dica{background:#fff}
+[data-luz="claro"] .cap-heroi{background:linear-gradient(160deg,#f0f8e4,var(--card) 70%);border-color:#a8cc6e}
 [data-luz="claro"] .cap-porta i{background:#eef1f7}
+[data-luz="claro"] .cap-porta.destaque{background:#f7fcef;border-color:#a8cc6e}
 [data-luz="claro"] .cap-porta.destaque i{background:#eef7e2}
 [data-luz="claro"] .cap-manual .ico{background:#eef1f7}
+[data-luz="claro"] .cap-ok{background:#f0f8e4;border-color:#a8cc6e}
+[data-luz="claro"] .cap-ok .ico{background:#e4f3d2;border-color:#a8cc6e}
 [data-luz="claro"] .round,[data-luz="claro"] .marc,[data-luz="claro"] .pay,
 [data-luz="claro"] .campo input,[data-luz="claro"] .campo textarea,
 [data-luz="claro"] .pt-linha,[data-luz="claro"] .motivo,[data-luz="claro"] .foto,

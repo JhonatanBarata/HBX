@@ -107,7 +107,22 @@
     try { await encherMontagem(); } catch (_) { /* o aviso vale mais que a lista */ }
   }
 
-  async function rapidaConfirmar() {
+  /* 🔴 `ficar` — A OPÇÃO DE ADICIONAR MÚLTIPLOS NO "PROCURAR" (17/08, ordem 3
+     do dono: *"Nela clientes já está ok, porém procurar também dar a opção de
+     adicionar multiplos"*).
+
+     Por que um PARÂMETRO e não uma cesta de marcados como a da porta "Meus
+     clientes": lá cada item é um CLIENTE que já existe na base — marcar é só
+     guardar um id. Aqui cada resultado ainda precisa ser RESOLVIDO um por um
+     (rua exige número, comércio da Receita vira conta nova, endereço repetido
+     REUSA a conta existente, e a mesma porta não pode entrar 2× no dia). Uma
+     cesta guardaria decisões que só se sabem no momento de gravar — e o preço
+     de errar isso é conta duplicada na base do dono.
+     Com `ficar` o caminho de gravação continua sendo EXATAMENTE o mesmo, item a
+     item, com os mesmos três freios; o que muda é que a tela não sai de cena no
+     fim: ela volta pro campo de busca com o contador do que já entrou. Um
+     toque a mais por parada, zero risco novo no dinheiro e na base. */
+  async function rapidaConfirmar(ficar) {
     const r = rapida;
     if (!r || r.salvando || r.buscando || !r.resolvido) return;
     const res = r.resolvido;
@@ -188,9 +203,18 @@
         quantidade: 1,
         scheduledAt: `${hojeISO()}T12:00:00.000Z`,
         paraMinhaRota: true,
+        /* 🔴 O SELO NASCE COM A PARADA (17/08, ordem 3b). `encaixarAvulsa` logo
+           abaixo já põe ela no topo AGORA (`indice = 0`) — mas isso é
+           `ordemManual`, ou seja, RETRATO: o próximo `planejar` sem ordem manual
+           reotimizaria e a urgência morreria calada. O campo é o que faz a
+           decisão sobreviver ao Reorganizar da ordem 5, ao Montar de amanhã e ao
+           replanejo de outro motorista. Dois efeitos, um gesto. */
+        prioridade: posicao === 'primeira',
       });
       criou = true;
-      rapida = null;
+      // Só solta o estado da tela quem VAI EMBORA. Ficando, ele é o mesmo
+      // `rapida` — e é ele que guarda o contador e a porta aberta.
+      if (!ficar) rapida = null;
       // A rota tem que ser relida ANTES do encaixe: é dela que sai a lista de
       // abertas em que a parada nova vai entrar.
       await carregarRota();
@@ -200,6 +224,17 @@
       // A escolha dele já está gravada — e desde 10/08 a Montagem não
       // reotimiza nada sozinha ao abrir, então ninguém passa por cima.
       await carregarRota();
+      /* FICANDO: a tela volta pro começo do PROCURAR, sem recibo de portão —
+         o recibo é o contador no pé, que é o que quem está adicionando 5
+         paradas quer ver. Portão a cada parada seria 5 toques de "Fechar". */
+      if (ficar) {
+        r.salvando = false;
+        r.entraram = (Number(r.entraram) || 0) + 1;
+        r.numero = ''; r.nome = ''; r.cep = '';
+        zerarPainelDaBusca();
+        publicarRapida();
+        return;
+      }
       await voltarDaAvulsa(volta);
       window.portao({
         tom: 'ok', ico: 'check', titulo: 'Parada adicionada',
@@ -219,6 +254,16 @@
         // Nada foi escrito: devolve a tela como estava e o dedo tenta de novo.
         if (rapida === r) { r.salvando = false; publicarRapida(); }
         return avisoErro(e);
+      }
+      /* FICANDO, a parada JÁ existe e o que falhou foi a ordem: a tela não pode
+         sair de cena nem dizer "não deu certo" (ele adicionaria de novo). Ela
+         conta a que entrou, avisa por cima e segue aberta. */
+      if (ficar && rapida === r) {
+        r.salvando = false;
+        r.entraram = (Number(r.entraram) || 0) + 1;
+        r.aviso = 'A parada entrou, mas não consegui reordenar agora.';
+        zerarPainelDaBusca();
+        return publicarRapida();
       }
       // A parada EXISTE; o que falhou foi a ordem. Dizer "não deu certo" aqui
       // faria ele adicionar o mesmo endereço duas vezes.
@@ -310,6 +355,11 @@
           bairro: String(c.cidade || ''),
           ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
           resolveSozinho: Array.isArray(c.diasEntrega) && c.diasEntrega.length > 0,
+          // 17/08 — a escolha do portão viaja no rascunho até a materialização
+          // (ordem 3b). Sem ela, marcar "Prioridade" antes de montar a rota
+          // seria um toque mudo: o rascunho vira entrega depois, e é lá que o
+          // selo precisa chegar.
+          ...(r.posicao === 'primeira' ? { prioridade: true } : {}),
           // "Ult. Registro" (12/08) — o `/nucleo/clientes` manda o campo; a porta
           // "Meus clientes" é a 3ª origem da mesma lista e escreve a mesma data.
           ...(c.ultimaEntregaAt ? { ultimaEntregaAt: String(c.ultimaEntregaAt) } : {}),
@@ -342,6 +392,10 @@
           quantidade: 1,
           scheduledAt: `${hojeISO()}T12:00:00.000Z`,
           paraMinhaRota: true,
+          // 17/08 — a MESMA escolha do portão vale pros vários (ordem 3b). Sem
+          // isto o "Prioridade" só valeria na porta Procurar, e a mesma pergunta
+          // teria duas respostas conforme a porta — bug de produto.
+          prioridade: r.posicao === 'primeira',
         });
         entraram.push(id);
       } catch (_) { falharam.push(nomePorId.get(id) || 'Cliente'); }

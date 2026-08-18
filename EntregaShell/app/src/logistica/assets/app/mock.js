@@ -93,6 +93,7 @@ store:'<path d="M4.2 9.6h15.6v9.2a1.6 1.6 0 0 1-1.6 1.6H5.8a1.6 1.6 0 0 1-1.6-1.
    tela cheia ligada ele mostra as setas voltando pra dentro ("me devolve o
    cabeçalho"), e desligada, as setas abrindo. Ícone que descreve o estado atual
    obriga o dedo a adivinhar o resto. */
+mail:'<rect x="3.2" y="5.4" width="17.6" height="13.2" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.8 7l8.2 6 8.2-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
 shrink:'<path d="M9.6 4.8v4.8H4.8M14.4 19.2v-4.8h4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.4 4.4l5.2 5.2M19.6 19.6l-5.2-5.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 expand:'<path d="M14.4 4.8h4.8v4.8M9.6 19.2H4.8v-4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M19.2 4.8l-5.2 5.2M4.8 19.2l5.2-5.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 };
@@ -706,11 +707,11 @@ const DADOS={
          TIPO da semana (`escolhida`), e por isso são as únicas que podem acender
          e digitar o nome. É a cena que o dono decidiu: a rua tem mundo, mas só
          fala com você quem você escolheu ouvir. */
-      {nome:'Salão Bela Vista',   x:'30%', y:'38%', esc:.66},
-      {nome:'Auto Peças Central', x:'61%', y:'31%', esc:.58},
-      {nome:'Mercado São Judas',  x:'78%', y:'49%', esc:1.12, ordem:[0,3,1,5,2,4], atraso:'.6s',   escolhida:true, aceso:true},
-      {nome:'Padaria Avenida',    x:'22%', y:'57%', esc:.88,  ordem:[2,0,4,1,5,3], atraso:'2.1s',  escolhida:true, aceso:true},
-      {nome:'Restaurante Sabor',  x:'74%', y:'68%', esc:1,    ordem:[1,2,5,0,4,3], atraso:'3.55s', escolhida:true, aceso:true},
+      {nome:'Empresa 1',          x:'30%', y:'38%', esc:.66},
+      {nome:'Empresa 2',          x:'61%', y:'31%', esc:.58},
+      {nome:'Empresa 3',          x:'78%', y:'49%', esc:1.12, ordem:[0,3,1,5,2,4], atraso:'.6s',   escolhida:true, aceso:true},
+      {nome:'Empresa 4',          x:'22%', y:'57%', esc:.88,  ordem:[2,0,4,1,5,3], atraso:'2.1s',  escolhida:true, aceso:true},
+      {nome:'Empresa 5',          x:'74%', y:'68%', esc:1,    ordem:[1,2,5,0,4,3], atraso:'3.55s', escolhida:true, aceso:true},
     ],
   },
   /* L3b — O CROMO DA NAVEGAÇÃO. Tudo o que estava CRAVADO no template do GPS
@@ -719,7 +720,7 @@ const DADOS={
 
      🔴 ERA A MENTIRA QUE SOBROU DA VARREDURA (§4.6.5). Enquanto `rota`,
      `clientes`, `ajustes`, `recarga`, `fechamento` e `semana` já nasciam
-     limpas, esta tela seguia dizendo "Parada 3 de 8 · Mercado São Judas",
+     limpas, esta tela seguia dizendo "Parada 3 de 8 · Cliente 3",
      "240 m · Vire à direita" e "12:26 chegada" — na ÚNICA tela em que o
      motorista está DIRIGINDO. Nome de cliente que não existe, com uma seta
      mandando virar numa rua que ninguém escolheu.
@@ -754,7 +755,7 @@ const DADOS={
     manobraIcone:'curvaDireita', manobraDist:'240 m', manobraVerbo:'Vire à direita',
     manobraRua:'R. São Judas', manobraDepois:'depois, siga em frente por 1,2 km',
     rumo:'N', velocidade:'38', velocidadeUnidade:'km/h',
-    paradaN:'3', paradaTotal:'8', paradaNome:'Mercado São Judas',
+    paradaN:'3', paradaTotal:'8', paradaNome:'Cliente 3',
     chegada:'12:26', chegadaRotulo:'chegada',
     restante:'45 min', restanteRotulo:'restante',
     distancia:'8,2 km', distanciaRotulo:'distância',
@@ -771,17 +772,17 @@ const DADOS={
      na história do produto): chave que aparece e não controla nada é pior que
      chave ausente. */
   folha:{
-    n:'3', cor:'lime', nome:'Maria Aparecida',
+    n:'3', cor:'lime', nome:'Cliente 3',
     endereco:'R. Sargento Silva Nunes, 72 • Moema', pill:'Chegou',
-    cabecalho:'Parada 3 · Maria Aparecida',
+    cabecalho:'Parada 3 · Cliente 3',
     nota:'Portão azul · deixar na área · <b>cachorro solto</b>',
     /* `itens` é [ícone, nome, linha de baixo, quantidade, VAZIOS RECOLHIDOS, id
-       do item]. Os dois últimos são da onda 2 do vasilhame (17/08): o galão tem
-       casco e ganha a segunda linha; a água c/ gás não tem, e por isso o 5º
+       do item]. Os dois últimos são da onda 2 do vasilhame (17/08): o Produto 1
+       tem casco e ganha a segunda linha; o Produto 2 não tem, e por isso o 5º
        slot vem VAZIO — não é zero, é "este produto não empresta embalagem". */
     itens:[
-      ['gallon','Galão 20 Litros','previsto 2 · R$ 11,00 cada','2','1',''],
-      ['box','Água c/ gás 1,5L','previsto 1 · R$ 24,00 cada','0','',''],
+      ['gallon','Produto 1','previsto 2 · R$ 11,00 cada','2','1',''],
+      ['box','Produto 2','previsto 1 · R$ 24,00 cada','0','',''],
     ],
     anterior:'R$ 21,00', hoje:'R$ 22,00', total:'R$ 43,00',
     forma:'dinheiro',
@@ -790,10 +791,10 @@ const DADOS={
     motivo:'Ninguém atendeu',
   },
   venda:{
-    n:'3', titulo:'Parada 3 • Maria Aparecida',
+    n:'3', titulo:'Parada 3 • Cliente 3',
     endereco:'R. Sargento Silva Nunes, 72 • Moema', pill:'Chegou',
-    produto:'Água Mineral HBX',
-    tags:[['20L x1','blue'],['Vasilhame',''],['Chip dia','lime']],
+    produto:'Produto 1',
+    tags:[['Produto 1 x1','blue'],['Vasilhame',''],['Chip dia','lime']],
     contaItem:'R$ 21,00', contaChegada:'R$ 21,00', lancamento:'R$ 21,00',
     recebido:'R$ 21,00', paraMarcado:'R$ 21,00', forma:'dinheiro',
   },
@@ -833,15 +834,15 @@ const DADOS={
   clientes:{
     subtitulo:'14 na rota de hoje', busca:'', diaSel:3,
     lista:[
-      ['JS','João da Silva','R. das Palmeiras, 145 • Santo Amaro','Chip dia','42,00',0,'',''],
-      ['MB','Mercadinho Bom Preço','Av. João Dias, 890 • Brooklin','','84,00',0,'',''],
-      ['MA','Maria Aparecida','R. Sargento Silva Nunes, 72 • Moema','Chip dia','21,00',1,'',''],
-      ['PN','Padaria Pão Nosso','Av. Ibirapuera, 2331 • Moema','','42,00',0,'',''],
-      ['LY','Larissa Ypê','Rua 3a, 1354 • Jd. Ypê','','',0,'sem número',''],
-      ['BZ','Bar do Zé','R. dos Otonis, 317 • Jabaquara','','63,00',0,'',''],
-      ['ME','Mercado Estrela','R. Aracanguá, 210 • Jabaquara','','84,00',1,'',''],
-      ['QB','Quitanda do Bairro','R. das Orquídeas, 55 • Campo Belo','Chip dia','42,00',0,'',''],
-      ['DC','Depósito Central','R. Dr. Jesuíno Maciel, 980 • Santo Amaro','','126,00',0,'',''],
+      ['JS','Cliente 1','R. das Palmeiras, 145 • Santo Amaro','Chip dia','42,00',0,'',''],
+      ['MB','Cliente 2','Av. João Dias, 890 • Brooklin','','84,00',0,'',''],
+      ['MA','Cliente 3','R. Sargento Silva Nunes, 72 • Moema','Chip dia','21,00',1,'',''],
+      ['PN','Cliente 4','Av. Ibirapuera, 2331 • Moema','','42,00',0,'',''],
+      ['LY','Cliente 1','Rua 3a, 1354 • Jd. Ypê','','',0,'sem número',''],
+      ['BZ','Cliente 5','R. dos Otonis, 317 • Jabaquara','','63,00',0,'',''],
+      ['ME','Cliente 6','R. Aracanguá, 210 • Jabaquara','','84,00',1,'',''],
+      ['QB','Cliente 7','R. das Orquídeas, 55 • Campo Belo','Chip dia','42,00',0,'',''],
+      ['DC','Cliente 8','R. Dr. Jesuíno Maciel, 980 • Santo Amaro','','126,00',0,'',''],
     ],
     total:'128', semEndereco:'3', marcadoHoje:'R$ 336,00',
   },
@@ -903,7 +904,7 @@ const DADOS={
        ranqueados pela distância do GPS. Aqui é só o DESENHO com dado de
        demonstração — quem enche no aparelho é a ponte, e ela escreve DIRETO
        no rolo a cada tecla (§ `roloDaBuscaAvulsa`), sem repintar a camada. */
-    recentes:['Bar do Zé','Rua 8','Márcia'],   // as 6 últimas ESCOLHAS (do aparelho)
+    recentes:['Cliente 5','Rua 8','Márcia'],   // as 6 últimas ESCOLHAS (do aparelho)
     /* 🔴 A DICA É TEXTO FIXO, e o "Procurando…" mora DENTRO do rolo. Pôr o
        estado do pedido numa peça de FORA do rolo obrigaria a passar pelo seam a
        cada tecla — que é exatamente o repinte que este painel existe pra não
@@ -911,15 +912,15 @@ const DADOS={
     semNada:0,           // respondeu e não achou nada (≠ ainda não perguntei)
     grupos:{
       clientes:[
-        {titulo:'Marcos Bar do Zé',detalhe:'Av. 8, 402 · Centro · cliente desde 03/26',dist:'350 m',fonte:'cliente'},
+        {titulo:'Marcos Cliente 5',detalhe:'Av. 8, 402 · Centro · cliente desde 03/26',dist:'350 m',fonte:'cliente'},
       ],
       enderecos:[
         {titulo:'Rua 8',detalhe:'Centro · 214 portas no Censo',dist:'400 m',fonte:'censo',cep:'13500-100'},
       ],
       comercios:[
-        {titulo:'Bar do Zé',detalhe:'Av. 8, 415 · Centro',dist:'350 m',fonte:'rfb'},
-        {titulo:'Bar do Zé Bebidas',detalhe:'Rua 21, 780 · Cervezão',dist:'2,1 km',fonte:'rfb'},
-        {titulo:'Bar do Zé',detalhe:'Piracicaba · Rua do Porto',dist:'34,0 km',fonte:'rfb'},
+        {titulo:'Cliente 5',detalhe:'Av. 8, 415 · Centro',dist:'350 m',fonte:'rfb'},
+        {titulo:'Cliente 5 Bebidas',detalhe:'Rua 21, 780 · Cervezão',dist:'2,1 km',fonte:'rfb'},
+        {titulo:'Cliente 5',detalhe:'Piracicaba · Rua do Porto',dist:'34,0 km',fonte:'rfb'},
       ],
     },
     /* O DEGRAU DO NÚMERO. Só a rua escolhida abre o dele — e um por vez: duas
@@ -932,19 +933,19 @@ const DADOS={
        verde sem nada escolhido seria toque mudo, a doença que esta tela
        persegue. (`tipo`+`i` também MARCAM o cartão escolhido lá em cima: o pé
        e o cartão falam da mesma parada, e a tela mostra qual.) */
-    pe:{tipo:'loja',i:0,titulo:'Bar do Zé',dist:'350 m',cep:'13500-100'},
+    pe:{tipo:'loja',i:0,titulo:'Cliente 5',dist:'350 m',cep:'13500-100'},
     escolhidos:[],       // ids marcados — o que vai virar parada num toque só
     clientes:[
-      {id:'c1',ini:'LY',nome:'Larissa Ypê',endereco:'Rua 3a, 1354 · Jd. Ypê'},
-      {id:'c2',ini:'AD',nome:'Ademir',endereco:'Av. 28a, 507 · Vila Alemã'},
-      {id:'c3',ini:'AL',nome:'Alfredo',endereco:'Rua 4-a, 93 · Jd. América'},
-      {id:'c4',ini:'AA',nome:'Ana Alice',endereco:'Av. 28a, 507 · Vila Alemã'},
-      {id:'c5',ini:'AY',nome:'Andreia/Yan bicicletaria',endereco:'Rua 8 JP, 210 · Jd. Paulista'},
-      {id:'c6',ini:'ME',nome:'Mercado Estrela',endereco:'Rua Aracanguá, 210 · Jabaquara',naRota:1},
+      {id:'c1',ini:'C1',nome:'Cliente 1',endereco:'Rua 3a, 1354 · Jd. Ypê'},
+      {id:'c2',ini:'C2',nome:'Cliente 2',endereco:'Av. 28a, 507 · Vila Alemã'},
+      {id:'c3',ini:'C3',nome:'Cliente 3',endereco:'Rua 4-a, 93 · Jd. América'},
+      {id:'c4',ini:'C4',nome:'Cliente 4',endereco:'Av. 28a, 507 · Vila Alemã'},
+      {id:'c5',ini:'C5',nome:'Cliente 5',endereco:'Rua 8 JP, 210 · Jd. Paulista'},
+      {id:'c6',ini:'ME',nome:'Cliente 6',endereco:'Rua Aracanguá, 210 · Jabaquara',naRota:1},
     ],
   },
   ficha:{
-    ini:'LY', nome:'Larissa Ypê', resumo:'cliente desde 03/2025 · 42 entregas',
+    ini:'C1', nome:'Cliente 1', resumo:'cliente desde 03/2025 · 42 entregas',
     /* 🔴 A FICHA VOLTA PRA ONDE ELA FOI ABERTA. O Voltar era `clientes`,
        cravado: quem abriu a ficha DE DENTRO da montagem (09/08, quando o cartão
        de lá ganhou o toque) voltava pra lista de Clientes e perdia a rota que
@@ -969,8 +970,8 @@ const DADOS={
     /* [ícone, nome, linha de baixo, ID DO VÍNCULO]. O id é o que dá o toque à
        linha (mesma lei do `stop()`); vazio = linha de maquete, inerte. */
     produtos:[
-      ['gallon','Galão 20 Litros','2 por entrega · R$ 11,00 (catálogo)',''],
-      ['box','Água c/ gás 1,5L','1 por entrega · <b style="color:var(--lime)">R$ 22,00 só pra ela</b>',''],
+      ['gallon','Produto 1','2 por entrega · R$ 11,00 (catálogo)',''],
+      ['box','Produto 2','1 por entrega · <b style="color:var(--lime)">R$ 22,00 só pra este cliente</b>',''],
     ],
     /* FINANCEIRO DO CLIENTE (12/08) — a seção inteira só existe com o módulo
        ligado (`financeiro`), e só EDITA pra quem o servidor deixa (`financeiroEdita`,
@@ -987,8 +988,8 @@ const DADOS={
      mexe no que ESTE cliente leva (quantidade, preço acordado, porta, ativo),
      e o catálogo da empresa não muda um centavo. */
   fichavinculo:{
-    volta:'ficha', novo:0, cliente:'Larissa Ypê',
-    produto:'Galão 20 Litros', ico:'gallon', produtoId:'',
+    volta:'ficha', novo:0, cliente:'Cliente 1',
+    produto:'Produto 1', ico:'gallon', produtoId:'',
     catalogo:[], qtd:'2', preco:'22,00', precoPorCliente:1,
     precoDica:'Vazio = usa o preço do catálogo',
     locais:[], localId:'', ativo:1, podeRemover:1, salvando:0,
@@ -998,22 +999,22 @@ const DADOS={
      unidade — o catálogo do celular não devolve estoque nem categoria, e o app
      de hoje nunca mostrou estoque nesta tela. Slot sem fonte SOME. */
   produtos:{
-    busca:'', categorias:['Todos','Água','Vasilhames','Acessórios','Kits'], categoriaSel:0,
+    busca:'', categorias:['Todos','Categoria 1','Categoria 2','Categoria 3','Categoria 4'], categoriaSel:0,
     lista:[
-      ['Água 20L','Estoque: 128 un.','18,00','azul',''],
-      ['Água 10L','Estoque: 86 un.','12,00','azul',''],
+      ['Produto 1','Estoque: 128 un.','18,00','azul',''],
+      ['Produto 3','Estoque: 86 un.','12,00','azul',''],
       ['Vasilhame','Estoque: 64 un.','42,00','azul-escuro',''],
       ['Chip dia','Estoque: 210 un.','2,00','lima',''],
-      ['Caixa térmica','Estoque: 18 un.','85,00','cinza',''],
-      ['Kit entrega','Estoque: 32 un.','35,00','azul',''],
-      ['Água c/ gás 1,5L','Estoque: 54 un.','24,00','azul',''],
-      ['Suporte de galão','Estoque: 12 un.','69,00','cinza',''],
+      ['Produto 4','Estoque: 18 un.','85,00','cinza',''],
+      ['Produto 5','Estoque: 32 un.','35,00','azul',''],
+      ['Produto 2','Estoque: 54 un.','24,00','azul',''],
+      ['Produto 6','Estoque: 12 un.','69,00','cinza',''],
     ],
     ativos:'8', estoqueBaixo:'2', valorEstimado:'R$ 194,00',
   },
   fichaproduto:{
-    nome:'Galão 20 Litros', resumo:'no catálogo desde 03/2025 · 1.284 entregas',
-    selo:'ativo', unidade:'galão', preco:'R$ 11,00', estoque:'128',
+    nome:'Produto 1', resumo:'no catálogo desde 03/2025 · 1.284 entregas',
+    selo:'ativo', unidade:'unidade', preco:'R$ 11,00', estoque:'128',
     estoqueDica:'do controle de estoque',
   },
   /* L8 — CHAT COM A CENTRAL. `recado` vazio esconde o cartão do portão (não há
@@ -1024,12 +1025,12 @@ const DADOS={
      no texto. Ausente = mensagem de sempre, e é assim que 99% das linhas ficam.
      `encaixar:1` é "existe rota ativa" — quem responde isso é a ponte. */
   chat:{
-    recado:'Passa no Mercado Estrela antes das 11h', recadoTitulo:'Recado da Central',
+    recado:'Passa no Cliente 6 antes das 11h', recadoTitulo:'Recado da Central',
     conversa:[
       ['deles','Bom dia! A Larissa remarcou pra quinta.','08:12'],
       ['minha','Beleza, tirei da rota.','08:14'],
-      ['deles','Passa no Mercado Estrela antes das 11h, eles fecham pro almoço.','09:03',
-        {id:'a1',tipo:'parada',nome:'Mercado Estrela',detalhe:'R. das Orquídeas, 55',estado:'pendente',encaixar:1}],
+      ['deles','Passa no Cliente 6 antes das 11h, eles fecham pro almoço.','09:03',
+        {id:'a1',tipo:'parada',nome:'Cliente 6',detalhe:'R. das Orquídeas, 55',estado:'pendente',encaixar:1}],
       ['minha','Tô a 2 paradas.','09:05'],
       ['deles','Se der, pega a rota da quarta depois do almoço.','09:06',
         {id:'a2',tipo:'rota',nome:'Quarta Centro',detalhe:'6 paradas',estado:'encaixada',encaixar:1}],
@@ -1045,7 +1046,7 @@ const DADOS={
     admin:1,
     sons:1, painelCreditos:1,
     grupoOffline:1, mapaBaixando:'Baixando o mapa · 62%', mapaBaixado:'14,2 MB de 23,0 MB', mapaPct:62,
-    empresa:'Água Rio Claro', versao:'Versão beta1.3.2 (202)',
+    empresa:'Sua Empresa', versao:'Versão beta1.3.2 (202)',
     versaoSub:'toque para procurar atualização', versaoTag:'',
   },
   /* As 6 chaves de dinheiro do Avançado. `admin` NÃO é papel inventado na tela:
@@ -1106,6 +1107,30 @@ const DADOS={
        funcionário só com a chave da equipe). É a régua do servidor, traduzida
        pela ponte; separada de `prospectorAtivo`, que é só "a empresa ligou". */
     prospectorAtivo:0, prospectorDisponivel:1, prospectorVejo:0,
+    /* A DEMONSTRAÇÃO (17/08). Dois fatos, e nenhum deles é decisão da tela:
+       `demoDisponivel` só cai a 0 quando a ponte diz que NÃO dá pra ancorar os
+       endereços (sem GPS não há bairro, e demonstração de outra cidade é pior
+       que nenhuma); `demoAberta` é o que faz o cartão trocar de verbo. No
+       desenho os dois nascem no estado de convite, que é a cara que 99% das
+       aberturas terão. */
+    demoDisponivel:1, demoAberta:0,
+  },
+  /* "VOCÊ AINDA NÃO TEM CLIENTES" — o desfecho da demonstração. Tudo aqui é
+     COPY do desenho (a tela não vem do servidor); o que a PONTE escreve é
+     `enviado`, quando a foto/mensagem sai, e os dois textos do recibo — a hora
+     de "até amanhã" é conta de relógio, e relógio é da ponte. */
+  semclientes:{
+    titulo:'Agora é a sua vez',
+    sub:'Os clientes que você viu eram exemplo. Vamos colocar os seus?',
+    selo:'pronto em 24h',
+    suporteTitulo:'A gente cadastra pra você',
+    suporteTexto:'Manda uma foto da sua lista de clientes. <b>A gente digita tudo</b> e devolve o app pronto pra rodar.',
+    aceita:'Caderno, planilha, papel, print do WhatsApp — do jeito que estiver.',
+    manualTitulo:'Prefiro cadastrar eu mesmo',
+    manualSub:'Leva menos de um minuto por cliente',
+    enviado:0,
+    okTitulo:'Recebemos sua lista',
+    okTexto:'Vamos cadastrar tudo e te avisar aqui no app quando estiver pronto.',
   },
   /* A ABERTURA NÃO TEM SEÇÃO DE DADO, e isso é de propósito — ver o comentário
      em cima do `.splash-barra`, na folha. Slot com valor de desenho aqui NÃO
@@ -1164,7 +1189,7 @@ const DADOS={
      passava por cima calado. Medido por toque no g15 com a bancada (company 39,
      UMA entrega de R$ 20,00): "Recebido hoje R$ 336,00", "Em aberto R$ 257,00",
      a quebra por forma inteira, TRÊS devedores com nome e sobrenome (Maria
-     Aparecida R$ 74,00, Bar do Zé R$ 96,00, Mercado Estrela R$ 87,00) e uma
+     Aparecida R$ 74,00, Cliente 5 R$ 96,00, Cliente 6 R$ 87,00) e uma
      semana de R$ 2.648,00. Nome de gente que não existe cobrando dinheiro que
      não existe, dentro da Administração.
 
@@ -1191,9 +1216,9 @@ const DADOS={
             ['card','var(--purple)','Cartão','R$ 84,00']],
     marcou:'R$ 68,00',
     devedores:[
-      ['MA','Maria Aparecida','3 marcações · a mais antiga de 28/07','R$ 74,00',''],
-      ['BZ','Bar do Zé','2 marcações · desde 02/08','R$ 96,00',''],
-      ['ME','Mercado Estrela','1 marcação · ontem','R$ 87,00','lime'],
+      ['MA','Cliente 3','3 marcações · a mais antiga de 28/07','R$ 74,00',''],
+      ['BZ','Cliente 5','2 marcações · desde 02/08','R$ 96,00',''],
+      ['ME','Cliente 6','1 marcação · ontem','R$ 87,00','lime'],
     ],
     semanaRecebido:'R$ 2.391,00', semanaMarcado:'R$ 2.648,00', semanaPendencia:'R$ 257,00',
   },
@@ -1212,7 +1237,7 @@ const DADOS={
     lista:[
       ['Zona Sul manhã','23 de maio, 2025','15','20','184,00','map',0,'','Segunda'],
       ['Centro tarde','22 de maio, 2025','12','18','152,40','route',0,''],
-      ['Sábado água 20L','17 de maio, 2025','18','1','98,00','gallon',0,'','Quarta'],
+      ['Rota de sábado','17 de maio, 2025','18','1','98,00','gallon',0,'','Quarta'],
       ['Rota Moema','16 de maio, 2025','14','17','126,30','flag',1,''],
       ['Rota Brooklin','15 de maio, 2025','11','16','110,20','map',0,'','Sábado'],
       ['Rota clientes fiéis','10 de maio, 2025','9','14','87,60','users',1,''],
@@ -1227,7 +1252,7 @@ const DADOS={
   montagem:{
     titulo:'Montagem de rota',
     somaParadas:'6', somaProdutos:'20', somaValor:'R$ 336,00',
-    iniciarSub:'João da Silva',
+    iniciarSub:'Cliente 1',
     dias:[], diaSel:0, pronta:1, vazio:'Nenhum cliente nesse dia',
     // Vazios pelo MESMO motivo dos `dias`: nome de espaço é dinheiro do dono na
     // tela. Maquete aqui faria o motorista ler "Manhã" num espaço que não existe.
@@ -1256,12 +1281,12 @@ const DADOS={
        A pílula NÃO sumiu: ela volta assim que a parada tem desfecho de verdade
        (linhas 3 e 6 aqui), que é quando ela é notícia. */
     linhas:[
-      {n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',marcRot:'Valor',reg:['Ult. Registro','05/08'],perna:''},
-      {n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',marcRot:'Valor',reg:['Ult. Registro','01/08'],perna:'850 m · 4 min'},
-      {n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',marcRot:'Valor',reg:['Ult. Registro','29/07'],pill:['Entregue','lime','check'],perna:'1,2 km · 6 min'},
-      {n:4,hora:'10:45',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',marcRot:'Valor',reg:['Ult. Registro','06/08'],perna:'620 m · 3 min'},
-      {n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',marcRot:'Valor',reg:['Ult. Registro','Pendente'],perna:'2,1 km · 9 min'},
-      {n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',marcRot:'Valor',reg:['Ult. Registro','04/08'],pill:['Não entregue','mute','close'],perna:'sem trajeto — não sei onde fica'},
+      {n:1,hora:'08:30',nome:'Cliente 1',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['Produto 1 x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',marcRot:'Valor',reg:['Ult. Registro','05/08'],perna:''},
+      {n:2,hora:'09:15',nome:'Cliente 2',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['Produto 1 x4','blue'],['Vasilhame']],marcado:'84,00',marcRot:'Valor',reg:['Ult. Registro','01/08'],perna:'850 m · 4 min'},
+      {n:3,hora:'10:05',cor:'lime',nome:'Cliente 3',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['Produto 1 x1','blue'],['Chip dia','lime']],marcado:'21,00',marcRot:'Valor',reg:['Ult. Registro','29/07'],pill:['Entregue','lime','check'],perna:'1,2 km · 6 min'},
+      {n:4,hora:'10:45',nome:'Cliente 4',rua:'Av. Ibirapuera, 2331',bairro:'Moema',tags:[['Produto 1 x2','blue'],['Vasilhame']],marcado:'42,00',marcRot:'Valor',reg:['Ult. Registro','06/08'],perna:'620 m · 3 min'},
+      {n:5,hora:'11:30',nome:'Cliente 5',rua:'R. dos Otonis, 317',bairro:'Jabaquara',tags:[['Produto 1 x3','blue'],['Vasilhame']],marcado:'63,00',marcRot:'Valor',reg:['Ult. Registro','Pendente'],perna:'2,1 km · 9 min'},
+      {n:6,hora:'12:15',cor:'off',nome:'Cliente 6',rua:'R. Aracanguá, 210',bairro:'Jabaquara',tags:[['Produto 1 x4','blue'],['Chip dia','lime']],marcado:'84,00',marcRot:'Valor',reg:['Ult. Registro','04/08'],pill:['Não entregue','mute','close'],perna:'sem trajeto — não sei onde fica'},
     ],
   },
 };
@@ -1283,7 +1308,7 @@ function usarDados(secao,valor){
    A 1ª PINTURA DE QUEM BUSCA NO SERVIDOR — esqueleto, nunca demonstração.
 
    🔴 Tela que carrega ao abrir nascia com o dado de DEMONSTRAÇÃO desta folha
-   (João da Silva, Mercadinho Bom Preço). São 60 ms na bancada, mas numa rede
+   (Cliente 1, Cliente 2). São 60 ms na bancada, mas numa rede
    ruim o motorista lê nome de cliente que não existe — mentira com cara de app
    pronto. Agora nasce ESQUELETO; e se a fonte não responder, nasce o aviso, não
    uma lista vazia que finge que a base está vazia (a Lei nº1: "vazio porque o
@@ -1317,12 +1342,12 @@ const miolo=(d,glifo,acao,linhas,conteudo)=>
 /* 1 — ROTA DO MOTORISTA, com os 7 estados que o app tem de verdade --------- */
 let estadoRota='rodando';
 let PARADAS=[
-  {n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav'],perna:''},
-  {n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav'],perna:'850 m · 4 min'},
-  {n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check'],perna:'1,2 km · 6 min'},
-  {n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check'],perna:'620 m · 3 min'},
-  {n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara',nota:'cachorro solto no pátio',tags:[['20L x3','blue'],['Vasilhame'],['15 min','amber'],['Janela rígida','red']],marcado:'63,00',pill:['Pendente','amber','clock'],perna:'2,1 km · 9 min'},
-  {n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Pendente','mute','clock'],perna:'sem trajeto — não sei onde fica'},
+  {n:1,hora:'08:30',nome:'Cliente 1',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['Produto 1 x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav'],perna:''},
+  {n:2,hora:'09:15',nome:'Cliente 2',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['Produto 1 x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav'],perna:'850 m · 4 min'},
+  {n:3,hora:'10:05',cor:'lime',nome:'Cliente 3',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['Produto 1 x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check'],perna:'1,2 km · 6 min'},
+  {n:4,hora:'10:45',cor:'lime',nome:'Cliente 4',rua:'Av. Ibirapuera, 2331',bairro:'Moema',tags:[['Produto 1 x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check'],perna:'620 m · 3 min'},
+  {n:5,hora:'11:30',nome:'Cliente 5',rua:'R. dos Otonis, 317',bairro:'Jabaquara',nota:'cachorro solto no pátio',tags:[['Produto 1 x3','blue'],['Vasilhame'],['15 min','amber'],['Janela rígida','red']],marcado:'63,00',pill:['Pendente','amber','clock'],perna:'2,1 km · 9 min'},
+  {n:6,hora:'12:15',cor:'off',nome:'Cliente 6',rua:'R. Aracanguá, 210',bairro:'Jabaquara',tags:[['Produto 1 x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Pendente','mute','clock'],perna:'sem trajeto — não sei onde fica'},
 ];
 /* 🔴 O CONECTOR É UMA PEÇA SÓ, USADA PELAS DUAS LISTAS (dono, 09/08: ele pediu
    a seta e a distância "entre um cliente e outro" na MONTAGEM, e ali não havia
@@ -1880,8 +1905,8 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
      original ganha. Enquanto a Rota virava mapa, ganhava régua de rota
      montada, arrasto, desfecho e dock, esta seguia com "Iniciar próxima
      parada" e a lista de 6 nomes de mentira.
-   · E os nomes de mentira são o custo real: João da Silva, Mercadinho Bom
-     Preço, Bar do Zé — cliente que não existe, com rua e valor, na mesma
+   · E os nomes de mentira são o custo real: Cliente 1, Mercadinho Bom
+     Preço, Cliente 5 — cliente que não existe, com rua e valor, na mesma
      fileira das telas de verdade.
    Quem quiser a foto antiga abre o git. Referência é história, não tela. */
 
@@ -2198,7 +2223,7 @@ T.mapalista={nome:'Mapa + fila',grupo:'Rota',render(){
       <span class="numwrap"><span class="num ${cor}" style="width:29px;height:29px;font-size:12.5px">${n}</span>
         <span class="hh ${cor}">${h}</span></span>
       <span class="who"><strong style="font-size:12.5px">${nome}</strong><span style="font-size:10.5px">${end}</span>
-        <span class="tags">${tags.map(t=>`<b class="tag ${t.startsWith('20L')?'blue':t==='Chip dia'?'lime':''}">${t}</b>`).join('')}</span></span>
+        <span class="tags">${tags.map(t=>`<b class="tag ${t.startsWith('Produto')?'blue':t==='Chip dia'?'lime':''}">${t}</b>`).join('')}</span></span>
       <span class="side" style="min-width:0"><span class="pill ${pill[1]}">${ic(pill[2],14)}${pill[0]}</span></span>
     </div>`;
   return `${status}
@@ -2207,7 +2232,7 @@ ${hdr({})}
   <div style="padding:0 11px 7px;display:flex;gap:7px">
     <div class="kpi" style="flex:0 0 auto"><span style="color:var(--ink-2)">${ic('box',18)}</span><span><b class="v">8</b><span class="l">paradas</span></span></div>
     <div class="kpi"><span class="num lime" style="width:26px;height:26px;font-size:12px;border-width:1px">3</span>
-      <span><span class="l">próxima</span><b style="font-size:12.5px;font-weight:500;display:block">Mercado São Judas</b></span></div>
+      <span><span class="l">próxima</span><b style="font-size:12.5px;font-weight:500;display:block">Cliente 3</b></span></div>
     <div class="kpi" style="flex:0 0 auto"><span style="width:7px;height:7px;border-radius:50%;background:var(--lime);box-shadow:0 0 7px var(--lime)"></span>
       <span><b style="font-size:12.5px;font-weight:500;display:block;color:var(--lime)">Rota ativa</b><span class="l">ETA 12:26</span></span></div>
   </div>
@@ -2221,14 +2246,14 @@ ${hdr({})}
   <div style="position:relative;z-index:20;background:linear-gradient(180deg,var(--glass),var(--bg) 34px);
               border-radius:18px 18px 0 0;border-top:.7px solid var(--line);padding:9px 10px 0;margin-top:-16px">
     <span style="display:block;width:36px;height:3px;border-radius:2px;background:var(--handle);margin:0 auto 7px"></span>
-    ${l(1,'08:30','João da Silva','R. das Palmeiras, 145 • Santo Amaro',['20L x2','Vasilhame','Chip dia'],['A caminho','lime','nav'],'lime')}
-    ${l(2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890 • Brooklin',['20L x4','Vasilhame'],['Chegou','lime','check'],'lime')}
-    ${l(3,'10:05','Mercado São Judas','R. São Judas, 142 • São Paulo',['20L x2','Vasilhame','Chip dia'],['Próxima parada','blue','nav'],'')}
-    ${l(4,'10:45','Padaria Pão Nosso','Av. Ibirapuera, 2331 • Moema',['20L x1','Vasilhame'],['Entregue','lime','check'],'lime')}
-    ${l(5,'11:30','Bar do Zé','R. dos Otonis, 317 • Jabaquara',['20L x3','Vasilhame'],['Pendente','amber','clock'],'off')}
-    ${l(6,'12:15','Mercado Estrela','R. Aracanguá, 210 • Jabaquara',['20L x4','Vasilhame'],['Pendente','mute','clock'],'off')}
-    ${l(7,'13:00','Quitanda do Bairro','R. das Orquídeas, 55 • Campo Belo',['20L x2','Vasilhame'],['Pendente','mute','clock'],'off')}
-    ${l(8,'13:45','Depósito Central','R. Dr. Jesuíno Maciel, 980 • Santo Amaro',['20L x6','Vasilhame'],['Pendente','mute','clock'],'off')}
+    ${l(1,'08:30','Cliente 1','R. das Palmeiras, 145 • Santo Amaro',['Produto 1 x2','Vasilhame','Chip dia'],['A caminho','lime','nav'],'lime')}
+    ${l(2,'09:15','Cliente 2','Av. João Dias, 890 • Brooklin',['Produto 1 x4','Vasilhame'],['Chegou','lime','check'],'lime')}
+    ${l(3,'10:05','Cliente 3','R. São Judas, 142 • São Paulo',['Produto 1 x2','Vasilhame','Chip dia'],['Próxima parada','blue','nav'],'')}
+    ${l(4,'10:45','Cliente 4','Av. Ibirapuera, 2331 • Moema',['Produto 1 x1','Vasilhame'],['Entregue','lime','check'],'lime')}
+    ${l(5,'11:30','Cliente 5','R. dos Otonis, 317 • Jabaquara',['Produto 1 x3','Vasilhame'],['Pendente','amber','clock'],'off')}
+    ${l(6,'12:15','Cliente 6','R. Aracanguá, 210 • Jabaquara',['Produto 1 x4','Vasilhame'],['Pendente','mute','clock'],'off')}
+    ${l(7,'13:00','Cliente 7','R. das Orquídeas, 55 • Campo Belo',['Produto 1 x2','Vasilhame'],['Pendente','mute','clock'],'off')}
+    ${l(8,'13:45','Cliente 8','R. Dr. Jesuíno Maciel, 980 • Santo Amaro',['Produto 1 x6','Vasilhame'],['Pendente','mute','clock'],'off')}
   </div>
 </div>
 ${nav('rota')}`;}};
@@ -2441,7 +2466,7 @@ T.conferencia={nome:'Conferência da carga',grupo:'Rota',render(){
     <div class="stop" style="grid-template-columns:40px minmax(0,1fr) auto auto">
       <span class="numwrap"><span class="num ${cor}">${n}</span><span class="hh ${cor}">${h}</span></span>
       <span class="who"><strong>${nome}</strong><span>${rua}</span><span>${bairro}</span>
-        <span class="tags">${tags.map(t=>`<b class="tag ${t.startsWith('20L')?'blue':t==='Chip dia'?'lime':''}">${t}</b>`).join('')}</span></span>
+        <span class="tags">${tags.map(t=>`<b class="tag ${t.startsWith('Produto')?'blue':t==='Chip dia'?'lime':''}">${t}</b>`).join('')}</span></span>
       <span class="side" style="min-width:0;justify-content:center"><span class="pill ${pill[1]}">${ic(pill[2],14)}${pill[0]}</span></span>
       <span style="color:var(--ink-3);align-self:center;padding-left:4px">${ic('chev',15)}</span></div>`;
   return `${status}
@@ -2453,12 +2478,12 @@ ${hdr({})}
     <span class="c"><span style="color:var(--lime)">${ic('check',18)}</span><span><b style="font-size:16px">6</b><small>conferidos</small></span></span>
   </div>
   <div class="stops">
-    ${l(1,'08:30','João da Silva','R. das Palmeiras, 145','Santo Amaro',['20L x2','Vasilhame','Chip dia'],['Conferido','lime','check'],'')}
-    ${l(2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890','Brooklin',['20L x4','Vasilhame'],['Falta 1','amber','alert'],'')}
-    ${l(3,'10:05','Maria Aparecida','R. Sargento Silva Nunes, 72','Moema',['20L x1','Chip dia'],['Conferido','lime','check'],'lime')}
-    ${l(4,'10:45','Padaria Pão Nosso','Av. Ibirapuera, 2331','Moema',['20L x2','Vasilhame'],['Conferido','lime','check'],'lime')}
-    ${l(5,'11:30','Bar do Zé','R. dos Otonis, 317','Jabaquara',['20L x3','Vasilhame'],['Separado','blue','box'],'')}
-    ${l(6,'12:15','Mercado Estrela','R. Aracanguá, 210','Jabaquara',['20L x4','Chip dia'],['Pendente','mute','clock'],'off')}
+    ${l(1,'08:30','Cliente 1','R. das Palmeiras, 145','Santo Amaro',['Produto 1 x2','Vasilhame','Chip dia'],['Conferido','lime','check'],'')}
+    ${l(2,'09:15','Cliente 2','Av. João Dias, 890','Brooklin',['Produto 1 x4','Vasilhame'],['Falta 1','amber','alert'],'')}
+    ${l(3,'10:05','Cliente 3','R. Sargento Silva Nunes, 72','Moema',['Produto 1 x1','Chip dia'],['Conferido','lime','check'],'lime')}
+    ${l(4,'10:45','Cliente 4','Av. Ibirapuera, 2331','Moema',['Produto 1 x2','Vasilhame'],['Conferido','lime','check'],'lime')}
+    ${l(5,'11:30','Cliente 5','R. dos Otonis, 317','Jabaquara',['Produto 1 x3','Vasilhame'],['Separado','blue','box'],'')}
+    ${l(6,'12:15','Cliente 6','R. Aracanguá, 210','Jabaquara',['Produto 1 x4','Chip dia'],['Pendente','mute','clock'],'off')}
   </div>
   <div class="prog">
     <span class="prog-l"><span><b>6</b> de <b>12</b> paradas conferidas</span><span><b>50%</b> concluído</span></span>
@@ -3204,6 +3229,118 @@ T.sons={nome:'Ajustes · Sons',grupo:'Ajustes',render(){
     </div>`);
 }};
 
+/* ══════════════════════════════════════════════════════════════════════════
+   TUTORIAL — a tela única (17/08, ordem do dono).
+
+   🔴 O CATÁLOGO CONTINUA NASCENDO DO MOTOR (`capitulosDoCatalogo()`), nunca de
+   uma lista escrita aqui. Mudou a CASA do catálogo, não o dono dele: a régua de
+   "este capítulo existe pra esta empresa" tem um lugar só, senão a tela e o tour
+   discordam no primeiro ajuste — linha bonita abrindo capítulo sem passo.
+
+   🔴 A DEMONSTRAÇÃO É O PRIMEIRO ITEM PORQUE ELA É A AULA QUE NINGUÉM PULA.
+   Ler sete capítulos exige boa vontade; ver o app cheio, com a rota montada,
+   não exige nenhuma. O `demoDisponivel` é da PONTE — ela é quem sabe se há GPS
+   pra ancorar os endereços, e demonstração sem lugar nenhum é pior que a
+   ausência dela (endereço de outra cidade na cara de quem abriu pra conhecer).
+   ══════════════════════════════════════════════════════════════════════════ */
+T.tutorial={nome:'Tutorial',grupo:'Ajustes',render(){
+  const t=DADOS.tutorial||{};
+  const linha=(icone,titulo,sub,dir,acao)=>`<button class="linha-cfg" data-acao="${acao}">
+    <span class="ico">${ic(icone,16)}</span>
+    <span><strong>${titulo}</strong>${sub?`<span>${sub}</span>`:''}</span>
+    <span style="display:flex;align-items:center;gap:7px">${dir||''}<span style="color:var(--ink-3)">${ic('chev',15)}</span></span></button>`;
+  /* O cartão da demonstração muda de VERBO conforme ela esteja no ar: "abrir"
+     e "sair" são a mesma porta, e um botão que diz "abrir" com a demonstração
+     já aberta é o botão que mente. */
+  const demo=t.demoAberta
+    ? `<span class="tut-selo">no ar</span>
+       <span class="tut-play">${ic('play',22)}</span>
+       <h3>Você está na demonstração</h3>
+       <p>Estes clientes e esta rota são exemplo — nada disso foi salvo. Saia quando quiser.</p>
+       <button class="tut-b fraco" data-acao="demo-sair">Sair da demonstração</button>`
+    : `<span class="tut-selo">1 minuto</span>
+       <span class="tut-play">${ic('play',22)}</span>
+       <h3>Veja o app funcionando</h3>
+       <p>Clientes, rota e caixa do dia de exemplo, montados aqui no seu bairro.
+          Mexa à vontade: nada é salvo e some quando você sair.</p>
+       <button class="tut-b" data-acao="demo-abrir">${ic('play',17)} Abrir demonstração</button>`;
+  return telaAjuste('Tutorial',`
+    ${t.demoDisponivel===0?'':`<div class="tut-hero" style="margin-top:4px">${demo}</div>`}
+    ${(()=>{const cs=capitulosDoCatalogo();return cs.length?`<div class="grupo">Passo a passo</div>
+    <div class="cartao-lista">
+      ${cs.map(([id,c])=>linha(c.ico||'bulb',c.titulo,'',
+          tutorFeito(id)?`<span style="color:var(--lime)">${ic('check',15)}</span>`:'','tutor-'+id)).join('')}
+    </div>`:'';})()}
+    <div class="tut-dica">${ic('bulb',17)}
+      <span><b>A lâmpada ensina cada tela.</b> Em qualquer tela do app, o botão
+      da lâmpada lá em cima explica o que tem nela.</span></div>`);
+}};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   "VOCÊ AINDA NÃO TEM CLIENTES" — a saída da demonstração (17/08).
+
+   🔴 ESTA TELA É O PREÇO DA DEMONSTRAÇÃO, E POR ISSO NASCE COM ELA. Quem acabou
+   de ver 8 paradas montadas e o caixa do dia fecha a demonstração e cai numa
+   tela VAZIA — o mesmo contraste que vendeu o app faz desistir dele. Então a
+   demonstração não termina em "parabéns": termina aqui, com as duas saídas na
+   mão e a mais fácil por cima.
+
+   🔴 O CAMINHO MANUAL NÃO SE ESCONDE, SÓ FICA MENOR. Esconder a saída que
+   parte dos clientes prefere é a armadilha do botão que mente, de novo.
+
+   As três portas são NATIVAS e não custam servidor nenhum: a foto é
+   `<input type="file" capture>` (o WebView já abre a câmera — `onShowFileChooser`
+   + `criarIntentCamera` no `MainActivity.kt`), o WhatsApp e o e-mail são links
+   que o `ACTION_VIEW` do mesmo arquivo já entrega ao aparelho. Quem preenche o
+   número, o endereço e o texto pronto é a PONTE: destino de contato é dado da
+   empresa, não literal de desenho.
+   ══════════════════════════════════════════════════════════════════════════ */
+T.semclientes={nome:'Você ainda não tem clientes',grupo:'Sistema',render(){
+  const c=DADOS.semclientes;
+  /* MANDOU: o convite dá lugar ao recibo. Sem isto, quem já mandou a foto vê a
+     mesma tela de antes e manda de novo achando que falhou. */
+  if(c.enviado) return `${status}
+${hdr({voltar:'rota',semChat:1})}
+<div class="body">
+  <div class="cap-ok">
+    <span class="ico">${ic('check',26)}</span>
+    <h3>${c.okTitulo}</h3>
+    <p>${c.okTexto}</p>
+  </div>
+  <button class="tut-b fraco" style="margin-top:14px" data-ir="novocliente">Cadastrar um cliente agora</button>
+  <button class="tut-b fraco" data-ir="rota">Voltar pro app</button>
+</div>`;
+  return `${status}
+${hdr({voltar:'rota',semChat:1})}
+<div class="body">
+  <h1 class="cap-tit">${c.titulo}</h1>
+  <p class="cap-sub">${c.sub}</p>
+
+  <div class="cap-heroi">
+    <span class="cap-selo">${ic('spark',12)} ${c.selo}</span>
+    <h3>${c.suporteTitulo}</h3>
+    <p>${c.suporteTexto}</p>
+    <div class="cap-portas">
+      <button class="cap-porta destaque" data-acao="cadastro-foto">
+        <i>${ic('photo',18)}</i><strong>Tirar foto</strong></button>
+      <button class="cap-porta" data-acao="cadastro-whats">
+        <i>${ic('chat',18)}</i><strong>WhatsApp</strong></button>
+      <button class="cap-porta" data-acao="cadastro-email">
+        <i>${ic('mail',18)}</i><strong>E-mail</strong></button>
+    </div>
+    <p class="cap-aceita">${c.aceita}</p>
+  </div>
+
+  <div class="cap-ou"><span>ou</span></div>
+
+  <button class="cap-manual" data-ir="novocliente">
+    <span class="ico">${ic('plus',17)}</span>
+    <span><strong>${c.manualTitulo}</strong><span>${c.manualSub}</span></span>
+    <span style="color:var(--ink-3)">${ic('chev',15)}</span>
+  </button>
+</div>`;
+}};
+
 T.historico={nome:'Ajustes · Histórico',grupo:'Ajustes',render(){
   const dia=(d,par,km,val)=>`<div class="rowcard">
     <span class="ico lime">${ic('route',18)}</span>
@@ -3221,7 +3358,7 @@ T.historico={nome:'Ajustes · Histórico',grupo:'Ajustes',render(){
     </div>`);
   /* 🔴 "APAGAR O HISTÓRICO TODO" SAIU (08/08) — era a terceira cópia da
      confirmação decorativa (`data-superficie="confirmar"`): prometia apagar e
-     abria "Retirar da rota de hoje? Mercado Estrela". Não existe endpoint que
+     abria "Retirar da rota de hoje? Cliente 6". Não existe endpoint que
      apague o histórico de rotas (o que a allowlist tem é
      `DELETE /logistica/clientes/:id/historico`, que é o histórico de UM
      cliente — outra coisa). Botão de apagar sem porta é o pior tipo de botão
@@ -3463,8 +3600,8 @@ ${veuVoz}`;}};
 
 /* 20b — VÍNCULO CLIENTE × PRODUTO -----------------------------------------
    🔴 A DIFERENÇA QUE ESTA TELA EXISTE PRA GUARDAR (12/08, ordem do dono:
-   *"editar Galão 20 Litros → preço global é diferente de editar Cidinha →
-   Galão 20 Litros → quantidade/preço/configuração dela"*).
+   *"editar Produto 1 → preço global é diferente de editar Cidinha →
+   Produto 1 → quantidade/preço/configuração dela"*).
 
    `T.fichaproduto` mexe no CATÁLOGO (`/logistica/produtos/:id`) — o preço de
    todo mundo. Esta mexe no VÍNCULO (`/logistica/cliente-produtos/:id`): quanto
@@ -3549,7 +3686,7 @@ ${hdr({voltar:'produtos',semChat:1})}
   <div class="campos">
     <label class="campo"><label>Nome</label><input value="${f.nome}" data-campo="produto-nome"></label>
     <div class="dupla">
-      <label class="campo"><label>Unidade</label><input value="${f.unidade}" placeholder="galão, caixa, unidade" data-campo="produto-unidade"></label>
+      <label class="campo"><label>Unidade</label><input value="${f.unidade}" placeholder="caixa, pacote, unidade" data-campo="produto-unidade"></label>
       <label class="campo"><label>Preço do catálogo</label><input value="${f.preco}" data-campo="produto-preco"></label>
     </div>
     <!-- ESTOQUE só aparece quando existe: o catálogo do celular não devolve
@@ -3561,7 +3698,7 @@ ${hdr({voltar:'produtos',semChat:1})}
   <!-- 🔴 "ARQUIVAR" SAIU (08/08, ordem do dono). Era o mesmo defeito do Excluir
        da ficha do cliente — data-superficie="confirmar" abria a confirmação
        decorativa da maquete, e numa ficha de PRODUTO o motorista lia "Retirar
-       da rota de hoje? Mercado Estrela · volta na próxima quarta". E aqui não
+       da rota de hoje? Cliente 6 · volta na próxima quarta". E aqui não
        havia nem porta pra ligar: o backend só tem POST/PATCH de
        /logistica/produtos — arquivar/excluir produto não existe em endpoint
        nenhum, nem na allowlist do APK. Produto sai do catálogo pelo PC. -->
@@ -3760,7 +3897,7 @@ ${hdr({voltar:f.volta||'clientes',semChat:1})}
   <!-- 🔴 O EXCLUIR PROMETIA E NÃO CUMPRIA (medido no aparelho em 08/08): ele era
        data-superficie="confirmar", a confirmação DECORATIVA da maquete — na
        ficha de um cliente real o diálogo dizia "Retirar da rota de hoje?
-       Mercado Estrela · volta na próxima quarta" (nome de OUTRO cliente, verbo
+       Cliente 6 · volta na próxima quarta" (nome de OUTRO cliente, verbo
        de OUTRA ação) e nada era excluído. Agora é data-acao própria: a ponte
        pergunta com o nome de QUEM está aberto e chama a porta de verdade.
        O botão só nasce pra admin — ver o porquê no DADOS.ficha. Com um botão
@@ -3881,16 +4018,16 @@ ${hdr({voltar:'rota'})}
 
   <div class="grupo">O que muda no dia <span style="color:var(--lime)">+3</span> <span style="color:var(--red)">−1</span></div>
   <div class="previa entra"><span class="marca">${ic('plus',13)}</span>
-    <span><strong>Quitanda do Bairro</strong><span>R. das Orquídeas, 55 · quarta</span></span>
-    <span class="tag blue">20L x2</span></div>
+    <span><strong>Cliente 7</strong><span>R. das Orquídeas, 55 · quarta</span></span>
+    <span class="tag blue">Produto 1 x2</span></div>
   <div class="previa entra"><span class="marca">${ic('plus',13)}</span>
-    <span><strong>Depósito Central</strong><span>R. Dr. Jesuíno Maciel, 980 · quarta</span></span>
-    <span class="tag blue">20L x6</span></div>
+    <span><strong>Cliente 8</strong><span>R. Dr. Jesuíno Maciel, 980 · quarta</span></span>
+    <span class="tag blue">Produto 1 x6</span></div>
   <div class="previa entra"><span class="marca">${ic('plus',13)}</span>
     <span><strong>Lanchonete da Praça</strong><span>Av. Adolfo Pinheiro, 310 · quarta</span></span>
-    <span class="tag blue">20L x2</span></div>
+    <span class="tag blue">Produto 1 x2</span></div>
   <div class="previa sai"><span class="marca">${ic('close',13)}</span>
-    <span><strong>Larissa Ypê</strong><span>saiu: mudou para quinta</span></span>
+    <span><strong>Cliente 1</strong><span>saiu: mudou para quinta</span></span>
     <span class="tag">removido</span></div>
 
   <div class="grupo">Já no dia</div>
@@ -4021,19 +4158,18 @@ ${hdr({semChat:1})}
   <div class="cartao-lista">
     ${linhaIr('note','Fechamento do dia','fechamento')}
   </div>
-  ${/* 🔴 O CATÁLOGO NASCE DO MOTOR, NUNCA DE UMA LISTA ESCRITA À MÃO AQUI. Se
-        a régua de "este capítulo existe pra esta empresa" morasse na tela, ela
-        seria a SEGUNDA cópia da regra — e a tela e o tour discordariam no
-        primeiro ajuste (linha no catálogo abrindo um capítulo sem passo, que é
-        botão morto com nome bonito). Um lugar só: `capitulosDoCatalogo()`.
-        O ✓ é do APARELHO (o que este celular já viu), como a lâmpada — por
-        isso ele é conveniência de leitura, e não a garantia do obrigatório,
-        que é do usuário e mora no servidor. */''}
-  ${(()=>{const cs=capitulosDoCatalogo();return cs.length?`<div class="grupo">Aprenda a usar</div>
+  ${/* 🔴 O CATÁLOGO SAIU DAQUI (17/08, ordem do dono: *"nos ajustes tem um monte
+        de coisa, não quero isso! deixar uma tela Tutorial, e injetar todas
+        features dentro dele"*). Eram SETE linhas de aula empilhadas entre
+        Fechamento e "Som e tela" — quem abria os Ajustes pra aprender tinha
+        que reconhecer, no meio de quatorze linhas, qual bloco ensinava.
+        Aqui fica UMA porta; o catálogo inteiro (e a demonstração) mora em
+        `T.tutorial`. O catálogo continua nascendo de `capitulosDoCatalogo()`
+        lá dentro: mudou a casa, não o dono da régua. */''}
+  <div class="grupo">Aprender</div>
   <div class="cartao-lista">
-    ${cs.map(([id,c])=>linha(c.ico||'bulb',c.titulo,'',
-        tutorFeito(id)?`<span style="color:var(--lime)">${ic('check',15)}</span>`:'','tutor-'+id)).join('')}
-  </div>`:'';})()}
+    ${linhaIr('bulb','Tutorial','tutorial')}
+  </div>
   <div class="grupo">Som e tela</div>
   <div class="cartao-lista">
     ${chave('volume','Sons e voz','',a.sons,'chave-sons')}
@@ -4072,7 +4208,7 @@ ${nav('ajustes')}`;}};
    ========================================================================== */
 const ORDEM=['entrada','saida','rota','rotalista','mapa','mapalista','gerenciador','montagem','conferencia',
              'venda','folha','folhanao','rapida','salvas','fechamento','terminou','semana','clientes','novocliente','ficha','produtos',
-             'fichavinculo','fichaproduto','chat','ajustes','creditos','financeiro','avancado','sons','historico',
+             'fichavinculo','fichaproduto','chat','ajustes','tutorial','semclientes','creditos','financeiro','avancado','sons','historico',
              'passeio','portoes'];
 const GRUPOS=['Sistema','Rota','Fechamento','Cadastro','Ajustes'];
 let atual='entrada';
@@ -5033,9 +5169,9 @@ function resgatarModuloDesligado(){
    ruído, e quem está dirigindo lê UM.
    ========================================================================== */
 const AVISOS={
-  recado:{ico:'chat', cls:'', titulo:'Recado da Central', sub:'Passa no Mercado Estrela antes das 11h'},
-  ok:{ico:'check', cls:'ok', titulo:'Entrega confirmada', sub:'Maria Aparecida · R$ 21,00 em dinheiro'},
-  falta:{ico:'alert', cls:'alerta', titulo:'Falta 1 produto na carga', sub:'Mercadinho Bom Preço · 20L x4'},
+  recado:{ico:'chat', cls:'', titulo:'Recado da Central', sub:'Passa no Cliente 6 antes das 11h'},
+  ok:{ico:'check', cls:'ok', titulo:'Entrega confirmada', sub:'Cliente 3 · R$ 21,00 em dinheiro'},
+  falta:{ico:'alert', cls:'alerta', titulo:'Falta 1 produto na carga', sub:'Cliente 2 · Produto 1 x4'},
 };
 let avisoTimer=null;
 
@@ -5142,11 +5278,11 @@ const PORTOES={
     sub:'Toque na linha pra corrigir. Enquanto houver erro, a rota não monta — de propósito.',
     corpo:`
       <div class="pt-linha"><span class="m">${ic('alert',13)}</span>
-        <span><strong>Larissa Ypê</strong><span>sem número</span></span>${ic('chev',15)}</div>
+        <span><strong>Cliente 1</strong><span>sem número</span></span>${ic('chev',15)}</div>
       <div class="pt-linha"><span class="m">${ic('alert',13)}</span>
-        <span><strong>Mercado Estrela</strong><span>CEP não bate com a rua</span></span>${ic('chev',15)}</div>
+        <span><strong>Cliente 6</strong><span>CEP não bate com a rua</span></span>${ic('chev',15)}</div>
       <div class="pt-linha"><span class="m">${ic('alert',13)}</span>
-        <span><strong>Bar do Zé</strong><span>não sei onde fica este endereço</span></span>${ic('chev',15)}</div>`,
+        <span><strong>Cliente 5</strong><span>não sei onde fica este endereço</span></span>${ic('chev',15)}</div>`,
     acoes:[['Remover da rota',''],['Remover do dia','perigo']]},
 
   creditos:{tom:'trava',ico:'card',titulo:'Créditos acabaram',
@@ -5164,7 +5300,7 @@ const PORTOES={
     acoes:[['Atualizar agora','principal']],semFechar:1},
 
   ddd:{tom:'alerta',ico:'phone',titulo:'Falta o DDD',
-    sub:'O número da Maria Aparecida está sem DDD. Sem ele o WhatsApp não abre.',
+    sub:'O número da Cliente 3 está sem DDD. Sem ele o WhatsApp não abre.',
     corpo:`<div class="pt-campo"><input value="19"><span class="resto">99812-4477</span></div>`,
     acoes:[['Deixar assim',''],['Salvar','principal']]},
 
@@ -5173,7 +5309,7 @@ const PORTOES={
     acoes:[['Cancelar',''],['Iniciar mesmo assim','principal']]},
 
   fora:{tom:'alerta',ico:'gps',titulo:'Entrega fora da rota de hoje',
-    sub:'Mercado São Judas não está no dia. Ela entra como parada avulsa e conta no fechamento.',
+    sub:'Cliente 3 não está no dia. Ela entra como parada avulsa e conta no fechamento.',
     acoes:[['Cancelar',''],['Entregar assim','principal']]},
 
   // Portão só informativo: o único botão É a saída, mesmo com cara de ação.
@@ -6362,7 +6498,7 @@ function confirmar(){
   w.className='conf-wrap';
   w.innerHTML=`<div class="conf">
     <strong>Retirar da rota de hoje?</strong>
-    <span class="sub">Mercado Estrela · volta na próxima quarta</span>
+    <span class="sub">Cliente 6 · volta na próxima quarta</span>
     <span class="acoes"><button data-fechar="1">Não</button>
       <button class="principal" data-fechar="1">Retirar</button></span>
   </div>`;
@@ -6372,7 +6508,7 @@ function confirmar(){
    `DADOS.gps` (LOTE 3, 15/08) migraram pra cá: são dado de EXEMPLO, e exemplo
    não pertence ao seam que o app real preenche. */
 function chegadaDemo(){
-  cartaoChegada({ id:'demo', n:'3', nome:'Mercado São Judas', endereco:'R. São Judas, 142', gps:6 });
+  cartaoChegada({ id:'demo', n:'3', nome:'Cliente 3', endereco:'R. São Judas, 142', gps:6 });
 }
 
 document.addEventListener('click',e=>{
