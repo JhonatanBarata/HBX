@@ -61,9 +61,9 @@ body{background:transparent;overflow:hidden;position:relative;
 
 /* O palco escala pra caber no berço — centrar por `place-items` joga a peça
    pro canto quando ela é maior que a caixa. */
-.mesa{position:absolute;left:50%;top:50%;width:300px;height:650px;
+.mesa{position:absolute;left:50%;top:50%;width:300px;height:684px;
   transform:translate(-50%,-50%) scale(var(--fit,1))}
-.app{position:relative;width:300px;height:650px;overflow:hidden;border-radius:26px;
+.app{position:relative;width:300px;height:684px;overflow:hidden;border-radius:0;
   background:var(--bg);color:var(--ink);font-size:12px;isolation:isolate}
 
 /* ----------------------------------------------------------------- CASCA -- */
@@ -109,7 +109,7 @@ svg.cheio{fill:currentColor;stroke:none}
 .secao{display:flex;align-items:baseline;justify-content:space-between;gap:8px;
   color:var(--ink-3);font-size:9.5px;font-weight:800;letter-spacing:.9px;text-transform:uppercase}
 
-.lista{display:flex;flex-direction:column;min-height:0;gap:7px}
+.lista{display:flex;flex:1 1 auto;flex-direction:column;min-height:0;gap:7px;overflow:hidden}
 .cartao{display:flex;flex-direction:column;gap:5px;padding:9px 10px;border-radius:13px;
   border:.8px solid var(--line);background:var(--card);box-shadow:var(--sombra-carta)}
 .cartao.entra{animation:sobe .5s var(--cv-entra) both}
@@ -129,7 +129,7 @@ svg.cheio{fill:currentColor;stroke:none}
 .marca-t.al{border-color:var(--alerta-fio);color:var(--alerta);background:var(--alerta-bg)}
 .marca-t.fr{border-color:var(--frio-fio);color:var(--frio);background:var(--frio-bg)}
 
-.rodape{display:flex;margin-top:auto;align-items:center;justify-content:space-between;gap:8px;
+.rodape{display:flex;flex:0 0 auto;margin-top:auto;align-items:center;justify-content:space-between;gap:8px;
   padding:9px 11px;border-radius:13px;border:.8px solid var(--line);background:var(--card-2);
   color:var(--ink-2);font-size:10.5px;font-weight:600}
 .rodape b{color:var(--ink);font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}
@@ -222,7 +222,7 @@ svg.cheio{fill:currentColor;stroke:none}
   border-radius:10px;border:.8px solid var(--line-2);background:var(--card-2);
   color:var(--ink-2);font-size:10.5px;font-weight:750}
 .arquivos svg{width:13px;height:13px}
-.esteira{display:grid;gap:6px}
+.esteira{display:grid;flex:0 0 auto;gap:6px}
 .esteira article{display:grid;grid-template-columns:26px minmax(0,1fr) auto;align-items:center;gap:9px;
   padding:8px 10px;border-radius:12px;border:.8px solid var(--line);background:var(--card)}
 .esteira .ic{display:grid;width:26px;height:26px;place-items:center;border-radius:9px;
@@ -242,7 +242,7 @@ svg.cheio{fill:currentColor;stroke:none}
 .saldo b{font-size:15px;font-weight:850;font-variant-numeric:tabular-nums}
 .saldo article.disp b{color:var(--ok)}
 .saldo article.baixo b{color:var(--aviso)}
-.extrato{display:grid;gap:5px}
+.extrato{display:grid;flex:1 1 auto;align-content:start;min-height:0;gap:5px;overflow:hidden}
 .extrato article{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;
   padding:7px 10px;border-radius:11px;border:.8px solid var(--line);background:var(--card)}
 .extrato article.entra{animation:sobe .5s var(--cv-entra) both}
@@ -319,6 +319,8 @@ T.radar = {
       ['Mercado Bela Vista', '12.660.907/0001-70', '(19) 3255-0912', '92', 'WhatsApp confirmado'],
       ['Adega do Portugues', '28.192.110/0001-11', '(19) 3241-0669', '87', 'Aberta há 12 dias'],
       ['Restaurante Vila Nova', '68.043.458/0001-03', '(19) 3232-0347', '78', '1,4 km da rota'],
+      ['Padaria Rio Novo', '41.907.220/0001-58', '(19) 3216-0774', '71', 'Na mesma rua'],
+      ['Casa do Acai Central', '55.318.004/0001-92', '(19) 3228-0155', '69', 'WhatsApp confirmado'],
     ];
     const alvo = $('#achados');
     alvo.innerHTML = '';
@@ -366,6 +368,15 @@ T.vendas = {
       <span class="pe"><span>Sem contato</span><b>1ª mensagem</b></span>
       <span class="marcas"><span class="marca-t">Score 78/100</span></span>
     </article>
+    <article class="cartao">
+      <span class="cab"><strong>Padaria Rio Novo</strong></span>
+      <span class="pe"><span>Contato feito</span><b>Proposta enviada</b></span>
+      <span class="marcas"><span class="marca-t fr">Morno</span><span class="marca-t">2 tentativas</span></span>
+    </article>
+    <article class="cartao">
+      <span class="cab"><strong>Casa do Acai Central</strong><span class="nota">R$ 1.240</span></span>
+      <span class="pe"><span>Fechado</span><b>ontem 17:12</b></span>
+    </article>
   </div>
   <div class="rodape"><span>Fechado no mês</span><b>R$ 8.420</b></div>`,
   cena(daqui) {
@@ -405,6 +416,12 @@ T.agenda = {
     <div class="bloco"><span class="h">16:30</span>
       <span class="q"><strong>Padaria Rio Novo</strong><small>Mensagem · proposta enviada</small></span>
       <span class="t">${IC.msg}</span></div>
+    <div class="bloco"><span class="h">17:15</span>
+      <span class="q"><strong>Casa do Acai Central</strong><small>Ligação · fechar o pedido</small></span>
+      <span class="t">${IC.fone}</span></div>
+    <div class="bloco"><span class="h">18:00</span>
+      <span class="q"><strong>Mercadinho Bom Preço</strong><small>Reunião · primeira conversa</small></span>
+      <span class="t">${IC.gente}</span></div>
   </div>
   <div class="rodape"><span>O que não foi vira atrasado</span><b id="atrasa">1</b></div>`,
   cena(daqui) {
@@ -439,6 +456,15 @@ T.entrega = {
     <div class="passo" id="p3"><span class="marco"><i></i></span>
       <span class="txt"><strong>Entregue com prova</strong><small id="s3">foto, assinatura e código</small></span></div>
   </div>
+  <div class="secao"><span>O que vai na carga</span><span>12 itens</span></div>
+  <article class="cartao">
+    <span class="cab"><strong>Água mineral 20L</strong><span class="nota">12 un</span></span>
+    <span class="pe"><span>reservado no estoque</span><b>R$ 384,00</b></span>
+  </article>
+  <article class="cartao">
+    <span class="cab"><strong>Refrigerante 2L — caixa</strong><span class="nota">2 cx</span></span>
+    <span class="pe"><span>reservado no estoque</span><b>R$ 84,00</b></span>
+  </article>
   <article class="cartao">
     <span class="cab"><strong>O cliente acompanha</strong><span class="nota" id="selo">no ar</span></span>
     <span class="pe"><span>hbx.app/e/4F2K90</span><b id="visto">aberto 2×</b></span>
@@ -479,6 +505,14 @@ T.cobranca = {
       <span class="cab"><strong>Padaria Rio Novo</strong><span class="nota">R$ 210</span></span>
       <span class="pe"><span>Boleto · enviado</span><b>21/08</b></span>
     </article>
+    <article class="cartao">
+      <span class="cab"><strong>Adega do Portugues</strong><span class="nota">R$ 156</span></span>
+      <span class="pe"><span>Fiado · combinado na entrega</span><b>25/08</b></span>
+    </article>
+    <article class="cartao">
+      <span class="cab"><strong>Restaurante Vila Nova</strong><span class="nota">R$ 92</span></span>
+      <span class="pe"><span>Cartão · 1 de 2</span><b>30/08</b></span>
+    </article>
   </div>
   <div class="rodape"><span>Recebido hoje</span><b id="total">R$ 336,00</b></div>`,
   cena(daqui) {
@@ -516,6 +550,11 @@ T.fiscal = {
     </div>
     <div class="arquivos"><span>${IC.baixar} XML</span><span>${IC.arquivo} DANFE</span></div>
   </div>
+  <div class="secao"><span>Emitidas hoje</span><span>4</span></div>
+  <div class="extrato">
+    <article><span><strong>NF-e 000.122</strong><small>Adega do Portugues · 09:40</small></span><span class="qtd mais">R$ 156</span></article>
+    <article><span><strong>NFS-e 000.087</strong><small>Entrega avulsa · 09:12</small></span><span class="qtd mais">R$ 92</span></article>
+  </div>
   <div class="rodape"><span>Certificado A1 vence em</span><b>214 dias</b></div>`,
   cena(daqui) {
     daqui(() => {
@@ -543,6 +582,9 @@ T.estoque = {
     <article><span><strong>Entrada (XML compra)</strong><small>NF 12.845 · 08:04</small></span><span class="qtd mais">+168</span></article>
     <article><span><strong>Carga do dia</strong><small>rota FLV3B58 · 08:20</small></span><span class="qtd menos">−180</span></article>
     <article><span><strong>Devolução de vasilhame</strong><small>parada 3 · 08:41</small></span><span class="qtd mais">+2</span></article>
+    <article><span><strong>Carga do dia</strong><small>rota BBS4J33 · 08:52</small></span><span class="qtd menos">−96</span></article>
+    <article><span><strong>Inventário conferido</strong><small>conferência de balcão · 09:10</small></span><span class="qtd mais">+3</span></article>
+    <article><span><strong>Devolução de vasilhame</strong><small>parada 7 · 09:34</small></span><span class="qtd mais">+5</span></article>
   </div>
   <div class="rodape"><span>Vasilhames na rua</span><b>14</b></div>`,
   cena(daqui) {
@@ -582,7 +624,7 @@ function pintar(chave) {
 /* O berço muda de tamanho DEPOIS do load (a vitrine troca de aba, o iframe
    nasce estreito). Medir uma vez deixava a cena do tamanho de um selo. */
 function caber() {
-  const f = Math.min(innerWidth / 300, innerHeight / 650);
+  const f = Math.min(innerWidth / 300, innerHeight / 684);
   document.querySelector('.mesa').style.setProperty('--fit', f.toFixed(4));
 }
 addEventListener('resize', caber);

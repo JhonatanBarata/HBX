@@ -345,7 +345,6 @@ type Passo = {
   lines: [string, string, string];
   subline: string;
   fone: LogisticaRealScreen;
-  foneNome: string;
   Desktop?: () => React.JSX.Element;
   // A torre veste o monitor inteiro (iframe próprio, sem trilho nem cabeçalho).
   monitorCheio?: LogisticaRealScreen;
@@ -356,37 +355,37 @@ const VENDAS: Passo[] = [
     key: "radar", label: "Radar", icon: "radar", capitulo: "Achar",
     eyebrow: "Oportunidade", titulo: "Empresas com CNPJ e telefone.", signal: "Radar ativo",
     lines: ["Encontre", "clientes", "de verdade."], subline: "86 empresas do seu ramo na cidade — 81 com telefone.",
-    fone: "v-radar", foneNome: "Radar", Desktop: RadarScreen,
+    fone: "v-radar", Desktop: RadarScreen,
   },
   {
     key: "vendas", label: "Vendas", icon: "bolt", capitulo: "Organizar",
     eyebrow: "Movimento", titulo: "Cada negócio numa etapa.", signal: "Funil em movimento",
     lines: ["Venda", "sem perder", "o fio."], subline: "Sem contato, contato feito, respondeu, ligação marcada, fechado.",
-    fone: "v-vendas", foneNome: "Vendas", Desktop: VendasScreen,
+    fone: "v-vendas", Desktop: VendasScreen,
   },
   {
     key: "agenda", label: "Agenda", icon: "calendar", capitulo: "Acompanhar",
     eyebrow: "Retorno", titulo: "O retorno tem hora marcada.", signal: "4 compromissos hoje",
     lines: ["Nada", "fica", "sem retorno."], subline: "Ligação, reunião, visita e mensagem — o que não foi vira atrasado.",
-    fone: "v-agenda", foneNome: "Agenda", Desktop: AgendaScreen,
+    fone: "v-agenda", Desktop: AgendaScreen,
   },
   {
     key: "entrega", label: "Entrega", icon: "route", capitulo: "Entregar",
     eyebrow: "Operação", titulo: "A venda vira parada.", signal: "Rota em andamento",
     lines: ["Da venda", "para a rua", "sem digitar."], subline: "O pedido fechado entra na rota do dia sozinho.",
-    fone: "v-entrega", foneNome: "Entrega", Desktop: EntregaScreen,
+    fone: "v-entrega", Desktop: EntregaScreen,
   },
   {
     key: "cobranca", label: "Cobrança", icon: "wallet", capitulo: "Receber",
     eyebrow: "Recebimento", titulo: "Entregou, cobrou, recebeu.", signal: "Fluxo concluído",
     lines: ["Cobre", "e receba", "em dia."], subline: "Pix, dinheiro, cartão e fiado conferidos contra a entrega.",
-    fone: "v-cobranca", foneNome: "Cobrança", Desktop: CobrancaScreen,
+    fone: "v-cobranca", Desktop: CobrancaScreen,
   },
   {
     key: "fiscal", label: "Fiscal", icon: "nota", capitulo: "Nota e estoque",
     eyebrow: "Fiscal", titulo: "XML entra, nota sai.", signal: "Certificado A1 válido",
     lines: ["Entrada", "fiscal e", "nota emitida."], subline: "O XML da compra dá entrada, o estoque anda, a nota sai autorizada.",
-    fone: "v-fiscal", foneNome: "Fiscal", Desktop: FiscalScreen,
+    fone: "v-fiscal", Desktop: FiscalScreen,
   },
 ];
 
@@ -395,37 +394,37 @@ const LOGISTICA: Passo[] = [
     key: "prospector", label: "Prospector", icon: "radar", capitulo: "Achar",
     eyebrow: "No computador", titulo: "Empresas do corredor.", signal: "Prospector ativo",
     lines: ["Ache", "clientes", "na sua rota."], subline: "Empresas com CNPJ e telefone no corredor da entrega.",
-    fone: "prospector", foneNome: "Prospector", Desktop: RotaProspectorScreen,
+    fone: "prospector", Desktop: RotaProspectorScreen,
   },
   {
     key: "montagem", label: "Montar rota", icon: "route", capitulo: "Organizar",
     eyebrow: "No computador", titulo: "A rota do dia.", signal: "23 paradas",
     lines: ["Monte", "o dia", "em um toque."], subline: "A ordem das paradas sai pronta — 38,4 km, 4h12, 180 galões.",
-    fone: "montagem", foneNome: "Montar rota", Desktop: RotaMontagemScreen,
+    fone: "montagem", Desktop: RotaMontagemScreen,
   },
   {
     key: "torre", label: "Torre de controle", icon: "tower", capitulo: "Acompanhar",
     eyebrow: "No computador", titulo: "A rua em tempo real.", signal: "2 veículos em rota",
     lines: ["Veja", "a rua", "em tempo real."], subline: "Desvio, parada não prevista e o motorista no mapa.",
-    fone: "torreFone", foneNome: "Torre de controle", monitorCheio: "torre",
+    fone: "torreFone", monitorCheio: "torre",
   },
   {
     key: "folha", label: "Entregar", icon: "check", capitulo: "Entregar",
     eyebrow: "No computador", titulo: "A prova da entrega.", signal: "23 comprovantes",
     lines: ["Entregue", "com prova", "na mão."], subline: "Foto, assinatura e código a cada parada.",
-    fone: "folha", foneNome: "Entregar", Desktop: RotaEntregarScreen,
+    fone: "folha", Desktop: RotaEntregarScreen,
   },
   {
     key: "caderneta", label: "Fechar o dia", icon: "wallet", capitulo: "Receber",
     eyebrow: "No computador", titulo: "O caixa do dia.", signal: "Caixa conferido",
     lines: ["Feche", "o caixa", "no fim do dia."], subline: "Dinheiro, Pix, cartão e fiado conferidos.",
-    fone: "caderneta", foneNome: "Fechar o dia", Desktop: RotaFecharScreen,
+    fone: "caderneta", Desktop: RotaFecharScreen,
   },
   {
     key: "estoque", label: "Controle de estoque", icon: "box", capitulo: "Nota e estoque",
     eyebrow: "No computador", titulo: "O saldo que a rota consome.", signal: "Estoque ligado",
     lines: ["Controle", "o estoque", "sem planilha."], subline: "Disponível, reservado e físico — com extrato de cada movimento.",
-    fone: "v-estoque", foneNome: "Estoque", Desktop: RotaEstoqueScreen,
+    fone: "v-estoque", Desktop: RotaEstoqueScreen,
   },
 ];
 
@@ -605,17 +604,18 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
               onClick={() => escolherGuia(item)}
             >
               <strong>{GUIA_NOME[item]}</strong>
-              <small>{item === guia ? `${noGuia + 1}/${POR_GUIA}` : "pular"}</small>
             </button>
           ))}
         </div>
 
         <nav className="f1-header__actions" aria-label="Ações principais">
-          <Link className="f1-icon-button" href="/tutorialexterno" aria-label="Ver o tutorial" title="Tutorial">
+          <Link className="f1-icon-button" href="/tutorialexterno" aria-label="Ver o tutorial">
             <Icon name="play" />
+            <span>Tutorial</span>
           </Link>
-          <button className="f1-icon-button" type="button" onClick={toggleTheme} aria-label={themeMode === "dark" ? "Usar tema claro" : "Usar tema escuro"} title={themeMode === "dark" ? "Usar tema claro" : "Usar tema escuro"}>
+          <button className="f1-icon-button" type="button" onClick={toggleTheme} aria-label={themeMode === "dark" ? "Usar tema claro" : "Usar tema escuro"}>
             <Icon name={themeMode === "dark" ? "sun" : "moon"} />
+            <span>{themeMode === "dark" ? "Day" : "Night"}</span>
           </button>
           {screen === "home"
             ? <button className="f1-login" type="button" onClick={openLogin}>Entrar <Icon name="arrow" /></button>
@@ -679,11 +679,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
         </div>
 
         <aside className="f1-logi" aria-label="HBX no celular">
-          <PhoneVisual screen={passo.fone} themeMode={themeMode} />
-          <span className="f1-fone-nome">
-            <small>No celular</small>
-            <strong key={passo.key}>{passo.foneNome}</strong>
-          </span>
+          <PhoneVisual key={passo.key} screen={passo.fone} themeMode={themeMode} />
         </aside>
 
         <div className="f1-dados">

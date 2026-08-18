@@ -215,8 +215,8 @@ body{background:transparent;overflow:hidden;position:relative;
 .mundo{position:absolute;inset:0}
 .fone-cromo{display:none}
 
-body.fone .mesa{width:300px;height:650px}
-body.fone .app{width:300px;height:650px;border-radius:26px;font-size:12px}
+body.fone .mesa{width:300px;height:684px}
+body.fone .app{width:300px;height:684px;border-radius:0;font-size:12px}
 body.fone .janela{inset:0 0 auto 0;height:296px}
 body.fone .mundo{width:560px;height:357px;transform:scale(.78) translate(-52px,-24px);transform-origin:top left}
 body.fone .topo,body.fone .feed,body.fone .posicao,body.fone .selo{display:none}
@@ -524,7 +524,7 @@ function iniciar(){
    nasce estreito). Medir uma vez deixava a cena do tamanho de um selo. */
 function caber(){
   const fone=document.body.classList.contains('fone');
-  const f=fone?Math.min(innerWidth/300,innerHeight/650):Math.min(innerWidth/560,innerHeight/357);
+  const f=fone?Math.min(innerWidth/300,innerHeight/684):Math.min(innerWidth/560,innerHeight/357);
   document.querySelector('.mesa').style.setProperty('--fit',f.toFixed(4));
 }
 addEventListener('resize',caber);
