@@ -21,6 +21,8 @@ html[data-hbx-authed] .public-entry { overflow-x: clip; display: none; }
   --f1-blue: var(--login-cycle-5);
   --f1-blue-soft: color-mix(in srgb, var(--login-cycle-5) 18%, transparent);
   --f1-success: var(--hbx-success);
+  --f1-danger: var(--hbx-danger);
+  --f1-warn: var(--hbx-warning);
   --f1-shadow: color-mix(in srgb, var(--hbx-shadow) 48%, transparent);
   --f1-shadow-soft: color-mix(in srgb, var(--hbx-shadow) 20%, transparent);
   --f1-radius-sm: var(--radius-sm);
@@ -81,13 +83,14 @@ html[data-hbx-authed] .public-entry { overflow-x: clip; display: none; }
 .f1-header {
   position: relative;
   z-index: 10;
-  display: flex;
+  display: grid;
   width: min(1500px, 100%);
   height: 82px;
   margin: 0 auto;
   padding: 0 clamp(24px, 4vw, 68px);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   animation: f1-drop-in 0.8s var(--f1-ease) both;
 }
 .f1-brand { display: inline-flex; align-items: center; gap: 12px; font-size: 1.08rem; font-weight: 800; }
@@ -114,7 +117,7 @@ html[data-hbx-authed] .public-entry { overflow-x: clip; display: none; }
   min-height: calc(100dvh - 82px - 72px);
   margin: 0 auto;
   padding: clamp(14px, 2vh, 26px) clamp(18px, 2vw, 40px) clamp(14px, 2vh, 26px);
-  grid-template-columns: minmax(290px, 356px) minmax(0, 1fr) minmax(335px, 382px);
+  grid-template-columns: minmax(290px, 356px) minmax(0, 1fr) minmax(238px, 286px);
   grid-template-rows: minmax(0, 1fr) auto auto;
   grid-template-areas: "copy product logi" "dados dados dados" "stages stages stages";
   align-items: center;
@@ -143,7 +146,7 @@ html[data-theme-mode="light"] .f1-secondary-cta { background: rgba(247, 251, 255
 .f1-secondary-cta:hover { transform: translateY(-2px); border-color: var(--f1-line-strong); background: rgba(23, 54, 95, 0.55); }
 html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 
-.f1-product-wrap { position: relative; top: clamp(-64px, -6vh, -20px); grid-area: product; width: 100%; min-width: 0; margin-top: clamp(-24px, -2.8vh, -10px); margin-left: 0; perspective: 1400px; animation: f1-product-in 1.15s 0.24s var(--f1-ease) both; }
+.f1-product-wrap { position: relative; grid-area: product; width: 100%; min-width: 0; margin-left: 0; perspective: 1400px; animation: f1-product-in 1.15s 0.24s var(--f1-ease) both; }
 
 @media (min-width: 801px) {
   .f1-copy { margin-left: 0; }
@@ -151,7 +154,7 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-product-aura { position: absolute; inset: 8% 4% -8%; border-radius: 42px; background: linear-gradient(130deg, var(--f1-accent-soft), var(--f1-blue-soft)); filter: blur(55px); opacity: 0.78; animation: f1-aura 5s ease-in-out infinite; }
 /* margin-right (W1, hero mais separado): o desktop encolhe à direita e abre a
    faixa de ar onde o celular flutua — desgrudado, não colado na borda. */
-.f1-product { position: relative; height: clamp(450px, 60vh, 620px); margin-right: clamp(72px, 6vw, 108px); overflow: hidden; border: 1px solid var(--f1-line-strong); border-radius: var(--f1-radius-lg); background: var(--f1-surface); box-shadow: 0 42px 100px var(--f1-shadow), inset 0 1px 0 var(--f1-line); backdrop-filter: blur(28px) saturate(135%); transform: rotateY(-2.4deg) rotateX(0.8deg); transform-origin: center; transition: transform 0.7s var(--f1-ease), box-shadow 0.7s ease; }
+.f1-product { position: relative; height: clamp(430px, 55vh, 600px); margin-right: clamp(72px, 6vw, 108px); overflow: hidden; border: 1px solid var(--f1-line-strong); border-radius: var(--f1-radius-lg); background: var(--f1-surface); box-shadow: 0 42px 100px var(--f1-shadow), inset 0 1px 0 var(--f1-line); backdrop-filter: blur(28px) saturate(135%); transform: rotateY(-2.4deg) rotateX(0.8deg); transform-origin: center; transition: transform 0.7s var(--f1-ease), box-shadow 0.7s ease; }
 .f1-product-wrap:hover .f1-product { transform: rotateY(0) rotateX(0) translateY(-4px); box-shadow: 0 52px 120px var(--f1-shadow), inset 0 1px 0 var(--f1-line); }
 .f1-product__bar { display: flex; height: 56px; padding: 0 18px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--f1-line); background: color-mix(in srgb, var(--f1-surface-solid) 72%, transparent); }
 .f1-product__dots { display: flex; gap: 5px; }
@@ -167,29 +170,8 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-product__rail span { display: grid; width: 37px; height: 37px; place-items: center; border-radius: 11px; color: var(--f1-text-soft); transition: color 0.35s ease, background 0.35s ease, transform 0.35s var(--f1-ease); }
 .f1-product__rail span.is-active { color: var(--f1-accent-ink); background: var(--f1-accent); box-shadow: 0 10px 24px var(--f1-accent-soft); animation: f1-nav-active 0.9s var(--f1-ease) both; }
 .f1-product__content { display: flex; min-width: 0; padding: clamp(18px, 2vw, 26px); flex-direction: column; }
-.f1-phone { position: absolute; z-index: 3; top: 29%; right: clamp(-28px, -2vw, -14px); display: block; width: clamp(176px, 14vw, 206px); aspect-ratio: 0.49; padding: 7px; overflow: hidden; border: 1px solid var(--f1-line-strong); border-radius: 38px; background: color-mix(in srgb, var(--f1-surface-solid) 90%, #000 10%); box-shadow: 18px 34px 60px var(--f1-shadow), -4px 0 0 var(--f1-line), inset 0 1px 0 var(--f1-line-strong); transform: rotate(6deg); transform-origin: 70% 50%; animation: f1-phone-float 5.8s ease-in-out infinite; }
 .f1-real-phone { position: relative; z-index: 3; display: block; width: 100%; aspect-ratio: 412 / 940; overflow: hidden; border: 1px solid var(--f1-line-strong); border-radius: var(--f1-radius-lg); background: var(--f1-surface-solid); box-shadow: 0 26px 60px var(--f1-shadow); }
 .f1-real-phone__iframe { display: block; width: 100%; height: 100%; border: 0; background: transparent; }
-.f1-phone::after { content: ""; position: absolute; top: 24%; right: -2px; width: 3px; height: 15%; border-radius: 4px 0 0 4px; background: var(--f1-line-strong); }
-.f1-phone__notch { position: absolute; z-index: 3; top: 12px; left: 50%; width: 30%; height: 16px; border-radius: 999px; background: #080a09; box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08); transform: translateX(-50%); }
-.f1-phone__screen { display: flex; width: 100%; height: 100%; overflow: hidden; border: 1px solid var(--f1-line); border-radius: 31px; flex-direction: column; background: var(--f1-surface-solid); }
-.f1-phone__status { display: flex; height: 42px; padding: 16px 13px 0; align-items: center; justify-content: space-between; color: var(--f1-text-soft); font-family: var(--font-mono, monospace); font-size: var(--hbx-font-min); font-weight: 700; }
-.f1-phone__status b { color: var(--f1-text); font-family: var(--font-body, sans-serif); font-size: var(--hbx-font-min); letter-spacing: 0.04em; }
-.f1-phone__status > span:last-child { display: inline-flex; align-items: center; gap: 3px; }
-.f1-phone__status i { display: block; width: 4px; height: 4px; border-radius: 50%; background: var(--f1-success); }
-.f1-phone__canvas { position: relative; min-height: 0; flex: 1; overflow: hidden; border-top: 1px solid var(--f1-line); border-bottom: 1px solid var(--f1-line); }
-.f1-phone__canvas > .f1-screen { position: absolute; left: 0; top: 0; width: 166.667%; height: 166.667%; border: 0; border-radius: 0; box-shadow: none; transform: scale(0.6); transform-origin: top left; }
-/* Dentro do celular da vitrine o WhatsAppPreview vira SÓ a tela (o f1-phone já
-   é a moldura): frame/ilha/home do wa-phone somem — mesmo truque do
-   bot-builder (.bot-preview-dock). Só layout, cor nenhuma. */
-.f1-phone .f1-chat-screen { padding: 0; }
-.f1-phone .f1-chat-screen .wa-phone { height: 100%; max-width: none; padding: 0; border-radius: 0; background: transparent; box-shadow: none; }
-.f1-phone .wa-phone::before, .f1-phone .wa-phone::after { display: none; }
-.f1-phone .wa-phone__island, .f1-phone .wa-phone__home { display: none; }
-.f1-phone .wa-phone__screen { border-radius: 0; }
-.f1-phone__nav { display: flex; height: 48px; padding: 7px 11px; align-items: center; justify-content: space-around; color: var(--f1-text-soft); }
-.f1-phone__nav span { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 9px; color: var(--f1-text-soft); transition: color 0.35s ease, background 0.35s ease, transform 0.35s var(--f1-ease); }
-.f1-phone__nav span.is-active { color: var(--f1-accent-ink); background: var(--f1-accent); animation: f1-nav-active 0.9s var(--f1-ease) both; }
 .f1-screen-head { display: flex; flex: 0 0 auto; align-items: flex-start; justify-content: space-between; gap: 18px; }
 .f1-screen-head > span { display: grid; gap: 5px; min-width: 0; }
 .f1-screen-head small { color: var(--f1-accent); font-size: var(--hbx-font-min); font-weight: 750; letter-spacing: 0.12em; text-transform: uppercase; }
@@ -216,27 +198,6 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-float-list b { color: var(--f1-accent); font-family: var(--font-mono, monospace); font-size: var(--hbx-font-min); }
 
 /* Vendas */
-.f1-sales-screen { padding: 16px; }
-.f1-kanban { position: relative; z-index: 1; display: grid; height: calc(100% - 12px); grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.f1-kanban section { display: flex; min-width: 0; padding: 9px; flex-direction: column; gap: 7px; border: 1px solid var(--f1-line); border-radius: 12px; background: color-mix(in srgb, var(--f1-surface-up) 62%, transparent); }
-.f1-kanban section > small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; }
-.f1-kanban article { display: grid; gap: 4px; padding: 9px; border: 1px solid var(--f1-line); border-radius: 9px; background: var(--f1-surface-solid); box-shadow: 0 7px 18px var(--f1-shadow-soft); animation: f1-kanban-in 0.8s var(--f1-ease) both; }
-.f1-kanban section:nth-child(2) article { animation-delay: 0.12s; }
-.f1-kanban section:nth-child(3) article { animation-delay: 0.24s; }
-.f1-kanban section:nth-child(4) article { animation-delay: 0.36s; }
-.f1-kanban article b { overflow: hidden; font-size: var(--hbx-font-min); text-overflow: ellipsis; white-space: nowrap; }
-.f1-kanban article span { color: var(--f1-text-soft); font-size: var(--hbx-font-min); }
-.f1-kanban article.is-hot { border-color: var(--f1-accent); background: var(--f1-accent-soft); }
-.f1-kanban article.is-done { display: flex; color: var(--f1-success); align-items: center; }
-.f1-flow-line { position: absolute; left: 9%; right: 9%; bottom: 13px; height: 2px; overflow: hidden; border-radius: 99px; background: var(--f1-line); }
-.f1-flow-line span { display: block; width: 28%; height: 100%; border-radius: inherit; background: var(--f1-accent); box-shadow: 0 0 12px var(--f1-accent); animation: f1-flow 2.4s ease-in-out infinite; }
-
-/* WhatsApp — o <WhatsAppPreview> REAL do app (CSS .wa-* em whatsapp.css) com
-   conversa demo, no lugar do chat fake (W1). Aqui só o encaixe (layout):
-   dentro do mock desktop o frame do celular fica sem moldura dupla exagerada,
-   centrado e limitado à altura do slot. */
-.f1-chat-screen { display: grid; place-items: center; padding: 12px; background-image: radial-gradient(circle at 70% 40%, var(--f1-blue-soft), transparent 46%); }
-.f1-chat-screen .wa-phone { height: 100%; max-height: 100%; max-width: 236px; }
 
 /* Entrega */
 .f1-route-map { position: absolute; inset: 0; overflow: hidden; background: linear-gradient(135deg, var(--f1-blue-soft), transparent 70%); }
@@ -275,20 +236,17 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-payment-list article:last-child i { background: var(--f1-blue); }
 .f1-payment-list article:last-child small { color: var(--f1-blue); }
 
-.f1-stage-shell { position: relative; grid-area: stages; display: grid; min-width: 0; padding: 8px; grid-template-columns: auto minmax(0, 1fr) 48px; align-items: center; gap: 10px; border: 1px solid var(--f1-line); border-radius: 22px; background: var(--f1-surface); box-shadow: 0 24px 50px var(--f1-shadow-soft), inset 0 1px 0 var(--f1-line); backdrop-filter: blur(24px); animation: f1-rise-in 0.9s 0.82s var(--f1-ease) both; }
-.f1-stage-track { position: relative; display: grid; height: 54px; padding: 5px; grid-template-columns: repeat(5, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--f1-line); border-radius: 16px; background: color-mix(in srgb, var(--f1-surface-solid) 74%, transparent); }
-.f1-stage-pill { position: absolute; z-index: 0; left: 5px; top: 5px; width: calc((100% - 10px) / 5); height: 42px; border: 1px solid var(--f1-line-strong); border-radius: 12px; background: var(--f1-surface-up); box-shadow: 0 10px 24px var(--f1-shadow-soft), inset 0 1px 0 var(--f1-line-strong); transition: transform 1.08s var(--f1-ease); }
-.public-entry[data-stage="vendas"] .f1-stage-pill { transform: translateX(100%); }
-.public-entry[data-stage="whatsapp"] .f1-stage-pill { transform: translateX(200%); }
-.public-entry[data-stage="entrega"] .f1-stage-pill { transform: translateX(300%); }
-.public-entry[data-stage="cobranca"] .f1-stage-pill { transform: translateX(400%); }
-/* No trecho do HBX Rota a trilha do Desktop descansa: a pílula sai e o realce
-   passa pra lista da direita. */
-.public-entry:not([data-logi="off"]) .f1-stage-pill { opacity: 0; }
-.public-entry:not([data-logi="off"]) .f1-stage-track button.is-active::after { display: none; }
-.f1-stage-track button { position: relative; z-index: 1; display: flex; min-width: 0; padding: 0 8px; align-items: center; justify-content: center; gap: 7px; overflow: hidden; border: 0; background: transparent; cursor: pointer; }
+.f1-stage-shell { position: relative; grid-area: stages; display: grid; min-width: 0; padding: 8px; grid-template-columns: auto minmax(0, 1fr) auto 48px; align-items: center; gap: 10px; border: 1px solid var(--f1-line); border-radius: 22px; background: var(--f1-surface); box-shadow: 0 24px 50px var(--f1-shadow-soft), inset 0 1px 0 var(--f1-line); backdrop-filter: blur(24px); animation: f1-rise-in 0.9s 0.82s var(--f1-ease) both; }
+.f1-stage-track { position: relative; display: grid; height: 54px; padding: 5px; grid-template-columns: repeat(6, minmax(0, 1fr)); overflow: hidden; border: 1px solid var(--f1-line); border-radius: 16px; background: color-mix(in srgb, var(--f1-surface-solid) 74%, transparent); }
+.f1-stage-pill { position: absolute; z-index: 0; left: 5px; top: 5px; width: calc((100% - 10px) / 6); height: 42px; border: 1px solid var(--f1-line-strong); border-radius: 12px; background: var(--f1-surface-up); box-shadow: 0 10px 24px var(--f1-shadow-soft), inset 0 1px 0 var(--f1-line-strong); transition: transform 1.08s var(--f1-ease); }
+.public-entry[data-n="1"] .f1-stage-pill { transform: translateX(100%); }
+.public-entry[data-n="2"] .f1-stage-pill { transform: translateX(200%); }
+.public-entry[data-n="3"] .f1-stage-pill { transform: translateX(300%); }
+.public-entry[data-n="4"] .f1-stage-pill { transform: translateX(400%); }
+.public-entry[data-n="5"] .f1-stage-pill { transform: translateX(500%); }
+.f1-stage-track button { position: relative; z-index: 1; display: flex; min-width: 0; padding: 0 5px; align-items: center; justify-content: center; gap: 6px; overflow: hidden; border: 0; background: transparent; cursor: pointer; }
 .f1-stage-track button > .f1-icon { width: 19px; height: 19px; flex: 0 0 auto; color: var(--f1-text-soft); stroke-width: 1.8; transition: color 0.35s ease, transform 0.35s var(--f1-ease); }
-.f1-stage-track button > strong { overflow: hidden; color: var(--f1-text-soft); font-size: clamp(calc(0.55rem + calc(2px * var(--hbx-font-scale))), calc(calc(0.7vw * var(--hbx-font-scale)) + calc(2px * var(--hbx-font-scale))), calc(0.68rem + calc(2px * var(--hbx-font-scale)))); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; transition: color 0.35s ease; }
+.f1-stage-track button > strong { overflow: hidden; color: var(--f1-text-soft); letter-spacing: -0.012em; font-size: clamp(calc(0.55rem + calc(2px * var(--hbx-font-scale))), calc(calc(0.7vw * var(--hbx-font-scale)) + calc(2px * var(--hbx-font-scale))), calc(0.68rem + calc(2px * var(--hbx-font-scale)))); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; transition: color 0.35s ease; }
 .f1-stage-track button.is-active > .f1-icon { color: var(--f1-accent); transform: scale(1.04); }
 .f1-stage-track button.is-active > strong { color: var(--f1-text); }
 .f1-stage-track button.is-active::after { content: ""; position: absolute; left: 16%; right: 16%; bottom: 4px; height: 2px; border-radius: 99px; background: var(--f1-accent); transform-origin: left; animation: f1-stage-progress 6.3s linear both; }
@@ -300,7 +258,6 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 @keyframes f1-title-in { from { opacity: 0; transform: translateY(115%) rotate(2deg); } to { opacity: 1; transform: translateY(0) rotate(0); } }
 @keyframes f1-line-draw { to { transform: scaleX(1); } }
 @keyframes f1-product-in { from { opacity: 0; transform: translateX(50px) scale(0.94); } to { opacity: 1; transform: translateX(0) scale(1); } }
-@keyframes f1-phone-float { 0%, 100% { transform: rotate(6deg) translateY(0); } 50% { transform: rotate(4deg) translateY(-11px); } }
 @keyframes f1-nav-active { from { opacity: 0.6; transform: scale(0.72); } 70% { transform: scale(1.08); } to { opacity: 1; transform: scale(1); } }
 @keyframes f1-screen-in { from { opacity: 0; transform: translateX(22px) scale(0.985); } to { opacity: 1; transform: translateX(0) scale(1); } }
 @keyframes f1-orb-drift { to { transform: translate3d(6vw, 4vh, 0) scale(1.18); } }
@@ -309,7 +266,6 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 @keyframes f1-live { 50% { opacity: 0.35; transform: scale(0.75); } }
 @keyframes f1-card-float { 50% { transform: translateY(-5px); } }
 @keyframes f1-kanban-in { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes f1-flow { 0% { transform: translateX(-110%); } 100% { transform: translateX(370%); } }
 @keyframes f1-route-move { to { stroke-dashoffset: -18; } }
 @keyframes f1-van { 0%, 100% { transform: translate(-12px, 10px) rotate(-4deg); } 50% { transform: translate(18px, -13px) rotate(3deg); } }
 @keyframes f1-card-up { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
@@ -449,21 +405,18 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   display: grid;
   grid-area: logi;
   min-width: 0;
-  grid-template-columns: clamp(160px, 12.5vw, 198px) minmax(0, 1fr);
-  grid-template-areas: "fone telas" "fone baixar";
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "fone" "nome";
   align-content: center;
-  align-items: center;
-  column-gap: 14px;
-  row-gap: 9px;
+  justify-items: center;
+  row-gap: 10px;
   animation: f1-rise-in 0.9s 0.5s var(--f1-ease) both;
 }
-.f1-real-phone { grid-area: fone; align-self: center; }
-.f1-logi__nav { grid-area: telas; }
-.f1-provas { grid-area: provas; }
-.f1-baixar { grid-area: baixar; }
+.f1-real-phone { grid-area: fone; align-self: center; width: min(100%, 180px); }
+.f1-fone-nome { grid-area: nome; }
+
 .public-entry.is-login .f1-logi { display: none; }
 
-.f1-logi__nav { display: grid; width: 100%; gap: 5px; }
 .f1-trilha-nome {
   color: var(--f1-text-soft);
   font-size: var(--hbx-font-min);
@@ -472,44 +425,8 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   text-transform: uppercase;
   opacity: 0.75;
 }
-.f1-logi__nav .f1-trilha-nome { padding: 0 10px 2px; }
-.f1-trilha-nome--barra { padding: 0 4px 0 10px; white-space: nowrap; }
-.f1-logi__nav button {
-  position: relative;
-  display: grid;
-  min-height: 40px;
-  padding: 0 10px;
-  grid-template-columns: 20px minmax(0, 1fr);
-  align-items: center;
-  gap: 11px;
-  border: 1px solid transparent;
-  border-radius: 11px;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.25s ease, background 0.25s ease;
-}
-.f1-logi__nav button:hover { background: var(--f1-surface); }
-.f1-logi__nav button.is-active { border-color: var(--f1-line-strong); background: var(--f1-surface-up); }
-.f1-logi__nav button .f1-icon { width: 20px; height: 20px; color: var(--f1-text-soft); }
-.f1-logi__nav button.is-active .f1-icon { color: var(--f1-accent); }
-.f1-logi__nav button strong {
-  overflow: hidden;
-  color: var(--f1-text-soft);
-  font-size: 0.95rem;
-  font-weight: 750;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.f1-logi__nav button.is-active strong { color: var(--f1-text); }
-.f1-logi__nav button small {
-  color: var(--f1-text-soft);
-  font-size: var(--hbx-font-min);
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  opacity: 0.7;
-}
+.f1-trilha-nome--barra { display: inline-flex; align-items: center; gap: 8px; padding: 0 4px 0 8px; white-space: nowrap; }
+.f1-trilha-nome--barra b { display: grid; width: 21px; height: 21px; place-items: center; border-radius: 7px; color: var(--f1-accent-ink); background: var(--f1-accent); font-size: var(--hbx-font-min); font-weight: 900; letter-spacing: 0; }
 
 .f1-provas {
   display: grid;
@@ -532,37 +449,32 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 }
 .f1-provas .f1-icon { width: 18px; height: 18px; color: var(--f1-accent); }
 
-.f1-baixar { display: flex; width: 100%; flex-wrap: wrap; align-items: center; gap: 10px; }
-.f1-baixar__apk {
+.f1-baixar {
   display: inline-flex;
-  min-height: 48px;
-  flex: 1 1 auto;
+  min-height: 44px;
   padding: 0 14px;
   align-items: center;
-  justify-content: center;
   gap: 9px;
   border: 1px solid color-mix(in srgb, var(--f1-accent) 45%, transparent);
   border-radius: 14px;
-  color: var(--f1-text);
+  color: var(--f1-text) !important;
   background: color-mix(in srgb, var(--f1-accent) 14%, transparent);
-  font-size: 0.94rem;
-  font-weight: 800;
+  white-space: nowrap;
   transition: transform 0.25s ease, background 0.25s ease;
 }
-.f1-baixar__apk:hover { transform: translateY(-2px); background: color-mix(in srgb, var(--f1-accent) 24%, transparent); }
-.f1-baixar__apk .f1-icon { width: 19px; height: 19px; }
-.f1-baixar__apk span { display: grid; line-height: 1.15; }
-.f1-baixar__apk small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-.f1-baixar__ios { color: var(--f1-text-soft); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.f1-baixar:hover { transform: translateY(-2px); background: color-mix(in srgb, var(--f1-accent) 24%, transparent); }
+.f1-baixar .f1-icon { width: 18px; height: 18px; flex: 0 0 auto; }
+.f1-baixar span { display: grid; font-size: 0.82rem; font-weight: 800; line-height: 1.15; }
+.f1-baixar small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 
 /* a torre veste o monitor por inteiro: o trilho e o cabeçalho da cena saem
    pra ela ganhar a mesa toda */
 .f1-torre-frame { display: block; width: 100%; height: 100%; border: 0; border-radius: var(--f1-radius-sm); background: transparent; }
-.public-entry[data-logi="torre"] .f1-product__body { grid-template-columns: minmax(0, 1fr); }
-.public-entry[data-logi="torre"] .f1-product__rail { display: none; }
-.public-entry[data-logi="torre"] .f1-screen-head { display: none; }
-.public-entry[data-logi="torre"] .f1-product__content { padding: 10px; }
-.public-entry[data-logi="torre"] .f1-screen-slot { margin-top: 0; height: 100%; }
+.public-entry[data-cheia="on"] .f1-product__body { grid-template-columns: minmax(0, 1fr); }
+.public-entry[data-cheia="on"] .f1-product__rail { display: none; }
+.public-entry[data-cheia="on"] .f1-screen-head { display: none; }
+.public-entry[data-cheia="on"] .f1-product__content { padding: 10px; }
+.public-entry[data-cheia="on"] .f1-screen-slot { margin-top: 0; height: 100%; }
 
 /* ==========================================================================
    AS TELAS GRANDES DO HBX ROTA — a irmã de desktop de cada tela do celular.
@@ -648,6 +560,151 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-rota-caixa footer { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 8px 11px; border: 1px solid var(--f1-line-strong); border-radius: var(--f1-radius-sm); background: var(--f1-surface-up); }
 .f1-rota-caixa footer span { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
 .f1-rota-caixa footer strong { color: var(--f1-accent); font-size: 1.02rem; font-weight: 850; font-variant-numeric: tabular-nums; }
+
+/* ==========================================================================
+   AS DUAS GUIAS — o botão do cabeçalho diz QUAL história está no ar (o
+   contador anda 1/6…6/6) e pula pra outra. Mesmo vocabulário da trilha de
+   baixo: caixa, pílula que desliza, realce no ativo.
+   ========================================================================== */
+.f1-guias {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  height: 44px;
+  padding: 4px;
+  justify-self: center;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--f1-line);
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--f1-surface-solid) 74%, transparent);
+  box-shadow: inset 0 1px 0 var(--f1-line);
+  backdrop-filter: blur(18px);
+}
+.public-entry.is-login .f1-guias { display: none; }
+.f1-guias__pill {
+  position: absolute;
+  z-index: 0;
+  left: 4px;
+  top: 4px;
+  width: calc((100% - 8px) / 2);
+  height: 34px;
+  border: 1px solid var(--f1-line-strong);
+  border-radius: 11px;
+  background: var(--f1-surface-up);
+  box-shadow: 0 10px 24px var(--f1-shadow-soft), inset 0 1px 0 var(--f1-line-strong);
+  transition: transform 0.6s var(--f1-ease);
+}
+.public-entry[data-guia="logistica"] .f1-guias__pill { transform: translateX(100%); }
+.f1-guias button {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  min-width: 0;
+  padding: 0 12px;
+  align-items: baseline;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.f1-guias button strong { overflow: hidden; color: var(--f1-text-soft); font-size: 0.8rem; font-weight: 800; letter-spacing: -0.01em; text-overflow: ellipsis; white-space: nowrap; transition: color 0.3s ease; }
+.f1-guias button small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.06em; opacity: 0.6; }
+.f1-guias button.is-active strong { color: var(--f1-text); }
+.f1-guias button.is-active small { color: var(--f1-accent); opacity: 1; }
+
+/* o nome do que está no celular — a irmã da legenda do monitor */
+.f1-fone-nome { display: grid; grid-area: nome; justify-items: center; gap: 2px; text-align: center; }
+.f1-fone-nome small { color: var(--f1-accent); font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
+.f1-fone-nome strong { font-size: 0.94rem; font-weight: 780; animation: f1-rise-in 0.5s var(--f1-ease) both; }
+
+/* ==========================================================================
+   AS TELAS GRANDES DO HBX VENDAS — irmãs das do Rota, mesma família.
+   ========================================================================== */
+
+/* Vendas — os blocos da agenda em cima, o funil real de 5 etapas embaixo */
+.f1-vendas-screen { grid-template-rows: auto minmax(0, 1fr); }
+.f1-vendas-blocos { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.f1-vendas-blocos article { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); }
+.f1-vendas-blocos small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.f1-vendas-blocos strong { font-size: 0.98rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.f1-vendas-blocos article.is-mal strong { color: var(--f1-danger); }
+.f1-vendas-blocos article.is-ok strong { color: var(--f1-success); }
+.f1-vendas-quadro { display: grid; min-height: 0; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+.f1-vendas-quadro section { display: flex; min-width: 0; padding: 7px; flex-direction: column; gap: 6px; border: 1px solid var(--f1-line); border-radius: 12px; background: color-mix(in srgb, var(--f1-surface-up) 62%, transparent); }
+.f1-vendas-quadro section > small { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; line-height: 1.15; color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; }
+.f1-vendas-quadro section > small b { color: var(--f1-text); font-variant-numeric: tabular-nums; }
+.f1-vendas-quadro article { display: grid; align-content: start; gap: 3px; padding: 7px; border: 1px solid var(--f1-line); border-radius: 9px; background: var(--f1-surface-solid); box-shadow: 0 7px 18px var(--f1-shadow-soft); animation: f1-kanban-in 0.8s var(--f1-ease) both; }
+.f1-vendas-quadro section:nth-child(2) article { animation-delay: 0.1s; }
+.f1-vendas-quadro section:nth-child(3) article { animation-delay: 0.2s; }
+.f1-vendas-quadro section:nth-child(4) article { animation-delay: 0.3s; }
+.f1-vendas-quadro section:nth-child(5) article { animation-delay: 0.4s; }
+.f1-vendas-quadro strong { display: -webkit-box; overflow: hidden; font-size: var(--hbx-font-min); font-weight: 780; line-height: 1.2; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.f1-vendas-quadro article > span { display: -webkit-box; overflow: hidden; color: var(--f1-text-soft); font-size: var(--hbx-font-min); line-height: 1.2; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.f1-vendas-quadro article.is-hot { border-color: var(--f1-accent); background: var(--f1-accent-soft); }
+.f1-vendas-quadro article.is-done { color: var(--f1-success); }
+.f1-vendas-quadro article.is-done .f1-icon { width: 14px; height: 14px; }
+
+/* Agenda — o compromisso tem hora; o que não foi vira atrasado */
+.f1-agenda-screen { grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.65fr); }
+.f1-agenda-semana { display: grid; align-content: start; gap: 8px; min-width: 0; }
+.f1-agenda-semana ol { display: grid; margin: 0; padding: 0; gap: 6px; list-style: none; }
+.f1-agenda-semana li { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); animation: f1-kanban-in 0.7s var(--f1-ease) both; }
+.f1-agenda-semana li:nth-child(2) { animation-delay: 0.1s; }
+.f1-agenda-semana li:nth-child(3) { animation-delay: 0.2s; }
+.f1-agenda-semana li:nth-child(4) { animation-delay: 0.3s; }
+.f1-agenda-semana i { color: var(--f1-text-soft); font-family: var(--font-mono, monospace); font-size: var(--hbx-font-min); font-style: normal; font-weight: 800; }
+.f1-agenda-semana li > span { display: grid; min-width: 0; gap: 1px; }
+.f1-agenda-semana strong { overflow: hidden; font-size: 0.8rem; font-weight: 740; text-overflow: ellipsis; white-space: nowrap; }
+.f1-agenda-semana small { overflow: hidden; color: var(--f1-text-soft); font-size: var(--hbx-font-min); text-overflow: ellipsis; white-space: nowrap; }
+.f1-agenda-semana b { padding: 4px 8px; border: 1px solid var(--f1-line); border-radius: 999px; color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 800; white-space: nowrap; }
+.f1-agenda-semana li.is-atrasada { border-color: color-mix(in srgb, var(--f1-danger) 45%, transparent); background: color-mix(in srgb, var(--f1-danger) 9%, transparent); }
+.f1-agenda-semana li.is-atrasada i,
+.f1-agenda-semana li.is-atrasada b { border-color: color-mix(in srgb, var(--f1-danger) 40%, transparent); color: var(--f1-danger); }
+.f1-agenda-semana li.is-agora { border-color: var(--f1-accent); }
+.f1-agenda-semana li.is-agora b { border-color: transparent; color: var(--f1-accent-ink); background: var(--f1-accent); }
+
+/* Fiscal — XML entra, estoque anda, nota sai autorizada */
+.f1-fiscal-screen { grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); }
+.f1-fiscal-esteira { display: grid; align-content: start; gap: 8px; min-width: 0; }
+.f1-fiscal-esteira article { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); animation: f1-kanban-in 0.8s var(--f1-ease) both; }
+.f1-fiscal-esteira article:nth-child(3) { animation-delay: 0.14s; }
+.f1-fiscal-esteira article:nth-child(4) { animation-delay: 0.28s; }
+.f1-fiscal-esteira i { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid var(--f1-line); border-radius: 10px; color: var(--f1-text-soft); background: var(--f1-surface-up); }
+.f1-fiscal-esteira article.is-ok i { border-color: color-mix(in srgb, var(--f1-success) 40%, transparent); color: var(--f1-success); background: color-mix(in srgb, var(--f1-success) 12%, transparent); }
+.f1-fiscal-esteira article > span { display: grid; min-width: 0; gap: 1px; }
+.f1-fiscal-esteira strong { overflow: hidden; font-size: 0.82rem; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.f1-fiscal-esteira small { overflow: hidden; color: var(--f1-text-soft); font-size: var(--hbx-font-min); text-overflow: ellipsis; white-space: nowrap; }
+.f1-fiscal-esteira b { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 800; white-space: nowrap; }
+.f1-fiscal-esteira article.is-ok b { color: var(--f1-success); }
+.f1-fiscal-nota { display: grid; align-content: start; gap: 10px; padding: 12px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); box-shadow: 0 14px 30px var(--f1-shadow-soft); }
+.f1-fiscal-nota header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.f1-fiscal-nota header > span { display: grid; min-width: 0; gap: 2px; }
+.f1-fiscal-nota header small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.f1-fiscal-nota header strong { font-size: 1.05rem; font-weight: 850; font-variant-numeric: tabular-nums; }
+.f1-fiscal-nota header b.is-ok { display: grid; width: 28px; height: 28px; flex: none; place-items: center; border-radius: 50%; color: var(--f1-success); background: color-mix(in srgb, var(--f1-success) 14%, transparent); }
+.f1-fiscal-nota__campos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.f1-fiscal-nota__campos span { display: grid; gap: 1px; }
+.f1-fiscal-nota__campos small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.f1-fiscal-nota__campos strong { font-size: 0.85rem; font-weight: 780; font-variant-numeric: tabular-nums; }
+.f1-fiscal-nota footer { display: flex; gap: 8px; padding-top: 10px; border-top: 1px solid var(--f1-line); }
+.f1-fiscal-nota footer span { display: grid; flex: 1; min-height: 32px; place-items: center; border: 1px solid var(--f1-line-strong); border-radius: var(--f1-radius-sm); color: var(--f1-text-soft); background: var(--f1-surface-up); font-size: var(--hbx-font-min); font-weight: 800; }
+
+/* Controle de estoque — o extrato explica cada número do saldo */
+.f1-estoque-screen { grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.7fr); }
+.f1-estoque-extrato { display: grid; align-content: start; gap: 8px; min-width: 0; }
+.f1-estoque-extrato ol { display: grid; margin: 0; padding: 0; gap: 6px; list-style: none; }
+.f1-estoque-extrato li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 11px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); animation: f1-kanban-in 0.7s var(--f1-ease) both; }
+.f1-estoque-extrato li:nth-child(2) { animation-delay: 0.1s; }
+.f1-estoque-extrato li:nth-child(3) { animation-delay: 0.2s; }
+.f1-estoque-extrato li:nth-child(4) { animation-delay: 0.3s; }
+.f1-estoque-extrato li > span { display: grid; min-width: 0; gap: 1px; }
+.f1-estoque-extrato strong { overflow: hidden; font-size: 0.8rem; font-weight: 740; text-overflow: ellipsis; white-space: nowrap; }
+.f1-estoque-extrato small { overflow: hidden; color: var(--f1-text-soft); font-size: var(--hbx-font-min); text-overflow: ellipsis; white-space: nowrap; }
+.f1-estoque-extrato b { font-size: 0.92rem; font-weight: 850; font-variant-numeric: tabular-nums; }
+.f1-estoque-extrato li.is-mais b { color: var(--f1-success); }
+.f1-estoque-extrato li.is-menos b { color: var(--f1-danger); }
+.f1-rota-resumo article.is-saldo strong { color: var(--f1-success); }
 
 /* ==========================================================================
    O QUE ACONTECE NA RUA — faixa de dados. Número, frase e fonte; nada entra
@@ -747,24 +804,25 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   .f1-copy h1 { font-size: clamp(2.5rem, calc(3.3vw * var(--hbx-font-scale)), 3.7rem); }
   .f1-copy > p { margin-top: 20px; }
   .f1-cta-row { margin-top: 22px; }
-  .f1-product { height: min(50vh, 440px); }
+  .f1-product { height: min(58vh, 460px); }
   .f1-dados { padding: 8px 14px; }
   .f1-logi { gap: 7px; }
 }
 
-@media (max-width: 1280px) and (min-width: 801px) {
+@media (max-width: 1060px) and (min-width: 801px) {
   .f1-hero { grid-template-columns: minmax(0, 320px) minmax(0, 1fr); grid-template-areas: "copy product" "logi logi" "dados dados" "stages stages"; grid-template-rows: minmax(0, 1fr) auto auto auto; column-gap: 24px; }
   .f1-copy h1 { font-size: clamp(2.6rem, calc(4.2vw * var(--hbx-font-scale)), 3.9rem); }
   .f1-product-wrap { width: 100%; margin-left: 0; }
-  /* a coluna vira faixa: celular, telas, provas e download lado a lado */
-  .f1-logi { grid-template-columns: auto minmax(160px, 220px) minmax(0, 1fr) auto; align-items: center; justify-items: stretch; gap: 16px; }
-  .f1-real-phone { width: 96px; }
+  /* a coluna vira faixa: celular, nome da tela e download lado a lado */
+  .f1-logi { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "fone nome"; align-items: center; justify-items: start; gap: 16px; }
+  .f1-real-phone { width: 108px; }
+  .f1-fone-nome { justify-items: start; text-align: left; }
   .f1-provas li { font-size: 0.72rem; }
   .f1-baixar { width: auto; }
   .f1-baixar__apk { width: auto; }
   .f1-dados { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .f1-dados__titulo { display: none; }
-  .f1-stage-shell { grid-template-columns: auto minmax(0, 1fr) 48px; }
+  .f1-stage-shell { grid-template-columns: auto minmax(0, 1fr) auto 48px; }
 }
 
 @media (max-width: 800px) {
@@ -787,6 +845,7 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   .f1-copy > p { margin-top: 22px; }
   .f1-cta-row { margin-top: 32px; }
   .f1-stage-shell { padding: 6px; grid-template-columns: minmax(0, 1fr) 44px; border-radius: 18px; }
+  .f1-baixar { display: none; }
   .f1-trilha-nome--barra { display: none; }
   .f1-stage-track { height: 50px; border-radius: 13px; }
   .f1-stage-pill { height: 38px; border-radius: 9px; }
@@ -795,7 +854,6 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   .f1-stage-track button.is-active::after { left: 20%; right: 20%; bottom: 3px; }
   .f1-whatsapp-mini { width: 40px; height: 40px; border-radius: 12px; }
   .f1-product-wrap { width: 100%; margin-top: 2px; margin-left: 0; }
-  .f1-phone { display: none; }
   .f1-product { height: min(116vw, 490px); min-height: 410px; margin-right: 0; border-radius: 23px; transform: none; }
   .f1-product-wrap:hover .f1-product { transform: translateY(-3px); }
   .f1-product__bar { height: 50px; }
@@ -808,12 +866,40 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   .f1-screen-slot { margin-top: 13px; }
   .f1-float-list { right: 3%; width: 48%; }
   .f1-radar-live { left: -2%; width: 56%; }
-  .f1-kanban { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .f1-kanban section:nth-child(2) { display: none; }
+}
+
+/* No celular as duas guias nao cabem na mesma linha da marca e dos botoes:
+   elas descem pra uma faixa propria, larga o bastante pro dedo. */
+@media (max-width: 620px) {
+  .f1-header {
+    height: auto;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: "marca acoes" "guias guias";
+    row-gap: 9px;
+  }
+  .f1-brand { grid-area: marca; }
+  .f1-header__actions { grid-area: acoes; justify-content: flex-end; }
+  .f1-guias { height: 40px; padding: 3px; grid-area: guias; justify-self: stretch; border-radius: 13px; }
+  .f1-guias__pill { left: 3px; top: 3px; height: 32px; border-radius: 10px; }
+  .f1-guias button { padding: 0 8px; }
+  .f1-guias button strong { font-size: 0.8rem; }
+  .public-entry.is-login .f1-header { padding-top: 0; padding-bottom: 0; }
+}
+
+/* Seis passos numa barra de 390px viram seis rotulos cortados: fica so o
+   desenho. O nome do passo continua escrito em dois lugares — no cabecalho
+   da tela grande e embaixo do celular. */
+@media (max-width: 560px) {
+  .f1-stage-track button > strong { display: none; }
+  .f1-stage-track button > .f1-icon { width: 21px; height: 21px; }
 }
 
 @media (max-width: 480px) {
   .f1-brand { gap: 9px; }
+  .f1-guias button strong { font-size: 0.66rem; }
+  .f1-header { gap: 6px; }
   .f1-brand__mark { width: 31px; height: 31px; }
   .f1-header__actions { gap: 6px; }
   .f1-copy { text-align: center; }

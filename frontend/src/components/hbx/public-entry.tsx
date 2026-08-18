@@ -9,22 +9,22 @@ import { LogisticaRealPreview, type LogisticaRealScreen } from "@/components/hbx
 import { RadarDisc } from "@/components/hbx/radar-disc";
 import { RegisterPanel } from "@/components/hbx/register-client";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
-import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
 import { isTokenLive } from "@/lib/api";
 import { MOBILE_APK_URL } from "@/lib/app-mobile";
 import { CONTACT_WHATSAPP_URL } from "@/lib/contato";
 
-type StageKey = "radar" | "vendas" | "whatsapp" | "entrega" | "cobranca";
 type IconName =
   | "arrow"
   | "bell"
   | "bolt"
+  | "box"
+  | "calendar"
   | "check"
   | "chevron"
   | "download"
-  | "email"
   | "eye"
   | "moon"
+  | "nota"
   | "play"
   | "radar"
   | "route"
@@ -33,104 +33,18 @@ type IconName =
   | "wallet"
   | "whatsapp";
 
-const STAGES: Array<{ key: StageKey; label: string; eyebrow: string; title: string; signal: string }> = [
-  { key: "radar", label: "Radar", eyebrow: "Oportunidade", title: "Encontre quem precisa de você.", signal: "Radar ativo" },
-  { key: "vendas", label: "Vendas", eyebrow: "Movimento", title: "Cada oportunidade no lugar certo.", signal: "Funil em movimento" },
-  { key: "whatsapp", label: "WhatsApp", eyebrow: "Conversa", title: "Atenda no tempo do cliente.", signal: "Online agora" },
-  { key: "entrega", label: "Entrega", eyebrow: "Operação", title: "Da venda para a rua, sem ruído.", signal: "Rota em andamento" },
-  { key: "cobranca", label: "Cobrança", eyebrow: "Recebimento", title: "Entregou. Cobrou. Recebeu.", signal: "Fluxo concluído" },
-];
-
-const STAGE_ICONS: Record<StageKey, IconName> = {
-  radar: "radar",
-  vendas: "bolt",
-  whatsapp: "whatsapp",
-  entrega: "route",
-  cobranca: "wallet",
-};
-
-const ADS: Record<StageKey, { lines: [string, string, string]; subline: string }> = {
-  radar: {
-    lines: ["Encontre", "clientes", "de verdade."],
-    subline: "Radar de empresas e oportunidades reais.",
-  },
-  vendas: {
-    lines: ["Venda", "sem perder", "o fio."],
-    subline: "Do primeiro contato à cobrança.",
-  },
-  whatsapp: {
-    lines: ["Converse", "e retorne", "no tempo."],
-    subline: "WhatsApp integrado e retornos organizados.",
-  },
-  entrega: {
-    lines: ["Entregue", "sem perder", "o controle."],
-    subline: "Rotas, pedidos e clientes conectados.",
-  },
-  cobranca: {
-    lines: ["Cobre", "e receba", "em dia."],
-    subline: "Cobranças e pagamentos acompanhados.",
-  },
-};
-
-const STAGE_ROTATION_MS = 6300;
-const MANUAL_RESUME_MS = 18000;
-
-// HBX Logística dentro da vitrine: 4 telas no celular do motorista, 1 no
-// monitor do gestor.
-const LOGI: Array<{ key: LogisticaRealScreen; label: string; icon: IconName }> = [
-  { key: "prospector", label: "Prospector", icon: "radar" },
-  { key: "montagem", label: "Montar rota", icon: "route" },
-  { key: "folha", label: "Entregar", icon: "check" },
-  { key: "torre", label: "Torre de controle", icon: "tower" },
-  { key: "caderneta", label: "Fechar o dia", icon: "wallet" },
-];
-
-const ADS_LOGI: Record<LogisticaRealScreen, { lines: [string, string, string]; subline: string }> = {
-  prospector: { lines: ["Ache", "clientes", "na sua rota."], subline: "Empresas com CNPJ e telefone no corredor da entrega." },
-  montagem: { lines: ["Monte", "o dia", "em um toque."], subline: "A ordem das paradas sai pronta." },
-  folha: { lines: ["Entregue", "com prova", "na mão."], subline: "Foto, assinatura e código a cada parada." },
-  torre: { lines: ["Veja", "a rua", "em tempo real."], subline: "Desvio, parada não prevista e o motorista no mapa." },
-  torreFone: { lines: ["Veja", "a rua", "em tempo real."], subline: "Desvio, parada não prevista e o motorista no mapa." },
-  caderneta: { lines: ["Feche", "o caixa", "no fim do dia."], subline: "Dinheiro, Pix, cartão e fiado conferidos." },
-  rota: { lines: ["Rota", "pronta", "todo dia."], subline: "A operação inteira na palma da mão." },
-};
-
-// O que a irmã grande de cada tela do celular mostra no monitor.
-const LOGI_DESKTOP: Record<LogisticaRealScreen, string> = {
-  prospector: "Empresas do corredor.",
-  montagem: "A rota do dia.",
-  folha: "A prova da entrega.",
-  torre: "A rua em tempo real.",
-  torreFone: "A rua em tempo real.",
-  caderneta: "O caixa do dia.",
-  rota: "A rota do dia.",
-};
-
-const PROVAS: Array<{ icon: IconName; texto: string }> = [
-  { icon: "check", texto: "Comprovante com foto e assinatura" },
-  { icon: "bell", texto: "Alerta de parada não prevista" },
-  { icon: "eye", texto: "Cliente acompanha a entrega pelo link" },
-];
-
-// Números do mercado que a torre endereça. Fonte junto do dado — sem fonte
-// não entra.
-const DADOS: Array<{ valor: string; texto: string; fonte: string }> = [
-  { valor: "10.478", texto: "roubos de carga em 2024, R$ 1,2 bi de prejuízo", fonte: "NTC&Logística" },
-  { valor: "38,5%", texto: "do prejuízo já é na entrega urbana — era 18,9%", fonte: "Overhaul" },
-  { valor: "+17,5%", texto: "roubo de utilitários no 2º trimestre de 2026", fonte: "Transporte Moderno" },
-  { valor: "2% a 5%", texto: "do frete some em glosa por canhoto perdido", fonte: "Transp.net" },
-];
-
 const ICONS: Record<IconName, string[]> = {
   arrow: ["M5 12h14", "M14 7l5 5-5 5"],
   bell: ["M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6", "M10.3 19a2 2 0 0 0 3.4 0"],
   bolt: ["m13 2-9 12h7l-1 8 9-12h-7l1-8Z"],
+  box: ["m12 3 8 4v10l-8 4-8-4V7l8-4Z", "m4 7 8 4 8-4", "M12 11v10"],
+  calendar: ["M4 6h16v15H4z", "M4 10h16", "M9 3v4", "M15 3v4"],
   check: ["m5 12 4 4L19 6"],
   chevron: ["m9 18 6-6-6-6"],
   download: ["M12 3v12", "m7 10 5 5 5-5", "M5 21h14"],
-  email: ["M3 5h18v14H3z", "m3 8 6 5 6-5"],
   eye: ["M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z", "M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z"],
   moon: ["M20 15.2A8 8 0 0 1 8.8 4a8 8 0 1 0 11.2 11.2Z"],
+  nota: ["M6 3h12v18l-3-2-3 2-3-2-3 2V3Z", "M9 8h6", "M9 12h6"],
   play: ["M8 5v14l11-7z"],
   radar: ["M12 12h.01", "M8.5 12a3.5 3.5 0 1 1 3.5 3.5", "M5 12a7 7 0 1 1 7 7", "M2 12a10 10 0 1 1 10 10"],
   route: ["M5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z", "M19 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z", "M5 15V9a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4"],
@@ -148,8 +62,12 @@ function Icon({ name, className = "" }: { name: IconName; className?: string }) 
   );
 }
 
-// Radar REAL do sistema (W1): o mesmo disco da tela /leads
-// (components/hbx/radar-disc.tsx) no lugar do mapa fake.
+// ---------------------------------------------------------------------------
+// AS TELAS DE COMPUTADOR — HBX VENDAS. Tudo com classe do tema; nenhuma cor
+// nasce aqui.
+// ---------------------------------------------------------------------------
+
+// Radar REAL do sistema: o mesmo disco da tela /leads (radar-disc.tsx).
 function RadarScreen() {
   return (
     <div className="f1-screen f1-radar-screen">
@@ -157,46 +75,78 @@ function RadarScreen() {
         <RadarDisc />
       </div>
       <div className="f1-float-list">
-        <article><i /><span><small>Novo sinal</small><strong>Solar Prime</strong></span><b>98%</b></article>
-        <article><i /><span><small>Visitou agora</small><strong>Casa Norte</strong></span><b>91%</b></article>
-        <article><i /><span><small>Perfil ideal</small><strong>Armazém 22</strong></span><b>87%</b></article>
+        <article><i /><span><small>12.660.907/0001-70</small><strong>Mercado Bela Vista</strong></span><b>92</b></article>
+        <article><i /><span><small>Aberta há 12 dias</small><strong>Adega do Portugues</strong></span><b>87</b></article>
+        <article><i /><span><small>1,4 km da rota</small><strong>Restaurante Vila Nova</strong></span><b>78</b></article>
       </div>
     </div>
   );
 }
 
-function SalesScreen() {
+// Vendas: o quadro real do /vendas — 5 etapas (Sem contato → Contato feito →
+// Respondeu → Ligação marcada → Fechado) e o card com o que o sistema guarda
+// mesmo: score do Radar, agenda de retorno e tentativas.
+function VendasScreen() {
   return (
-    <div className="f1-screen f1-sales-screen">
-      <div className="f1-kanban">
-        <section><small>Entrada</small><article><b>Solar Prime</b><span>Novo lead</span></article><article><b>Vista Sul</b><span>Hoje</span></article></section>
-        <section><small>Conversa</small><article className="is-hot"><b>Casa Norte</b><span>Respondeu</span></article></section>
-        <section><small>Proposta</small><article><b>Armazém 22</b><span>Enviada</span></article></section>
-        <section><small>Fechado</small><article className="is-done"><Icon name="check" /><b>Viva Café</b></article></section>
+    <div className="f1-screen f1-rota-screen f1-vendas-screen">
+      <div className="f1-vendas-blocos">
+        <article><small>Hoje</small><strong>6</strong></article>
+        <article className="is-mal"><small>Atrasados</small><strong>2</strong></article>
+        <article><small>Agendados</small><strong>11</strong></article>
+        <article className="is-ok"><small>Fechados no mês</small><strong>R$ 8.420</strong></article>
       </div>
-      <div className="f1-flow-line"><span /></div>
+      <div className="f1-vendas-quadro">
+        <section>
+          <small>Sem contato <b>9</b></small>
+          <article><strong>Restaurante Vila Nova</strong><span>Score 78/100</span></article>
+          <article><strong>Padaria Rio Novo</strong><span>Score 71/100</span></article>
+        </section>
+        <section>
+          <small>Contato feito <b>5</b></small>
+          <article><strong>Adega do Portugues</strong><span>Retornar 16:30</span></article>
+        </section>
+        <section>
+          <small>Respondeu <b>3</b></small>
+          <article><strong>Casa do Açaí</strong><span>Hoje</span></article>
+        </section>
+        <section>
+          <small>Ligação marcada <b>4</b></small>
+          <article className="is-hot"><strong>Mercado Bela Vista</strong><span>Ligar 14:00 · 3 tentativas</span></article>
+        </section>
+        <section>
+          <small>Fechado <b>2</b></small>
+          <article className="is-done"><Icon name="check" /><strong>Viva Café</strong><span>R$ 1.240</span></article>
+        </section>
+      </div>
     </div>
   );
 }
 
-// Conversa demo estática (nomes do pool fake da landing — nunca empresa real).
-const WA_DEMO_MESSAGES: WAMessage[] = [
-  { dir: "in", text: "Olá! Quero conhecer o HBX.", time: "09:41" },
-  { dir: "out", text: "Perfeito. Já te mostro a esteira.", time: "09:41", status: "read" },
-  { dir: "in", text: "Pode ser agora?", time: "09:42" },
-];
-
-// WhatsApp REAL do sistema (W1): o mesmo <WhatsAppPreview> usado no app
-// (bot/assistente) com uma conversa demo curta, no lugar do chat fake.
-function WhatsAppScreen() {
+// Agenda (CRM): compromisso tem HORA e tipo — Ligação, Reunião, Visita,
+// Mensagem. O que não foi vira Atrasada, como no /agenda.
+function AgendaScreen() {
   return (
-    <div className="f1-screen f1-chat-screen">
-      <WhatsAppPreview messages={WA_DEMO_MESSAGES} typing header={{ name: "Solar Prime", status: "online" }} />
+    <div className="f1-screen f1-rota-screen f1-agenda-screen">
+      <div className="f1-agenda-semana">
+        <span className="f1-rota-lista__topo">Terça, 18 de agosto</span>
+        <ol>
+          <li className="is-atrasada"><i>08:30</i><span><strong>Mercado Bela Vista</strong><small>Ligação · atrasada 1 dia</small></span><b>Atrasada</b></li>
+          <li className="is-agora"><i>11:00</i><span><strong>Adega do Portugues</strong><small>Reunião · loja do centro</small></span><b>Agora</b></li>
+          <li><i>14:00</i><span><strong>Restaurante Vila Nova</strong><small>Visita · com amostra</small></span><b>Hoje</b></li>
+          <li><i>16:30</i><span><strong>Padaria Rio Novo</strong><small>Mensagem · proposta enviada</small></span><b>Hoje</b></li>
+        </ol>
+      </div>
+      <aside className="f1-rota-resumo">
+        <article><small>Atrasadas</small><strong>1</strong></article>
+        <article><small>Hoje</small><strong>4</strong></article>
+        <article><small>Na semana</small><strong>9</strong></article>
+        <span className="f1-rota-botao">Marcar retorno</span>
+      </aside>
     </div>
   );
 }
 
-function DeliveryScreen() {
+function EntregaScreen() {
   return (
     <div className="f1-screen f1-delivery-screen">
       <div className="f1-route-map">
@@ -211,35 +161,59 @@ function DeliveryScreen() {
       </div>
       <article className="f1-delivery-card">
         <span className="f1-delivery-card__icon"><Icon name="route" /></span>
-        <span><small>Pedido 0428</small><strong>Chega em breve</strong></span>
+        <span><small>Pedido 0428 · Mercado Bela Vista</small><strong>Parada 3 de 23</strong></span>
         <b>Em rota</b>
       </article>
     </div>
   );
 }
 
-function BillingScreen() {
+function CobrancaScreen() {
   return (
     <div className="f1-screen f1-billing-screen">
       <section className="f1-billing-result">
         <div className="f1-pay-ring"><Icon name="check" /></div>
-        <small>Pagamento confirmado</small>
-        <strong>Recebido</strong>
-        <span>Venda e entrega conciliadas</span>
+        <small>Pix recebido</small>
+        <strong>R$ 468,00</strong>
+        <span>Venda, entrega e recebimento conciliados</span>
       </section>
       <aside className="f1-payment-list">
+        <article><span><i /><b>Mercado Bela Vista</b></span><small>Pago</small></article>
         <article><span><i /><b>Viva Café</b></span><small>Pago</small></article>
-        <article><span><i /><b>Solar Prime</b></span><small>Pago</small></article>
-        <article><span><i /><b>Casa Norte</b></span><small>Agendado</small></article>
+        <article><span><i /><b>Padaria Rio Novo</b></span><small>Boleto 21/08</small></article>
+      </aside>
+    </div>
+  );
+}
+
+// Fiscal: o XML da compra entra, o estoque anda sozinho e a nota sai
+// autorizada — os três numa cena só, que é como o módulo funciona.
+function FiscalScreen() {
+  return (
+    <div className="f1-screen f1-rota-screen f1-fiscal-screen">
+      <div className="f1-fiscal-esteira">
+        <span className="f1-rota-lista__topo">Da compra à nota</span>
+        <article className="is-ok"><i><Icon name="download" /></i><span><strong>Entrada por XML</strong><small>NF 12.845 · fornecedor lido</small></span><b>14 itens</b></article>
+        <article className="is-ok"><i><Icon name="box" /></i><span><strong>Estoque atualizado</strong><small>entrada lançada sozinha</small></span><b>+168</b></article>
+        <article className="is-ok"><i><Icon name="nota" /></i><span><strong>Nota emitida</strong><small>nota de produto · série 1</small></span><b>Autorizada</b></article>
+      </div>
+      <aside className="f1-fiscal-nota">
+        <header><span><small>Nota autorizada</small><strong>NF-e 000.123</strong></span><b className="is-ok"><Icon name="check" /></b></header>
+        <div className="f1-fiscal-nota__campos">
+          <span><small>Valor</small><strong>R$ 468,00</strong></span>
+          <span><small>Ambiente</small><strong>Produção</strong></span>
+          <span><small>Certificado A1</small><strong>214 dias</strong></span>
+          <span><small>Série</small><strong>1</strong></span>
+        </div>
+        <footer><span>XML</span><span>DANFE</span></footer>
       </aside>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// AS TELAS DE DESKTOP DO HBX ROTA. Cada tela do celular tem a irmã grande: o
-// motorista faz, o gestor confere. Tudo com as classes do tema — nenhuma cor
-// nasce aqui.
+// AS TELAS DE COMPUTADOR — HBX LOGÍSTICA. Cada tela do celular tem a irmã
+// grande: o motorista faz, o gestor confere.
 // ---------------------------------------------------------------------------
 function RotaProspectorScreen() {
   return (
@@ -329,24 +303,160 @@ function RotaFecharScreen() {
   );
 }
 
-const ROTA_SCREENS: Partial<Record<LogisticaRealScreen, () => React.JSX.Element>> = {
-  prospector: RotaProspectorScreen,
-  montagem: RotaMontagemScreen,
-  folha: RotaEntregarScreen,
-  caderneta: RotaFecharScreen,
+// Controle de estoque: o saldo que a carga do dia consome e o extrato que
+// explica cada número — mesmo módulo do Fiscal, visto pela operação.
+function RotaEstoqueScreen() {
+  return (
+    <div className="f1-screen f1-rota-screen f1-estoque-screen">
+      <div className="f1-estoque-extrato">
+        <span className="f1-rota-lista__topo">Extrato de hoje · Água mineral 20L</span>
+        <ol>
+          <li className="is-mais"><span><strong>Entrada (XML compra)</strong><small>NF 12.845 · 08:04</small></span><b>+168</b></li>
+          <li className="is-menos"><span><strong>Carga do dia</strong><small>rota FLV3B58 · 08:20</small></span><b>−180</b></li>
+          <li className="is-mais"><span><strong>Devolução de vasilhame</strong><small>parada 3 · 08:41</small></span><b>+2</b></li>
+          <li className="is-menos"><span><strong>Perda registrada</strong><small>galão trincado · motivo obrigatório</small></span><b>−1</b></li>
+        </ol>
+      </div>
+      <aside className="f1-rota-resumo">
+        <article className="is-saldo"><small>Disponível</small><strong>311</strong></article>
+        <article><small>Reservado</small><strong>168</strong></article>
+        <article><small>Físico</small><strong>479</strong></article>
+        <article><small>Estoque baixo</small><strong>2</strong></article>
+      </aside>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// A FITA: duas guias, seis passos cada, o MESMO capítulo em cada índice. O
+// vendedor faz no computador o que o motorista faz no celular — é a mesma
+// história contada duas vezes, em duas interfaces.
+// ---------------------------------------------------------------------------
+type Guia = "vendas" | "logistica";
+
+type Passo = {
+  key: string;
+  label: string;
+  icon: IconName;
+  capitulo: string;
+  eyebrow: string;
+  titulo: string;
+  signal: string;
+  lines: [string, string, string];
+  subline: string;
+  fone: LogisticaRealScreen;
+  foneNome: string;
+  Desktop?: () => React.JSX.Element;
+  // A torre veste o monitor inteiro (iframe próprio, sem trilho nem cabeçalho).
+  monitorCheio?: LogisticaRealScreen;
 };
 
-function StageVisual({ stage }: { stage: StageKey }) {
-  if (stage === "radar") return <RadarScreen />;
-  if (stage === "vendas") return <SalesScreen />;
-  if (stage === "whatsapp") return <WhatsAppScreen />;
-  if (stage === "entrega") return <DeliveryScreen />;
-  return <BillingScreen />;
-}
+const VENDAS: Passo[] = [
+  {
+    key: "radar", label: "Radar", icon: "radar", capitulo: "Achar",
+    eyebrow: "Oportunidade", titulo: "Empresas com CNPJ e telefone.", signal: "Radar ativo",
+    lines: ["Encontre", "clientes", "de verdade."], subline: "86 empresas do seu ramo na cidade — 81 com telefone.",
+    fone: "v-radar", foneNome: "Radar", Desktop: RadarScreen,
+  },
+  {
+    key: "vendas", label: "Vendas", icon: "bolt", capitulo: "Organizar",
+    eyebrow: "Movimento", titulo: "Cada negócio numa etapa.", signal: "Funil em movimento",
+    lines: ["Venda", "sem perder", "o fio."], subline: "Sem contato, contato feito, respondeu, ligação marcada, fechado.",
+    fone: "v-vendas", foneNome: "Vendas", Desktop: VendasScreen,
+  },
+  {
+    key: "agenda", label: "Agenda", icon: "calendar", capitulo: "Acompanhar",
+    eyebrow: "Retorno", titulo: "O retorno tem hora marcada.", signal: "4 compromissos hoje",
+    lines: ["Nada", "fica", "sem retorno."], subline: "Ligação, reunião, visita e mensagem — o que não foi vira atrasado.",
+    fone: "v-agenda", foneNome: "Agenda", Desktop: AgendaScreen,
+  },
+  {
+    key: "entrega", label: "Entrega", icon: "route", capitulo: "Entregar",
+    eyebrow: "Operação", titulo: "A venda vira parada.", signal: "Rota em andamento",
+    lines: ["Da venda", "para a rua", "sem digitar."], subline: "O pedido fechado entra na rota do dia sozinho.",
+    fone: "v-entrega", foneNome: "Entrega", Desktop: EntregaScreen,
+  },
+  {
+    key: "cobranca", label: "Cobrança", icon: "wallet", capitulo: "Receber",
+    eyebrow: "Recebimento", titulo: "Entregou, cobrou, recebeu.", signal: "Fluxo concluído",
+    lines: ["Cobre", "e receba", "em dia."], subline: "Pix, dinheiro, cartão e fiado conferidos contra a entrega.",
+    fone: "v-cobranca", foneNome: "Cobrança", Desktop: CobrancaScreen,
+  },
+  {
+    key: "fiscal", label: "Fiscal", icon: "nota", capitulo: "Nota e estoque",
+    eyebrow: "Fiscal", titulo: "XML entra, nota sai.", signal: "Certificado A1 válido",
+    lines: ["Entrada", "fiscal e", "nota emitida."], subline: "O XML da compra dá entrada, o estoque anda, a nota sai autorizada.",
+    fone: "v-fiscal", foneNome: "Fiscal", Desktop: FiscalScreen,
+  },
+];
+
+const LOGISTICA: Passo[] = [
+  {
+    key: "prospector", label: "Prospector", icon: "radar", capitulo: "Achar",
+    eyebrow: "No computador", titulo: "Empresas do corredor.", signal: "Prospector ativo",
+    lines: ["Ache", "clientes", "na sua rota."], subline: "Empresas com CNPJ e telefone no corredor da entrega.",
+    fone: "prospector", foneNome: "Prospector", Desktop: RotaProspectorScreen,
+  },
+  {
+    key: "montagem", label: "Montar rota", icon: "route", capitulo: "Organizar",
+    eyebrow: "No computador", titulo: "A rota do dia.", signal: "23 paradas",
+    lines: ["Monte", "o dia", "em um toque."], subline: "A ordem das paradas sai pronta — 38,4 km, 4h12, 180 galões.",
+    fone: "montagem", foneNome: "Montar rota", Desktop: RotaMontagemScreen,
+  },
+  {
+    key: "torre", label: "Torre de controle", icon: "tower", capitulo: "Acompanhar",
+    eyebrow: "No computador", titulo: "A rua em tempo real.", signal: "2 veículos em rota",
+    lines: ["Veja", "a rua", "em tempo real."], subline: "Desvio, parada não prevista e o motorista no mapa.",
+    fone: "torreFone", foneNome: "Torre de controle", monitorCheio: "torre",
+  },
+  {
+    key: "folha", label: "Entregar", icon: "check", capitulo: "Entregar",
+    eyebrow: "No computador", titulo: "A prova da entrega.", signal: "23 comprovantes",
+    lines: ["Entregue", "com prova", "na mão."], subline: "Foto, assinatura e código a cada parada.",
+    fone: "folha", foneNome: "Entregar", Desktop: RotaEntregarScreen,
+  },
+  {
+    key: "caderneta", label: "Fechar o dia", icon: "wallet", capitulo: "Receber",
+    eyebrow: "No computador", titulo: "O caixa do dia.", signal: "Caixa conferido",
+    lines: ["Feche", "o caixa", "no fim do dia."], subline: "Dinheiro, Pix, cartão e fiado conferidos.",
+    fone: "caderneta", foneNome: "Fechar o dia", Desktop: RotaFecharScreen,
+  },
+  {
+    key: "estoque", label: "Controle de estoque", icon: "box", capitulo: "Nota e estoque",
+    eyebrow: "No computador", titulo: "O saldo que a rota consome.", signal: "Estoque ligado",
+    lines: ["Controle", "o estoque", "sem planilha."], subline: "Disponível, reservado e físico — com extrato de cada movimento.",
+    fone: "v-estoque", foneNome: "Estoque", Desktop: RotaEstoqueScreen,
+  },
+];
+
+const PASSOS = [...VENDAS, ...LOGISTICA];
+const POR_GUIA = VENDAS.length;
+const GUIA_NOME: Record<Guia, string> = { vendas: "Vendas", logistica: "Logística" };
+const GUIA_TRILHA: Record<Guia, Passo[]> = { vendas: VENDAS, logistica: LOGISTICA };
+
+const STAGE_ROTATION_MS = 6300;
+const MANUAL_RESUME_MS = 18000;
+
+// O que o sistema registra sozinho — vale para as duas histórias.
+const PROVAS: Array<{ icon: IconName; texto: string }> = [
+  { icon: "nota", texto: "Entrada de XML, estoque e emissão de nota" },
+  { icon: "check", texto: "Comprovante com foto e assinatura" },
+  { icon: "bell", texto: "Alerta de parada não prevista" },
+  { icon: "eye", texto: "Cliente acompanha a entrega pelo link" },
+];
+
+// Números do mercado que a torre endereça. Fonte junto do dado — sem fonte
+// não entra.
+const DADOS: Array<{ valor: string; texto: string; fonte: string }> = [
+  { valor: "10.478", texto: "roubos de carga em 2024, R$ 1,2 bi de prejuízo", fonte: "NTC&Logística" },
+  { valor: "38,5%", texto: "do prejuízo já é na entrega urbana — era 18,9%", fonte: "Overhaul" },
+  { valor: "+17,5%", texto: "roubo de utilitários no 2º trimestre de 2026", fonte: "Transporte Moderno" },
+  { valor: "2% a 5%", texto: "do frete some em glosa por canhoto perdido", fonte: "Transp.net" },
+];
 
 function PhoneVisual({ screen, themeMode }: { screen: LogisticaRealScreen; themeMode: "dark" | "light" }) {
   return (
-    <div className="f1-real-phone" aria-label="HBX Logística em funcionamento">
+    <div className="f1-real-phone" aria-label="HBX em funcionamento no celular">
       <LogisticaRealPreview
         className="f1-real-phone__iframe"
         key={`${screen}-${themeMode}`}
@@ -361,21 +471,19 @@ type EntryScreen = "home" | "login" | "criar";
 
 export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryScreen } = {}) {
   const router = useRouter();
-  const [stageIndex, setStageIndex] = useState(0);
+  const [passoIndex, setPassoIndex] = useState(0);
   const [manual, setManual] = useState(false);
   // "/?entrar"/"/?criar" chegam com o card JÁ aberto (SSR — sem flash da home).
   const [screen, setScreen] = useState<EntryScreen>(initialScreen);
   const [themeMode, setThemeModeState] = useState<"dark" | "light">("light");
   const [cookieVisible, setCookieVisible] = useState(true);
-  // 10 passos numa fita só: 0-4 é o HBX Desktop, 5-9 é o HBX Rota. Chegou no
-  // fim do Desktop, cai sozinho no Rota e volta.
-  const noRota = stageIndex >= STAGES.length;
-  const logi = noRota ? LOGI[stageIndex - STAGES.length].key : null;
-  const stage = noRota ? STAGES[3] : STAGES[stageIndex];
-  const ad = noRota && logi ? ADS_LOGI[logi] : ADS[stage.key];
-  const naTorre = logi === "torre";
-  const noFone: LogisticaRealScreen = naTorre ? "torreFone" : (logi ?? "prospector");
-  const RotaDesktop = logi ? ROTA_SCREENS[logi] : undefined;
+
+  // 12 passos numa fita só: 0-5 é a história do Vendas, 6-11 é a MESMA
+  // história na Logística. Acabou uma, cai sozinho na outra.
+  const guia: Guia = passoIndex < POR_GUIA ? "vendas" : "logistica";
+  const noGuia = passoIndex % POR_GUIA;
+  const passo = PASSOS[passoIndex];
+  const trilha = GUIA_TRILHA[guia];
 
   // Logado nunca vê a landing: cargas de documento são resolvidas pelo boot
   // inline de app/page.tsx (antes da pintura); este efeito cobre a navegação
@@ -386,8 +494,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
 
   useEffect(() => {
     if (manual || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const total = STAGES.length + LOGI.length;
-    const timer = window.setInterval(() => setStageIndex((current) => (current + 1) % total), STAGE_ROTATION_MS);
+    const timer = window.setInterval(() => setPassoIndex((current) => (current + 1) % PASSOS.length), STAGE_ROTATION_MS);
     return () => window.clearInterval(timer);
   }, [manual]);
 
@@ -395,7 +502,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
     if (!manual) return;
     const timer = window.setTimeout(() => setManual(false), MANUAL_RESUME_MS);
     return () => window.clearTimeout(timer);
-  }, [manual, stageIndex]);
+  }, [manual, passoIndex]);
 
   useEffect(() => {
     const currentMode = document.documentElement.getAttribute("data-theme-mode");
@@ -423,9 +530,14 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
     return () => window.clearTimeout(timer);
   }, [screen]);
 
-  function chooseStage(index: number) {
-    setStageIndex(index);
+  function escolherPasso(index: number) {
+    setPassoIndex(index);
     setManual(true);
+  }
+
+  // O botão da guia PULA pra outra história e recomeça do primeiro passo.
+  function escolherGuia(alvo: Guia) {
+    escolherPasso(alvo === "vendas" ? 0 : POR_GUIA);
   }
 
   function openLogin() {
@@ -458,8 +570,16 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
     setThemeModeState(nextMode);
   }
 
+  const Desktop = passo.Desktop;
+
   return (
-    <main className={"public-entry" + (screen !== "home" ? " is-login" : "")} data-stage={stage.key} data-logi={logi ?? "off"}>
+    <main
+      className={"public-entry" + (screen !== "home" ? " is-login" : "")}
+      data-guia={guia}
+      data-passo={passo.key}
+      data-n={noGuia}
+      data-cheia={passo.monitorCheio ? "on" : "off"}
+    >
       <div className="f1-backdrop" aria-hidden="true">
         <span className="f1-orb f1-orb--one" />
         <span className="f1-orb f1-orb--two" />
@@ -472,6 +592,24 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           <span className="f1-brand__mark"><i /><i /><i /></span>
           <span>HBX</span>
         </Link>
+
+        {/* As duas guias: mostra qual história está no ar e pula pra outra. */}
+        <div className="f1-guias" role="group" aria-label="Escolher a história">
+          <span className="f1-guias__pill" aria-hidden="true" />
+          {(["vendas", "logistica"] as Guia[]).map((item) => (
+            <button
+              className={item === guia ? "is-active" : ""}
+              key={item}
+              type="button"
+              aria-pressed={item === guia}
+              onClick={() => escolherGuia(item)}
+            >
+              <strong>{GUIA_NOME[item]}</strong>
+              <small>{item === guia ? `${noGuia + 1}/${POR_GUIA}` : "pular"}</small>
+            </button>
+          ))}
+        </div>
+
         <nav className="f1-header__actions" aria-label="Ações principais">
           <Link className="f1-icon-button" href="/tutorialexterno" aria-label="Ver o tutorial" title="Tutorial">
             <Icon name="play" />
@@ -487,12 +625,12 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
 
       <section className="f1-hero f1-home" aria-hidden={screen !== "home"} inert={screen !== "home"}>
         <div className="f1-copy">
-          <h1 key={stage.key} aria-label={ad.lines.join(" ")} aria-live="polite">
-            <span>{ad.lines[0]}</span>
-            <span><em>{ad.lines[1]}</em></span>
-            <span>{ad.lines[2]}</span>
+          <h1 key={passo.key} aria-label={passo.lines.join(" ")} aria-live="polite">
+            <span>{passo.lines[0]}</span>
+            <span><em>{passo.lines[1]}</em></span>
+            <span>{passo.lines[2]}</span>
           </h1>
-          <p key={`${stage.key}-subline`}>{ad.subline}</p>
+          <p key={`${passo.key}-subline`}>{passo.subline}</p>
           <div className="f1-cta-row">
             <a className="f1-primary-cta" href="#produto">
               Conhecer a HBX <Icon name="arrow" />
@@ -511,61 +649,41 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           <article className="f1-product">
             <header className="f1-product__bar">
               <span className="f1-product__dots"><i /><i /><i /></span>
-              <span className="f1-product__brand"><b>HBX</b><small>/ cockpit</small></span>
+              <span className="f1-product__brand"><b>HBX</b><small>/ {GUIA_NOME[guia].toLowerCase()}</small></span>
               <span className="f1-live"><i /> AO VIVO</span>
             </header>
             <div className="f1-product__body">
               <aside className="f1-product__rail" aria-hidden="true">
-                {STAGES.map((item) => (
-                  <span className={item.key === stage.key ? "is-active" : ""} key={item.key}>
-                    <Icon name={STAGE_ICONS[item.key]} />
+                {trilha.map((item) => (
+                  <span className={item.key === passo.key ? "is-active" : ""} key={item.key}>
+                    <Icon name={item.icon} />
                   </span>
                 ))}
               </aside>
               <section className="f1-product__content">
                 <header className="f1-screen-head">
                   <span>
-                    <small>{logi ? "No computador" : stage.eyebrow}</small>
-                    <strong>{logi ? LOGI_DESKTOP[logi] : stage.title}</strong>
+                    <small>{passo.eyebrow}</small>
+                    <strong>{passo.titulo}</strong>
                   </span>
-                  <b><i /> {logi ? "Rota em andamento" : stage.signal}</b>
+                  <b><i /> {passo.signal}</b>
                 </header>
-                <div className="f1-screen-slot" key={logi ?? stage.key}>
-                  {naTorre
-                    ? <LogisticaRealPreview className="f1-torre-frame" screen="torre" themeMode={themeMode} />
-                    : RotaDesktop
-                      ? <RotaDesktop />
-                      : <StageVisual stage={stage.key} />}
+                <div className="f1-screen-slot" key={passo.key}>
+                  {passo.monitorCheio
+                    ? <LogisticaRealPreview className="f1-torre-frame" screen={passo.monitorCheio} themeMode={themeMode} />
+                    : Desktop ? <Desktop /> : null}
                 </div>
               </section>
             </div>
           </article>
         </div>
 
-        <aside className="f1-logi" aria-label="HBX Logística">
-          <PhoneVisual screen={noFone} themeMode={themeMode} />
-          <nav className="f1-logi__nav" aria-label="HBX Rota">
-            <span className="f1-trilha-nome">HBX Rota</span>
-            {LOGI.map((item, index) => (
-              <button
-                className={item.key === logi ? "is-active" : ""}
-                key={item.key}
-                type="button"
-                aria-pressed={item.key === logi}
-                onClick={() => chooseStage(STAGES.length + index)}
-              >
-                <Icon name={item.icon} />
-                <strong>{item.label}</strong>
-              </button>
-            ))}
-          </nav>
-          <div className="f1-baixar">
-            <a href={MOBILE_APK_URL} className="f1-baixar__apk">
-              <Icon name="download" />
-              <span>Baixar HBX Logística <small>Android</small></span>
-            </a>
-            <span className="f1-baixar__ios">iPhone em breve</span>
-          </div>
+        <aside className="f1-logi" aria-label="HBX no celular">
+          <PhoneVisual screen={passo.fone} themeMode={themeMode} />
+          <span className="f1-fone-nome">
+            <small>No celular</small>
+            <strong key={passo.key}>{passo.foneNome}</strong>
+          </span>
         </aside>
 
         <div className="f1-dados">
@@ -580,16 +698,28 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
         </div>
 
         <div className="f1-stage-shell">
-          <span className="f1-trilha-nome f1-trilha-nome--barra">HBX Desktop</span>
-          <div className="f1-stage-track" role="group" aria-label="Etapas do HBX Desktop">
+          <span className="f1-trilha-nome f1-trilha-nome--barra">
+            <b>{noGuia + 1}</b>{passo.capitulo}
+          </span>
+          <div className="f1-stage-track" role="group" aria-label={`Etapas do HBX ${GUIA_NOME[guia]}`}>
             <span className="f1-stage-pill" aria-hidden="true" />
-            {STAGES.map((item, index) => (
-              <button className={index === stageIndex ? "is-active" : ""} type="button" key={item.key} onClick={() => chooseStage(index)} aria-pressed={index === stageIndex}>
-                <Icon name={STAGE_ICONS[item.key]} />
+            {trilha.map((item, index) => (
+              <button
+                className={item.key === passo.key ? "is-active" : ""}
+                type="button"
+                key={item.key}
+                onClick={() => escolherPasso((guia === "vendas" ? 0 : POR_GUIA) + index)}
+                aria-pressed={item.key === passo.key}
+              >
+                <Icon name={item.icon} />
                 <strong>{item.label}</strong>
               </button>
             ))}
           </div>
+          <a href={MOBILE_APK_URL} className="f1-baixar">
+            <Icon name="download" />
+            <span>Baixar o app <small>Android</small></span>
+          </a>
           <a className="f1-whatsapp-mini" href={CONTACT_WHATSAPP_URL} target="_blank" rel="noreferrer" aria-label="Falar no WhatsApp">
             <Icon name="whatsapp" />
           </a>

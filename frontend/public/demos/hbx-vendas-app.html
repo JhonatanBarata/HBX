@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>HBX Vendas — o app no celular</title>
+<style>
+/* =============================================================================
+   HBX VENDAS NO CELULAR (18/08/2026)
+
+   A MESMA CASCA do mock da logística e da torre (tokens copiados de lá, escuro
+   e claro): as vitrines são o MESMO produto. Formato RETRATO (300x650), o
+   celular do vendedor.
+
+   As telas falam a língua do sistema, não uma língua de folheto:
+   - Radar: score de oportunidade 0–100, CNPJ, telefone, empresa recém-aberta
+   - Vendas: blocos Hoje/Atrasados/Agendados + funil de 5 etapas
+     (Sem contato → Contato feito → Respondeu → Ligação marcada → Fechado)
+   - Agenda: Ligação, Reunião, Visita, Mensagem — com Atrasada
+   - Entrega: o pedido que vira parada, com o link que o cliente acompanha
+   - Cobrança: Pix, dinheiro, cartão e fiado, com o que ainda não caiu
+   - Fiscal: XML da compra entra, estoque anda, nota sai autorizada
+   - Estoque: saldo físico/reservado/disponível e o extrato do movimento
+
+   `?tela=` escolhe a cena; `?luz=claro` troca a pele. Nada é vídeo: relógios
+   em loop, igual ao padrão do hbx-gps-prospector.html (ficha/limpar/daqui).
+   ========================================================================== */
+
+.app{
+  --bg:#080d17; --card:#0d1626; --card-2:#111c30; --line:#1a2740; --line-2:#26375a;
+  --ink:#eef3fb; --ink-2:#93a3bf; --ink-3:#7889a6;
+  --lime:#9ede2a; --blue:#2f7ef7; --blue-l:#5b9dff;
+  --sombra-carta:0 12px 30px rgba(0,0,0,.5);
+
+  --ok:#9ede2a; --ok-bg:#17230e; --ok-fio:rgba(158,222,42,.4);
+  --aviso:#f2b63d; --aviso-bg:#241a09; --aviso-fio:rgba(242,182,61,.42);
+  --alerta:#ff6d5e; --alerta-bg:#2a120e; --alerta-fio:rgba(255,109,94,.5);
+  --frio:#5b9dff; --frio-bg:#0d1e38; --frio-fio:rgba(91,157,255,.4);
+
+  --cv-entra:cubic-bezier(.2,.8,.2,1); --cv-mola:cubic-bezier(.34,1.4,.5,1);
+}
+
+/* MODO CLARO — desenho próprio, não inversão (mesma lei do mock do GPS). */
+.app.claro{
+  --bg:#eef2f7; --card:#ffffff; --card-2:#f5f8fc; --line:#dbe3ed; --line-2:#c6d2e0;
+  --ink:#0d1726; --ink-2:#5b6b83; --ink-3:#7386a0;
+  --lime:#4f9310; --blue:#1f66e0; --blue-l:#2f7ef7;
+  --sombra-carta:0 10px 28px rgba(28,44,70,.14);
+
+  --ok:#4f9310; --ok-bg:#e9f6d5; --ok-fio:rgba(79,147,16,.4);
+  --aviso:#a2700a; --aviso-bg:#fdf3dc; --aviso-fio:rgba(162,112,10,.4);
+  --alerta:#d43a2a; --alerta-bg:#fdeeec; --alerta-fio:rgba(212,58,42,.42);
+  --frio:#1f66e0; --frio-bg:#e6effd; --frio-fio:rgba(31,102,224,.35);
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:transparent;overflow:hidden;position:relative;
+  font-family:"Segoe UI Variable Display","Segoe UI",Inter,ui-sans-serif,system-ui,-apple-system,Roboto,Arial,sans-serif;
+  font-synthesis:none;-webkit-font-smoothing:antialiased}
+
+/* O palco escala pra caber no berço — centrar por `place-items` joga a peça
+   pro canto quando ela é maior que a caixa. */
+.mesa{position:absolute;left:50%;top:50%;width:300px;height:650px;
+  transform:translate(-50%,-50%) scale(var(--fit,1))}
+.app{position:relative;width:300px;height:650px;overflow:hidden;border-radius:26px;
+  background:var(--bg);color:var(--ink);font-size:12px;isolation:isolate}
+
+/* ----------------------------------------------------------------- CASCA -- */
+.status{display:flex;height:24px;align-items:center;justify-content:space-between;
+  padding:2px 16px 0;color:var(--ink-3);font-size:10px;font-weight:700;
+  font-variant-numeric:tabular-nums}
+.status .sinal{display:inline-flex;align-items:center;gap:4px}
+.status .sinal i{display:block;width:4px;height:4px;border-radius:50%;background:var(--ok)}
+
+.top{display:flex;align-items:center;gap:10px;padding:8px 14px 10px}
+.top .marca{display:grid;width:30px;height:30px;flex:0 0 30px;place-items:center;border-radius:10px;
+  border:.8px solid var(--line);background:var(--card);color:var(--lime)}
+.top .marca svg{width:17px;height:17px}
+.top h1{margin:0;font-size:16px;font-weight:800;letter-spacing:-.3px}
+.top small{display:block;color:var(--ink-3);font-size:10px;font-weight:600}
+.top .pt{margin-left:auto;color:var(--ink-3)}
+.top .pt svg{width:18px;height:18px}
+
+.corpo{position:absolute;left:0;right:0;top:72px;bottom:54px;display:flex;
+  flex-direction:column;gap:8px;padding:0 12px;overflow:hidden}
+
+.nav{position:absolute;left:0;right:0;bottom:0;display:flex;height:54px;
+  align-items:center;justify-content:space-around;padding:0 8px 6px;
+  border-top:.8px solid var(--line);background:var(--card)}
+.nav span{display:grid;width:34px;height:34px;place-items:center;border-radius:11px;color:var(--ink-3)}
+.nav span svg{width:19px;height:19px}
+.nav span.on{color:#08110a;background:var(--lime)}
+.app.claro .nav span.on{color:#fff}
+
+svg{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+svg.cheio{fill:currentColor;stroke:none}
+
+/* ---------------------------------------------------------- PEÇAS COMUNS -- */
+.fitas{display:flex;flex:0 0 auto;gap:6px}
+.fitas span{display:inline-flex;align-items:baseline;gap:4px;padding:5px 9px;border-radius:999px;
+  border:.8px solid var(--line);background:var(--card);color:var(--ink-2);font-size:10px;font-weight:600}
+.fitas b{color:var(--ink);font-size:11.5px;font-weight:800;font-variant-numeric:tabular-nums}
+.fitas span.on{border-color:var(--ok-fio);background:var(--ok-bg)}
+.fitas span.on b{color:var(--ok)}
+.fitas span.mal{border-color:var(--alerta-fio);background:var(--alerta-bg)}
+.fitas span.mal b{color:var(--alerta)}
+
+.secao{display:flex;align-items:baseline;justify-content:space-between;gap:8px;
+  color:var(--ink-3);font-size:9.5px;font-weight:800;letter-spacing:.9px;text-transform:uppercase}
+
+.lista{display:flex;flex-direction:column;min-height:0;gap:7px}
+.cartao{display:flex;flex-direction:column;gap:5px;padding:9px 10px;border-radius:13px;
+  border:.8px solid var(--line);background:var(--card);box-shadow:var(--sombra-carta)}
+.cartao.entra{animation:sobe .5s var(--cv-entra) both}
+@keyframes sobe{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.cartao .cab{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.cartao .cab strong{overflow:hidden;font-size:12.5px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}
+.cartao .cab .nota{flex:0 0 auto;padding:3px 7px;border-radius:999px;border:.8px solid var(--ok-fio);
+  color:var(--ok);background:var(--ok-bg);font-size:10px;font-weight:800;font-variant-numeric:tabular-nums}
+.cartao .pe{display:flex;flex-wrap:wrap;gap:3px 10px;color:var(--ink-3);font-size:10px;font-weight:600;
+  font-variant-numeric:tabular-nums}
+.cartao .pe b{color:var(--ink-2);font-weight:700}
+.marcas{display:flex;flex-wrap:wrap;gap:5px}
+.marca-t{padding:3px 7px;border-radius:999px;border:.8px solid var(--line-2);
+  background:var(--card-2);color:var(--ink-2);font-size:9.5px;font-weight:700}
+.marca-t.ok{border-color:var(--ok-fio);color:var(--ok);background:var(--ok-bg)}
+.marca-t.av{border-color:var(--aviso-fio);color:var(--aviso);background:var(--aviso-bg)}
+.marca-t.al{border-color:var(--alerta-fio);color:var(--alerta);background:var(--alerta-bg)}
+.marca-t.fr{border-color:var(--frio-fio);color:var(--frio);background:var(--frio-bg)}
+
+.rodape{display:flex;margin-top:auto;align-items:center;justify-content:space-between;gap:8px;
+  padding:9px 11px;border-radius:13px;border:.8px solid var(--line);background:var(--card-2);
+  color:var(--ink-2);font-size:10.5px;font-weight:600}
+.rodape b{color:var(--ink);font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}
+
+/* ----------------------------------------------------------------- RADAR -- */
+.disco{position:relative;height:92px;flex:0 0 auto;overflow:hidden;border-radius:14px;
+  border:.8px solid var(--line);background:var(--card)}
+.disco .anel{position:absolute;left:50%;top:50%;width:26px;height:26px;border-radius:50%;
+  border:1.4px solid var(--lime);opacity:0;transform:translate(-50%,-50%);
+  animation:pulsa 3s linear infinite}
+.disco .anel:nth-child(3){animation-delay:1s}
+.disco .anel:nth-child(4){animation-delay:2s}
+@keyframes pulsa{0%{opacity:.75;transform:translate(-50%,-50%) scale(.4)}100%{opacity:0;transform:translate(-50%,-50%) scale(6)}}
+.disco .alvo{position:absolute;width:7px;height:7px;border-radius:50%;background:var(--lime);
+  box-shadow:0 0 0 4px var(--ok-bg)}
+.disco .varre{position:absolute;left:50%;top:50%;width:130px;height:2px;opacity:.55;
+  background:linear-gradient(90deg,var(--lime),transparent);transform-origin:0 50%;
+  animation:gira 3s linear infinite}
+@keyframes gira{to{transform:rotate(360deg)}}
+
+/* ---------------------------------------------------------------- VENDAS -- */
+.funil{display:flex;flex:0 0 auto;gap:4px}
+.funil span{display:flex;flex:1;flex-direction:column;align-items:center;gap:3px;padding:6px 2px;
+  border-radius:10px;border:.8px solid var(--line);background:var(--card);
+  color:var(--ink-3);font-size:8.5px;font-weight:700;line-height:1.1;text-align:center}
+.funil span b{color:var(--ink);font-size:12px;font-weight:800;font-variant-numeric:tabular-nums}
+.funil span.on{border-color:var(--ok-fio);background:var(--ok-bg)}
+.funil span.on b{color:var(--ok)}
+.estrelas{display:inline-flex;gap:1.5px;color:var(--aviso)}
+.estrelas svg{width:10px;height:10px}
+.estrelas i{color:var(--line-2)}
+.subiu{animation:brilha 1.1s var(--cv-mola)}
+@keyframes brilha{0%{transform:none}35%{transform:translateY(-5px) scale(1.03)}100%{transform:none}}
+
+/* ---------------------------------------------------------------- AGENDA -- */
+.dia{display:flex;flex:1;flex-direction:column;min-height:0;gap:6px;overflow:hidden}
+.bloco{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:9px;
+  padding:8px 10px;border-radius:12px;border:.8px solid var(--line);background:var(--card);
+  transition:background .4s ease,border-color .4s ease,opacity .4s ease}
+.bloco .h{color:var(--ink-3);font-size:10.5px;font-weight:800;font-variant-numeric:tabular-nums}
+.bloco .q{display:grid;min-width:0;gap:2px}
+.bloco .q strong{overflow:hidden;font-size:12px;font-weight:730;text-overflow:ellipsis;white-space:nowrap}
+.bloco .q small{color:var(--ink-3);font-size:10px;font-weight:600}
+.bloco .t{display:grid;width:26px;height:26px;flex:0 0 auto;place-items:center;border-radius:9px;
+  border:.8px solid var(--line-2);background:var(--card-2);color:var(--ink-2)}
+.bloco .t svg{width:14px;height:14px}
+.bloco.atrasada{border-color:var(--alerta-fio);background:var(--alerta-bg)}
+.bloco.atrasada .h{color:var(--alerta)}
+.bloco.feita{opacity:.62}
+.bloco.feita .t{border-color:var(--ok-fio);color:var(--ok);background:var(--ok-bg)}
+
+/* --------------------------------------------------------------- ENTREGA -- */
+.trilho{display:flex;flex:0 0 auto;flex-direction:column;padding:2px 0}
+.passo{display:grid;grid-template-columns:22px minmax(0,1fr);align-items:flex-start;gap:10px}
+.passo .marco{position:relative;display:grid;height:34px;place-items:center}
+.passo .marco i{display:block;z-index:2;width:11px;height:11px;border-radius:50%;
+  border:1.8px solid var(--line-2);background:var(--card)}
+.passo .marco::after{content:"";position:absolute;top:22px;bottom:-12px;width:1.6px;background:var(--line)}
+.passo:last-child .marco::after{display:none}
+.passo.ok .marco i{border-color:var(--ok);background:var(--ok)}
+.passo.ok .marco::after{background:var(--ok-fio)}
+.passo .txt{padding-top:8px}
+.passo .txt strong{display:block;font-size:12px;font-weight:730}
+.passo .txt small{color:var(--ink-3);font-size:10px;font-weight:600}
+.passo.agora .txt strong{color:var(--lime)}
+
+/* -------------------------------------------------------------- COBRANÇA -- */
+.grade{display:grid;flex:0 0 auto;grid-template-columns:1fr 1fr;gap:7px}
+.grade article{display:grid;gap:2px;padding:9px 10px;border-radius:12px;
+  border:.8px solid var(--line);background:var(--card)}
+.grade small{color:var(--ink-3);font-size:9.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase}
+.grade b{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums}
+.grade article.pago b{color:var(--ok)}
+.grade article.falta b{color:var(--aviso)}
+
+/* ---------------------------------------------------------------- FISCAL -- */
+.nota-fis{display:grid;gap:8px;padding:11px;border-radius:14px;border:.8px solid var(--line);
+  background:var(--card);box-shadow:var(--sombra-carta)}
+.nota-fis .sel{display:inline-flex;align-items:center;gap:6px;padding:5px 9px;border-radius:999px;
+  border:.8px solid var(--line-2);background:var(--card-2);color:var(--ink-2);font-size:10.5px;font-weight:800}
+.nota-fis .sel.ok{border-color:var(--ok-fio);color:var(--ok);background:var(--ok-bg)}
+.nota-fis .sel svg{width:13px;height:13px}
+.nota-fis .num{font-size:19px;font-weight:850;letter-spacing:-.4px;font-variant-numeric:tabular-nums}
+.nota-fis .campos{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.nota-fis .campos span{display:grid;gap:1px}
+.nota-fis .campos small{color:var(--ink-3);font-size:9.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase}
+.nota-fis .campos b{font-size:12px;font-weight:750;font-variant-numeric:tabular-nums}
+.arquivos{display:flex;gap:6px}
+.arquivos span{display:inline-flex;flex:1;min-height:30px;align-items:center;justify-content:center;gap:5px;
+  border-radius:10px;border:.8px solid var(--line-2);background:var(--card-2);
+  color:var(--ink-2);font-size:10.5px;font-weight:750}
+.arquivos svg{width:13px;height:13px}
+.esteira{display:grid;gap:6px}
+.esteira article{display:grid;grid-template-columns:26px minmax(0,1fr) auto;align-items:center;gap:9px;
+  padding:8px 10px;border-radius:12px;border:.8px solid var(--line);background:var(--card)}
+.esteira .ic{display:grid;width:26px;height:26px;place-items:center;border-radius:9px;
+  border:.8px solid var(--line-2);background:var(--card-2);color:var(--ink-2)}
+.esteira .ic svg{width:14px;height:14px}
+.esteira article.ok .ic{border-color:var(--ok-fio);color:var(--ok);background:var(--ok-bg)}
+.esteira .q{display:grid;min-width:0;gap:1px}
+.esteira .q strong{font-size:11.5px;font-weight:730}
+.esteira .q small{color:var(--ink-3);font-size:9.5px;font-weight:600}
+.esteira .v{color:var(--ink-2);font-size:11px;font-weight:800;font-variant-numeric:tabular-nums}
+
+/* --------------------------------------------------------------- ESTOQUE -- */
+.saldo{display:grid;flex:0 0 auto;grid-template-columns:repeat(2,1fr);gap:6px}
+.saldo article{display:grid;gap:1px;padding:8px 10px;border-radius:12px;
+  border:.8px solid var(--line);background:var(--card)}
+.saldo small{color:var(--ink-3);font-size:9.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase}
+.saldo b{font-size:15px;font-weight:850;font-variant-numeric:tabular-nums}
+.saldo article.disp b{color:var(--ok)}
+.saldo article.baixo b{color:var(--aviso)}
+.extrato{display:grid;gap:5px}
+.extrato article{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;
+  padding:7px 10px;border-radius:11px;border:.8px solid var(--line);background:var(--card)}
+.extrato article.entra{animation:sobe .5s var(--cv-entra) both}
+.extrato strong{font-size:11px;font-weight:720}
+.extrato small{display:block;color:var(--ink-3);font-size:9.5px;font-weight:600}
+.extrato .qtd{color:var(--ink-2);font-size:12px;font-weight:800;font-variant-numeric:tabular-nums}
+.extrato .qtd.mais{color:var(--ok)}
+.extrato .qtd.menos{color:var(--alerta)}
+</style>
+</head>
+<body>
+<div class="mesa">
+  <div class="app" id="app">
+    <div class="status">
+      <span id="relogio">--:--</span>
+      <span class="sinal"><i></i> HBX</span>
+    </div>
+    <header class="top">
+      <span class="marca" id="marca"></span>
+      <span><h1 id="titulo">HBX</h1><small id="sub"></small></span>
+      <span class="pt" id="pt"></span>
+    </header>
+    <div class="corpo" id="corpo"></div>
+    <nav class="nav" id="nav"></nav>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+
+/* ------------------------------------------------------------- DESENHOS --- */
+const IC = {
+  radar: '<svg viewBox="0 0 24 24"><path d="M12 12h.01"/><path d="M8.5 12a3.5 3.5 0 1 1 3.5 3.5"/><path d="M5 12a7 7 0 1 1 7 7"/><path d="M2 12a10 10 0 1 1 10 10"/></svg>',
+  bolt: '<svg viewBox="0 0 24 24"><path d="m13 2-9 12h7l-1 8 9-12h-7l1-8Z"/></svg>',
+  cal: '<svg viewBox="0 0 24 24"><path d="M4 6h16v15H4z"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>',
+  rota: '<svg viewBox="0 0 24 24"><path d="M5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/><path d="M19 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z"/><path d="M5 15V9a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4"/></svg>',
+  carteira: '<svg viewBox="0 0 24 24"><path d="M3 6h18v13H3z"/><path d="M16 10h5v5h-5a2.5 2.5 0 0 1 0-5Z"/><path d="M3 6l3-3h12l3 3"/></svg>',
+  nota: '<svg viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z"/><path d="M9 8h6M9 12h6"/></svg>',
+  caixa: '<svg viewBox="0 0 24 24"><path d="m12 3 8 4v10l-8 4-8-4V7l8-4Z"/><path d="m4 7 8 4 8-4M12 11v10"/></svg>',
+  fone: '<svg viewBox="0 0 24 24"><path d="M7 3h4l2 5-2.5 1.5a11 11 0 0 0 4 4L16 11l5 2v4a2 2 0 0 1-2.2 2A16 16 0 0 1 5 5.2 2 2 0 0 1 7 3Z"/></svg>',
+  gente: '<svg viewBox="0 0 24 24"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"/><path d="M4 20a8 8 0 0 1 16 0"/></svg>',
+  pin: '<svg viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11Z"/><path d="M12 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/></svg>',
+  msg: '<svg viewBox="0 0 24 24"><path d="M20 11.5a8 8 0 0 1-11.9 7L4 20l1.5-4.1A8 8 0 1 1 20 11.5Z"/></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>',
+  baixar: '<svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>',
+  arquivo: '<svg viewBox="0 0 24 24"><path d="M13 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8l-5-5Z"/><path d="M13 3v5h5"/></svg>',
+  pontos: '<svg viewBox="0 0 24 24"><path d="M12 6h.01M12 12h.01M12 18h.01"/></svg>',
+  estrela: '<svg viewBox="0 0 24 24" class="cheio"><path d="m12 3.4 2.6 5.4 5.9.8-4.3 4.1 1 5.9-5.2-2.8-5.2 2.8 1-5.9L3.5 9.6l5.9-.8L12 3.4Z"/></svg>',
+};
+
+/* ------------------------------------------------------------ AS CENAS ---- */
+const T = {};
+
+/* 1 — RADAR: quem precisa de você, com CNPJ e telefone. */
+T.radar = {
+  titulo: 'Radar', sub: 'Bebidas · Campinas/SP', icone: 'radar', nav: 0,
+  corpo: `
+  <div class="disco">
+    <span class="varre"></span>
+    <span class="anel"></span><span class="anel"></span><span class="anel"></span>
+    <span class="alvo" style="left:26%;top:32%"></span>
+    <span class="alvo" style="left:68%;top:26%"></span>
+    <span class="alvo" style="left:58%;top:70%"></span>
+  </div>
+  <div class="fitas">
+    <span><b>86</b> empresas</span>
+    <span class="on"><b>81</b> com telefone</span>
+  </div>
+  <div class="lista" id="achados"></div>
+  <div class="rodape"><span>Entram na rota de amanhã</span><b>3</b></div>`,
+  cena(daqui) {
+    const ACHADOS = [
+      ['Mercado Bela Vista', '12.660.907/0001-70', '(19) 3255-0912', '92', 'WhatsApp confirmado'],
+      ['Adega do Portugues', '28.192.110/0001-11', '(19) 3241-0669', '87', 'Aberta há 12 dias'],
+      ['Restaurante Vila Nova', '68.043.458/0001-03', '(19) 3232-0347', '78', '1,4 km da rota'],
+    ];
+    const alvo = $('#achados');
+    alvo.innerHTML = '';
+    ACHADOS.forEach((a, i) => daqui(() => {
+      const el = document.createElement('article');
+      el.className = 'cartao entra';
+      el.innerHTML = `<span class="cab"><strong>${a[0]}</strong><span class="nota">${a[3]}</span></span>
+        <span class="pe"><span>${a[1]}</span><b>${a[2]}</b></span>
+        <span class="marcas"><span class="marca-t ok">${a[4]}</span></span>`;
+      alvo.appendChild(el);
+    }, 500 + i * 900));
+  }
+};
+
+/* 2 — VENDAS: os blocos da agenda e o funil de 5 etapas, como no /vendas. */
+T.vendas = {
+  titulo: 'Vendas', sub: '23 negócios abertos', icone: 'bolt', nav: 1,
+  corpo: `
+  <div class="fitas">
+    <span class="on"><b>6</b> hoje</span>
+    <span class="mal"><b>2</b> atrasados</span>
+    <span><b>11</b> agendados</span>
+  </div>
+  <div class="funil">
+    <span><b>9</b>Sem<br>contato</span>
+    <span><b>5</b>Contato<br>feito</span>
+    <span id="fRet"><b id="nRet">4</b>Res-<br>pondeu</span>
+    <span id="fQual"><b id="nQual">3</b>Ligação<br>marcada</span>
+    <span class="on"><b>2</b>Fe-<br>chado</span>
+  </div>
+  <div class="secao"><span>Hoje</span><span>Próxima ação</span></div>
+  <div class="lista">
+    <article class="cartao" id="cardMov">
+      <span class="cab"><strong>Mercado Bela Vista</strong><span class="estrelas" id="est"></span></span>
+      <span class="pe"><span id="etapaMov">Respondeu</span><b>Ligar 14:00</b></span>
+      <span class="marcas"><span class="marca-t al">Atrasado 1 dia</span><span class="marca-t">3 tentativas</span></span>
+    </article>
+    <article class="cartao">
+      <span class="cab"><strong>Adega do Portugues</strong></span>
+      <span class="pe"><span>Contato feito</span><b>Retornar 16:30</b></span>
+      <span class="marcas"><span class="marca-t ok">Hoje</span><span class="marca-t fr">Morno</span></span>
+    </article>
+    <article class="cartao">
+      <span class="cab"><strong>Restaurante Vila Nova</strong></span>
+      <span class="pe"><span>Sem contato</span><b>1ª mensagem</b></span>
+      <span class="marcas"><span class="marca-t">Score 78/100</span></span>
+    </article>
+  </div>
+  <div class="rodape"><span>Fechado no mês</span><b>R$ 8.420</b></div>`,
+  cena(daqui) {
+    const estrela = n => Array.from({ length: 5 }, (_, i) => i < n ? IC.estrela : '<i>' + IC.estrela + '</i>').join('');
+    $('#est').innerHTML = estrela(3);
+    daqui(() => $('#est').innerHTML = estrela(4), 2600);
+    daqui(() => {
+      $('#etapaMov').textContent = 'Ligação marcada';
+      $('#cardMov').classList.add('subiu');
+      $('#fQual').classList.add('on');
+      $('#nQual').textContent = '4';
+      $('#nRet').textContent = '3';
+    }, 4200);
+    daqui(() => $('#cardMov').classList.remove('subiu'), 5600);
+  }
+};
+
+/* 3 — AGENDA (CRM): o compromisso tem HORA e tipo. Atrasada é vermelha. */
+T.agenda = {
+  titulo: 'Agenda', sub: 'Terça, 18 de agosto', icone: 'cal', nav: 2,
+  corpo: `
+  <div class="fitas">
+    <span class="mal"><b>1</b> atrasada</span>
+    <span class="on"><b>4</b> hoje</span>
+    <span><b>9</b> na semana</span>
+  </div>
+  <div class="dia">
+    <div class="bloco atrasada" id="b0"><span class="h">08:30</span>
+      <span class="q"><strong>Mercado Bela Vista</strong><small id="s0">Ligação · atrasada 1 dia</small></span>
+      <span class="t">${IC.fone}</span></div>
+    <div class="bloco" id="b1"><span class="h">11:00</span>
+      <span class="q"><strong>Adega do Portugues</strong><small id="s1">Reunião · loja do centro</small></span>
+      <span class="t">${IC.gente}</span></div>
+    <div class="bloco"><span class="h">14:00</span>
+      <span class="q"><strong>Restaurante Vila Nova</strong><small>Visita · com amostra</small></span>
+      <span class="t">${IC.pin}</span></div>
+    <div class="bloco"><span class="h">16:30</span>
+      <span class="q"><strong>Padaria Rio Novo</strong><small>Mensagem · proposta enviada</small></span>
+      <span class="t">${IC.msg}</span></div>
+  </div>
+  <div class="rodape"><span>O que não foi vira atrasado</span><b id="atrasa">1</b></div>`,
+  cena(daqui) {
+    daqui(() => {
+      $('#b0').className = 'bloco feita';
+      $('#s0').textContent = 'Ligação · feita agora';
+      $('#atrasa').textContent = '0';
+    }, 3400);
+    daqui(() => {
+      $('#b1').className = 'bloco feita';
+      $('#s1').textContent = 'Reunião · concluída';
+    }, 6200);
+  }
+};
+
+/* 4 — ENTREGA: a venda vira parada. O mesmo pedido que o motorista recebe. */
+T.entrega = {
+  titulo: 'Entrega', sub: 'Pedido 0428 · Bela Vista', icone: 'rota', nav: 3,
+  corpo: `
+  <div class="fitas">
+    <span><b>12</b> galões</span>
+    <span><b>2</b> caixas</span>
+    <span class="on"><b>R$ 468</b></span>
+  </div>
+  <div class="trilho">
+    <div class="passo ok"><span class="marco"><i></i></span>
+      <span class="txt"><strong>Venda fechada</strong><small>ontem 17:12 · Pix</small></span></div>
+    <div class="passo ok"><span class="marco"><i></i></span>
+      <span class="txt"><strong>Entrou na rota</strong><small>parada 3 de 23 · terça</small></span></div>
+    <div class="passo agora" id="p2"><span class="marco"><i></i></span>
+      <span class="txt"><strong>Saiu para entrega</strong><small id="s2">FLV3B58 · Carlos</small></span></div>
+    <div class="passo" id="p3"><span class="marco"><i></i></span>
+      <span class="txt"><strong>Entregue com prova</strong><small id="s3">foto, assinatura e código</small></span></div>
+  </div>
+  <article class="cartao">
+    <span class="cab"><strong>O cliente acompanha</strong><span class="nota" id="selo">no ar</span></span>
+    <span class="pe"><span>hbx.app/e/4F2K90</span><b id="visto">aberto 2×</b></span>
+  </article>
+  <div class="rodape"><span>Comprovante fica arquivado</span><b>23/23</b></div>`,
+  cena(daqui) {
+    daqui(() => {
+      $('#p2').classList.add('ok');
+      $('#s2').textContent = 'FLV3B58 · chegando';
+    }, 2800);
+    daqui(() => {
+      $('#p2').classList.remove('agora');
+      $('#p3').classList.add('ok', 'agora');
+      $('#s3').textContent = '08:41 · código 4F2K-90';
+      $('#selo').textContent = 'visto';
+      $('#visto').textContent = 'aberto 3×';
+    }, 5200);
+  }
+};
+
+/* 5 — COBRANÇA: o que caiu e o que falta, por forma de pagamento. */
+T.cobranca = {
+  titulo: 'Cobrança', sub: 'Recebimentos de hoje', icone: 'carteira', nav: 4,
+  corpo: `
+  <div class="grade">
+    <article class="pago"><small>Pix</small><b>R$ 98,00</b></article>
+    <article class="pago"><small>Dinheiro</small><b>R$ 132,00</b></article>
+    <article class="pago"><small>Cartão</small><b>R$ 68,00</b></article>
+    <article class="falta"><small>Fiado</small><b>R$ 38,00</b></article>
+  </div>
+  <div class="secao"><span>Em aberto</span><span>Vence</span></div>
+  <div class="lista">
+    <article class="cartao" id="cobra1">
+      <span class="cab"><strong>Mercado Bela Vista</strong><span class="nota">R$ 468</span></span>
+      <span class="pe"><span id="via1">Pix · aguardando</span><b id="dia1">hoje</b></span>
+    </article>
+    <article class="cartao">
+      <span class="cab"><strong>Padaria Rio Novo</strong><span class="nota">R$ 210</span></span>
+      <span class="pe"><span>Boleto · enviado</span><b>21/08</b></span>
+    </article>
+  </div>
+  <div class="rodape"><span>Recebido hoje</span><b id="total">R$ 336,00</b></div>`,
+  cena(daqui) {
+    daqui(() => {
+      $('#via1').textContent = 'Pix · recebido';
+      $('#dia1').textContent = 'agora';
+      $('#cobra1').classList.add('subiu');
+      $('#total').textContent = 'R$ 804,00';
+    }, 3200);
+    daqui(() => $('#cobra1').classList.remove('subiu'), 4600);
+  }
+};
+
+/* 6 — FISCAL: o XML da compra entra, o estoque anda, a nota sai autorizada. */
+T.fiscal = {
+  titulo: 'Fiscal', sub: 'Entrada, estoque e nota', icone: 'nota', nav: 5,
+  corpo: `
+  <div class="esteira">
+    <article class="ok"><span class="ic">${IC.arquivo}</span>
+      <span class="q"><strong>Entrada por XML</strong><small>NF 12.845 · fornecedor lido</small></span>
+      <span class="v">14 itens</span></article>
+    <article class="ok"><span class="ic">${IC.caixa}</span>
+      <span class="q"><strong>Estoque atualizado</strong><small>entrada lançada sozinha</small></span>
+      <span class="v">+168</span></article>
+    <article id="lEmite"><span class="ic">${IC.nota}</span>
+      <span class="q"><strong>Emissão da nota</strong><small>nota de produto · série 1</small></span>
+      <span class="v" id="vEmite">…</span></article>
+  </div>
+  <div class="nota-fis">
+    <span class="sel" id="sel">${IC.nota} Emitindo…</span>
+    <span class="num" id="num">—</span>
+    <div class="campos">
+      <span><small>Valor</small><b>R$ 468,00</b></span>
+      <span><small>Ambiente</small><b>Produção</b></span>
+    </div>
+    <div class="arquivos"><span>${IC.baixar} XML</span><span>${IC.arquivo} DANFE</span></div>
+  </div>
+  <div class="rodape"><span>Certificado A1 vence em</span><b>214 dias</b></div>`,
+  cena(daqui) {
+    daqui(() => {
+      $('#sel').classList.add('ok');
+      $('#sel').innerHTML = IC.check + ' Nota autorizada';
+      $('#num').textContent = 'NF-e 000.123';
+      $('#lEmite').classList.add('ok');
+      $('#vEmite').textContent = 'autorizada';
+    }, 2600);
+  }
+};
+
+/* 7 — ESTOQUE: saldo e extrato. Serve a logística — é o mesmo módulo. */
+T.estoque = {
+  titulo: 'Estoque', sub: 'Água mineral 20L', icone: 'caixa', nav: 5,
+  corpo: `
+  <div class="saldo">
+    <article class="disp"><small>Disponível</small><b id="disp">312</b></article>
+    <article><small>Reservado</small><b>168</b></article>
+    <article><small>Físico</small><b>480</b></article>
+    <article class="baixo"><small>Estoque baixo</small><b>2</b></article>
+  </div>
+  <div class="secao"><span>Extrato</span><span>Hoje</span></div>
+  <div class="extrato" id="extrato">
+    <article><span><strong>Entrada (XML compra)</strong><small>NF 12.845 · 08:04</small></span><span class="qtd mais">+168</span></article>
+    <article><span><strong>Carga do dia</strong><small>rota FLV3B58 · 08:20</small></span><span class="qtd menos">−180</span></article>
+    <article><span><strong>Devolução de vasilhame</strong><small>parada 3 · 08:41</small></span><span class="qtd mais">+2</span></article>
+  </div>
+  <div class="rodape"><span>Vasilhames na rua</span><b>14</b></div>`,
+  cena(daqui) {
+    daqui(() => {
+      const el = document.createElement('article');
+      el.className = 'entra';
+      el.innerHTML = `<span><strong>Perda registrada</strong><small>galão trincado · motivo obrigatório</small></span>
+        <span class="qtd menos">−1</span>`;
+      $('#extrato').appendChild(el);
+      $('#disp').textContent = '311';
+    }, 3000);
+  }
+};
+
+/* --------------------------------------------------------------- MONTAGEM - */
+const NAV = [IC.radar, IC.bolt, IC.cal, IC.rota, IC.carteira, IC.nota];
+
+let relogios = [], ficha = 0;
+const marcar = (fn, ms) => relogios.push(setTimeout(fn, ms));
+function limpar() { relogios.forEach(clearTimeout); relogios = []; ficha++; }
+
+function pintar(chave) {
+  const t = T[chave] || T.radar;
+  limpar();
+  const meu = ficha;
+  $('#titulo').textContent = t.titulo;
+  $('#sub').textContent = t.sub;
+  $('#marca').innerHTML = IC[t.icone];
+  $('#pt').innerHTML = IC.pontos;
+  $('#corpo').innerHTML = t.corpo;
+  $('#nav').innerHTML = NAV.map((d, i) => `<span class="${i === t.nav ? 'on' : ''}">${d}</span>`).join('');
+  if (t.cena) t.cena((fn, ms) => marcar(() => { if (meu === ficha) fn(); }, ms));
+  /* a cena reinicia: a vitrine fica minutos na mesma aba */
+  marcar(() => { if (meu === ficha) pintar(chave); }, 11000);
+}
+
+/* O berço muda de tamanho DEPOIS do load (a vitrine troca de aba, o iframe
+   nasce estreito). Medir uma vez deixava a cena do tamanho de um selo. */
+function caber() {
+  const f = Math.min(innerWidth / 300, innerHeight / 650);
+  document.querySelector('.mesa').style.setProperty('--fit', f.toFixed(4));
+}
+addEventListener('resize', caber);
+new ResizeObserver(caber).observe(document.documentElement);
+
+const HORA = d => d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+const tick = () => $('#relogio').textContent = HORA(new Date());
+setInterval(tick, 30000);
+
+const q = new URLSearchParams(location.search);
+if (q.get('luz') === 'claro') $('#app').classList.add('claro');
+const TELA = T[q.get('tela')] ? q.get('tela') : 'radar';
+
+tick();
+pintar(TELA);
+caber();
+</script>
+</body>
+</html>
