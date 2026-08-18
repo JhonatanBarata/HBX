@@ -856,14 +856,14 @@ export class PainelModuloService {
     const fechados = { companyId, closedAt: { gte: mes } };
 
     const [convertidos, encerrados, porMotivo, donos, serie] = await Promise.all([
-      this.prisma.vendasLead.count({ where: { ...fechados, closureReason: 'convertido' } }),
-      this.prisma.vendasLead.count({ where: fechados }),
-      this.prisma.vendasLead.groupBy({
+      this.prisma.vendasLead.count({ where: { ...fechados, closureReason: 'convertido' } }), // tenant-scope-allow: escopo vem de `fechados` ({ companyId, closedAt }).
+      this.prisma.vendasLead.count({ where: fechados }), // tenant-scope-allow: escopo vem de `fechados` ({ companyId, closedAt }).
+      this.prisma.vendasLead.groupBy({ // tenant-scope-allow: escopo vem de `fechados` ({ companyId, closedAt }).
         by: ['closureReason'],
         where: { ...fechados, closureReason: { not: null } },
         _count: { _all: true },
       }),
-      this.prisma.vendasLead.findMany({
+      this.prisma.vendasLead.findMany({ // tenant-scope-allow: escopo vem de `fechados` ({ companyId, closedAt }).
         where: { ...fechados, assignedUserId: { not: null } },
         select: { assignedUserId: true },
         distinct: ['assignedUserId'],

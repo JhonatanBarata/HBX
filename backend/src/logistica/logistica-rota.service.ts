@@ -1617,7 +1617,7 @@ export class LogisticaRotaService {
       // dia for (re)iniciado.
       const encerrouRota = !(input.skipRoute || (exactDeliveryIds && alvosEfetivos.length === 0));
       const rotas = encerrouRota
-        ? await tx.logisticaRoute.updateMany({
+        ? await tx.logisticaRoute.updateMany({ // tenant-scope-allow: escopo vem de `rotaCarregada` ({ companyId, routeDate, ... }).
             where: rotaCarregada,
             data: { operationalEndedAt: new Date() },
           })

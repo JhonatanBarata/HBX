@@ -524,7 +524,7 @@ export class LogisticaFechamentoDiaService {
 
     let nome: string | null = null;
     if (userId) {
-      const user = await this.prisma.user.findFirst({ where: { id: userId }, select: { name: true } });
+      const user = await this.prisma.user.findFirst({ where: { id: userId, companyId }, select: { name: true } });
       nome = String(user?.name || '').trim() || null;
     }
     return { elegivel: true, nome };
