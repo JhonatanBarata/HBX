@@ -9,7 +9,8 @@ export type LogisticaRealScreen =
   | "rota"
   | "folha"
   | "caderneta"
-  | "torre";
+  | "torre"
+  | "torreFone";
 
 const GPS_PREVIEW_VERSION = "20260808-loop-3";
 const TORRE_PREVIEW_VERSION = "20260817-cena-1";
@@ -20,8 +21,9 @@ function sourceFor(screen: LogisticaRealScreen, themeMode: "dark" | "light") {
   }
   // Torre de controle é a cena do GESTOR (paisagem, mock próprio) — quem
   // troca a proporção do berço é o CSS do /rota via data-demo="torre".
-  if (screen === "torre") {
-    return `/demos/hbx-torre-controle.html?luz=${themeMode === "dark" ? "escuro" : "claro"}&v=${TORRE_PREVIEW_VERSION}`;
+  if (screen === "torre" || screen === "torreFone") {
+    const fone = screen === "torreFone" ? "&fone=1" : "";
+    return `/demos/hbx-torre-controle.html?luz=${themeMode === "dark" ? "escuro" : "claro"}${fone}&v=${TORRE_PREVIEW_VERSION}`;
   }
   return `/demos/hbx-logistica-real.html?tela=${screen}&luz=${themeMode === "dark" ? "escuro" : "claro"}`;
 }

@@ -3,7 +3,7 @@
 /* Logado nunca vê a landing (W1): o boot inline de app/page.tsx marca o <html>
    e navega pro /dashboard ANTES da pintura — isto esconde a casca no meio-tempo
    (só layout, cor nenhuma). */
-html[data-hbx-authed] .public-entry { display: none; }
+html[data-hbx-authed] .public-entry { overflow-x: clip; display: none; }
 
 .public-entry {
   --f1-bg: var(--hbx-background);
@@ -563,6 +563,91 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .public-entry[data-logi="torre"] .f1-screen-head { display: none; }
 .public-entry[data-logi="torre"] .f1-product__content { padding: 10px; }
 .public-entry[data-logi="torre"] .f1-screen-slot { margin-top: 0; height: 100%; }
+
+/* ==========================================================================
+   AS TELAS GRANDES DO HBX ROTA — a irmã de desktop de cada tela do celular.
+   Mesma família das telas do Desktop (.f1-screen): borda, raio, fundo e
+   sombra saem dos mesmos tokens.
+   ========================================================================== */
+.f1-rota-screen { display: grid; min-height: 0; padding: 12px; gap: 10px; align-content: stretch; }
+.f1-rota-screen > * { min-height: 0; }
+.f1-rota-lista__topo { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* Prospector — o corredor da rota e as empresas achadas nele */
+.f1-rota-prospector { grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); }
+.f1-rota-mapa { position: relative; overflow: hidden; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface-up); }
+.f1-rota-mapa svg { width: 100%; height: 100%; display: block; }
+.f1-rota-mapa__rua { fill: none; stroke: var(--f1-line-strong); stroke-width: 9; stroke-linecap: round; }
+.f1-rota-mapa__corredor { fill: none; stroke: var(--f1-accent); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; opacity: 0.85; }
+.f1-rota-pino { position: absolute; width: 11px; height: 11px; border: 2px solid var(--f1-surface-solid); border-radius: 50%; background: var(--f1-success); box-shadow: 0 0 0 4px color-mix(in srgb, var(--f1-success) 22%, transparent); animation: f1-card-float 4s ease-in-out infinite; }
+.f1-rota-pino--um { left: 44%; top: 24%; }
+.f1-rota-pino--dois { left: 72%; top: 22%; animation-delay: -1.3s; }
+.f1-rota-pino--tres { left: 26%; top: 79%; animation-delay: -2.6s; }
+.f1-rota-lista { display: grid; align-content: start; gap: 8px; min-width: 0; }
+.f1-rota-lista article { display: grid; gap: 3px; padding: 10px 11px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); box-shadow: 0 10px 24px var(--f1-shadow-soft); animation: f1-kanban-in 0.8s var(--f1-ease) both; }
+.f1-rota-lista article:nth-child(3) { animation-delay: 0.12s; }
+.f1-rota-lista article:nth-child(4) { animation-delay: 0.24s; }
+.f1-rota-lista article > span { display: flex; min-width: 0; align-items: baseline; justify-content: space-between; gap: 8px; }
+.f1-rota-lista small { overflow: hidden; color: var(--f1-text-soft); font-family: var(--font-mono, monospace); font-size: var(--hbx-font-min); text-overflow: ellipsis; white-space: nowrap; }
+.f1-rota-lista strong { overflow: hidden; font-size: 0.8rem; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+.f1-rota-lista b { color: var(--f1-accent); font-size: var(--hbx-font-min); font-weight: 800; white-space: nowrap; }
+
+/* Montar rota — a fila do dia e o resumo do que vai pra rua */
+.f1-rota-montagem { grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr); }
+.f1-rota-paradas { display: grid; align-content: start; gap: 8px; min-width: 0; }
+.f1-rota-paradas ol { display: grid; margin: 0; padding: 0; gap: 6px; list-style: none; }
+.f1-rota-paradas li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); animation: f1-kanban-in 0.7s var(--f1-ease) both; }
+.f1-rota-paradas li:nth-child(2) { animation-delay: 0.1s; }
+.f1-rota-paradas li:nth-child(3) { animation-delay: 0.2s; }
+.f1-rota-paradas li:nth-child(4) { animation-delay: 0.3s; }
+.f1-rota-paradas li.is-arrastando { border-color: var(--f1-accent); background: var(--f1-surface-up); box-shadow: 0 14px 30px var(--f1-shadow); transform: translateX(6px); }
+.f1-rota-paradas i { display: grid; width: 22px; height: 22px; place-items: center; border-radius: 50%; color: var(--f1-text-soft); background: var(--f1-surface-up); font-size: var(--hbx-font-min); font-style: normal; font-weight: 800; }
+.f1-rota-paradas li.is-arrastando i { color: var(--f1-accent-ink); background: var(--f1-accent); }
+.f1-rota-paradas li > span { display: grid; min-width: 0; gap: 1px; }
+.f1-rota-paradas strong { overflow: hidden; font-size: 0.78rem; font-weight: 720; text-overflow: ellipsis; white-space: nowrap; }
+.f1-rota-paradas small { overflow: hidden; color: var(--f1-text-soft); font-size: var(--hbx-font-min); text-overflow: ellipsis; white-space: nowrap; }
+.f1-rota-paradas b { color: var(--f1-text-soft); font-family: var(--font-mono, monospace); font-size: var(--hbx-font-min); }
+.f1-rota-resumo, .f1-rota-conferido, .f1-rota-vasilhame { display: grid; align-content: start; gap: 7px; min-width: 0; }
+.f1-rota-resumo article, .f1-rota-conferido article, .f1-rota-vasilhame article { display: grid; gap: 1px; padding: 8px 10px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); }
+.f1-rota-resumo small, .f1-rota-conferido small, .f1-rota-vasilhame small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.f1-rota-resumo strong, .f1-rota-conferido strong, .f1-rota-vasilhame strong { font-size: 0.95rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.f1-rota-vasilhame article.is-saldo strong { color: var(--f1-accent); }
+.f1-rota-botao { display: grid; min-height: 34px; place-items: center; border-radius: var(--f1-radius-sm); color: var(--f1-accent-ink); background: var(--f1-accent); font-size: 0.78rem; font-weight: 800; }
+
+/* Entregar — a prova que fica arquivada e o vasilhame que anda com ela */
+.f1-rota-entregar { grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr); }
+.f1-rota-prova { display: grid; align-content: start; gap: 10px; padding: 12px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); box-shadow: 0 14px 30px var(--f1-shadow-soft); }
+.f1-rota-prova header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.f1-rota-prova header > span { display: grid; min-width: 0; gap: 2px; }
+.f1-rota-prova header small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.f1-rota-prova header strong { overflow: hidden; font-size: 0.92rem; font-weight: 780; text-overflow: ellipsis; white-space: nowrap; }
+.f1-rota-prova header b.is-ok { display: inline-flex; flex: none; padding: 5px 10px; border-radius: 999px; color: var(--f1-success); background: color-mix(in srgb, var(--f1-success) 14%, transparent); font-size: var(--hbx-font-min); font-weight: 800; }
+.f1-rota-prova__grade { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 9px; }
+.f1-rota-prova__foto { position: relative; overflow: hidden; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: linear-gradient(140deg, var(--f1-surface-up), var(--f1-surface)); aspect-ratio: 4 / 3; }
+.f1-rota-prova__foto i { position: absolute; left: 18%; right: 18%; bottom: 14%; height: 46%; border-radius: 6px 6px 3px 3px; background: color-mix(in srgb, var(--f1-accent) 42%, transparent); }
+.f1-rota-prova__foto::after { content: ""; position: absolute; left: 26%; right: 26%; top: 12%; height: 26%; border-radius: 50%; background: color-mix(in srgb, var(--f1-text-soft) 22%, transparent); }
+.f1-rota-prova__assina { display: grid; place-items: center; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface-up); aspect-ratio: 4 / 3; }
+.f1-rota-prova__assina svg { width: 78%; height: auto; }
+.f1-rota-prova__assina path { fill: none; stroke: var(--f1-text); stroke-width: 2.4; stroke-linecap: round; stroke-dasharray: 210; stroke-dashoffset: 210; animation: f1-assina 1.5s 0.3s var(--f1-ease) forwards; }
+@keyframes f1-assina { to { stroke-dashoffset: 0; } }
+.f1-rota-prova footer { display: flex; justify-content: space-between; gap: 10px; padding-top: 9px; border-top: 1px solid var(--f1-line); }
+.f1-rota-prova footer span { display: grid; gap: 1px; }
+.f1-rota-prova footer small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.f1-rota-prova footer strong { font-family: var(--font-mono, monospace); font-size: 0.85rem; font-weight: 800; }
+
+/* Fechar o dia — o caixa conferido contra o que foi pra rua */
+.f1-rota-fechar { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); }
+.f1-rota-caixa { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; min-width: 0; }
+.f1-rota-caixa__grade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 7px; }
+.f1-rota-caixa__grade article { display: grid; gap: 1px; padding: 8px 10px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); animation: f1-kanban-in 0.7s var(--f1-ease) both; }
+.f1-rota-caixa__grade article:nth-child(2) { animation-delay: 0.09s; }
+.f1-rota-caixa__grade article:nth-child(3) { animation-delay: 0.18s; }
+.f1-rota-caixa__grade article:nth-child(4) { animation-delay: 0.27s; }
+.f1-rota-caixa__grade small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.f1-rota-caixa__grade strong { font-size: 0.95rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.f1-rota-caixa footer { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 8px 11px; border: 1px solid var(--f1-line-strong); border-radius: var(--f1-radius-sm); background: var(--f1-surface-up); }
+.f1-rota-caixa footer span { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.f1-rota-caixa footer strong { color: var(--f1-accent); font-size: 1.02rem; font-weight: 850; font-variant-numeric: tabular-nums; }
 
 /* ==========================================================================
    O QUE ACONTECE NA RUA — faixa de dados. Número, frase e fonte; nada entra

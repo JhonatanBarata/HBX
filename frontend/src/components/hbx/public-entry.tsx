@@ -90,8 +90,20 @@ const ADS_LOGI: Record<LogisticaRealScreen, { lines: [string, string, string]; s
   montagem: { lines: ["Monte", "o dia", "em um toque."], subline: "A ordem das paradas sai pronta." },
   folha: { lines: ["Entregue", "com prova", "na mão."], subline: "Foto, assinatura e código a cada parada." },
   torre: { lines: ["Veja", "a rua", "em tempo real."], subline: "Desvio, parada não prevista e o motorista no mapa." },
+  torreFone: { lines: ["Veja", "a rua", "em tempo real."], subline: "Desvio, parada não prevista e o motorista no mapa." },
   caderneta: { lines: ["Feche", "o caixa", "no fim do dia."], subline: "Dinheiro, Pix, cartão e fiado conferidos." },
   rota: { lines: ["Rota", "pronta", "todo dia."], subline: "A operação inteira na palma da mão." },
+};
+
+// O que a irmã grande de cada tela do celular mostra no monitor.
+const LOGI_DESKTOP: Record<LogisticaRealScreen, string> = {
+  prospector: "Empresas do corredor.",
+  montagem: "A rota do dia.",
+  folha: "A prova da entrega.",
+  torre: "A rua em tempo real.",
+  torreFone: "A rua em tempo real.",
+  caderneta: "O caixa do dia.",
+  rota: "A rota do dia.",
 };
 
 const PROVAS: Array<{ icon: IconName; texto: string }> = [
@@ -224,6 +236,106 @@ function BillingScreen() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// AS TELAS DE DESKTOP DO HBX ROTA. Cada tela do celular tem a irmã grande: o
+// motorista faz, o gestor confere. Tudo com as classes do tema — nenhuma cor
+// nasce aqui.
+// ---------------------------------------------------------------------------
+function RotaProspectorScreen() {
+  return (
+    <div className="f1-screen f1-rota-screen f1-rota-prospector">
+      <div className="f1-rota-mapa" aria-hidden="true">
+        <svg viewBox="0 0 460 260">
+          <path className="f1-rota-mapa__rua" d="M-10 70h480M-10 150h480M-10 218h480M90-10v280M215-10v280M340-10v280" />
+          <path className="f1-rota-mapa__corredor" d="M20 218h195V70h225" />
+        </svg>
+        <span className="f1-rota-pino f1-rota-pino--um" />
+        <span className="f1-rota-pino f1-rota-pino--dois" />
+        <span className="f1-rota-pino f1-rota-pino--tres" />
+      </div>
+      <div className="f1-rota-lista">
+        <span className="f1-rota-lista__topo">4 empresas no corredor</span>
+        <article><strong>Pet Shop Amigo Fiel</strong><span><small>28.192.110/0001-11</small><b>(11) 95555-0669</b></span></article>
+        <article><strong>Auto Center Avenida</strong><span><small>68.043.458/0001-03</small><b>(11) 95555-0347</b></span></article>
+        <article><strong>Mercado Bela Vista</strong><span><small>12.660.907/0001-70</small><b>(11) 95555-0912</b></span></article>
+      </div>
+    </div>
+  );
+}
+
+function RotaMontagemScreen() {
+  return (
+    <div className="f1-screen f1-rota-screen f1-rota-montagem">
+      <div className="f1-rota-paradas">
+        <span className="f1-rota-lista__topo">Rota de hoje · 23 paradas</span>
+        <ol>
+          <li><i>1</i><span><strong>João da Silva</strong><small>R. das Acácias, 218</small></span><b>08:10</b></li>
+          <li><i>2</i><span><strong>Mercadinho Bom Preço</strong><small>Av. Campos Sales, 90</small></span><b>08:26</b></li>
+          <li className="is-arrastando"><i>3</i><span><strong>Maria Aparecida</strong><small>R. Barão de Itapura, 41</small></span><b>08:41</b></li>
+          <li><i>4</i><span><strong>Padaria Rio Novo</strong><small>R. Quatro, 77</small></span><b>08:58</b></li>
+        </ol>
+      </div>
+      <aside className="f1-rota-resumo">
+        <article><small>Distância</small><strong>38,4 km</strong></article>
+        <article><small>Tempo</small><strong>4h12</strong></article>
+        <article><small>Carga do dia</small><strong>180 galões</strong></article>
+        <span className="f1-rota-botao">Iniciar rota</span>
+      </aside>
+    </div>
+  );
+}
+
+function RotaEntregarScreen() {
+  return (
+    <div className="f1-screen f1-rota-screen f1-rota-entregar">
+      <article className="f1-rota-prova">
+        <header><span><small>Parada 3 de 23</small><strong>Maria Aparecida</strong></span><b className="is-ok">Entregue</b></header>
+        <div className="f1-rota-prova__grade">
+          <span className="f1-rota-prova__foto"><i /></span>
+          <span className="f1-rota-prova__assina"><svg viewBox="0 0 120 44" aria-hidden="true"><path d="M6 34c14-26 22 4 33-8s16 14 27 2 18-16 28-6" /></svg></span>
+        </div>
+        <footer><span><small>Código</small><strong>4F2K-90</strong></span><span><small>Recebido às</small><strong>08:41</strong></span></footer>
+      </article>
+      <aside className="f1-rota-vasilhame">
+        <span className="f1-rota-lista__topo">Vasilhames</span>
+        <article><small>Levou</small><strong>3</strong></article>
+        <article><small>Voltou</small><strong>2</strong></article>
+        <article className="is-saldo"><small>Saldo do cliente</small><strong>+1</strong></article>
+      </aside>
+    </div>
+  );
+}
+
+function RotaFecharScreen() {
+  return (
+    <div className="f1-screen f1-rota-screen f1-rota-fechar">
+      <div className="f1-rota-caixa">
+        <span className="f1-rota-lista__topo">Fechamento do dia</span>
+        <div className="f1-rota-caixa__grade">
+          <article><small>Dinheiro</small><strong>R$ 132,00</strong></article>
+          <article><small>Pix</small><strong>R$ 98,00</strong></article>
+          <article><small>Cartão</small><strong>R$ 68,00</strong></article>
+          <article><small>Fiado</small><strong>R$ 38,00</strong></article>
+        </div>
+        <footer><span>Total do dia</span><strong>R$ 336,00</strong></footer>
+      </div>
+      <aside className="f1-rota-conferido">
+        <article><small>Entregas</small><strong>23</strong></article>
+        <article><small>Comprovantes</small><strong>23</strong></article>
+        <article><small>Vasilhames na rua</small><strong>14</strong></article>
+        <span className="f1-rota-botao">Fechar o caixa</span>
+      </aside>
+    </div>
+  );
+}
+
+const ROTA_SCREENS: Partial<Record<LogisticaRealScreen, () => React.JSX.Element>> = {
+  prospector: RotaProspectorScreen,
+  montagem: RotaMontagemScreen,
+  folha: RotaEntregarScreen,
+  caderneta: RotaFecharScreen,
+};
+
 function StageVisual({ stage }: { stage: StageKey }) {
   if (stage === "radar") return <RadarScreen />;
   if (stage === "vendas") return <SalesScreen />;
@@ -262,7 +374,8 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
   const stage = noRota ? STAGES[3] : STAGES[stageIndex];
   const ad = noRota && logi ? ADS_LOGI[logi] : ADS[stage.key];
   const naTorre = logi === "torre";
-  const noFone: LogisticaRealScreen = !logi || naTorre ? "prospector" : logi;
+  const noFone: LogisticaRealScreen = naTorre ? "torreFone" : (logi ?? "prospector");
+  const RotaDesktop = logi ? ROTA_SCREENS[logi] : undefined;
 
   // Logado nunca vê a landing: cargas de documento são resolvidas pelo boot
   // inline de app/page.tsx (antes da pintura); este efeito cobre a navegação
@@ -412,15 +525,17 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
               <section className="f1-product__content">
                 <header className="f1-screen-head">
                   <span>
-                    <small>{naTorre ? "Gestor" : stage.eyebrow}</small>
-                    <strong>{naTorre ? "A rua em tempo real." : stage.title}</strong>
+                    <small>{logi ? "No computador" : stage.eyebrow}</small>
+                    <strong>{logi ? LOGI_DESKTOP[logi] : stage.title}</strong>
                   </span>
-                  <b><i /> {naTorre ? "Rota em andamento" : stage.signal}</b>
+                  <b><i /> {logi ? "Rota em andamento" : stage.signal}</b>
                 </header>
-                <div className="f1-screen-slot" key={naTorre ? "torre" : stage.key}>
+                <div className="f1-screen-slot" key={logi ?? stage.key}>
                   {naTorre
                     ? <LogisticaRealPreview className="f1-torre-frame" screen="torre" themeMode={themeMode} />
-                    : <StageVisual stage={stage.key} />}
+                    : RotaDesktop
+                      ? <RotaDesktop />
+                      : <StageVisual stage={stage.key} />}
                 </div>
               </section>
             </div>
