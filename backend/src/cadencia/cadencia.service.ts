@@ -18,6 +18,8 @@ import type { AplicarCadenciaDto, CreateCadenciaDto, UpdateCadenciaDto } from '.
 import { CommercialContactControlService } from '../vendas/commercial-contact-control.service';
 import { AgendaDisparoService } from '../vendas/agenda-disparo.service';
 import { PersonaIaService } from '../vendas/persona-ia.service';
+import { reservarVarianteDeAbertura } from '../vendas/vendas-copy-reserva';
+import { WaColdContactGateService, normalizeColdText, businessDayStartUtc } from '../messaging/wa-cold-contact-gate.service';
 import { VendasContactSuppressionService } from '../vendas/vendas-contact-suppression.service';
 import { automationFlag } from '../automation/automation-flags';
 
@@ -88,6 +90,11 @@ export class CadenciaService {
   // {{funcionario}} agora; plain class fora do grafo de DI, padrão do arquivo.
   private readonly personaIa: PersonaIaService;
 
+  // R5 (17/08/2026): a régua de carimbo do gate anti-ban vale TAMBÉM na hora de
+  // agendar em massa. Uma régua só para "esse texto já saiu?" — duas réguas é
+  // como nasce "passou no preparo e o freio cancelou no envio, um por um".
+  private readonly coldGate: WaColdContactGateService;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly conversations: ConversationsService,
@@ -106,6 +113,99 @@ export class CadenciaService {
     this.agendaDisparo = new AgendaDisparoService(this.prisma);
     this.contactSuppression = new VendasContactSuppressionService(this.prisma);
     this.personaIa = new PersonaIaService(this.prisma);
+    this.coldGate = new WaColdContactGateService(this.prisma as any);
+  }
+
+  // ── R5 — O DEPÓSITO DE TEXTO (17/08/2026) ─────────────────────────────────
+  // As variantes de primeiro contato ainda moram no `filtersJson` da campanha
+  // aposentada (ela virou DEPÓSITO em 25/07 — não dispara mais nada). Enquanto a
+  // F3 do PR17082026 não muda a casa delas pra dentro da cadência, este é o
+  // ÚNICO leitor do depósito no caminho de massa. Variante pausada carrega um
+  // caractere de controle no começo (o dono desliga sem perder o texto).
+  private async lerVariantesDeAbertura(companyId: number): Promise<string[]> {
+    const campaign = await (this.prisma as any).vendasAutomationCampaign
+      ?.findFirst?.({ where: { companyId }, orderBy: { updatedAt: 'desc' }, select: { filtersJson: true } })
+      .catch(() => null);
+    let filters: Record<string, any> = {};
+    const raw = (campaign as any)?.filtersJson;
+    if (raw && typeof raw === 'object') filters = raw as Record<string, any>;
+    else if (raw) {
+      try {
+        filters = JSON.parse(String(raw)) || {};
+      } catch {
+        filters = {};
+      }
+    }
+    const brutas = Array.isArray(filters?.firstContactVariants) ? filters.firstContactVariants : [];
+    return brutas
+      .map((v: unknown) => String(v || ''))
+      .filter((v: string) => v && v.charCodeAt(0) !== 1)
+      .map((v: string) => v.trim())
+      .filter(Boolean);
+  }
+
+  // O que já saiu (ou já está agendado) na janela de carimbo, normalizado. Mesma
+  // fonte que o gate consulta na hora do envio.
+  private async lerCopiasFriasRecentes(companyId: number): Promise<string[]> {
+    const rows = await (this.prisma as any).whatsAppAuditLog
+      ?.findMany?.({
+        where: {
+          companyId,
+          scope: 'dispatch',
+          event: { in: ['cold_contact_sent', 'cold_contact_scheduled'] },
+          createdAt: { gte: new Date(Date.now() - this.coldGate.similarityWindowMs()) },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 40,
+        select: { metadata: true },
+      })
+      .catch(() => []);
+    const textos: string[] = [];
+    for (const row of rows || []) {
+      try {
+        const texto = String(JSON.parse(String(row?.metadata || '{}'))?.extra?.textNorm || '');
+        if (texto) textos.push(texto);
+      } catch {
+        // metadata podre não invalida a checagem das outras
+      }
+    }
+    return textos;
+  }
+
+  // Dia civil de São Paulo (-03) do slot — a cota de texto é POR DIA, e dia é o
+  // do dono, nunca o UTC do container ([[teste-verde-no-meu-fuso-nao-vale]]).
+  private diaDoSlot(quando: Date): string {
+    return new Date(quando.getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  }
+
+  // Quantos disparos automáticos JÁ SAÍRAM hoje, por empresa — lido do banco, não
+  // da memória do processo. É o que faz o teto do runner ser diário de verdade
+  // (e sobreviver a restart, que era a outra metade do buraco de 17/08).
+  // Best-effort com fail-closed brando: falha de leitura devolve o teto CHEIO
+  // como já gasto, ou seja, o runner segura o dia em vez de liberar às cegas.
+  private async lerEnviosAutomaticosDeHoje(companyIds: number[]): Promise<Map<number, number>> {
+    const mapa = new Map<number, number>();
+    if (!companyIds.length) return mapa;
+    const inicioDoDia = businessDayStartUtc(new Date());
+    for (const companyId of companyIds) {
+      try {
+        const total = await (this.prisma as any).whatsAppAuditLog.count({
+          where: {
+            companyId,
+            scope: 'dispatch',
+            event: 'cold_contact_sent',
+            createdAt: { gte: inicioDoDia },
+          },
+        });
+        mapa.set(companyId, Math.max(0, Math.trunc(Number(total) || 0)));
+      } catch (error) {
+        this.logger.warn(
+          `[cadencia-runner] falha ao ler a cota de hoje (company=${companyId}) — segurando o dia: ${String((error as any)?.message || error)}`,
+        );
+        mapa.set(companyId, CADENCIA_WHATS_DAILY_CAP_PER_COMPANY);
+      }
+    }
+    return mapa;
   }
 
   private get runnerEnabled(): boolean {
@@ -313,12 +413,33 @@ export class CadenciaService {
 
     const now = new Date();
     const firstDay = passos[0]?.dia ?? 0;
-    const nextStepAt = this.addDays(now, firstDay);
     const responsavelDefault = dto?.responsavelId != null ? Number(dto.responsavelId) : null;
+
+    // ── R3 (17/08/2026) — SELECIONAR NÃO É ENVIAR ────────────────────────────
+    // O QUE ESTA LINHA CUSTOU: 17/08 17:39, "Selecionar visíveis" + Aplicar
+    // inscreveu 124 leads com `nextStepAt = addDays(now, 0)` — ou seja, TODOS
+    // devidos NO MESMO INSTANTE — e o runner cuspiu 126 mensagens idênticas pelo
+    // chip do dono. A porta certa já existia ao lado (`ligarRoboForUser`: reserva
+    // slot na agenda e reserva variante de texto), mas só atendia 1 lead por vez;
+    // a porta de massa não passava por nenhuma das duas.
+    //
+    // Agora massa e unitário usam a MESMA régua: cada lead recebe um HORÁRIO
+    // reservado na agenda (janela + teto/dia + intervalo com jitter humano) e um
+    // TEXTO que ninguém usou naquele dia. Selecionar 240 leads passa a encher o
+    // calendário das próximas semanas, nunca o minuto atual.
+    const variantes = await this.lerVariantesDeAbertura(context.companyId);
+    const usadasPorDia = new Map<string, string[]>();
+    // O que já saiu nas últimas horas conta como "usado hoje" — a régua de
+    // carimbo é do CHIP, não desta chamada.
+    usadasPorDia.set(this.diaDoSlot(now), await this.lerCopiasFriasRecentes(context.companyId));
 
     let inscritos = 0;
     let jaInscritos = 0;
     let conflitosAutomacao = 0;
+    let primeiroSlot: Date | null = null;
+    let ultimoSlot: Date | null = null;
+    let semTextoNovo = 0;
+
     for (const lead of validLeads) {
       const responsavelId = responsavelDefault ?? lead.assignedUserId ?? null;
       const slot = await this.commercialContactControl.createCadenciaInscricao({
@@ -332,19 +453,78 @@ export class CadenciaService {
           status: 'ativa',
           currentStep: 0,
           startedAt: now,
-          nextStepAt,
+          // Provisório: o horário DEFINITIVO sai da agenda logo abaixo, dentro do
+          // mutex por empresa. Gravar o pedido aqui já faz a linha ocupar lugar
+          // para quem estiver reservando em paralelo (mesma manobra do unitário).
+          nextStepAt: this.addDays(now, firstDay),
         },
       });
-      if (slot.created) {
-        inscritos += 1;
-      } else if (slot.alreadyEnrolled) {
-        jaInscritos += 1;
-      } else {
-        conflitosAutomacao += 1;
+      if (!slot.created) {
+        if (slot.alreadyEnrolled) jaInscritos += 1;
+        else conflitosAutomacao += 1;
+        continue;
       }
+      inscritos += 1;
+
+      const inscricaoId = String((slot as any).row?.id || '').trim();
+      if (!inscricaoId) continue;
+
+      // 1) O HORÁRIO — a agenda é quem manda, não o clique.
+      const reserva = await this.agendaDisparo.reservarProximoSlot({
+        companyId: context.companyId,
+        inscricaoId,
+        desiredAt: now,
+        now,
+      });
+      const quando = reserva.slot;
+      if (!primeiroSlot || quando < primeiroSlot) primeiroSlot = quando;
+      if (!ultimoSlot || quando > ultimoSlot) ultimoSlot = quando;
+
+      // 2) O TEXTO — variante inédita NO DIA em que o disparo vai sair. A janela
+      // de carimbo é de 24h, então a mesma variante pode voltar dias depois; o
+      // que não pode é sair duas vezes igual no mesmo dia (foi o blast).
+      const diaKey = this.diaDoSlot(quando);
+      const usadas = usadasPorDia.get(diaKey) ?? [];
+      const escolha = reservarVarianteDeAbertura({
+        variantes,
+        usadasNorm: usadas,
+        threshold: this.coldGate.similarityThreshold(),
+        minLen: this.coldGate.similarityMinLen(),
+      });
+      if (escolha.ok === false) {
+        // Sem texto novo pra este dia: a inscrição FICA (o horário já é dela),
+        // mas sem `aberturaCopy` o runner cairia no corpo fixo do passo — que é
+        // exatamente o carimbo. Melhor adiar do que repetir: empurra pro próximo
+        // dia útil, onde a cota de texto está limpa.
+        semTextoNovo += 1;
+        await this.agendaDisparo.reservarProximoDiaUtil({
+          companyId: context.companyId,
+          inscricaoId,
+          from: quando,
+          extraData: { lastError: 'sem_variante_de_texto_no_dia' },
+        });
+        continue;
+      }
+      await (this.prisma as any).cadenciaInscricao
+        .updateMany({ where: { id: inscricaoId, status: 'ativa' }, data: { aberturaCopy: escolha.variante } })
+        .catch(() => null);
+      usadas.push(normalizeColdText(escolha.variante));
+      usadasPorDia.set(diaKey, usadas);
     }
 
-    return { ok: true, inscritos, jaInscritos, conflitosAutomacao, total: validLeads.length, runnerEnabled: this.runnerEnabled };
+    return {
+      ok: true,
+      inscritos,
+      jaInscritos,
+      conflitosAutomacao,
+      total: validLeads.length,
+      runnerEnabled: this.runnerEnabled,
+      // A tela precisa dizer QUANDO isto vai acontecer — "agendei 124" sem data é
+      // como o dono descobriu o blast: pelo WhatsApp apitando.
+      primeiroDisparoAt: primeiroSlot ? primeiroSlot.toISOString() : null,
+      ultimoDisparoAt: ultimoSlot ? ultimoSlot.toISOString() : null,
+      adiadosPorFaltaDeTexto: semTextoNovo,
+    };
   }
 
   // Cancela a inscricao de um lead (ou de toda a cadencia).
@@ -433,7 +613,19 @@ export class CadenciaService {
     let emailSent = 0;
     let concluded = 0;
     let failed = 0;
-    const whatsSentByCompany = new Map<number, number>();
+    // ── O TETO DIÁRIO ERA UM TETO POR MINUTO (bug achado em 17/08/2026) ───────
+    // Este Map nasce vazio A CADA TICK do runner (60s). O comentário lá em cima
+    // promete "teto DURO por empresa/DIA = 10", mas o contador zerava a cada
+    // giro: o teto real era 10 por empresa por MINUTO. Com 124 inscrições
+    // vencidas ao mesmo tempo, 60 tiques de um minuto entregam 600 mensagens sem
+    // que nada "estoure" — foi assim que 126 saíram achando que o teto segurava.
+    //
+    // Agora o contador NASCE do que já foi enviado hoje de verdade (a cota
+    // persistente do gate anti-ban, que sobrevive a restart e a publish). Mesma
+    // fonte que o freio do envio consulta: um número, uma verdade.
+    const whatsSentByCompany = await this.lerEnviosAutomaticosDeHoje(
+      Array.from(new Set(due.map((d) => Number(d.companyId)).filter((n) => Number.isFinite(n)))),
+    );
     const emailSentByCompany = new Map<number, number>();
 
     for (const insc of due) {

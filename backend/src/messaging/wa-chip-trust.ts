@@ -67,10 +67,31 @@ export function tetoDoChip(input: TetoDoChipInput = {}): number {
   const max = inteiroSeguro(input.max, CHIP_TRUST_MAX_PADRAO, 1);
   const base = Math.min(max, inteiroSeguro(input.base, CHIP_TRUST_BASE_PADRAO, 1));
   const configurado = inteiroSeguro(input.limiteConfigurado, 0, 1);
+  const ganhoBruto = inteiroSeguro(input.conversasComResposta, 0, 0);
+
+  // ── CHIP SEM HISTÓRIA NÃO DISPARA. TETO ZERO. (17/08/2026) ────────────────
+  // Custou o chip da Maria Clara (5519920064405): 12 dias pareado e MUDO, zero
+  // conversa humana, e a PRIMEIRA ação da vida dele foi um texto frio pra
+  // desconhecido. `stream:error 401 / device_removed` no MESMO minuto — não houve
+  // volume nenhum, foi 1 mensagem. O que a Meta pontuou foi o PERFIL: número sem
+  // história fazendo abertura por multi-device é a assinatura exata de descartável.
+  //
+  // A base de 6 era a porta: `tetoDoChip({})` devolvia 6 pra um chip que nunca
+  // recebeu resposta de ninguém. Confiança se GANHA — quem tem zero conversa de
+  // volta tem zero, e a rampa começa do primeiro humano que responder.
+  //
+  // Isto NÃO tranca ninguém: envio HUMANO não passa por aqui. O caminho pra
+  // destravar é o certo (e é o que o mercado chama de aquecimento) — a pessoa usa
+  // o chip como gente por alguns dias, gente responde, o teto sobe sozinho.
+  //
+  // Vence até a trava removida DE PROPÓSITO: `coldWarmupOff` é o direito da
+  // pessoa de acelerar um chip que JÁ tem história, nunca de mandar um recém-
+  // nascido pro abate. Sem esta ordem, a chavinha vira a porta dos fundos do freio.
+  if (ganhoBruto <= 0) return 0;
+
   if (input.travaRemovida === true && configurado > 0) return configurado;
   const tetoDaRampa = configurado > 0 ? Math.min(max, Math.max(base, Math.floor(configurado / 2))) : max;
-  const ganho = inteiroSeguro(input.conversasComResposta, 0, 0);
-  return Math.min(tetoDaRampa, base + ganho);
+  return Math.min(tetoDaRampa, base + ganhoBruto);
 }
 
 /**

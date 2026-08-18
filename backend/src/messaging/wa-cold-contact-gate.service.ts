@@ -20,7 +20,12 @@ import {
  *
  * FRIO = mensagem comercial para um número com quem este tenant NUNCA trocou mensagem
  * (nenhum INBOUND em qualquer conversa do número; nenhum OUTBOUND já entregue).
- * Responder quem já falou com a empresa NUNCA é travado aqui.
+ *
+ * ⚠️ AMPLIAÇÃO 17/08/2026 (R2 do PR17082026-DISPARO-FUNIL-UNICO) — as três regras
+ * abaixo valem para TODO DISPARO AUTOMÁTICO (senderType != 'human'), frio OU para
+ * contato conhecido. Antes valiam só para o frio, e foi por aí que 126 mensagens
+ * idênticas saíram num minuto para leads "conhecidos" do funil. Quem digita segue
+ * livre: responder quem já falou com a empresa NUNCA é travado aqui.
  *
  * Três regras, todas por EMPRESA (dia-negócio no fuso do dono, UTC-3):
  *   1. TETO DIÁRIO de contatos frios (default 10 — número do dono, 30/07).
@@ -390,7 +395,25 @@ export class WaColdContactGateService {
       to: input.to,
       currentCompanyMessageId: input.currentCompanyMessageId ?? null,
     });
-    if (!cold) return { allow: true, cold: false };
+
+    // ── R2 (17/08/2026) — O TETO É DE TODO DISPARO AUTOMÁTICO, NÃO SÓ DO FRIO ──
+    // INCIDENTE QUE ESCREVEU ESTA LINHA: 17/08 17:39, seleção em massa no
+    // /automacao → 126 mensagens IDÊNTICAS pelo chip do dono em ~16 minutos,
+    // atravessando este gate INTEIRO. Nada falhou: os leads do funil já tinham
+    // conversa no histórico (inclusive conversa importada pelo sync do motor),
+    // então `cold=false` e o `return` daqui pulava teto + espaçamento + trava de
+    // copy DE UMA VEZ. Resultado: contato "conhecido" não tinha limite de volume
+    // NENHUM em todo o caminho comercial — o freio de vazão regula ritmo (8/min),
+    // não volume, e deixou os 126 saírem educadamente.
+    //
+    // A régua certa não é frio×conhecido, é ROBÔ×GENTE. Quem digitou a mensagem
+    // responde por ela e segue livre (responder cliente às 21h é certo — lei da
+    // janela comercial). Quem foi disparado por máquina obedece ao teto do chip,
+    // ao espaçamento e à trava de copy repetida, tenha o contato histórico ou não:
+    // 126 mensagens iguais num chip são 126 mensagens iguais, e a Meta não pergunta
+    // se o número já conversou antes.
+    const automatico = String(input.senderType || '').trim().toLowerCase() !== 'human';
+    if (!cold && !automatico) return { allow: true, cold: false };
 
     const now = Date.now();
     const dayStart = businessDayStartUtc(new Date(now));
@@ -499,12 +522,16 @@ export class WaColdContactGateService {
             scope: 'dispatch',
             event: 'cold_contact_sent',
             level: 'INFO',
-            message: `Primeiro contato frio liberado para ${input.to} (${sentToday + 1}/${plano.teto} hoje${
+            message: `${cold ? 'Primeiro contato frio' : 'Disparo automático'} liberado para ${input.to} (${sentToday + 1}/${plano.teto} hoje${
               plano.porChip ? ` · chip ${tenantKey} · ${plano.conversasComResposta} conversa(s) responderam` : ''
             })`,
             metadata: JSON.stringify({
               extra: {
                 textNorm: bodyNorm.slice(0, 600),
+                // 17/08: a cota deixou de ser só do frio. Guardar o TIPO permite
+                // ler no painel quanto do teto foi abertura e quanto foi robô
+                // falando com contato conhecido — sem isso as duas viram um número só.
+                kind: cold ? 'cold' : 'auto',
                 to: input.to,
                 conversationId: input.conversationId,
                 sourceModule: input.sourceModule || null,
@@ -517,7 +544,7 @@ export class WaColdContactGateService {
         .catch((error: any) => {
           this.logger.warn(`cold-gate: falha ao gravar cota (company=${input.companyId}): ${String(error?.message || error)}`);
         });
-      return { allow: true, cold: true };
+      return { allow: true, cold };
     } catch (error) {
       // FAIL-CLOSED (decisão do dono 30/07/2026 — inverteu o fail-open original).
       // Aqui já se sabe que o contato é FRIO; o que falhou foi LER teto/espaçamento/

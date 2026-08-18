@@ -304,3 +304,87 @@ test('gate desligado por kill-switch continua liberando mesmo com banco fora', a
   const decision = await svc.evaluate(COLD_INPUT);
   assert.deepEqual(decision, { allow: true, cold: false });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🔴 VACINA DO BLAST DE 17/08/2026 (R2 — PR17082026-DISPARO-FUNIL-UNICO)
+//
+// A CENA: 17:39, o dono seleciona ~124 leads na tela /automacao e 126 mensagens
+// IDÊNTICAS saem pelo chip dele em ~16 minutos. Este gate rodou em TODAS elas e
+// liberou TODAS: os leads do funil já tinham conversa no histórico (`cold=false`)
+// e o `return` de contato conhecido pulava teto + espaçamento + trava de copy.
+//
+// Se estes testes passassem no código de 17/08 de manhã, o blast não teria saído.
+// A régua não é frio×conhecido — é ROBÔ×GENTE.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// O contato do blast: CONHECIDO (já tem conversa) e disparado por MÁQUINA.
+const BLAST_INPUT = {
+  companyId: 5,
+  conversationId: 77,
+  to: '5517981276767',
+  sourceModule: 'vendas_prospeccao_bot',
+  senderType: 'bot',
+  body: 'Olá! Tenho uma ideia que pode encaixar bem no seu negócio. Posso te contar rapidinho?',
+};
+
+test('🔴 BLAST 17/08: robô falando com contato CONHECIDO obedece ao teto do dia', async () => {
+  resetEnv();
+  process.env.HBX_WA_COLD_MAX_PER_DAY = '10';
+  // priorInConversation = o lead JÁ tem histórico. Era exatamente esta linha que
+  // devolvia "allow" sem olhar mais nada.
+  const { prisma, calls } = makePrisma({ priorInConversation: { id: 1 }, coldSentToday: 10 });
+  const svc = new WaColdContactGateService(prisma);
+  const decision = await svc.evaluate(BLAST_INPUT);
+  assert.equal(decision.allow, false, 'contato conhecido NÃO é passe livre para o robô');
+  assert.ok(decision.allow === false && decision.action === 'reschedule');
+  assert.ok(decision.allow === false && decision.reason === 'cold_daily_cap');
+  assert.equal(calls.create.length, 0, 'negado não consome cota');
+});
+
+test('🔴 BLAST 17/08: 126 num minuto morre no ESPAÇAMENTO, mesmo com contato conhecido', async () => {
+  resetEnv();
+  process.env.HBX_WA_COLD_MIN_SPACING_MINUTES = '10';
+  const { prisma } = makePrisma({
+    priorInConversation: { id: 1 },
+    lastColdAt: new Date(Date.now() - 30 * 1000), // 30s atrás = a cara do blast
+  });
+  const svc = new WaColdContactGateService(prisma);
+  const decision = await svc.evaluate(BLAST_INPUT);
+  assert.equal(decision.allow, false);
+  assert.ok(decision.allow === false && decision.action === 'reschedule');
+  assert.ok(decision.allow === false && decision.reason === 'cold_spacing');
+});
+
+test('🔴 BLAST 17/08: a MESMA copy para o 2º conhecido é CANCELADA (carimbo é carimbo)', async () => {
+  resetEnv();
+  const { prisma } = makePrisma({
+    priorInConversation: { id: 1 },
+    recentColdMetadatas: [normalizeColdText(BLAST_INPUT.body)],
+  });
+  const svc = new WaColdContactGateService(prisma);
+  const decision = await svc.evaluate(BLAST_INPUT);
+  assert.equal(decision.allow, false);
+  assert.ok(decision.allow === false && decision.action === 'cancel');
+  assert.ok(decision.allow === false && decision.reason === 'cold_copy_similar');
+});
+
+test('🔴 robô com contato conhecido CONSOME cota — senão o teto do dia é ficção', async () => {
+  resetEnv();
+  const { prisma, calls } = makePrisma({ priorInConversation: { id: 1 } });
+  const svc = new WaColdContactGateService(prisma);
+  const decision = await svc.evaluate(BLAST_INPUT);
+  assert.deepEqual(decision, { allow: true, cold: false }, 'liberou, mas NÃO era frio');
+  assert.equal(calls.create.length, 1, 'todo disparo automático conta no teto do chip');
+  const metadata = JSON.parse(calls.create[0]?.data?.metadata || '{}');
+  assert.equal(metadata?.extra?.kind, 'auto', 'a cota sabe distinguir abertura de robô-em-conversa');
+});
+
+test('🔴 GENTE segue livre: humano respondendo contato conhecido nunca é travado', async () => {
+  resetEnv();
+  process.env.HBX_WA_COLD_MAX_PER_DAY = '10';
+  const { prisma, calls } = makePrisma({ priorInConversation: { id: 1 }, coldSentToday: 999 });
+  const svc = new WaColdContactGateService(prisma);
+  const decision = await svc.evaluate({ ...BLAST_INPUT, sourceModule: 'vendas_human', senderType: 'human' });
+  assert.deepEqual(decision, { allow: true, cold: false }, 'quem digita responde por si — teto é do robô');
+  assert.equal(calls.create.length, 0);
+});

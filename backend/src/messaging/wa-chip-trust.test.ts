@@ -33,9 +33,19 @@ import { WaColdContactGateService, coldQuotaTenantFilter } from './wa-cold-conta
 const HORA = 60 * 60 * 1000;
 const JANELA_8_AS_18 = 10 * HORA;
 
-// ── 1. O teto que se conquista (rampa 6 → 12) ───────────────────────────────
-test('🔴 chip recém-pareado começa em 6 — 3 de manhã + 3 à tarde', () => {
-  assert.equal(tetoDoChip({ conversasComResposta: 0 }), 6);
+// ── 1. O teto que se conquista (rampa 0 → 6 → 12) ───────────────────────────
+// 🔴 17/08/2026 — A REGRA MUDOU POR ORDEM DO INCIDENTE, NÃO POR CONVENIÊNCIA DE
+// TESTE. O chip da Maria Clara morreu (401 device_removed) na PRIMEIRA mensagem
+// da vida dele, com 12 dias pareado e zero conversa humana. Volume não era o
+// vetor: era o PERFIL. Chip sem NENHUMA resposta recebida agora vale 0 — a base
+// de 6 era a porta por onde um chip recém-nascido saía disparando.
+test('🔴 chip SEM HISTÓRIA vale ZERO — não existe disparo automático em chip mudo', () => {
+  assert.equal(tetoDoChip({ conversasComResposta: 0 }), 0);
+  assert.equal(tetoDoChip({}), 0);
+});
+
+test('🔴 a base de 6 só vale DEPOIS da primeira resposta de gente', () => {
+  assert.equal(tetoDoChip({ conversasComResposta: 1 }), 7, 'base 6 + 1 conquistado');
   assert.equal(CHIP_TRUST_BASE_PADRAO, 6);
 });
 
@@ -54,8 +64,8 @@ test('🔴 a rampa para em 12 — confiança não vira barra livre', () => {
 test('🔴 o …884 chega no teto por MEDIÇÃO, não por número cravado', () => {
   // 60+ conversas com resposta, conferido em prod 03/08.
   assert.equal(tetoDoChip({ conversasComResposta: 60 }), 12);
-  // E a prova de que é medido: sem histórico, o MESMO cálculo devolve a base.
-  assert.equal(tetoDoChip({ conversasComResposta: 0 }), 6);
+  // E a prova de que é medido: sem histórico, o MESMO cálculo devolve ZERO.
+  assert.equal(tetoDoChip({ conversasComResposta: 0 }), 0);
 });
 
 // ── 1b. Metade do limite que a pessoa colocou (04/08) ───────────────────────
@@ -68,28 +78,34 @@ test('🔴 chip novo roda METADE do limite configurado pela pessoa', () => {
   assert.equal(tetoDoChip({ conversasComResposta: 999, limiteConfigurado: 8 }), 6);
 });
 
-test('a metade limita a RAMPA, não o começo: chip novo com config alta ainda nasce em 6', () => {
-  assert.equal(tetoDoChip({ conversasComResposta: 0, limiteConfigurado: 40 }), 6);
+test('a metade limita a RAMPA, não o começo: chip com 1 resposta e config alta nasce em 7', () => {
+  assert.equal(tetoDoChip({ conversasComResposta: 1, limiteConfigurado: 40 }), 7);
   assert.equal(tetoDoChip({ conversasComResposta: 3, limiteConfigurado: 16 }), 8, 'cresce até a metade e para');
 });
 
 // ── 1c. Remover a trava é um DIREITO da pessoa (04/08) ──────────────────────
 test('🔴 trava removida: o limite configurado vale CHEIO, sem rampa', () => {
-  assert.equal(tetoDoChip({ conversasComResposta: 0, limiteConfigurado: 40, travaRemovida: true }), 40);
-  assert.equal(tetoDoChip({ conversasComResposta: 0, limiteConfigurado: 16, travaRemovida: true }), 16);
+  assert.equal(tetoDoChip({ conversasComResposta: 1, limiteConfigurado: 40, travaRemovida: true }), 40);
+  assert.equal(tetoDoChip({ conversasComResposta: 1, limiteConfigurado: 16, travaRemovida: true }), 16);
+});
+
+// 🔴 17/08/2026 — A CHAVINHA NÃO É PORTA DOS FUNDOS DO FREIO.
+// `coldWarmupOff` é o direito da pessoa de acelerar um chip que JÁ TEM HISTÓRIA.
+// Aplicá-la a um chip mudo era mandar recém-nascido pro abate com aval da tela.
+test('🔴 trava removida NÃO ressuscita chip mudo — zero história continua zero', () => {
+  assert.equal(tetoDoChip({ conversasComResposta: 0, limiteConfigurado: 40, travaRemovida: true }), 0);
+  assert.equal(tetoDoChip({ conversasComResposta: 0, travaRemovida: true }), 0);
 });
 
 test('trava removida SEM limite configurado não vira barra livre — cai na rampa', () => {
-  assert.equal(tetoDoChip({ conversasComResposta: 0, travaRemovida: true }), 6);
   assert.equal(tetoDoChip({ conversasComResposta: 999, travaRemovida: true }), 12);
 });
 
 test('entrada podre não vira teto maluco', () => {
-  assert.equal(tetoDoChip({ conversasComResposta: -5 }), 6, 'negativo não abaixa do piso');
-  assert.equal(tetoDoChip({ conversasComResposta: Number.NaN }), 6);
-  assert.equal(tetoDoChip({ base: 50, max: 12, conversasComResposta: 0 }), 12, 'base nunca passa o teto');
+  assert.equal(tetoDoChip({ conversasComResposta: -5 }), 0, 'negativo = sem história medida');
+  assert.equal(tetoDoChip({ conversasComResposta: Number.NaN }), 0);
+  assert.equal(tetoDoChip({ base: 50, max: 12, conversasComResposta: 1 }), 12, 'base nunca passa o teto');
   assert.equal(tetoDoChip({ limiteConfigurado: -10, conversasComResposta: 999 }), 12, 'config negativa = sem config');
-  assert.equal(tetoDoChip({}), 6);
 });
 
 // ── 2. O dia inteiro, não a rajada da manhã ─────────────────────────────────
@@ -159,9 +175,11 @@ test('🔴 5 vendedoras na mesma empresa NÃO dividem a mesma cota', async () =>
   const bianca = await gate.planoDoChip(5, 'company-5-user-59');
 
   assert.equal(dono.teto, 12, 'o chip com histórico trabalha');
-  assert.equal(bianca.teto, 6, 'o chip novo entra devagar');
+  // 17/08: o chip mudo não "entra devagar" — ele NÃO entra. Enquanto ninguém
+  // responder pra ele, o robô não fala por ele (foi o que matou a Maria Clara).
+  assert.equal(bianca.teto, 0, 'chip sem uma única resposta não dispara');
   assert.equal(dono.porChip, true);
-  assert.ok(bianca.espacamentoMs > dono.espacamentoMs, 'quanto menor a confiança, mais espaçado');
+  assert.ok(bianca.espacamentoMs >= dono.espacamentoMs, 'quanto menor a confiança, mais espaçado');
 });
 
 test('🔴 o gate lê a CASA: metade do configurado vale no plano do chip', async () => {
@@ -176,7 +194,9 @@ test('🔴 o gate lê a CASA: metade do configurado vale no plano do chip', asyn
 
 test('🔴 trava removida na casa: o gate libera o limite configurado cheio', async () => {
   const { gate } = buildGate({
-    respostasPorChip: { 'company-5-user-59': 0 },
+    // Chip COM história: a trava removida acelera quem já anda, não ressuscita
+    // quem nunca falou com ninguém (17/08).
+    respostasPorChip: { 'company-5-user-59': 4 },
     casa: { dailyLimitPerSender: 30, coldWarmupOff: true },
   });
 
@@ -184,12 +204,22 @@ test('🔴 trava removida na casa: o gate libera o limite configurado cheio', as
   assert.equal(plano.teto, 30, 'direito da pessoa — o freio nosso sai da frente');
 });
 
+test('🔴 a chavinha do dono NÃO é porta dos fundos: chip mudo + trava removida = 0', async () => {
+  const { gate } = buildGate({
+    respostasPorChip: { 'company-5-user-60': 0 },
+    casa: { dailyLimitPerSender: 30, coldWarmupOff: true },
+  });
+
+  const plano = await gate.planoDoChip(5, 'company-5-user-60');
+  assert.equal(plano.teto, 0, 'foi ASSIM que o chip da Maria Clara foi pro abate');
+});
+
 test('casa fora do ar não derruba o plano — cai na rampa padrão (lado seguro)', async () => {
   const { gate } = buildGate({ respostasPorChip: { 'company-5-user-59': 0 } });
   (gate as any).prisma.vendasComercialConfig = { findUnique: async () => { throw new Error('banco fora'); } };
 
   const plano = await gate.planoDoChip(5, 'company-5-user-59');
-  assert.equal(plano.teto, 6, 'sem conseguir ler a casa, vale a rampa — nunca barra livre');
+  assert.equal(plano.teto, 0, 'sem conseguir ler a casa E sem história medida, o chip não dispara');
 });
 
 test('a contagem do dia é filtrada POR CHIP (senão um chip come a cota do outro)', async () => {
@@ -240,7 +270,7 @@ test('banco fora ao medir confiança = chip tratado como novo (erra pro lado seg
   const gate = new WaColdContactGateService(prisma);
 
   const plano = await gate.planoDoChip(5, 'company-5-user-6');
-  assert.equal(plano.teto, 6, 'sem conseguir medir, o chip vale o piso — nunca o teto');
+  assert.equal(plano.teto, 0, 'sem conseguir medir, o chip fica MUDO — nunca o teto');
 });
 
 // ── 7. GRUPO NÃO É RESPOSTA (06/08/2026) ────────────────────────────────────
@@ -306,7 +336,7 @@ test('chip só de grupo continua valendo o piso (não é chip querido, é chip e
 
   const plano = await gate.planoDoChip(5, 'company-5-user-28');
   assert.equal(plano.conversasComResposta, 0);
-  assert.equal(plano.teto, CHIP_TRUST_BASE_PADRAO, 'nada de 40 grupos virarem teto 12');
+  assert.equal(plano.teto, 0, 'nada de 40 grupos virarem teto — grupo não é gente respondendo');
 });
 
 test('a leitura de confiança pede a conversa junto e vem do mais recente', async () => {
