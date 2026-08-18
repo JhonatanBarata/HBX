@@ -596,6 +596,25 @@ function PersonaPreviewModal({ cadencia, onClose }: { cadencia: Cadencia; onClos
 // APLICAR MODAL — reimplantado do padrão /automacoes (mesmas classes), D3:
 // rota nova do adapter (POST /automation/plays/cadencia/:id/aplicar).
 // ============================================================================
+// ── A AGENDA EM UMA FRASE (17/08/2026) ──────────────────────────────────────
+// "124 leads inscritos" não conta a única coisa que importa depois do blast:
+// QUANDO isso sai. Data curta no fuso do dono, nunca ISO cru na cara de gente.
+function formatarJanelaDaAgenda(primeiro?: string | null, ultimo?: string | null): string {
+  const parse = (v?: string | null) => {
+    if (!v) return null;
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  };
+  const ini = parse(primeiro);
+  const fim = parse(ultimo);
+  if (!ini) return "";
+  const dia = (d: Date) => d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  const hora = (d: Date) => d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  const inicio = `começa ${dia(ini)} às ${hora(ini)}`;
+  if (!fim || dia(fim) === dia(ini)) return inicio;
+  return `${inicio}, termina ${dia(fim)}`;
+}
+
 function AplicarModal({ cadencia, onClose, onDone }: { cadencia: Cadencia; onClose: () => void; onDone: (msg: string, tone?: "ok" | "warn") => void }) {
   const [modo, setModo] = useState<"lista" | "pesquisa">("lista");
   const modoPill = useGlassPill<HTMLButtonElement>(modo);
@@ -678,7 +697,16 @@ function AplicarModal({ cadencia, onClose, onDone }: { cadencia: Cadencia; onClo
       // (cadencia.service.ts:317, leads já presos numa OUTRA automação) — a UI
       // jogava esse dado fora e sempre mostrava "✓" verde mesmo quando nada de
       // novo foi inscrito. Tipar o campo + decidir o tom da mensagem abaixo.
-      const res = await apiFetch<{ inscritos?: number; jaInscritos?: number; conflitosAutomacao?: number; total?: number }>(
+      const res = await apiFetch<{
+        inscritos?: number;
+        jaInscritos?: number;
+        conflitosAutomacao?: number;
+        total?: number;
+        // R3 (17/08/2026): a resposta passa a dizer QUANDO. Selecionar 124 leads
+        // não dispara 124 mensagens — enche a agenda dos próximos dias.
+        primeiroDisparoAt?: string | null;
+        ultimoDisparoAt?: string | null;
+      }>(
         `/automation/plays/cadencia/${encodeURIComponent(cadencia.id)}/aplicar`,
         { method: "POST", body: JSON.stringify(body) },
       );
@@ -689,8 +717,11 @@ function AplicarModal({ cadencia, onClose, onDone }: { cadencia: Cadencia; onClo
         jaInscritos > 0 ? `${jaInscritos} já estavam` : null,
         conflitos > 0 ? `${conflitos} bloqueado${conflitos === 1 ? "" : "s"} por outra automação` : null,
       ].filter(Boolean).join(" · ");
+      // O DONO TEM QUE VER O CALENDÁRIO, NÃO SÓ O NÚMERO (17/08/2026). Foi por
+      // não ter esta frase que o blast só apareceu quando o WhatsApp apitou.
+      const agenda = formatarJanelaDaAgenda(res?.primeiroDisparoAt, res?.ultimoDisparoAt);
       if (inscritos > 0) {
-        onDone(`✓ ${inscritos} lead(s) inscrito(s)${extras ? ` · ${extras}` : ""}.`, "ok");
+        onDone(`✓ ${inscritos} lead(s) na fila${agenda ? ` · ${agenda}` : ""}${extras ? ` · ${extras}` : ""}.`, "ok");
       } else if (extras) {
         // Nada de novo: tom de AVISO, não de sucesso — sem "✓".
         onDone(`Nenhum novo: ${extras}.`, "warn");
