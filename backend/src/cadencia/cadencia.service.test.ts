@@ -48,6 +48,8 @@ function makeService(opts: {
   // abertura na mão. Default: ninguém falou ainda (comportamento de sempre).
   humanOpeningPhones?: string[];
   whatsappConfirmation?: 'confirmed' | 'unavailable' | 'unknown';
+  // Quantos disparos automáticos a empresa JÁ fez hoje (cota persistida).
+  enviadosHoje?: number;
 }) {
   const svc = Object.create(CadenciaService.prototype) as any;
   const queueCalls: any[] = [];
@@ -63,6 +65,16 @@ function makeService(opts: {
   const humanOpeningCalls: any[] = [];
 
   svc.prisma = {
+    // 17/08/2026 — O TETO DIÁRIO DO RUNNER PASSOU A SER LIDO DO BANCO.
+    // Antes ele era um Map em memória que zerava a cada tick de 60s: o
+    // "teto de 10 por empresa/DIA" era, na prática, 10 por MINUTO — e foi por
+    // essa fresta que 126 mensagens saíram em ~16 minutos no blast de 17/08.
+    // A cota agora vem de `WhatsAppAuditLog` (a MESMA que o gate anti-ban grava
+    // no envio), então o dublê precisa ter a tabela. `enviadosHoje` deixa o teste
+    // dizer "a empresa já gastou X hoje" sem inventar um segundo contador.
+    whatsAppAuditLog: {
+      count: async () => opts.enviadosHoje ?? 0,
+    },
     cadenciaInscricao: {
       // Generico o bastante pra servir tanto a query "due" do proprio runDueSteps
       // (where.status + nextStepAt.lte) quanto a query de "ja ocupado" do
@@ -527,6 +539,63 @@ test('teto diario de WhatsApp por empresa nao e furado (passo extra e adiado, na
   assert.ok((res as any).whatsSent >= 1);
   assert.ok(queueCalls.length <= inscricoes.length);
   delete process.env.HBX_CADENCIA_WHATS_DAILY_CAP;
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 🔴 VACINA DO TETO QUE ERA POR MINUTO (blast de 17/08/2026)
+//
+// O comentário do arquivo prometia "teto DURO de passos de WhatsApp por
+// empresa/DIA = 10". O contador era um `new Map()` criado DENTRO de runDueSteps,
+// que roda a cada 60s: na prática o teto era 10 por MINUTO, e um restart de
+// backend zerava até isso. Com 124 inscrições vencidas ao mesmo tempo, ninguém
+// "estourou" teto nenhum enquanto 126 mensagens saíam.
+//
+// O teste é o giro LIMPO: a empresa já gastou a cota hoje e o runner acabou de
+// subir (Map vazio, como depois de todo publish). Se o teto for de memória, ele
+// envia; se for do banco, ele segura.
+// ═══════════════════════════════════════════════════════════════════════════
+test('🔴 BLAST 17/08: teto do dia sobrevive ao restart — cota gasta segura o giro novo', async () => {
+  const inscricoes = Array.from({ length: 3 }).map((_, idx) => ({
+    id: `r${idx}`,
+    cadenciaId: 'cad1',
+    companyId: 7,
+    leadId: `lead${idx}`,
+    responsavelId: null,
+    status: 'ativa',
+    currentStep: 0,
+    nextStepAt: new Date(Date.now() - 1000),
+  }));
+  const { svc, queueCalls } = makeService({
+    runnerEnabled: true,
+    cadencia: cadenciaConservador,
+    inscricoes,
+    enviadosHoje: 10, // a empresa já gastou o teto ANTES deste processo existir
+  });
+  const res = await svc.runDueSteps(new Date());
+  assert.equal((res as any).whatsSent, 0, 'processo novo não ganha cota nova');
+  assert.equal(queueCalls.length, 0, 'nenhuma mensagem enfileirada');
+});
+
+test('🔴 cota parcial: sobrou 1 do teto, sai 1 — não 3', async () => {
+  const inscricoes = Array.from({ length: 3 }).map((_, idx) => ({
+    id: `p${idx}`,
+    cadenciaId: 'cad1',
+    companyId: 7,
+    leadId: `lead${idx}`,
+    responsavelId: null,
+    status: 'ativa',
+    currentStep: 0,
+    nextStepAt: new Date(Date.now() - 1000),
+  }));
+  const { svc, queueCalls } = makeService({
+    runnerEnabled: true,
+    cadencia: cadenciaConservador,
+    inscricoes,
+    enviadosHoje: 9, // teto 10 -> sobra exatamente 1
+  });
+  const res = await svc.runDueSteps(new Date());
+  assert.equal((res as any).whatsSent, 1);
+  assert.equal(queueCalls.length, 1);
 });
 
 test('sanitizePassos clampa passos de WhatsApp ao teto tecnico', () => {
