@@ -2343,6 +2343,120 @@
     });
   }
 
+  /* ==========================================================================
+     O DIA DO HISTORICO, ABERTO DE VERDADE (17/08 - ordens 7 e 10 do dono).
+
+     Ate hoje o toque no cartao tinha UM destino: `usarHistorico`, que enche o
+     rascunho e mostra o portao de tres linhas ("Nada gravado ainda - Salvar ou
+     Iniciar e que gravam"). Era a foto 8 que ele mandou, e a queixa dele era
+     literal: *"eu queria que tivesse o historico mesmo!!"*.
+
+     Agora o toque ABRE o dia (GET /logistica/rota/historico/dia?date=), com
+     desfecho por parada, motivo de quem nao foi feita, dinheiro e o credito que
+     aquele dia custou. Reutilizar continua existindo - virou o botao verde de
+     DENTRO da tela, que e onde ele faz sentido: depois de ver o que aconteceu.
+     ========================================================================== */
+  async function abrirDiaDoHistorico(data) {
+    const dia = String(data || '');
+    if (!dia || !temPonte() || typeof window.usarDados !== 'function') return;
+    const doSeam = (DADOS.montagem && Array.isArray(DADOS.montagem.historico)) ? DADOS.montagem.historico : [];
+    const cartao = doSeam.find((h) => h && h.data === dia) || {};
+    /* A TELA ABRE JA COM O QUE O CARTAO SABIA (titulo, contagem, cor) e enche
+       quando a rede chega - a mesma lei da ficha do cliente. Tela em branco
+       esperando rede e tela quebrada, e aqui a espera e a pior possivel: quem
+       tocou acabou de ver os numeros no cartao. */
+    window.usarDados('historicodia', {
+      carregando: 1, semFonte: 0, data: dia, volta: 'montagem',
+      titulo: esc(cartao.titulo || 'Dia do historico'),
+      sub: esc(cartao.sub || ''), desfecho: '',
+      paradas: '', entregues: '', naoFez: '',
+      recebido: '', marcado: '', total: '',
+      creditosGastos: '', creditosPresos: 0, creditosNota: '', vazioTitulo: '', itens: [],
+    });
+    window.ir('historicodia');
+    let r;
+    try { r = await window.API.get('/logistica/rota/historico/dia?date=' + encodeURIComponent(dia)); }
+    catch (_) { return window.usarDados('historicodia', { carregando: 0, semFonte: 1 }); }
+    if (telaAtual() !== 'historicodia') return;   // ele ja saiu: resposta velha nao escreve
+    encherDiaDoHistorico(dia, cartao, r);
+  }
+
+  function encherDiaDoHistorico(dia, cartao, r) {
+    const itens = Array.isArray(r && r.itens) ? r.itens : [];
+    const cr = (r && r.creditos) || {};
+    const din = (r && r.dinheiro) || {};
+    const presos = Number(cr.presos) || 0;
+    const gastos = Number(cr.gastos) || 0;
+    /* A NOTA DO CREDITO E A FRASE MAIS CARA DESTA TELA, entao ela diz SO o que
+       o banco sabe: o debito e 1x por EMPRESA+DATA, sem rateio por cliente.
+       "X creditos presos no cliente Y" seria numero inventado - o dono pediu o
+       fato, e o fato e este. */
+    const nota = presos > 0
+      ? (Number(r.naoCompletadas) || 0) + ' parada(s) ficaram por fazer'
+      : (gastos > 0 ? 'o dia foi cobrado uma vez' : '');
+    window.usarDados('historicodia', {
+      carregando: 0, semFonte: 0,
+      data: dia,
+      titulo: esc((r && r.data) ? (cartao.titulo || diaPorExtenso(r.data)) : (cartao.titulo || '')),
+      sub: rotuloDoDesfecho(r && r.desfecho),
+      desfecho: String((r && r.desfecho) || ''),
+      paradas: String(Number(r && r.paradas) || 0),
+      entregues: String(Number(r && r.entregues) || 0),
+      naoFez: (Number(r && r.naoCompletadas) || 0) ? String(r.naoCompletadas) : '',
+      recebido: centavosSeTiver(din.recebidoCents),
+      marcado: centavosSeTiver(din.marcadoCents),
+      total: centavosSeTiver(din.totalCents),
+      creditosGastos: gastos > 0 ? String(gastos) : '',
+      creditosPresos: presos > 0 ? 1 : 0,
+      creditosNota: nota,
+      vazioTitulo: itens.length ? '' : 'Nada ficou registrado neste dia',
+      itens: itens.map((p) => ({
+        ini: iniciaisDoNome(p && p.nome),
+        nome: esc((p && p.nome) || 'Cliente'),
+        endereco: esc((p && p.endereco) || ''),
+        st: String((p && p.status) || ''),
+        feito: !!(p && p.feito),
+        motivo: esc((p && p.motivo) || ''),
+        pill: pilhaDoDesfechoDaParada(p),
+        valor: centavosSeTiver(p && p.valorCents),
+      })),
+    });
+  }
+
+  /* Os quatro tradutores desta tela. Ficam AQUI e nao no mock porque sao DADO
+     (o mock e desenho): a mesma regra do `st` da parada. */
+  const rotuloDoDesfecho = (d) => (d === 'completa' ? 'Dia completo'
+    : d === 'incompleta' ? 'Dia incompleto' : d === 'cancelada' ? 'Rota cancelada' : '');
+  const iniciaisDoNome = (n) => String(n || '')
+    .split(/\s+/).filter(Boolean).slice(0, 2).map((x) => x[0]).join('').toUpperCase() || '?';
+  function pilhaDoDesfechoDaParada(p) {
+    if (!p) return null;
+    if (p.feito) return ['Entregue', 'lime'];
+    if (String(p.status) === 'cancelada') return ['Nao entregue', 'mute'];
+    return ['Nao feita', 'mute'];
+  }
+  /** so pro caso do cartao nao ter titulo (ex.: entrou pelo link direto) */
+  function diaPorExtenso(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+    return m ? (m[3] + '/' + m[2]) : String(iso || '');
+  }
+
+  /* 🔴 O FECHAMENTO DE UM DIA PASSADO (a outra metade da ordem 7: *"nem o
+     fechamento"*). O SERVIDOR SEMPRE SOUBE responder por data - o
+     `GET /logistica/fechamento/resumo` aceita `?date=` e deriva tudo dela
+     (medidores, formas, devedores, pagina). Quem cravava HOJE era ESTA PONTE,
+     que so pedia o `diaOperacional()`. Nao nasce endpoint nenhum: nasce a
+     PERGUNTA. */
+  async function abrirFechamentoDoDia(data) {
+    const dia = String(data || '');
+    if (!dia || !temPonte()) return;
+    let caixa;
+    try { caixa = await window.API.get('/logistica/fechamento/resumo?date=' + encodeURIComponent(dia)); }
+    catch (e) { return avisoErro(e); }
+    try { encherFechamento(caixa, [], 0); } catch (_) { /* o tradutor e best-effort */ }
+    window.ir('fechamento');
+  }
+
   async function usarHistorico(data) {
     if (!data || !temPonte()) return;
     if (rotaNaRua()) {
@@ -2446,8 +2560,44 @@
     return m ? Number(m[1]) - 1 : -1;
   };
   const modeloDoModo = () => ESPACOS[idxDoModo(modoSel)] || null;
-  // -1 (rota avulsa) não é um dia: os espaços mostrados seguem os de hoje.
-  const diaDosEspacos = () => (montarDia > 0 ? montarDia : diaDaSemana());
+  /* 🔴 A AVULSA TEM OS ESPAÇOS DELA (17/08, ordem 10 do dono: *"JOWJOW E
+     QUINZENAL são salvos de segunda feira, blz, eu removo a flag de 'seg', e
+     eles ficam. Esses salvos deveriam ser de rotas avulsas"*).
+
+     Até aqui `-1` caía em `diaDaSemana()` — o dia de HOJE. Numa segunda-feira,
+     desligar o chip "Seg" deixava os espaços da segunda na tela: o dono lia
+     JOWJOW/QUINZENAL numa rota que não é de dia nenhum, e o "Salvar rota" dali
+     REGRAVAVA por cima do roteiro da segunda dele. Espaço mostrado num balde e
+     gravado noutro é perda de trabalho, não confusão de rótulo.
+
+     O balde da avulsa já existe no servidor desde sempre e não custa migration:
+     `LogisticaRotaModelo.diaSemana` é `Int?` com "null = sem dia fixo"
+     (schema.prisma:1503), o DTO aceita null (`@IsOptional`) e o
+     `assertNomeUnico` já trata as sem-dia como namespace próprio
+     ("as sem dia fixo entre si"). O que faltava era a ponte PEDIR esse balde.
+
+     `-1` continua sendo o vocabulário desta casa (é o valor do `montarDia`);
+     quem traduz pro servidor é o `diaNoServidor`, num lugar só — duas traduções
+     é como as duas pontas passam a discordar de qual espaço é de quem.
+
+     ⚠️ `montarDia` TEM TRÊS FAIXAS, e confundir duas delas apaga o caso mais
+     comum: `-1` é a avulsa, `1..7` é OUTRO dia da semana e **`0` é HOJE** — o
+     chip do dia corrente nasce com 0 (`10-geofence-montagem.js`, o
+     `n === hoje ? 0 : n` da fileira). Por isso o teste é `=== -1` e não
+     `> 0`: com `> 0` o dia de hoje cairia no balde da avulsa e o motorista
+     perderia os espaços do dia em que ele está trabalhando. */
+  const diaDosEspacos = () => (montarDia === -1 ? -1 : (montarDia > 0 ? montarDia : diaDaSemana()));
+  /** -1 (avulsa) vira `null` no servidor; 1..7 viaja como número. */
+  const diaNoServidor = (d) => (Number(d) > 0 ? Number(d) : null);
+  /** o dia de um rota-modelo no vocabulário da tela: sem dia fixo = -1.
+   *  `Number(null)` é 0 e `Number(undefined)` é NaN — os dois caem no -1, que
+   *  é o que "sem dia fixo" significa aqui. */
+  const diaDoModelo = (m) => {
+    const n = Number(m && m.diaSemana);
+    return n >= 1 && n <= 7 ? n : -1;
+  };
+  /** o nome do balde na frase do portão ("Espaço 1 de …") */
+  const rotuloDoBalde = (d) => (Number(d) > 0 ? (ROTULO_DIA[Number(d)] || '') : 'rota avulsa');
 
   /* ------------------------------------------------------------------------
      🔴 A ÚLTIMA ESCOLHA DO DIA FICA LEMBRADA (dono, 10/08: "sempre q abrir essa
@@ -2517,7 +2667,7 @@
     try { r = await window.API.get('/logistica/rota-modelos'); } catch (_) { return publicarModos(); }
     ESPACOS.length = 0;
     (Array.isArray(r) ? r : [])
-      .filter((m) => m && Number(m.diaSemana) === dia)
+      .filter((m) => m && diaDoModelo(m) === dia)
       .sort((a, b) => String(a.criadoEm || '').localeCompare(String(b.criadoEm || ''))
         || String(a.id || '').localeCompare(String(b.id || '')))
       .slice(0, MAX_ESPACOS)
@@ -3838,6 +3988,11 @@
           quantidade: 1,
           scheduledAt: `${hojeISO()}T12:00:00.000Z`,
           paraMinhaRota: true,
+          // 17/08 — o SELO viaja do rascunho pra entrega (ordem 3b). Quem marcou
+          // "Prioridade" antes de montar a rota escolheu ali; a materialização é
+          // só o momento em que a decisão vira linha no banco. Sem esta linha o
+          // caminho do rascunho perderia a escolha calado.
+          ...(c.prioridade ? { prioridade: true } : {}),
         });
         entraram += 1;
       } catch (_) { falharam.push(c.nome || 'Cliente'); }
@@ -4733,6 +4888,46 @@
       await carregarRota();
     });
   });
+
+  /* 🔴 REORGANIZAR = DEVOLVER O VOLANTE AO OTIMIZADOR (17/08, ordem 5 do
+     dono: *"colocar um botão na esquerda de 'Fila 13', Reorganizar = Reorganiza
+     por distancia, porém o q foi adicionado como prioridade fica em vermelho, e
+     não entra nesse filtro"*).
+
+     Ele mora AQUI e não em arquivo novo porque este arquivo é "O DEDO QUE MEXE
+     NA ROTA": é o terceiro gesto da mesma família (reordenar, retirar,
+     reorganizar), na mesma fila SÉRIE (`naFila`), com o mesmo guarda de
+     consulta e o mesmo par `carregarRota`/`avisoErro` do arrasto.
+
+     É UMA CHAMADA SÓ, e isso é o conserto: `POST /rota/planejar` SEM
+     `ordemManual` é exatamente o NN+2-opt a partir do GPS. A prioridade não
+     precisa de conta nenhuma aqui porque quem a segura no topo é o SERVIDOR
+     (o selo `Entrega.prioridade`, lido pelo `priorizarPrimeiro` dos dois
+     motores do planejador). Fazer a lista calcular isso do lado de cá seria a
+     segunda régua do mesmo fato — e duas réguas divergem no primeiro ajuste.
+
+     💰 Dinheiro: mesma nota do arrasto, 30 linhas acima — re-planejar o mesmo
+     conjunto não cria parada nem debita (claim ÚNICO por empresa+motorista+
+     data+bloco). */
+  async function reorganizarPorDistancia() {
+    if (!temPonte()) return;
+    if (continuidadeAtiva) {
+      return avisoErro(new Error('Esta rota está em modo de consulta. Continue ou puxe antes de alterar a ordem.'));
+    }
+    return naFila(async () => {
+      try {
+        // Sem `deliveryIds` de propósito: quem decide o CONJUNTO continua sendo
+        // o servidor (as abertas do dia); daqui só se pede a SEQUÊNCIA dele.
+        await window.API.post('/logistica/rota/planejar', {
+          date: dataDaRotaNaTela(), ...origemGps(),
+        });
+      } catch (e) {
+        await carregarRota();     // desfaz a mentira primeiro, avisa depois
+        return avisoErro(e);
+      }
+      await carregarRota();
+    });
+  }
 
   /* 🔴 RETIRAR É CANCELAR — o app tem UM verbo destrutivo só (lei do dono,
      29/07). Não nasce aqui um segundo caminho de exclusão: a parada retirada
@@ -11230,7 +11425,7 @@
       sub: `Cada dia da semana guarda ${MAX_ESPACOS} rotas suas, com o nome que você escolher.`,
       corpo: `${passo(1, 'Deixe a lista na ordem que você dirige', 'arraste as paradas pelo punho')}
         ${passo(2, 'Salve neste espaço', 'com um nome curto: Manhã, Centro, Bairro…')}
-        ${passo(3, `Na próxima ${ROTULO_DIA[diaDosEspacos()] || 'vez'}`, 'um toque no botão e a ordem volta')}`,
+        ${passo(3, diaDosEspacos() > 0 ? `Na próxima ${ROTULO_DIA[diaDosEspacos()] || 'vez'}` : 'Na próxima rota avulsa', 'um toque no botão e a ordem volta')}`,
       acoes: [['Agora não', ''], ['Salvar aqui', 'principal']], classe: 'duas',
     });
     const botao = naCamada('.portao-wrap .principal');
@@ -11275,7 +11470,7 @@
       // Sem nome não fica sem saída: o dia + o número do espaço é curto, único
       // dentro do dia e diz de onde veio. Portão fechado com erro na cara seria
       // obrigar o motorista a começar tudo de novo.
-      const nome = digitado || `${ROTULO_DIA[dia] || 'Rota'} ${idx + 1}`;
+      const nome = digitado || `${dia > 0 ? (ROTULO_DIA[dia] || 'Rota') : 'Avulsa'} ${idx + 1}`;
       /* 🔴 O `depois` CORRE FORA DA TRAVA. `comTrava` joga fora quem chega com
          ela levantada — e Montar/Iniciar levantam a sua própria. Chamado aqui
          dentro, o toque de montar morria em silêncio depois de um salvar que
@@ -11295,9 +11490,9 @@
     let idSalvo = espaco ? String(espaco.id) : '';
     try {
       if (espaco) {
-        await window.API.patch(`/logistica/rota-modelos/${encodeURIComponent(espaco.id)}`, { nome, diaSemana: dia, paradas });
+        await window.API.patch(`/logistica/rota-modelos/${encodeURIComponent(espaco.id)}`, { nome, diaSemana: diaNoServidor(dia), paradas });
       } else {
-        const novo = await window.API.post('/logistica/rota-modelos', { nome, diaSemana: dia, paradas });
+        const novo = await window.API.post('/logistica/rota-modelos', { nome, diaSemana: diaNoServidor(dia), paradas });
         idSalvo = novo && novo.id ? String(novo.id) : '';
       }
     } catch (e) { return avisoErro(e); }
@@ -11327,7 +11522,7 @@
     if (!semRecibo) {
       window.portao({
         tom: 'ok', ico: 'check', titulo: 'Rota salva',
-        sub: `${esc(nome)} é o Espaço ${naFileira + 1} de ${ROTULO_DIA[dia] || 'hoje'}.`,
+        sub: `${esc(nome)} é o Espaço ${naFileira + 1} de ${rotuloDoBalde(dia)}.`,
         acoes: [['Fechar', 'principal']],
       });
     }
@@ -11343,7 +11538,7 @@
     if (!espaco || typeof window.portao !== 'function') return;
     window.portao({
       tom: 'info', ico: 'route', titulo: esc(espaco.nome),
-      sub: `Espaço ${idx + 1} de ${ROTULO_DIA[diaDosEspacos()] || 'hoje'} · ${(espaco.paradas || []).length} paradas`,
+      sub: `Espaço ${idx + 1} de ${rotuloDoBalde(diaDosEspacos())} · ${(espaco.paradas || []).length} paradas`,
       acoes: [['Renomear e regravar', 'principal'], ['Apagar este espaço', 'perigo'], ['Fechar', '']],
     });
     const renomear = naCamada('.portao-wrap .principal');
@@ -11733,6 +11928,109 @@
      primeira carga ⇒ `fonteCaiu` (aviso + "Tentar de novo"), nunca tela vazia:
      "não entrou nada hoje" e "a rede caiu" não podem ter a mesma cara.
      ------------------------------------------------------------------------ */
+  /* 🔴 O CRU DA ÚLTIMA CARGA FICA GUARDADO (17/08, ordem 8 do dono: *"garanta
+     q todos os dados de fechamento sejam clicáveis, e tenham os dados do
+     /financeiro. (pop up com extrato completo)"*).
+
+     O extrato sai DAQUI e não de uma segunda ida à rede, e o motivo é de
+     domínio: dois pedidos ao mesmo endpoint em momentos diferentes podem trazer
+     números diferentes (uma venda entrou no meio), e aí o pop-up contradiria o
+     cartão que o dedo acabou de tocar. Em tela de dinheiro, o detalhe TEM que
+     ser a explicação do total que está na tela — nunca uma segunda medição.
+     Se ninguém carregou ainda, o pop-up diz isso em vez de mostrar zero. */
+  let caixaCrua = null;      // a resposta de /logistica/fechamento/resumo
+  let devedoresCrus = null;  // { customerProfileId: centavos }
+  let nomesDosDevedores = null; // Map(id -> nome)
+
+  /* ==========================================================================
+     O EXTRATO COMPLETO (17/08 — ordem 8 do dono).
+
+     Cinco portas, uma peça: `portao()` com corpo montado aqui. Ele já é a
+     superfície certa (o `.portao` tem `max-height:82%` + `overflow:auto`), e
+     peça nova seria a 2ª folha de dinheiro do app.
+
+     Cada porta responde a pergunta que o número em cima dela levanta:
+       recebido → POR FORMA, com o total conferindo com o cartão;
+       aberto   → QUEM deve, do maior pro menor, com o total;
+       forma    → o valor daquela forma isolado, com o peso dela no dia;
+       devedor  → a linha de UMA pessoa;
+       semana   → dia a dia, com o total da semana.
+     Nada de conta nova: tudo sai do MESMO `caixa` que pintou a tela.
+     ========================================================================== */
+  function extratoFinanceiro(bloco, quem) {
+    if (typeof window.portao !== 'function') return;
+    const c = caixaCrua;
+    if (!c) {
+      return window.portao({
+        tom: 'alerta', ico: 'wallet', titulo: 'Ainda não carreguei o dia',
+        sub: 'Toque em "Tentar de novo" na tela pra buscar os números.',
+        acoes: [['Fechar', 'principal', true]],
+      });
+    }
+    const f = (c.fechamento && c.fechamento.formas) || {};
+    const linha = (rot, val, cor) => '<div class="rowline"><span>' + rot + '</span><b'
+      + (cor ? ' style="color:' + cor + '"' : '') + '>' + (val || centavos(0)) + '</b></div>';
+    const somaEntrou = (Number(f.dinheiroCents) || 0) + (Number(f.pixCents) || 0) + (Number(f.cartaoCents) || 0);
+
+    if (bloco === 'recebido' || bloco === 'forma') {
+      const corpo = linha('Dinheiro', centavos(Number(f.dinheiroCents) || 0), 'var(--lime)')
+        + linha('Pix', centavos(Number(f.pixCents) || 0), 'var(--blue-l)')
+        + linha('Cartão', centavos(Number(f.cartaoCents) || 0), 'var(--purple)')
+        + linha('Entrou hoje', centavos(somaEntrou))
+        + linha('Marcou (fiado)', centavos(Number(f.fiadoCents) || 0), 'var(--amber)')
+        + linha('Total do dia', centavos(Number(f.totalCents) || (somaEntrou + (Number(f.fiadoCents) || 0))));
+      return window.portao({
+        tom: 'info', ico: 'wallet',
+        titulo: bloco === 'forma' ? String(quem || 'Forma de pagamento') : 'Recebido hoje',
+        sub: 'Fechamento do dia, forma por forma. Marcado NÃO entra no recebido.',
+        corpo: '<div class="box" style="margin:0">' + corpo + '</div>',
+        acoes: [['Fechar', 'principal', true]],
+      });
+    }
+
+    if (bloco === 'aberto' || bloco === 'devedor') {
+      const deve = devedoresCrus || {};
+      const nomes = nomesDosDevedores || new Map();
+      const ids = Object.keys(deve)
+        .filter((id) => (Number(deve[id]) || 0) > 0)
+        .sort((a, b) => (Number(deve[b]) || 0) - (Number(deve[a]) || 0));
+      const alvo = String(quem || '');
+      const lista = (alvo && bloco === 'devedor') ? ids.filter((id) => id === alvo) : ids;
+      const total = ids.reduce((s2, id) => s2 + (Number(deve[id]) || 0), 0);
+      const corpo = lista.length
+        ? lista.map((id) => linha(esc(nomes.get(String(id)) || 'Cliente'), centavos(Number(deve[id]) || 0), 'var(--amber)')).join('')
+          + (bloco === 'aberto' ? linha('Total em aberto', centavos(total), 'var(--amber)') : '')
+        : '<span class="sub">Ninguém está devendo agora.</span>';
+      return window.portao({
+        tom: 'info', ico: 'note',
+        titulo: bloco === 'devedor' ? 'Quanto esta pessoa deve' : 'Em aberto',
+        /* A frase diz o que o número É: saldo ACUMULADO, não dívida do dia.
+           Confundir os dois é a leitura errada mais cara desta tela. */
+        sub: 'Saldo acumulado de quem marcou — não é só de hoje.',
+        corpo: '<div class="box" style="margin:0">' + corpo + '</div>',
+        acoes: [['Fechar', 'principal', true]],
+      });
+    }
+
+    if (bloco === 'semana') {
+      const dias = Array.isArray(c.historicoDias) ? c.historicoDias : [];
+      const total = dias.reduce((s2, d) => s2 + (Number(d && d.totalCents) || 0), 0);
+      const corpo = dias.length
+        ? dias.map((d) => linha(esc(String((d && d.data) || '')), centavos(Number(d && d.totalCents) || 0))).join('')
+          + linha('Total da semana', centavos(total))
+        : '<span class="sub">Sem dias fechados nesta semana.</span>';
+      return window.portao({
+        tom: 'info', ico: 'calendar', titulo: 'Semana, dia a dia',
+        /* ⚠️ O servidor só manda o TOTAL de cada dia (`totalCents`) — sem quebra
+           por forma. Então esta porta não promete "recebido da semana": ela diz
+           o total, que é o que existe. Prometer a quebra aqui seria inventar. */
+        sub: 'Total de cada dia. A quebra por forma existe só no dia de hoje.',
+        corpo: '<div class="box" style="margin:0">' + corpo + '</div>',
+        acoes: [['Fechar', 'principal', true]],
+      });
+    }
+  }
+
   async function carregarFinanceiro() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     const dia = diaOperacional();
@@ -11755,6 +12053,10 @@
       const itens = (rosterR.value && Array.isArray(rosterR.value.items)) ? rosterR.value.items : [];
       itens.forEach((c) => { if (c && c.id && String(c.name || '').trim()) nomes.set(String(c.id), String(c.name)); });
     }
+    // guarda o cru pro extrato da ordem 8 (ver a nota lá em cima)
+    caixaCrua = caixa;
+    devedoresCrus = deve;
+    nomesDosDevedores = nomes;
     const linhasDevedor = deve
       ? Object.keys(deve)
         .filter((id) => nomes.has(String(id)) && (Number(deve[id]) || 0) > 0)
@@ -11795,6 +12097,9 @@
         devedores: linhasDevedor.map((id) => [
           iniciais(nomes.get(String(id))), esc(nomes.get(String(id))), '',
           centavos(Number(deve[id]) || 0), '',
+          // 17/08 (ordem 8) — o 6º campo é o ID: é ele que o pop-up usa pra
+          // achar a pessoa de volta sem uma segunda conta de dívida.
+          String(id),
         ]),
       } : {}),
       /* 🔴 A SEMANA NÃO TEM FONTE — e some INTEIRA, com o título junto.
@@ -13742,17 +14047,41 @@
     [String((res && res.cidade) || '').trim(), String((res && res.uf) || '').trim()].filter(Boolean).join(' — '),
   ].filter(Boolean).join(' · ');
 
+  /* 🔴 A RESPOSTA DA PERGUNTA "PRIORIDADE OU COMUM?" ESPERA AQUI (17/08, ordem
+     3b do dono: *"Prioridade: coloca na prioridade, comum encaixa na rota"*).
+
+     Ela não pode viajar como argumento porque quem abre a tela é o ROTEADOR
+     (`window.ir('rapida')`, § 80-gps-rotas-salvas) e o portão responde ANTES
+     dele — então o valor fica de molho aqui e o nascimento da tela o consome.
+     Consome MESMO: `rapidaEmBranco` zera de volta pra 'perto' na saída, senão a
+     escolha de uma parada vazaria pra próxima, que é o mesmo furo do `motivo`
+     que a porta de entrega já pagou.
+     'perto' (Comum) é o padrão do silêncio: quem entra por qualquer outra porta
+     — o tour, uma prova, um `window.ir` de dentro — cai no encaixe automático,
+     que é o comportamento de sempre. */
+  let posicaoDaProximaRapida = 'perto';
+  function definirPosicaoDaProximaRapida(p) {
+    posicaoDaProximaRapida = p === 'primeira' ? 'primeira' : 'perto';
+  }
+
   /** a tela nasce EM BRANCO — mesma lei do `novoEmBranco` do cadastro */
   function rapidaEmBranco(veioDe) {
     // Porta de entrada MARCADA, nunca deduzida (mesma lei do `ficha.volta`): quem
     // entrou pela Rota tem que voltar pra Rota, senão o Voltar do Android mente.
-    const volta = veioDe === 'rotalista' || veioDe === 'rota' ? veioDe : 'montagem';
+    /* 🔴 'mapa' (o 3D) ENTROU NA LISTA em 17/08, com as ordens 1 e 2 do dono: o
+       "+" passou a morar no rodapé dos DOIS modos, e a navegação virou porta de
+       entrada desta tela. Sem ela, quem tocasse o "+" dirigindo e voltasse
+       caía na MONTAGEM — a tela mais longe possível de quem está com o carro
+       parado na rua. Porta de entrada é MARCADA, nunca deduzida. */
+    const volta = (veioDe === 'rotalista' || veioDe === 'rota' || veioDe === 'mapa') ? veioDe : 'montagem';
     rapida = {
       volta,
       origem: '',            // '' | 'ponto' | 'busca' | 'cep'
       resolvido: null, opcoes: [], duplicado: null,
       cep: '', numero: '', nome: '',
-      modo: 'direcao', posicao: 'perto',
+      // 17/08 — a resposta do portão Prioridade/Comum (ordem 3b). Ver
+      // `definirPosicaoDaProximaRapida`: ela é consumida e zerada logo abaixo.
+      modo: 'direcao', posicao: posicaoDaProximaRapida,
       aviso: '', buscando: false, salvando: false,
       /* A PORTA "MEUS CLIENTES" (09/08). Ela abre PRIMEIRO de propósito: a
          pergunta "quem entra na rota?" quase sempre se responde com gente que
@@ -13761,11 +14090,14 @@
       buscaCliente: '', lista: [], escolhidos: [],
       listaCarregando: true, listaSemFonte: false,
     };
+    const posicaoDesta = posicaoDaProximaRapida;
+    // CONSUMIDA: a escolha vale pra ESTA abertura e morre aqui.
+    posicaoDaProximaRapida = 'perto';
     if (typeof window.usarDados !== 'function') return;
     window.usarDados('rapida', {
       volta, busca: '', buscando: 0, salvando: 0, opcoes: [], achado: null,
       aviso: '', modo: 'direcao', soDirecao: 0, nome: '', pedeNome: 0,
-      temRota: paradasAbertas().length ? 1 : 0, posicao: 'perto',
+      temRota: paradasAbertas().length ? 1 : 0, posicao: posicaoDesta, entraram: 0,
       porta: 'cadastro', buscaCliente: '', clientes: [], escolhidos: [],
       listaCarregando: 1, listaSemFonte: 0,
     });
@@ -13829,6 +14161,8 @@
       pedeNome: modo === 'cadastro' && vaiBatizar ? 1 : 0,
       temRota: paradasAbertas().length ? 1 : 0,
       posicao: r.posicao,
+      // ORDEM 3 — quantas paradas ja entraram nesta passada do 'Procurar'.
+      entraram: Number(r.entraram) || 0,
       /* A porta "Meus clientes" vai JUNTO em todo repinte — as duas portas são
          uma tela só, e publicar meia tela deixaria a lista sumindo cada vez que
          a busca de endereço escrevesse. */
@@ -14471,7 +14805,22 @@
     try { await encherMontagem(); } catch (_) { /* o aviso vale mais que a lista */ }
   }
 
-  async function rapidaConfirmar() {
+  /* 🔴 `ficar` — A OPÇÃO DE ADICIONAR MÚLTIPLOS NO "PROCURAR" (17/08, ordem 3
+     do dono: *"Nela clientes já está ok, porém procurar também dar a opção de
+     adicionar multiplos"*).
+
+     Por que um PARÂMETRO e não uma cesta de marcados como a da porta "Meus
+     clientes": lá cada item é um CLIENTE que já existe na base — marcar é só
+     guardar um id. Aqui cada resultado ainda precisa ser RESOLVIDO um por um
+     (rua exige número, comércio da Receita vira conta nova, endereço repetido
+     REUSA a conta existente, e a mesma porta não pode entrar 2× no dia). Uma
+     cesta guardaria decisões que só se sabem no momento de gravar — e o preço
+     de errar isso é conta duplicada na base do dono.
+     Com `ficar` o caminho de gravação continua sendo EXATAMENTE o mesmo, item a
+     item, com os mesmos três freios; o que muda é que a tela não sai de cena no
+     fim: ela volta pro campo de busca com o contador do que já entrou. Um
+     toque a mais por parada, zero risco novo no dinheiro e na base. */
+  async function rapidaConfirmar(ficar) {
     const r = rapida;
     if (!r || r.salvando || r.buscando || !r.resolvido) return;
     const res = r.resolvido;
@@ -14552,9 +14901,18 @@
         quantidade: 1,
         scheduledAt: `${hojeISO()}T12:00:00.000Z`,
         paraMinhaRota: true,
+        /* 🔴 O SELO NASCE COM A PARADA (17/08, ordem 3b). `encaixarAvulsa` logo
+           abaixo já põe ela no topo AGORA (`indice = 0`) — mas isso é
+           `ordemManual`, ou seja, RETRATO: o próximo `planejar` sem ordem manual
+           reotimizaria e a urgência morreria calada. O campo é o que faz a
+           decisão sobreviver ao Reorganizar da ordem 5, ao Montar de amanhã e ao
+           replanejo de outro motorista. Dois efeitos, um gesto. */
+        prioridade: posicao === 'primeira',
       });
       criou = true;
-      rapida = null;
+      // Só solta o estado da tela quem VAI EMBORA. Ficando, ele é o mesmo
+      // `rapida` — e é ele que guarda o contador e a porta aberta.
+      if (!ficar) rapida = null;
       // A rota tem que ser relida ANTES do encaixe: é dela que sai a lista de
       // abertas em que a parada nova vai entrar.
       await carregarRota();
@@ -14564,6 +14922,17 @@
       // A escolha dele já está gravada — e desde 10/08 a Montagem não
       // reotimiza nada sozinha ao abrir, então ninguém passa por cima.
       await carregarRota();
+      /* FICANDO: a tela volta pro começo do PROCURAR, sem recibo de portão —
+         o recibo é o contador no pé, que é o que quem está adicionando 5
+         paradas quer ver. Portão a cada parada seria 5 toques de "Fechar". */
+      if (ficar) {
+        r.salvando = false;
+        r.entraram = (Number(r.entraram) || 0) + 1;
+        r.numero = ''; r.nome = ''; r.cep = '';
+        zerarPainelDaBusca();
+        publicarRapida();
+        return;
+      }
       await voltarDaAvulsa(volta);
       window.portao({
         tom: 'ok', ico: 'check', titulo: 'Parada adicionada',
@@ -14583,6 +14952,16 @@
         // Nada foi escrito: devolve a tela como estava e o dedo tenta de novo.
         if (rapida === r) { r.salvando = false; publicarRapida(); }
         return avisoErro(e);
+      }
+      /* FICANDO, a parada JÁ existe e o que falhou foi a ordem: a tela não pode
+         sair de cena nem dizer "não deu certo" (ele adicionaria de novo). Ela
+         conta a que entrou, avisa por cima e segue aberta. */
+      if (ficar && rapida === r) {
+        r.salvando = false;
+        r.entraram = (Number(r.entraram) || 0) + 1;
+        r.aviso = 'A parada entrou, mas não consegui reordenar agora.';
+        zerarPainelDaBusca();
+        return publicarRapida();
       }
       // A parada EXISTE; o que falhou foi a ordem. Dizer "não deu certo" aqui
       // faria ele adicionar o mesmo endereço duas vezes.
@@ -14674,6 +15053,11 @@
           bairro: String(c.cidade || ''),
           ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
           resolveSozinho: Array.isArray(c.diasEntrega) && c.diasEntrega.length > 0,
+          // 17/08 — a escolha do portão viaja no rascunho até a materialização
+          // (ordem 3b). Sem ela, marcar "Prioridade" antes de montar a rota
+          // seria um toque mudo: o rascunho vira entrega depois, e é lá que o
+          // selo precisa chegar.
+          ...(r.posicao === 'primeira' ? { prioridade: true } : {}),
           // "Ult. Registro" (12/08) — o `/nucleo/clientes` manda o campo; a porta
           // "Meus clientes" é a 3ª origem da mesma lista e escreve a mesma data.
           ...(c.ultimaEntregaAt ? { ultimaEntregaAt: String(c.ultimaEntregaAt) } : {}),
@@ -14706,6 +15090,10 @@
           quantidade: 1,
           scheduledAt: `${hojeISO()}T12:00:00.000Z`,
           paraMinhaRota: true,
+          // 17/08 — a MESMA escolha do portão vale pros vários (ordem 3b). Sem
+          // isto o "Prioridade" só valeria na porta Procurar, e a mesma pergunta
+          // teria duas respostas conforme a porta — bug de produto.
+          prioridade: r.posicao === 'primeira',
         });
         entraram.push(id);
       } catch (_) { falharam.push(nomePorId.get(id) || 'Cliente'); }
@@ -16559,6 +16947,12 @@
      06/08): 0 uso na história do produto. Não é esquecimento.
      ------------------------------------------------------------------------ */
   const ENTREGAS = new Map();
+  /* O WhatsApp do SUPORTE (ordem 6 do dono, 17/08) — número completo, com país
+     e DDD. Constante e não campo de servidor: é o telefone do dono, não
+     configuração de tenant, e uma linha de socorro que depende de a rede
+     responder é justamente a que falta na hora que ela some. Ver a ação
+     `suporte`, lá embaixo. */
+  const SUPORTE_WHATSAPP = '5519997024884';
   let financeiroAtivo = true;
   let cobrancaSimples = false;
   let aberta = null;              // { id, n, item } — a parada com a folha aberta
@@ -16705,6 +17099,9 @@
          mostrava um e o banco gravava outro. Agora o seam recebe EXATAMENTE o
          que vai ser enviado, inclusive o padrão da 1ª abertura. */
       motivo: motivo || (DADOS_MOTIVO_PADRAO() || ''),
+      // DE QUAL FOLHA a `folhanao` foi aberta. Aqui é a COMPLETA — e ela ESTÁ
+      // preenchida, então voltar pra ela é honesto. O par mora em `encherVenda`.
+      voltarPara: 'folha',
     });
   }
 
@@ -16735,6 +17132,33 @@
       recebido: forma && forma !== 'fiado' && hojeVal != null ? dinheiro(hojeVal) : dinheiro(0),
       paraMarcado: anterior != null ? dinheiro(anterior + (forma === 'fiado' ? (hojeVal || 0) : 0)) : '',
       forma,
+    });
+    /* 🔴 A FOLHA SIMPLES GANHOU A SAÍDA DO "NÃO ENTREGUE" (17/08, ordem 9 do
+       dono: *"fui em entregas, e nem achei onde clicar para isso acontecer!!!
+       isso já existe, não invente ache e religue"*).
+
+       O elo cortado era ESTE arquivo, uma linha abaixo em `abrirParada`:
+       `const simples = !financeiroAtivo || cobrancaSimples` manda a chegada pra
+       `venda` (a folha simples), e o botão "Não entregue" só existia na folha
+       COMPLETA. Nada tinha sumido — ele nunca esteve na folha que o dono usa, e
+       por isso o único verbo da porta era "Confirmar venda": o histórico do
+       cliente marcava como atendido o que ninguém conseguiu entregar.
+
+       A porta é a mesma peça (`folhanao`), e ela lê o seam da folha COMPLETA
+       (`folhaCompleta` desenha com `DADOS.folha`). São duas chaves, e cada uma
+       mata um defeito já medido nesta casa:
+       · `motivo` — o MESMO par que `encherFolha` semeia (§ "A TELA E O SERVIDOR
+         TÊM QUE DIZER O MESMO MOTIVO", acima). Sem ele o furo curado lá
+         ressuscitaria pela porta nova: marcar "Endereço não encontrado" na
+         parada 3 deixaria o motivo aceso ao abrir a parada 5, enquanto o
+         `registrarNaoEntregue` mandaria "Ninguém atendeu" pro servidor.
+       · `voltarPara` — o Voltar da `folhanao` cravava `folha`; em cobrança
+         simples a folha COMPLETA nunca foi preenchida, e como o seam `folha`
+         não entra no apagador da demonstração, voltar por ali cuspiria o
+         DESENHO na cara do motorista (Maria Aparecida · R$ 21,00). */
+    window.usarDados('folha', {
+      motivo: motivo || (DADOS_MOTIVO_PADRAO() || ''),
+      voltarPara: 'venda',
     });
   }
 
@@ -17145,6 +17569,29 @@
     try { return (DADOS.folha.motivos || [])[0] || ''; } catch (_) { return ''; }
   }
 
+  /* A PERGUNTA (ordens 3/3b) e a porta que ela abre. Ficam juntas de propósito:
+     é uma decisão só, em dois toques. */
+  function abrirPortaDaParada() {
+    if (typeof window.portao !== 'function') return entrarNaRapida('perto');
+    window.portao({
+      tom: 'info', ico: 'plus', titulo: 'Como esta parada entra?',
+      sub: 'Dá pra mudar depois arrastando o cartão na lista.',
+      corpo: '<div class="pt-linha"><span class="m">1</span><span><strong>Prioridade</strong>'
+        + '<span>vai pro topo da fila e fica em vermelho</span></span></div>'
+        + '<div class="pt-linha"><span class="m">2</span><span><strong>Comum</strong>'
+        + '<span>encaixa onde custar menos desvio</span></span></div>',
+      acoes: [
+        ['Agora não', '', true],
+        ['Prioridade', 'perigo', false, 'parada-prioridade'],
+        ['Comum', 'principal', false, 'parada-comum'],
+      ],
+    });
+  }
+  function entrarNaRapida(posicao) {
+    definirPosicaoDaProximaRapida(posicao);
+    if (typeof window.ir === 'function') window.ir('rapida');
+  }
+
   const ACOES = {
     /* 🔴 DOIS PASSOS, NÃO TRÊS (dono, 08/08: "MONTAR ROTA → MONTAGEM DE ROTA
        (BOTÃO INICIAR)"). Este botão abre a Montagem — e abrir a Montagem só
@@ -17199,6 +17646,11 @@
     }, alvo))),
     iniciar: (alvo) => comOrdemSalva(() => iniciarRota({ escopo: 'dia' }, alvo)),
     'cancelar-rota': cancelarRota,
+    /* ORDEM 5 — o botão à esquerda de "Fila N" na lista. Devolve a sequência ao
+       otimizador; a prioritária fica no topo porque o SERVIDOR a segura lá
+       (§ priorizarPrimeiro). `aguardeNoToque` porque o verbo é rede, e botão que
+       não responde no quadro do dedo é defeito que esta casa já pagou. */
+    'reorganizar-rota': (alvo) => aguardeNoToque(alvo, reorganizarPorDistancia),
     'rota-pendente-abrir': abrirRotaPendente,
     'rota-pendente-continuar': continuarRotaPendente,
     'rota-pendente-puxar': puxarRotaPendente,
@@ -17252,7 +17704,14 @@
     'criar-cliente-assim': () => comTrava(() => criarCliente(null)),
     // o "+" da Montagem e da Rota: a parada avulsa
     'rapida-buscar': () => comTrava(rapidaBuscar),
-    'rapida-confirmar': () => comTrava(rapidaConfirmar),
+    /* 🔴 `comTrava(rapidaConfirmar)` passava o ARGUMENTO DA TRAVA como `ficar`.
+       Por isso os dois verbos são funções próprias, com o argumento escrito à
+       mão: repassar a função nua fazia `ficar` receber o que o `comTrava`
+       resolvesse — e "sai da tela" viraria "fica" por acidente. */
+    'rapida-confirmar': () => comTrava(() => rapidaConfirmar(false)),
+    // ORDEM 3 — a opção de adicionar MÚLTIPLOS pelo "Procurar": mesma gravação,
+    // item a item, sem sair da tela. Ver a nota do `ficar` no C0.
+    'rapida-confirmar-continuar': () => comTrava(() => rapidaConfirmar(true)),
     'rapida-adicionar-escolhidos': () => comTrava(rapidaAdicionarEscolhidos),
     'rapida-recarregar': () => {
       if (!rapida) return;
@@ -17406,7 +17865,59 @@
        chip no cabeçalho, sem linha nos Ajustes, sem nada pra tocar. `forcado`
        fura a trava de 30 min E a memória do "já avisei" — e responde SEMPRE,
        inclusive quando não há novidade. */
+    /* 🔴 O "+" PERGUNTA ANTES DE ABRIR (17/08, ordens 3 e 3b do dono:
+       *"comportamento adicionar rota: pergunta: Prioridade / Comum: Ao escolher
+       entrar direto na foto 3"* e *"Prioridade: coloca na prioridade, comum
+       encaixa na rota"*).
+
+       Nenhuma peça nova: o portão é o `window.portao` de sempre (o 4º campo de
+       cada ação dá `data-acao` a QUALQUER botão — a mesma receita do "Registrar
+       local", que abre três portas num portão só), e a RESPOSTA é um campo que
+       já existe e já funciona ponta a ponta: `rapida.posicao`
+       ('primeira' | 'perto'), lido pelo `encaixarAvulsa` — 'primeira' cai em
+       `indice = 0`, 'perto' roda o custo de inserção (OSRM quando responde,
+       Haversine quando não). O botão dele tinha SUMIDO da casca em 12/08
+       ("onde ela entra virou letra miúda"), e o handler ficou órfão esperando
+       dono. A pergunta do dono é esse dono.
+
+       Duas frases e não uma: quem está em pé na calçada tem que ler a
+       CONSEQUÊNCIA, não o rótulo. E sem escape mudo — fechar sem escolher é
+       'Agora não', que não cria parada nenhuma. */
+    'parada-nova': abrirPortaDaParada,
+    'parada-prioridade': () => entrarNaRapida('primeira'),
+    'parada-comum': () => entrarNaRapida('perto'),
     'buscar-update': () => { checkAppUpdate(true); },
+    /* 🔴 SUPORTE ABRE O WHATSAPP DO DONO (17/08, ordem 6: *"Colocar Suporte
+       nele, para admin e motoristas: Clicou já abre meu whatsapp no celular da
+       pessoa +5519997024884"*).
+
+       Zero Kotlin novo: `NativeAppBridge.openWhatsapp` já existe (ele normaliza
+       o número, monta `https://wa.me/<digitos>?text=…` e abre por ACTION_VIEW),
+       o `AndroidManifest` já declara `<queries>` pros dois pacotes do WhatsApp,
+       e `native.js` já expõe `window.HBX.whatsapp`. O que faltava era a LINHA
+       na tela e este gancho.
+
+       O número viaja COMPLETO (55 + DDD): o Kotlin só prefixa o 55 sozinho
+       quando recebe 10 ou 11 dígitos, e mandar "19997024884" daqui deixaria a
+       regra do país escrita em dois lugares.
+
+       O texto já vai carimbado com a versão e a empresa — quem abre um chamado
+       nunca sabe dizer em qual APK está, e essa é a primeira pergunta que o
+       dono faria. `appInfo` é a MESMA fonte da linha da Versão nos Ajustes. */
+    suporte: () => {
+      let versao = '';
+      try {
+        const info = window.HBX.info() || {};
+        versao = [info.versionName, info.versionCode ? `(${info.versionCode})` : ''].filter(Boolean).join(' ');
+      } catch (_) { versao = ''; }
+      let empresa = '';
+      try { empresa = String((DADOS.ajustes && DADOS.ajustes.empresa) || ''); } catch (_) { empresa = ''; }
+      const texto = ['Olá, preciso de ajuda no HBX Logística.',
+        empresa ? `Empresa: ${empresa}` : '',
+        versao ? `App: ${versao}` : ''].filter(Boolean).join('\n');
+      try { window.HBX.whatsapp(SUPORTE_WHATSAPP, texto); }
+      catch (_) { avisoErro(new Error('Não consegui abrir o WhatsApp agora.')); }
+    },
     'enviar-recado': enviarRecado,
     // "Responder" não manda nada: ele leva o dedo pro campo. O texto é dele.
     'responder-recado': () => {
@@ -17430,6 +17941,24 @@
   }, true);
 
   // captura na fase de subida, DEPOIS do mock: quem não é meu segue o caminho dele.
+  /* 🔴 TODA PORTA DO "+" PERGUNTA (17/08, ordem 3). As portas são três — o
+     rodapé dos dois modos do mapa (`data-acao="parada-nova"`, que já cai no
+     mapa de ações), o "+" da Montagem e o vazio-porta da rota avulsa (os dois
+     `data-ir="rapida"`). Interceptar em fase de CAPTURA é o que permite manter
+     o ATRIBUTO `data-ir="rapida"` intacto: ele é a agulha do TOUR e da AULA
+     (dois passos apontam pra ele), e renomear o atributo quebraria os dois em
+     silêncio. Mesmo precedente do `soltarDia`, 30 linhas abaixo.
+     Só morde a porta do DEDO: quem chama `window.ir('rapida')` por dentro (uma
+     prova, o roteador) continua caindo direto na tela, com o padrão 'perto'. */
+  document.addEventListener('click', (e) => {
+    if (!temPonte()) return;
+    const porta = e.target.closest('[data-ir="rapida"]');
+    if (!porta) return;
+    e.preventDefault();
+    e.stopPropagation();
+    abrirPortaDaParada();
+  }, true);
+
   document.addEventListener('click', (e) => {
     const alvo = e.target.closest('[data-acao], [data-estado]');
     if (!alvo || !temPonte()) return;
@@ -17498,6 +18027,24 @@
       if (i >= 0) rapida.escolhidos.splice(i, 1); else rapida.escolhidos.push(id);
       rapida.aviso = '';
       return publicarRapida();
+    }
+    /* ORDENS 7 e 10 — o cartao do historico ABRE o dia; reutilizar virou o
+       botao de dentro. Os dois carregam a DATA no proprio botao, entao ficam
+       aqui e nao no mapa nome->funcao. */
+    /* ORDEM 8 — cada dado do fechamento abre o extrato dele. O BLOCO e o QUEM
+       viajam no próprio botão: é o mesmo padrão do `abrir-parada`. */
+    if (chave === 'financeiro-extrato') {
+      return void extratoFinanceiro(String(alvo.dataset.bloco || ''), String(alvo.dataset.quem || ''));
+    }
+    // ORDENS 7/10 — a tela do dia se recarrega pela mesma porta que a abriu.
+    if (chave === 'historico-recarregar') {
+      return void abrirDiaDoHistorico(String((DADOS.historicodia && DADOS.historicodia.data) || ''));
+    }
+    if (chave === 'historico-abrir') {
+      return void abrirDiaDoHistorico(String(alvo.dataset.data || ''));
+    }
+    if (chave === 'historico-fechamento') {
+      return void abrirFechamentoDoDia(String(alvo.dataset.data || ''));
     }
     if (chave === 'historico-usar') {
       return void usarHistorico(String(alvo.dataset.data || ''));
