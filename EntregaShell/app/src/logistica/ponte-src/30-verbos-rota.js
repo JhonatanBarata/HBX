@@ -506,15 +506,46 @@
      meio, o que entrou está no servidor e o que não entrou é dito por nome —
      segurar a lista aqui faria o toque seguinte tentar criar tudo de novo.
      ------------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------------
+     🔴 O SELO É UM VERBO, NÃO UM CAMPO DE NASCIMENTO (18/08).
+
+     Até aqui a escolha "Prioridade" viajava DENTRO do `POST /logistica/entregas`
+     — e derrubava a porta inteira: o DTO não declara o campo, o ValidationPipe
+     é whitelist, e a resposta era `400 property prioridade should not exist`.
+     Como a chave ia SEMPRE (até como `false`, no caminho dos vários), "Comum"
+     morria igual — a tela dizia "Não deu certo" pra qualquer adição.
+
+     E, mesmo aceito, nascer prioritária não é o caso real: na montagem não
+     existe fila pra pular. O caso é ROTA ACONTECENDO — a parada já está lá e o
+     dedo decide que ela passa na frente. Por isso: cria a parada como sempre e
+     CARIMBA depois, pelo `PATCH /logistica/entregas/:id/prioridade`.
+
+     Falhar o carimbo NÃO desfaz a parada (ela existe, e apagar por causa de um
+     enfeite seria pior): devolve quantas não carimbaram pro recibo dizer a
+     verdade — "entrou como comum" — em vez de prometer vermelho que não veio.
+     Uma de cada vez, mesma lei do laço de criação (saber QUEM falhou).
+     ------------------------------------------------------------------------ */
+  async function carimbarPrioridade(ids) {
+    const naoCarimbou = [];
+    for (const id of ids) {
+      if (!id) continue;
+      try {
+        await window.API.patch(`/logistica/entregas/${encodeURIComponent(String(id))}/prioridade`, { prioridade: true });
+      } catch (_) { naoCarimbou.push(String(id)); }
+    }
+    return naoCarimbou;
+  }
+
   async function materializarRascunho() {
     if (!RASCUNHO.length) return { falharam: [], entraram: 0 };
     const fila = RASCUNHO.splice(0, RASCUNHO.length);
     const falharam = [];
+    const carimbar = [];
     let entraram = 0;
     for (const c of fila) {
       if (paradaAbertaDaConta(String(c.id))) continue;
       try {
-        await window.API.post('/logistica/entregas', {
+        const criada = await window.API.post('/logistica/entregas', {
           customerProfileId: String(c.id),
           /* 🔴 A PORTA VIAJA JUNTO (09/08). Sem `localId` a entrega nasce no
              ENDEREÇO DO PERFIL mesmo quando o rascunho sabe de qual porta o
@@ -525,15 +556,16 @@
           quantidade: 1,
           scheduledAt: `${hojeISO()}T12:00:00.000Z`,
           paraMinhaRota: true,
-          // 17/08 — o SELO viaja do rascunho pra entrega (ordem 3b). Quem marcou
-          // "Prioridade" antes de montar a rota escolheu ali; a materialização é
-          // só o momento em que a decisão vira linha no banco. Sem esta linha o
-          // caminho do rascunho perderia a escolha calado.
-          ...(c.prioridade ? { prioridade: true } : {}),
+          // 18/08 — `prioridade` NÃO vai mais neste corpo (ver § carimbarPrioridade).
+          // O id que volta aqui é o que o carimbo usa logo abaixo.
         });
         entraram += 1;
+        if (c.prioridade && criada && criada.id) carimbar.push(String(criada.id));
       } catch (_) { falharam.push(c.nome || 'Cliente'); }
     }
+    // Carimbo ANTES do `carregarRota()`: a lista já volta com o vermelho no
+    // lugar certo, e o `planejar` que vier depois já ancora o selo no topo.
+    if (carimbar.length) await carimbarPrioridade(carimbar);
     // A rota é relida ANTES de quem chamou seguir: é dela que sai a lista de
     // abertas que o planejar vai ordenar.
     if (entraram) await carregarRota();

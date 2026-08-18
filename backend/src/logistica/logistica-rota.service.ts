@@ -2194,6 +2194,9 @@ export class LogisticaRotaService {
         entregadorId: true,
         status: true,
         rotaOrdem: true,
+        // SELO (18/08) — sem isto o planejador não sabe quem está carimbado e o
+        // NN+2-opt afunda a parada urgente no meio da rota, calado.
+        prioridade: true,
         scheduledAt: true,
         // MULTILOCAL (11/07) — geo da PORTA da entrega: quando há um LOCAL, a rota
         // ordena pela coordenada DELE (cada endereço do cliente tem a sua). Sem o
@@ -2220,6 +2223,8 @@ export interface Stop {
   status: string;
   nome: string | null;
   rotaOrdem?: number | null;
+  /** SELO (18/08) — parada carimbada "prioridade" pelo dedo na rota acontecendo. */
+  prioridade?: boolean | null;
 }
 
 export interface Coord {
@@ -2486,8 +2491,36 @@ export interface PlanRouteResult {
 }
 
 /**
- * PIPELINE COMPLETO (puro): separa com/sem coord → NN → 2-opt → rotaOrdem 0..N
- * (roteáveis primeiro, sem-coord no fim) → ETA cumulativo → término previsto.
+ * ÂNCORA DO SELO (18/08, ordem 5 do dono) — "Reorganizar reorganiza por
+ * distância, PORÉM o que foi adicionado como prioridade não entra nesse filtro".
+ *
+ * Partição ESTÁVEL sobre a sequência que o otimizador já produziu: carimbados
+ * primeiro, o resto depois, cada grupo preservando a ordem ótima interna. Ou
+ * seja, entre duas paradas prioritárias continua valendo o caminho mais barato
+ * — a prioridade decide QUEM vai antes, nunca desfaz a matemática de dentro do
+ * grupo.
+ *
+ * 🔴 Devolve o MESMO array quando ninguém está carimbado (o caso de 99% dos
+ * dias): comportamento idêntico ao de antes desta frente, sem realocar nem
+ * reordenar nada. Só quem usa o selo paga por ele.
+ *
+ * NÃO é aplicada na ordem manual (`planRouteManual`): lá o dedo arrastou e a
+ * sequência é DELE — "não entra no filtro de distância" fala do Reorganizar
+ * automático, não de uma decisão explícita da gente. Servidor re-ancorar por
+ * cima de um arrasto seria a casca anunciando uma coisa e a rota fazendo outra.
+ */
+export function ancorarPrioritarios<T extends { prioridade?: boolean | null }>(ordenados: T[]): T[] {
+  const temSelo = ordenados.some((s) => s.prioridade === true);
+  if (!temSelo) return ordenados;
+  const prioritarios = ordenados.filter((s) => s.prioridade === true);
+  const comuns = ordenados.filter((s) => s.prioridade !== true);
+  return [...prioritarios, ...comuns];
+}
+
+/**
+ * PIPELINE COMPLETO (puro): separa com/sem coord → NN → 2-opt → âncora do selo
+ * → rotaOrdem 0..N (roteáveis primeiro, sem-coord no fim) → ETA cumulativo →
+ * término previsto.
  */
 export function planRoute(stops: Stop[], opts: PlanRouteOptions): PlanRouteResult {
   const comCoord = filtrarComCoord(stops);
@@ -2495,7 +2528,10 @@ export function planRoute(stops: Stop[], opts: PlanRouteOptions): PlanRouteResul
 
   // Ordena os roteáveis: NN a partir da origem + refino 2-opt.
   const nn = nearestNeighbor(comCoord, opts.origem);
-  const otimizado = twoOpt(nn, opts.origem);
+  // Âncora ANTES do ETA/rotaOrdem/custo: tudo daqui pra baixo (perna, ETA
+  // cumulativo, distanciaTotalKm) é medido sobre a sequência FINAL — senão o
+  // app mostraria a ordem certa com o ETA da ordem antiga.
+  const otimizado = ancorarPrioritarios(twoOpt(nn, opts.origem));
 
   // rotaOrdem: 0..M-1 para os roteáveis (na ordem otimizada), depois os sem-coord.
   const ordenados: Stop[] = [
@@ -2607,7 +2643,11 @@ function buildRoadPlan(
   const offset = hasOrigin ? 1 : 0;
   const order = greedyRoadOrder(valid.length, payload.durations!, offset, hasOrigin);
   const improved = improveRoadOrder(order, payload.durations!, offset, hasOrigin);
-  const orderedValid = improved.map((index) => valid[index]);
+  // Âncora do selo (18/08) — MESMA regra do caminho Haversine, aplicada aqui
+  // antes das pernas: os legs saem da matriz OSRM na sequência FINAL
+  // (durations[prev][atual] logo abaixo), então reordenar depois faria a tela
+  // mostrar a ordem nova com o tempo da ordem velha.
+  const orderedValid = ancorarPrioritarios(improved.map((index) => valid[index]));
   const invalid = stops.filter((stop) => !hasCoord(stop));
   const ordered: Stop[] = [...orderedValid, ...invalid].map((stop, index) => ({ ...stop, rotaOrdem: index }));
 
@@ -2781,6 +2821,7 @@ function toStop(r: ParadaRow): Stop {
     // Rótulo da parada: apelido do local ("Casa"|"Loja") quando presente, senão o nome do cliente.
     nome: r.local?.apelido ?? r.customerProfile?.name ?? null,
     rotaOrdem: r.rotaOrdem ?? null,
+    prioridade: r.prioridade === true,
   };
 }
 
@@ -2864,6 +2905,7 @@ interface ParadaRow {
   entregadorId: number | null;
   status: string;
   rotaOrdem: number | null;
+  prioridade: boolean;
   scheduledAt: Date | null;
   // MULTILOCAL (11/07) — o LOCAL da entrega (null = perfil/legado); seu geo tem
   // prioridade sobre o do perfil na roteirização.

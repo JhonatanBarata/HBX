@@ -736,6 +736,13 @@
     const c = item.cliente || {};
     const status = String(item.status || '');
     const tags = [];
+    /* 🔴 O VERMELHO É DO SELO, NÃO DA POSIÇÃO (18/08, ordem 5 do dono: *"o q foi
+       adicionado como prioridade fica em vermelho"*). Vem PRIMEIRO na fileira
+       porque é a primeira coisa que o motorista tem que ler no cartão — e é o
+       campo `prioridade` que responde, nunca "estar na posição 1": a parada 1
+       pode ser só a mais perto. `.tag.red` já existe nas duas peles (claro e
+       escuro), então nada de tinta nova pra isto (Leis do Design System). */
+    if (item.prioridade === true) tags.push(['Prioridade', 'red']);
     if (item.quantidade > 0) tags.push([`${item.quantidade}x`, 'blue']);
     const pill = pilulaDaParada(status);
     return {

@@ -88,6 +88,23 @@ export class CreateEntregaDto {
   @IsOptional()
   @IsBoolean()
   paraMinhaRota?: boolean;
+
+  /**
+   * 🔴 18/08 — NÃO EXISTE `prioridade` AQUI, E É DE PROPÓSITO.
+   *
+   * O APK mandava `prioridade` neste corpo e TODA criação morria em
+   * `property prioridade should not exist` (whitelist do ValidationPipe,
+   * main.ts) — a porta "Adicionar à rota" inteira, escolhendo Prioridade OU
+   * Comum, porque a chave viajava sempre (até como `false`).
+   *
+   * Prioridade é decisão de ROTA ACONTECENDO, não de nascimento: na montagem
+   * não existe fila pra "ir pro topo". Quem carimba é o dedo, depois, pelo
+   * `PATCH /logistica/entregas/:id/prioridade` — que é o verbo que o caso real
+   * exige de qualquer jeito (promover uma parada que JÁ está na lista).
+   *
+   * Se alguém sentir falta de "nascer prioritária": o campo certo é a JANELA
+   * de atendimento (AgendaJanelaDto), não este.
+   */
 }
 
 // ── Confirmar entrega (recebe o GPS do celular do entregador) ────────────────
@@ -279,6 +296,18 @@ export class CancelarEntregaDto {
   @IsString()
   @MaxLength(40)
   arrivedAt?: string;
+}
+
+/**
+ * SELO DE PRIORIDADE (18/08) — "esta parada pula pro topo".
+ *
+ * Corpo mínimo de propósito: o verbo é do MOTORISTA, no meio da rota, com o
+ * celular na mão. `prioridade: false` é o mesmo verbo tirando o selo (o dedo
+ * muda de ideia) — nunca um endpoint separado pra desmarcar.
+ */
+export class PrioridadeEntregaDto {
+  @IsBoolean()
+  prioridade!: boolean;
 }
 
 // ── Operação por entregador ─────────────────────────────────────────────────

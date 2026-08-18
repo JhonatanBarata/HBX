@@ -265,6 +265,10 @@ export class LogisticaConferenciaService implements OnModuleInit {
         status: r.status,
         nome: r.local?.apelido ?? r.customerProfile?.name ?? null,
         rotaOrdem: r.rotaOrdem ?? null,
+        // SELO (18/08) — a conferência é o MESMO motor do planejar em dry-run.
+        // Sem o campo aqui ela prometeria uma ordem (sem âncora) que o planejar
+        // depois não cumpre — semáforo mentindo, que é o pecado desta tela.
+        prioridade: r.prioridade === true,
       };
     });
 
@@ -745,6 +749,7 @@ export class LogisticaConferenciaService implements OnModuleInit {
         id: true,
         status: true,
         rotaOrdem: true,
+        prioridade: true,
         customerProfileId: true,
         localId: true,
         // cep/endereco/bairro/cidade/uf (26/07): colunas que JÁ existem nos dois models
@@ -1143,6 +1148,7 @@ interface ParadaConferenciaRow {
   id: string;
   status: string;
   rotaOrdem: number | null;
+  prioridade: boolean;
   customerProfileId: string;
   localId: string | null;
   local: ({ apelido: string | null; lat: number | null; lng: number | null; geoFonte: string | null; sanitizadoEm?: Date | null; updatedAt?: Date | null } & EnderecoCadastrado) | null;

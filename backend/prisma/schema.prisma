@@ -1291,6 +1291,15 @@ model Entrega {
   // recebidoNaHora/receiptMethod são o desfecho do app do entregador (M4/M6);
   // idempotencyKey é a base do offline-first (M8, unique p/ sync sem duplicar).
   rotaOrdem                        Int?
+  // PARADA PRIORITÁRIA (18/08, migration 20260818000000_parada_prioritaria) —
+  // SELO da parada, não posição na fila. `rotaOrdem` é o RETRATO do último
+  // plano: todo `planejar` sem `ordemManual` roda NN+2-opt e reescreve a
+  // sequência inteira, então a decisão "esta aqui é urgente" morreria no
+  // primeiro Reorganizar. Por isso mora em coluna própria: o Reorganizar por
+  // distância reordena o resto, e quem tem selo continua ancorado no topo.
+  // Quem CARIMBA é o dedo, na rota acontecendo (PATCH entregas/:id/prioridade)
+  // — nunca o nascimento da entrega (na montagem não existe fila ainda).
+  prioridade                       Boolean                       @default(false)
   etaAt                            DateTime?
   // R4 (05/07 — falha visível): desfecho PERSISTIDO dos efeitos do confirmar.
   //   whatsappStatus  = 'enviado' | 'falhou' | 'pulado' (+ razão em whatsappMotivo)

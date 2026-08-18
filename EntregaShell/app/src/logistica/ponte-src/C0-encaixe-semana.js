@@ -203,13 +203,16 @@
         quantidade: 1,
         scheduledAt: `${hojeISO()}T12:00:00.000Z`,
         paraMinhaRota: true,
-        /* 🔴 O SELO NASCE COM A PARADA (17/08, ordem 3b). `encaixarAvulsa` logo
-           abaixo já põe ela no topo AGORA (`indice = 0`) — mas isso é
-           `ordemManual`, ou seja, RETRATO: o próximo `planejar` sem ordem manual
-           reotimizaria e a urgência morreria calada. O campo é o que faz a
-           decisão sobreviver ao Reorganizar da ordem 5, ao Montar de amanhã e ao
-           replanejo de outro motorista. Dois efeitos, um gesto. */
-        prioridade: posicao === 'primeira',
+        /* 🔴 O SELO NÃO NASCE MAIS AQUI (18/08). Esta linha era
+           `prioridade: posicao === 'primeira'` e é a que aparecia na tela do
+           dono como *"Não deu certo — property prioridade should not exist"*:
+           o create é whitelist e não declara o campo, então a chave (mandada
+           SEMPRE, até `false`) matava toda adição pela porta Procurar.
+
+           A razão do selo continua a mesma e continua certa: `encaixarAvulsa`
+           põe a parada no topo AGORA, mas isso é `ordemManual` — RETRATO. Só
+           que a decisão sobrevive por COLUNA, carimbada logo abaixo pelo verbo
+           `PATCH …/prioridade`, que é onde ela pertence: rota acontecendo. */
       });
       criou = true;
       // Só solta o estado da tela quem VAI EMBORA. Ficando, ele é o mesmo
@@ -220,6 +223,9 @@
       await carregarRota();
       let encaixe = { aplicado: false, anterior: null };
       const novoId = entrega && entrega.id ? String(entrega.id) : '';
+      // O SELO, antes do encaixe: o carimbo é o que sobrevive ao próximo
+      // Reorganizar; o encaixe é só o efeito de AGORA (os dois, um gesto).
+      if (novoId && posicao === 'primeira') await carimbarPrioridade([novoId]);
       if (novoId) encaixe = await encaixarAvulsa(novoId, posicao);
       // A escolha dele já está gravada — e desde 10/08 a Montagem não
       // reotimiza nada sozinha ao abrir, então ninguém passa por cima.
@@ -385,19 +391,24 @@
 
     const entraram = [];
     const falharam = [];
+    const criadas = [];
     for (const id of ids) {
       try {
-        await window.API.post('/logistica/entregas', {
+        /* 🔴 18/08 — `prioridade` SAIU DESTE CORPO. Ela ia aqui como
+           `prioridade: r.posicao === 'primeira'`, ou seja, a chave viajava
+           SEMPRE — inclusive `false`. O DTO do create não declara o campo e o
+           ValidationPipe é whitelist: `400 property prioridade should not
+           exist` em TODA adição, tanto faz o dedo ter escolhido Prioridade ou
+           Comum. Era a porta "Adicionar à rota" inteira caída.
+           O selo agora é verbo depois do nascimento (§ carimbarPrioridade). */
+        const criada = await window.API.post('/logistica/entregas', {
           customerProfileId: id,
           quantidade: 1,
           scheduledAt: `${hojeISO()}T12:00:00.000Z`,
           paraMinhaRota: true,
-          // 17/08 — a MESMA escolha do portão vale pros vários (ordem 3b). Sem
-          // isto o "Prioridade" só valeria na porta Procurar, e a mesma pergunta
-          // teria duas respostas conforme a porta — bug de produto.
-          prioridade: r.posicao === 'primeira',
         });
         entraram.push(id);
+        if (criada && criada.id) criadas.push(String(criada.id));
       } catch (_) { falharam.push(nomePorId.get(id) || 'Cliente'); }
     }
 
@@ -409,6 +420,12 @@
     }
 
     rapida = null;
+    /* O SELO, quando o dedo pediu Prioridade — e ANTES do planejar, pra que a
+       ordem já nasça com o carimbado no topo (a âncora do servidor lê a coluna).
+       Não carimbar não desfaz parada nenhuma: o recibo é que muda de tom. */
+    const semSelo = r.posicao === 'primeira' && criadas.length
+      ? await carimbarPrioridade(criadas)
+      : [];
     /* A ORDEM É A SEGUNDA METADE DO VERBO. Falhar aqui não desfaz nada — as
        paradas existem —, então o recibo muda de tom em vez de mentir. */
     let ordenou = true;
@@ -425,6 +442,15 @@
       return window.portao({
         tom: 'alerta', ico: 'alert', titulo: `${quantas} na rota`,
         sub: `Não consegui: ${falharam.join(', ')}.`,
+        acoes: [['Fechar', 'principal', true]],
+      });
+    }
+    // O recibo não promete vermelho que não veio: se o carimbo falhou, a
+    // parada ENTROU (é verdade) — só entrou como comum, e o dedo sabe disso.
+    if (semSelo.length) {
+      return window.portao({
+        tom: 'alerta', ico: 'alert', titulo: `${quantas} na rota`,
+        sub: 'Entraram como comum — não consegui marcar prioridade agora.',
         acoes: [['Fechar', 'principal', true]],
       });
     }

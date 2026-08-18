@@ -637,8 +637,32 @@
   }
 
   /* A PERGUNTA (ordens 3/3b) e a porta que ela abre. Ficam juntas de propósito:
-     é uma decisão só, em dois toques. */
+     é uma decisão só, em dois toques.
+
+     🔴 SÓ SE PERGUNTA COM ROTA ACONTECENDO (18/08, dono: *"essa classificação
+     foi usada para usar em rota acontecendo, não criando rota nova"*).
+
+     Montando o dia não existe FILA pra pular: "vai pro topo" é uma pergunta
+     sobre uma fila que ainda não foi calculada, e a resposta morreria no
+     primeiro Montar. Pior: era a MESMA pergunta em dois momentos diferentes,
+     com respostas que não significam a mesma coisa — dado em dois lugares é
+     bug de produto, a lei da casa.
+
+     Com a rota na rua a pergunta é real e urgente: o cliente ligou, a parada
+     entra AGORA e passa na frente. Fora disso o silêncio responde 'perto'
+     (Comum), que é o encaixe automático de sempre — um toque a menos no
+     caminho mais usado do app.
+
+     A régua é o `estadoRota` do núcleo, a mesma que governa mapa e rodapé:
+     'rodando' (ACTIVE) e 'pausada'. `iniciando` fica de fora de propósito — é
+     dinheiro em reserva, ainda não é rota na rua (§ estadoDaRota). */
+  function rotaAcontecendo() {
+    const e = (typeof estadoRota !== 'undefined' ? String(estadoRota) : '');
+    return e === 'rodando' || e === 'pausada';
+  }
+
   function abrirPortaDaParada() {
+    if (!rotaAcontecendo()) return entrarNaRapida('perto');
     if (typeof window.portao !== 'function') return entrarNaRapida('perto');
     window.portao({
       tom: 'info', ico: 'plus', titulo: 'Como esta parada entra?',

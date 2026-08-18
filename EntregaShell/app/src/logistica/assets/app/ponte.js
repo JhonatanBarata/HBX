@@ -736,6 +736,13 @@
     const c = item.cliente || {};
     const status = String(item.status || '');
     const tags = [];
+    /* 🔴 O VERMELHO É DO SELO, NÃO DA POSIÇÃO (18/08, ordem 5 do dono: *"o q foi
+       adicionado como prioridade fica em vermelho"*). Vem PRIMEIRO na fileira
+       porque é a primeira coisa que o motorista tem que ler no cartão — e é o
+       campo `prioridade` que responde, nunca "estar na posição 1": a parada 1
+       pode ser só a mais perto. `.tag.red` já existe nas duas peles (claro e
+       escuro), então nada de tinta nova pra isto (Leis do Design System). */
+    if (item.prioridade === true) tags.push(['Prioridade', 'red']);
     if (item.quantidade > 0) tags.push([`${item.quantidade}x`, 'blue']);
     const pill = pilulaDaParada(status);
     return {
@@ -3969,15 +3976,46 @@
      meio, o que entrou está no servidor e o que não entrou é dito por nome —
      segurar a lista aqui faria o toque seguinte tentar criar tudo de novo.
      ------------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------------
+     🔴 O SELO É UM VERBO, NÃO UM CAMPO DE NASCIMENTO (18/08).
+
+     Até aqui a escolha "Prioridade" viajava DENTRO do `POST /logistica/entregas`
+     — e derrubava a porta inteira: o DTO não declara o campo, o ValidationPipe
+     é whitelist, e a resposta era `400 property prioridade should not exist`.
+     Como a chave ia SEMPRE (até como `false`, no caminho dos vários), "Comum"
+     morria igual — a tela dizia "Não deu certo" pra qualquer adição.
+
+     E, mesmo aceito, nascer prioritária não é o caso real: na montagem não
+     existe fila pra pular. O caso é ROTA ACONTECENDO — a parada já está lá e o
+     dedo decide que ela passa na frente. Por isso: cria a parada como sempre e
+     CARIMBA depois, pelo `PATCH /logistica/entregas/:id/prioridade`.
+
+     Falhar o carimbo NÃO desfaz a parada (ela existe, e apagar por causa de um
+     enfeite seria pior): devolve quantas não carimbaram pro recibo dizer a
+     verdade — "entrou como comum" — em vez de prometer vermelho que não veio.
+     Uma de cada vez, mesma lei do laço de criação (saber QUEM falhou).
+     ------------------------------------------------------------------------ */
+  async function carimbarPrioridade(ids) {
+    const naoCarimbou = [];
+    for (const id of ids) {
+      if (!id) continue;
+      try {
+        await window.API.patch(`/logistica/entregas/${encodeURIComponent(String(id))}/prioridade`, { prioridade: true });
+      } catch (_) { naoCarimbou.push(String(id)); }
+    }
+    return naoCarimbou;
+  }
+
   async function materializarRascunho() {
     if (!RASCUNHO.length) return { falharam: [], entraram: 0 };
     const fila = RASCUNHO.splice(0, RASCUNHO.length);
     const falharam = [];
+    const carimbar = [];
     let entraram = 0;
     for (const c of fila) {
       if (paradaAbertaDaConta(String(c.id))) continue;
       try {
-        await window.API.post('/logistica/entregas', {
+        const criada = await window.API.post('/logistica/entregas', {
           customerProfileId: String(c.id),
           /* 🔴 A PORTA VIAJA JUNTO (09/08). Sem `localId` a entrega nasce no
              ENDEREÇO DO PERFIL mesmo quando o rascunho sabe de qual porta o
@@ -3988,15 +4026,16 @@
           quantidade: 1,
           scheduledAt: `${hojeISO()}T12:00:00.000Z`,
           paraMinhaRota: true,
-          // 17/08 — o SELO viaja do rascunho pra entrega (ordem 3b). Quem marcou
-          // "Prioridade" antes de montar a rota escolheu ali; a materialização é
-          // só o momento em que a decisão vira linha no banco. Sem esta linha o
-          // caminho do rascunho perderia a escolha calado.
-          ...(c.prioridade ? { prioridade: true } : {}),
+          // 18/08 — `prioridade` NÃO vai mais neste corpo (ver § carimbarPrioridade).
+          // O id que volta aqui é o que o carimbo usa logo abaixo.
         });
         entraram += 1;
+        if (c.prioridade && criada && criada.id) carimbar.push(String(criada.id));
       } catch (_) { falharam.push(c.nome || 'Cliente'); }
     }
+    // Carimbo ANTES do `carregarRota()`: a lista já volta com o vermelho no
+    // lugar certo, e o `planejar` que vier depois já ancora o selo no topo.
+    if (carimbar.length) await carimbarPrioridade(carimbar);
     // A rota é relida ANTES de quem chamou seguir: é dela que sai a lista de
     // abertas que o planejar vai ordenar.
     if (entraram) await carregarRota();
@@ -4902,9 +4941,17 @@
      É UMA CHAMADA SÓ, e isso é o conserto: `POST /rota/planejar` SEM
      `ordemManual` é exatamente o NN+2-opt a partir do GPS. A prioridade não
      precisa de conta nenhuma aqui porque quem a segura no topo é o SERVIDOR
-     (o selo `Entrega.prioridade`, lido pelo `priorizarPrimeiro` dos dois
-     motores do planejador). Fazer a lista calcular isso do lado de cá seria a
-     segunda régua do mesmo fato — e duas réguas divergem no primeiro ajuste.
+     (o selo `Entrega.prioridade`, ancorado por `ancorarPrioritarios` nos DOIS
+     motores do planejador — Haversine e OSRM, em `logistica-rota.service.ts`).
+     Fazer a lista calcular isso do lado de cá seria a segunda régua do mesmo
+     fato — e duas réguas divergem no primeiro ajuste.
+
+     🔴 E O ARRASTO CONTINUA GANHANDO DO SELO (18/08): `ordemManual` NÃO passa
+     pela âncora. "Não entra nesse filtro" fala do REORGANIZAR por distância;
+     um arrasto é decisão explícita de gente, e o servidor recolocar a parada no
+     topo por cima do dedo seria a casca anunciando uma coisa e a rota fazendo
+     outra. O selo (o vermelho) continua lá — e volta a mandar no próximo
+     Reorganizar, que é exatamente o que a ordem 5 pede.
 
      💰 Dinheiro: mesma nota do arrasto, 30 linhas acima — re-planejar o mesmo
      conjunto não cria parada nem debita (claim ÚNICO por empresa+motorista+
@@ -14901,13 +14948,16 @@
         quantidade: 1,
         scheduledAt: `${hojeISO()}T12:00:00.000Z`,
         paraMinhaRota: true,
-        /* 🔴 O SELO NASCE COM A PARADA (17/08, ordem 3b). `encaixarAvulsa` logo
-           abaixo já põe ela no topo AGORA (`indice = 0`) — mas isso é
-           `ordemManual`, ou seja, RETRATO: o próximo `planejar` sem ordem manual
-           reotimizaria e a urgência morreria calada. O campo é o que faz a
-           decisão sobreviver ao Reorganizar da ordem 5, ao Montar de amanhã e ao
-           replanejo de outro motorista. Dois efeitos, um gesto. */
-        prioridade: posicao === 'primeira',
+        /* 🔴 O SELO NÃO NASCE MAIS AQUI (18/08). Esta linha era
+           `prioridade: posicao === 'primeira'` e é a que aparecia na tela do
+           dono como *"Não deu certo — property prioridade should not exist"*:
+           o create é whitelist e não declara o campo, então a chave (mandada
+           SEMPRE, até `false`) matava toda adição pela porta Procurar.
+
+           A razão do selo continua a mesma e continua certa: `encaixarAvulsa`
+           põe a parada no topo AGORA, mas isso é `ordemManual` — RETRATO. Só
+           que a decisão sobrevive por COLUNA, carimbada logo abaixo pelo verbo
+           `PATCH …/prioridade`, que é onde ela pertence: rota acontecendo. */
       });
       criou = true;
       // Só solta o estado da tela quem VAI EMBORA. Ficando, ele é o mesmo
@@ -14918,6 +14968,9 @@
       await carregarRota();
       let encaixe = { aplicado: false, anterior: null };
       const novoId = entrega && entrega.id ? String(entrega.id) : '';
+      // O SELO, antes do encaixe: o carimbo é o que sobrevive ao próximo
+      // Reorganizar; o encaixe é só o efeito de AGORA (os dois, um gesto).
+      if (novoId && posicao === 'primeira') await carimbarPrioridade([novoId]);
       if (novoId) encaixe = await encaixarAvulsa(novoId, posicao);
       // A escolha dele já está gravada — e desde 10/08 a Montagem não
       // reotimiza nada sozinha ao abrir, então ninguém passa por cima.
@@ -15083,19 +15136,24 @@
 
     const entraram = [];
     const falharam = [];
+    const criadas = [];
     for (const id of ids) {
       try {
-        await window.API.post('/logistica/entregas', {
+        /* 🔴 18/08 — `prioridade` SAIU DESTE CORPO. Ela ia aqui como
+           `prioridade: r.posicao === 'primeira'`, ou seja, a chave viajava
+           SEMPRE — inclusive `false`. O DTO do create não declara o campo e o
+           ValidationPipe é whitelist: `400 property prioridade should not
+           exist` em TODA adição, tanto faz o dedo ter escolhido Prioridade ou
+           Comum. Era a porta "Adicionar à rota" inteira caída.
+           O selo agora é verbo depois do nascimento (§ carimbarPrioridade). */
+        const criada = await window.API.post('/logistica/entregas', {
           customerProfileId: id,
           quantidade: 1,
           scheduledAt: `${hojeISO()}T12:00:00.000Z`,
           paraMinhaRota: true,
-          // 17/08 — a MESMA escolha do portão vale pros vários (ordem 3b). Sem
-          // isto o "Prioridade" só valeria na porta Procurar, e a mesma pergunta
-          // teria duas respostas conforme a porta — bug de produto.
-          prioridade: r.posicao === 'primeira',
         });
         entraram.push(id);
+        if (criada && criada.id) criadas.push(String(criada.id));
       } catch (_) { falharam.push(nomePorId.get(id) || 'Cliente'); }
     }
 
@@ -15107,6 +15165,12 @@
     }
 
     rapida = null;
+    /* O SELO, quando o dedo pediu Prioridade — e ANTES do planejar, pra que a
+       ordem já nasça com o carimbado no topo (a âncora do servidor lê a coluna).
+       Não carimbar não desfaz parada nenhuma: o recibo é que muda de tom. */
+    const semSelo = r.posicao === 'primeira' && criadas.length
+      ? await carimbarPrioridade(criadas)
+      : [];
     /* A ORDEM É A SEGUNDA METADE DO VERBO. Falhar aqui não desfaz nada — as
        paradas existem —, então o recibo muda de tom em vez de mentir. */
     let ordenou = true;
@@ -15123,6 +15187,15 @@
       return window.portao({
         tom: 'alerta', ico: 'alert', titulo: `${quantas} na rota`,
         sub: `Não consegui: ${falharam.join(', ')}.`,
+        acoes: [['Fechar', 'principal', true]],
+      });
+    }
+    // O recibo não promete vermelho que não veio: se o carimbo falhou, a
+    // parada ENTROU (é verdade) — só entrou como comum, e o dedo sabe disso.
+    if (semSelo.length) {
+      return window.portao({
+        tom: 'alerta', ico: 'alert', titulo: `${quantas} na rota`,
+        sub: 'Entraram como comum — não consegui marcar prioridade agora.',
         acoes: [['Fechar', 'principal', true]],
       });
     }
@@ -17570,8 +17643,32 @@
   }
 
   /* A PERGUNTA (ordens 3/3b) e a porta que ela abre. Ficam juntas de propósito:
-     é uma decisão só, em dois toques. */
+     é uma decisão só, em dois toques.
+
+     🔴 SÓ SE PERGUNTA COM ROTA ACONTECENDO (18/08, dono: *"essa classificação
+     foi usada para usar em rota acontecendo, não criando rota nova"*).
+
+     Montando o dia não existe FILA pra pular: "vai pro topo" é uma pergunta
+     sobre uma fila que ainda não foi calculada, e a resposta morreria no
+     primeiro Montar. Pior: era a MESMA pergunta em dois momentos diferentes,
+     com respostas que não significam a mesma coisa — dado em dois lugares é
+     bug de produto, a lei da casa.
+
+     Com a rota na rua a pergunta é real e urgente: o cliente ligou, a parada
+     entra AGORA e passa na frente. Fora disso o silêncio responde 'perto'
+     (Comum), que é o encaixe automático de sempre — um toque a menos no
+     caminho mais usado do app.
+
+     A régua é o `estadoRota` do núcleo, a mesma que governa mapa e rodapé:
+     'rodando' (ACTIVE) e 'pausada'. `iniciando` fica de fora de propósito — é
+     dinheiro em reserva, ainda não é rota na rua (§ estadoDaRota). */
+  function rotaAcontecendo() {
+    const e = (typeof estadoRota !== 'undefined' ? String(estadoRota) : '');
+    return e === 'rodando' || e === 'pausada';
+  }
+
   function abrirPortaDaParada() {
+    if (!rotaAcontecendo()) return entrarNaRapida('perto');
     if (typeof window.portao !== 'function') return entrarNaRapida('perto');
     window.portao({
       tom: 'info', ico: 'plus', titulo: 'Como esta parada entra?',

@@ -234,6 +234,9 @@ export class LogisticaService {
         // FIX rota (07/07): a ordem/ETA planejados PRECISAM voltar pro app — sem
         // eles o carrossel numera tudo "Parada 1" e ignora o 2-opt (bagunça).
         rotaOrdem: true,
+        // SELO (18/08) — o cartão vermelho da lista lê DAQUI. Posição 1 não diz
+        // se a parada é prioritária ou só a mais perto; só o selo diz.
+        prioridade: true,
         etaAt: true,
         // MULTILOCAL (10/07) — o LOCAL desta entrega (endereço/geo próprios). Quando
         // presente, a rota usa o endereço/geo do local; o cliente (id/nome/saldo)
@@ -630,6 +633,9 @@ export class LogisticaService {
         // FIX rota (07/07): devolve a ordem/ETA planejados (o app ordena o carrossel
         // e numera "Parada N" por rotaOrdem; o término lê etaAt da última parada).
         rotaOrdem: r.rotaOrdem ?? null,
+        // SELO (18/08) — quem pinta o cartão de vermelho e explica por que esta
+        // parada está no topo mesmo não sendo a mais perto.
+        prioridade: r.prioridade === true,
         etaAt: r.etaAt ? r.etaAt.toISOString() : null,
         // S2 (25/07, PR25072026-ROTA-CONFERIDA) — conector "perna a perna" da
         // lista da rota (app.js routeLegConnector). Ver nota acima (Haversine
@@ -1882,6 +1888,59 @@ export class LogisticaService {
     }
 
     return { id: entrega.id, whatsappStatus: wa.status, motivo: wa.motivo ?? null, reenviado: true };
+  }
+
+  /* ── SELO DE PRIORIDADE (18/08) ──────────────────────────────────────────────
+     "Prioridade: coloca na prioridade, comum encaixa na rota" (ordem 3b) +
+     "Reorganizar por distância... o que foi adicionado como prioridade fica em
+     vermelho e não entra nesse filtro" (ordem 5).
+
+     🔴 POR QUE UM VERBO E NÃO UM CAMPO DO CREATE: o caso real é rota
+     ACONTECENDO — a parada já existe e o dedo decide que ela pula. Nascimento
+     não tem fila pra pular. E como selo é ESTADO (não posição), ele sobrevive
+     ao Reorganizar, ao Montar de amanhã e ao replanejo de outro motorista —
+     coisa que `rotaOrdem` não faz (é o retrato do último plano).
+
+     Só parada ABERTA: carimbar prioridade em entrega já entregue/cancelada é
+     mexer no passado, e o topo da fila não existe mais pra ela. Devolve o
+     estado atual em vez de 404 quando a entrega existe mas está fechada — o
+     app não tem o que retentar, e erro aqui viraria fila de outbox girando à
+     toa (a lição do 409 que virou loop eterno).
+     ------------------------------------------------------------------------ */
+  async definirPrioridade(
+    companyId: number,
+    id: string,
+    prioridade: boolean,
+    actor?: LogisticaActor | null,
+  ): Promise<{ id: string; prioridade: boolean; status: string } | null> {
+    if (!companyId || !id) return null;
+    const actorWhere = actor ? await this.requireOperacao().whereForActor(actor) : {};
+    const entrega = await this.prisma.entrega.findFirst({
+      where: { id: String(id).trim(), companyId, ...actorWhere },
+      select: { id: true, status: true, prioridade: true },
+    });
+    if (!entrega) return null;
+    if (entrega.status === 'entregue' || entrega.status === 'cancelada') {
+      return { id: entrega.id, prioridade: entrega.prioridade === true, status: entrega.status };
+    }
+    if (entrega.prioridade === prioridade) {
+      return { id: entrega.id, prioridade, status: entrega.status };
+    }
+    // updateMany com o status no WHERE: se a parada foi concluída entre a
+    // leitura e a escrita, ninguém carimba por cima do desfecho (mesma trava
+    // do cancelar). count 0 = alguém fechou primeiro; devolve o que está lá.
+    const escrito = await this.prisma.entrega.updateMany({
+      where: { id: entrega.id, companyId, status: { in: ['agendada', 'em_rota'] } },
+      data: { prioridade },
+    });
+    if (escrito.count !== 1) {
+      const atual = await this.prisma.entrega.findFirst({
+        where: { id: entrega.id, companyId },
+        select: { id: true, status: true, prioridade: true },
+      });
+      return atual ? { id: atual.id, prioridade: atual.prioridade === true, status: atual.status } : null;
+    }
+    return { id: entrega.id, prioridade, status: entrega.status };
   }
 
   // ── CANCELAR ────────────────────────────────────────────────────────────────

@@ -107,9 +107,17 @@
      É UMA CHAMADA SÓ, e isso é o conserto: `POST /rota/planejar` SEM
      `ordemManual` é exatamente o NN+2-opt a partir do GPS. A prioridade não
      precisa de conta nenhuma aqui porque quem a segura no topo é o SERVIDOR
-     (o selo `Entrega.prioridade`, lido pelo `priorizarPrimeiro` dos dois
-     motores do planejador). Fazer a lista calcular isso do lado de cá seria a
-     segunda régua do mesmo fato — e duas réguas divergem no primeiro ajuste.
+     (o selo `Entrega.prioridade`, ancorado por `ancorarPrioritarios` nos DOIS
+     motores do planejador — Haversine e OSRM, em `logistica-rota.service.ts`).
+     Fazer a lista calcular isso do lado de cá seria a segunda régua do mesmo
+     fato — e duas réguas divergem no primeiro ajuste.
+
+     🔴 E O ARRASTO CONTINUA GANHANDO DO SELO (18/08): `ordemManual` NÃO passa
+     pela âncora. "Não entra nesse filtro" fala do REORGANIZAR por distância;
+     um arrasto é decisão explícita de gente, e o servidor recolocar a parada no
+     topo por cima do dedo seria a casca anunciando uma coisa e a rota fazendo
+     outra. O selo (o vermelho) continua lá — e volta a mandar no próximo
+     Reorganizar, que é exatamente o que a ordem 5 pede.
 
      💰 Dinheiro: mesma nota do arrasto, 30 linhas acima — re-planejar o mesmo
      conjunto não cria parada nem debita (claim ÚNICO por empresa+motorista+

@@ -88,6 +88,7 @@ import {
   LimparDiaDto,
   PasseDoDiaDto,
   PlanejarRotaDto,
+  PrioridadeEntregaDto,
   PulsoRecadosDto,
   EspelhoQuadroDto,
   SetAvisarClienteDto,
@@ -272,6 +273,21 @@ export class LogisticaController {
   async reabrir(@Req() req: any, @Param('id') id: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const res = await this.service.reabrirEntrega(companyId, id, req.user);
+    if (!res) throw new NotFoundException('Entrega não encontrada');
+    return res;
+  }
+
+  /**
+   * SELO DE PRIORIDADE (18/08) — "esta parada pula pro topo" / tira o selo.
+   *
+   * SEM @Admin de propósito: é o app do MOTORISTA no meio da rota (mesmo padrão
+   * de guard de confirmar/cancelar/chegando). Company-scoped pelo JWT e
+   * actor-scoped no serviço — motorista só carimba parada que é dele.
+   */
+  @Patch('entregas/:id/prioridade')
+  async definirPrioridade(@Req() req: any, @Param('id') id: string, @Body() dto: PrioridadeEntregaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const res = await this.service.definirPrioridade(companyId, id, dto?.prioridade === true, req.user);
     if (!res) throw new NotFoundException('Entrega não encontrada');
     return res;
   }
