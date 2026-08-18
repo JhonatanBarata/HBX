@@ -80,10 +80,40 @@ normal. Esse teste nasce ANTES da correção (fixture do incidente) e reprova o 
 
 ## FASES DE EXECUÇÃO (cada uma = 1 cena visível + vacina; qualquer sessão executa)
 
-- **F1 O CANO** — fechar todo bypass; R1+R2 (teto 0 pra chip virgem); vacina do blast.
-- **F2 A AGENDA** — R3: massa→slots; dia-0 morre; runner com teto por giro.
-- **F3 A FAXINA** — kill list inteira; migração dos textos; drop de tabelas/colunas mortas.
-- **F4 A TELA** — 3 blocos + botão + painel vivo; R7 (papel do chip); `/vendas` sem config.
+- ✅ **F1 O CANO** — FEITO 17/08 (commit `90cbdd9e`). R2 no gate: a régua virou ROBÔ×GENTE,
+  não frio×conhecido — todo disparo automático obedece teto/espaçamento/anti-carimbo, tenha
+  o contato histórico ou não (`wa-cold-contact-gate.service.ts`, `evaluate`). Chip sem
+  NENHUMA conversa respondida = teto **0**, e `coldWarmupOff` não o ressuscita
+  (`wa-chip-trust.ts`, `tetoDoChip`). Auditado: todo envio humano carimba
+  `senderType: 'human'` (`inbox.service.ts:9041`) → vendedor não foi travado.
+  **Vacina provada**: 5 testes do blast; com o `return` de ontem reinserido no artefato
+  compilado, 4 quebram. Bypass da bridge: os 5 call-sites achados são não-comerciais
+  (auth/master-alert/fiscal) — ficam como exceção documentada, ver Anexo A.
+- ✅ **F2 A AGENDA** — FEITO 17/08 (mesmo commit + `0244ff81`). `aplicarForUser` deixou de
+  gravar `nextStepAt = agora` pra todos: cada lead recebe slot da agenda (janela + teto/dia
+  + intervalo com jitter) e variante de texto inédita NAQUELE dia; sem texto novo, adia pro
+  próximo dia útil em vez de repetir. Resposta devolve `primeiroDisparoAt`/`ultimoDisparoAt`
+  e a tela passa a dizer "começa 18/08 às 08:14, termina 04/09". Bônus do mesmo furo: o teto
+  "por empresa/dia" do runner era um `Map` que zerava a cada tick de 60s (teto real = 10 por
+  MINUTO) — agora nasce da cota persistida e sobrevive a restart (vacina em `b144a5c9`).
+- ⬜ **F3 A FAXINA** — kill list inteira; migração dos textos pra dentro da cadência; drop de
+  tabelas/colunas mortas. NÃO COMEÇADA.
+- ⬜ **F4 A TELA** — 3 blocos + botão + painel vivo; R7 (papel do chip); `/vendas` sem config.
+  NÃO COMEÇADA (só a frase da agenda no Aplicar saiu, junto da F2).
+
+### Estado dos testes em 17/08 (medido, `npm run test:all`)
+4450 testes · 4386 verdes · 53 vermelhos — **todos pré-existentes**: 8 em
+`webwhats-bridge` (gap conhecido do harness, exige `WHATSAPP_MODAL_ENABLED=true`) e 29 em
+`vendas-automation` + radar/master-alert/fiscal. Provado pré-existente revertendo as duas
+mudanças no artefato compilado: 29 falhas antes, 29 depois. O que EU toquei está 100%:
+cold gate 25/25 · chip trust 29/29 · cadência 24/24.
+
+### ⚠️ Efeito colateral CONSCIENTE da F1 (o dono decide se aceita)
+Com "chip mudo = teto 0", os chips das vendedoras (0 conversas respondidas) **não disparam
+mais nada automático** até alguém responder pra eles. É a regra pedida e é o que o mercado
+chama de aquecimento — o caminho pra destravar é a pessoa usar o chip na mão (envio humano
+não passa pelo teto), receber resposta, e o teto subir sozinho. Se o dono quiser um piso
+mínimo pra chip novo, é um número, não um redesenho.
 
 ## DECISÕES
 
