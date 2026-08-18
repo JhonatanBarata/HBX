@@ -254,6 +254,104 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-whatsapp-mini { display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid color-mix(in srgb, var(--f1-success) 40%, transparent); border-radius: 14px; color: var(--f1-success) !important; background: color-mix(in srgb, var(--f1-success) 10%, transparent); transition: transform 0.4s var(--f1-ease), background 0.35s ease; }
 .f1-whatsapp-mini:hover { transform: translateY(-3px) rotate(4deg); background: color-mix(in srgb, var(--f1-success) 18%, transparent); }
 
+/* ==========================================================================
+   O ORGANISMO — três pulsações lentas caminham atrás de tudo, encostam nas
+   bordas e seguem. Quando a fita troca de passo, o passo que entra ACENDE:
+   é a mesma pulsação chegando nele. Regra: nada aqui pode chamar atenção —
+   opacidade baixa, borrão largo, ciclo longo. Quem desligou animação no
+   sistema não vê nada disso (o bloco de prefers-reduced-motion cobre).
+   ========================================================================== */
+.f1-pulso {
+  position: absolute;
+  display: block;
+  width: 30vw;
+  max-width: 460px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+.f1-pulso--um {
+  left: -8%;
+  top: 8%;
+  background: radial-gradient(circle, var(--f1-accent) 0%, transparent 68%);
+  animation: f1-pulso-um 34s var(--f1-ease) infinite;
+}
+.f1-pulso--dois {
+  right: -6%;
+  top: 26%;
+  background: radial-gradient(circle, var(--f1-blue) 0%, transparent 68%);
+  animation: f1-pulso-dois 41s var(--f1-ease) infinite;
+  animation-delay: -13s;
+}
+.f1-pulso--tres {
+  left: 34%;
+  bottom: -14%;
+  width: 24vw;
+  background: radial-gradient(circle, var(--f1-success) 0%, transparent 66%);
+  animation: f1-pulso-tres 47s var(--f1-ease) infinite;
+  animation-delay: -27s;
+}
+/* cada uma anda até uma borda, encosta (o pico de opacidade é o toque) e vaza
+   pro próximo canto — nunca duas no mesmo lugar */
+@keyframes f1-pulso-um {
+  0% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.8); }
+  12% { opacity: 0.15; }
+  30% { opacity: 0.1; transform: translate3d(58vw, 22vh, 0) scale(1.15); }
+  52% { opacity: 0.16; transform: translate3d(74vw, 58vh, 0) scale(0.95); }
+  76% { opacity: 0.09; transform: translate3d(22vw, 66vh, 0) scale(1.2); }
+  92% { opacity: 0.04; }
+  100% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.8); }
+}
+@keyframes f1-pulso-dois {
+  0% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.9); }
+  14% { opacity: 0.13; }
+  36% { opacity: 0.08; transform: translate3d(-46vw, 40vh, 0) scale(1.18); }
+  60% { opacity: 0.14; transform: translate3d(-68vw, 6vh, 0) scale(0.88); }
+  84% { opacity: 0.07; transform: translate3d(-16vw, -12vh, 0) scale(1.1); }
+  100% { opacity: 0; transform: translate3d(0, 0, 0) scale(0.9); }
+}
+@keyframes f1-pulso-tres {
+  0% { opacity: 0; transform: translate3d(0, 0, 0) scale(1); }
+  18% { opacity: 0.11; transform: translate3d(-30vw, -26vh, 0) scale(1.14); }
+  46% { opacity: 0.07; transform: translate3d(26vw, -48vh, 0) scale(0.92); }
+  72% { opacity: 0.12; transform: translate3d(40vw, -8vh, 0) scale(1.2); }
+  100% { opacity: 0; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+/* o passo que entra ACENDE — o organismo chegou nele. Dura o mesmo tempo do
+   passo, então some antes do próximo acender. */
+.f1-stage-track button.is-active::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 2px 4px;
+  border-radius: 12px;
+  background: radial-gradient(ellipse at center, var(--f1-accent-soft), transparent 72%);
+  opacity: 0;
+  animation: f1-acende 6.3s var(--f1-ease) both;
+  pointer-events: none;
+}
+@keyframes f1-acende {
+  0% { opacity: 0; transform: scale(0.7); }
+  16% { opacity: 1; transform: scale(1); }
+  62% { opacity: 0.5; }
+  100% { opacity: 0; transform: scale(1.04); }
+}
+.f1-guias button.is-active::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -2px 2px;
+  border-radius: 11px;
+  background: radial-gradient(ellipse at center, var(--f1-accent-soft), transparent 74%);
+  opacity: 0;
+  animation: f1-acende 6.3s var(--f1-ease) both;
+  pointer-events: none;
+}
+
 @keyframes f1-drop-in { from { opacity: 0; transform: translateY(-18px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes f1-rise-in { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes f1-title-in { from { opacity: 0; transform: translateY(58%); } to { opacity: 1; transform: translateY(0); } }
@@ -315,6 +413,82 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   .f1-cookie-banner { left: 10px; right: 10px; bottom: 10px; padding: 16px; align-items: stretch; flex-direction: column; gap: 14px; border-radius: 20px; }
   .f1-cookie-actions { width: 100%; }
   .f1-cookie-actions button { flex: 1; padding: 0 10px; }
+}
+
+/* ==========================================================================
+   O PÉ DA PÁGINA — selo de infraestrutura, razão social e os legais.
+   O banner original veio em roxo escuro fixo; aqui ele é o MESMO desenho
+   vestido com os tokens do tema (as cores de marca do Google Play ficam,
+   porque marca não se repinta).
+   ========================================================================== */
+.f1-selos {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  width: min(1500px, 100%);
+  margin: clamp(20px, 3vh, 42px) auto 0;
+  padding: clamp(16px, 2.2vh, 26px) clamp(24px, 4vw, 68px);
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: clamp(14px, 2vw, 34px);
+  overflow: hidden;
+  border: 1px solid var(--f1-line);
+  border-radius: 26px;
+  background: linear-gradient(135deg, var(--f1-accent-soft), transparent 46%, var(--f1-blue-soft)), var(--f1-surface);
+  box-shadow: 0 22px 60px var(--f1-shadow-soft), inset 0 1px 0 var(--f1-line);
+}
+.f1-selos::before {
+  content: "";
+  position: absolute;
+  right: 8%;
+  top: 22%;
+  width: 26%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--f1-accent), var(--f1-text), transparent);
+  opacity: 0.55;
+  pointer-events: none;
+}
+.f1-selos__rot { color: var(--f1-text-soft); font-size: clamp(0.9rem, 1.2vw, 1.15rem); font-weight: 500; letter-spacing: -0.02em; }
+.f1-selo { display: inline-flex; align-items: center; gap: clamp(9px, 1vw, 16px); min-width: 0; }
+.f1-selo__logo { width: clamp(34px, 3.2vw, 54px); height: auto; flex: 0 0 auto; }
+.f1-selo b { color: var(--f1-text); font-size: clamp(1.05rem, 1.9vw, 1.7rem); font-weight: 800; letter-spacing: 0.015em; line-height: 1; white-space: nowrap; }
+.f1-selo + .f1-selos__barra { color: var(--f1-line-strong); font-size: clamp(1.6rem, 2.6vw, 2.6rem); font-weight: 300; font-style: normal; transform: skewX(-8deg); }
+.f1-selo__host { fill: var(--f1-accent); }
+/* cores de marca do Google Play: identidade de terceiro, não veste tema */
+.f1-play-1 { fill: #00d3ff; }
+.f1-play-2 { fill: #00d66f; }
+.f1-play-3 { fill: #ff3156; }
+.f1-play-4 { fill: #ffcf00; }
+
+.f1-footer { flex-wrap: wrap; }
+.f1-footer__casa { display: grid; gap: 2px; }
+.f1-footer__casa span { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.08em; }
+.f1-footer__casa strong { color: var(--f1-text); font-size: 0.84rem; font-weight: 780; letter-spacing: -0.01em; }
+.f1-footer__casa small { color: var(--f1-text-soft); font-family: var(--font-mono, monospace); font-size: var(--hbx-font-min); }
+.f1-footer__legal { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.f1-footer__legal a {
+  display: inline-flex;
+  min-height: 38px;
+  padding: 0 15px;
+  align-items: center;
+  border: 1px solid var(--f1-line);
+  border-radius: 999px;
+  color: var(--f1-text) !important;
+  background: var(--f1-surface);
+  font-size: 0.82rem;
+  font-weight: 750;
+  transition: transform 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+}
+.f1-footer__legal a:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--f1-accent) 50%, transparent); background: var(--f1-accent-soft); }
+
+@media (max-width: 620px) {
+  .f1-selos { margin-top: 18px; padding: 16px; border-radius: 20px; gap: 12px; }
+  .f1-selos__barra { display: none; }
+  .f1-selos__rot { width: 100%; text-align: center; }
+  .f1-selo { width: 100%; justify-content: center; }
+  .f1-footer { flex-direction: column; align-items: flex-start; gap: 14px; }
+  .f1-footer__legal a { min-height: 34px; padding: 0 12px; font-size: 0.76rem; }
 }
 
 .f1-footer { position: relative; z-index: 2; display: flex; width: min(1500px, 100%); min-height: 72px; margin: 0 auto; padding: 18px clamp(24px, 4vw, 68px); align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid var(--f1-line); color: var(--f1-text-soft); font-size: var(--hbx-font-min); }
@@ -485,7 +659,7 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-rota-lista__topo { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
 
 /* Prospector — o corredor da rota e as empresas achadas nele */
-.f1-rota-prospector { grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); }
+
 .f1-rota-mapa { position: relative; overflow: hidden; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface-up); }
 .f1-rota-mapa svg { width: 100%; height: 100%; display: block; }
 .f1-rota-mapa__rua { fill: none; stroke: var(--f1-line-strong); stroke-width: 9; stroke-linecap: round; }
@@ -534,11 +708,18 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-rota-prova header strong { overflow: hidden; font-size: 0.92rem; font-weight: 780; text-overflow: ellipsis; white-space: nowrap; }
 .f1-rota-prova header b.is-ok { display: inline-flex; flex: none; padding: 5px 10px; border-radius: 999px; color: var(--f1-success); background: color-mix(in srgb, var(--f1-success) 14%, transparent); font-size: var(--hbx-font-min); font-weight: 800; }
 .f1-rota-prova__grade { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 9px; }
-.f1-rota-prova__foto { position: relative; overflow: hidden; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: linear-gradient(140deg, var(--f1-surface-up), var(--f1-surface)); aspect-ratio: 4 / 3; }
-.f1-rota-prova__foto i { position: absolute; left: 18%; right: 18%; bottom: 14%; height: 46%; border-radius: 6px 6px 3px 3px; background: color-mix(in srgb, var(--f1-accent) 42%, transparent); }
-.f1-rota-prova__foto::after { content: ""; position: absolute; left: 26%; right: 26%; top: 12%; height: 26%; border-radius: 50%; background: color-mix(in srgb, var(--f1-text-soft) 22%, transparent); }
-.f1-rota-prova__assina { display: grid; place-items: center; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface-up); aspect-ratio: 4 / 3; }
-.f1-rota-prova__assina svg { width: 78%; height: auto; }
+.f1-rota-prova__assina { align-content: center; padding: 14px 10px 10px !important; text-align: center; }
+.f1-rota-prova__foto,
+.f1-rota-prova__assina { position: relative; display: grid; place-items: center; padding: 16px 10px 8px; overflow: hidden; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: linear-gradient(140deg, var(--f1-surface-up), var(--f1-surface)); aspect-ratio: 4 / 3; }
+.f1-rota-prova__foto > small { position: absolute; left: 9px; top: 7px; color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.f1-rota-prova__foto svg { width: auto; height: 88%; }
+.f1-galao-chao { fill: color-mix(in srgb, var(--f1-text-soft) 16%, transparent); }
+.f1-galao-tampa { fill: var(--f1-accent); }
+.f1-galao-gargalo { fill: color-mix(in srgb, var(--f1-text-soft) 34%, transparent); }
+.f1-galao-corpo { fill: color-mix(in srgb, var(--f1-text-soft) 20%, transparent); stroke: color-mix(in srgb, var(--f1-text-soft) 42%, transparent); stroke-width: 1.6; }
+.f1-galao-agua { fill: color-mix(in srgb, var(--f1-accent) 52%, transparent); }
+.f1-galao-rotulo { fill: var(--f1-surface-solid); opacity: 0.86; }
+
 .f1-rota-prova__assina path { fill: none; stroke: var(--f1-text); stroke-width: 2.4; stroke-linecap: round; stroke-dasharray: 210; stroke-dashoffset: 210; animation: f1-assina 1.5s 0.3s var(--f1-ease) forwards; }
 @keyframes f1-assina { to { stroke-dashoffset: 0; } }
 .f1-rota-prova footer { display: flex; justify-content: space-between; gap: 10px; padding-top: 9px; border-top: 1px solid var(--f1-line); }
@@ -547,7 +728,7 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-rota-prova footer strong { font-family: var(--font-mono, monospace); font-size: 0.85rem; font-weight: 800; }
 
 /* Fechar o dia — o caixa conferido contra o que foi pra rua */
-.f1-rota-fechar { grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr); }
+
 .f1-rota-caixa { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 8px; min-width: 0; }
 .f1-rota-caixa__grade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; gap: 7px; }
 .f1-rota-caixa__grade article { display: grid; gap: 1px; padding: 8px 10px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); animation: f1-kanban-in 0.42s var(--f1-ease) both; }
@@ -696,6 +877,11 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-estoque-extrato li.is-mais b { color: var(--f1-success); }
 .f1-estoque-extrato li.is-menos b { color: var(--f1-danger); }
 .f1-rota-resumo article.is-saldo strong { color: var(--f1-success); }
+.f1-rota-resumo article.is-aviso strong { color: var(--f1-warn); }
+.f1-rota-resumo article.is-forma { grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; padding: 7px 11px; gap: 0 8px; }
+.f1-rota-resumo article.is-forma small { grid-column: 1; }
+.f1-rota-resumo article.is-forma strong { grid-column: 1; font-size: 0.85rem; }
+.f1-rota-resumo article.is-forma i { grid-row: 1 / 3; grid-column: 2; align-self: center; color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-style: normal; font-weight: 700; }
 
 /* ==========================================================================
    O CELULAR — inclinado de leve PARA o monitor e com uma troca diferente a
@@ -704,18 +890,101 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
    troca mora no miolo (que remonta a cada passo) — assim uma nunca come a
    outra.
    ========================================================================== */
-.f1-real-phone__iframe { animation: f1-fone-nasce 0.5s var(--f1-ease) both; }
-@keyframes f1-fone-nasce { from { opacity: 0; transform: scale(0.965); } to { opacity: 1; transform: none; } }
-@keyframes f1-fone-sobe { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
-@keyframes f1-fone-direita { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
-@keyframes f1-fone-esquerda { from { opacity: 0; transform: translateX(-24px); } to { opacity: 1; transform: none; } }
-@keyframes f1-fone-desce { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: none; } }
-@keyframes f1-fone-recua { from { opacity: 0; transform: scale(1.055); } to { opacity: 1; transform: none; } }
-.public-entry[data-n="1"] .f1-real-phone__iframe { animation-name: f1-fone-sobe; }
-.public-entry[data-n="2"] .f1-real-phone__iframe { animation-name: f1-fone-direita; }
-.public-entry[data-n="3"] .f1-real-phone__iframe { animation-name: f1-fone-esquerda; }
-.public-entry[data-n="4"] .f1-real-phone__iframe { animation-name: f1-fone-desce; }
-.public-entry[data-n="5"] .f1-real-phone__iframe { animation-name: f1-fone-recua; }
+/* o berço acende, o miolo NÃO é animado (ver comentário acima) */
+.f1-real-phone { animation: f1-fone-berco 0.42s var(--f1-ease); }
+@keyframes f1-fone-berco { from { opacity: 0.35; } to { opacity: 1; } }
+
+/* ==========================================================================
+   A TABELA DENSA — a lei do dono: "tela preenchida, não pode dar impressão
+   que tem 2 clientes só". Uma família só serve pedidos, corredor, extrato,
+   movimento, saldo e histórico; cada tela só troca as colunas.
+   ========================================================================== */
+.f1-tab { display: grid; align-content: start; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; gap: 7px; }
+.f1-tab__lista { display: grid; align-content: start; min-height: 0; margin: 0; padding: 0; gap: 4px; overflow: hidden; list-style: none; }
+.f1-tab__lista li { display: grid; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); animation: f1-kanban-in 0.42s var(--f1-ease) both; }
+.f1-tab__lista li:nth-child(2) { animation-delay: 0.04s; }
+.f1-tab__lista li:nth-child(3) { animation-delay: 0.08s; }
+.f1-tab__lista li:nth-child(4) { animation-delay: 0.12s; }
+.f1-tab__lista li:nth-child(5) { animation-delay: 0.16s; }
+.f1-tab__lista li:nth-child(6) { animation-delay: 0.2s; }
+.f1-tab__lista li:nth-child(7) { animation-delay: 0.24s; }
+.f1-tab__lista li:nth-child(8) { animation-delay: 0.28s; }
+.f1-tab__lista li:nth-child(9) { animation-delay: 0.32s; }
+.f1-tab__head { padding: 0 10px 2px !important; border: 0 !important; background: none !important; }
+.f1-tab__head span { overflow: hidden; color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: 0.08em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.f1-tab__lista strong { overflow: hidden; font-size: 0.8rem; font-weight: 740; text-overflow: ellipsis; white-space: nowrap; }
+.f1-tab__lista small { overflow: hidden; color: var(--f1-text-soft); font-size: var(--hbx-font-min); text-overflow: ellipsis; white-space: nowrap; }
+.f1-tab__lista li > span { display: grid; min-width: 0; gap: 1px; }
+.f1-tab__lista i { color: var(--f1-text-soft); font-family: var(--font-mono, monospace); font-size: var(--hbx-font-min); font-style: normal; font-weight: 700; white-space: nowrap; }
+.f1-tab__lista b { font-size: 0.78rem; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.f1-tab__lista em { color: var(--f1-text); font-size: 0.82rem; font-weight: 800; font-style: normal; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.f1-tab__lista u { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; text-decoration: none; }
+.f1-rota-paradas u { padding: 3px 7px; border: 1px solid var(--f1-line); border-radius: 999px; color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; text-decoration: none; white-space: nowrap; }
+.f1-mono { font-family: var(--font-mono, monospace); }
+.f1-tab__pe { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 9px 12px; border: 1px solid var(--f1-line-strong); border-radius: var(--f1-radius-sm); background: var(--f1-surface-up); }
+.f1-tab__pe span { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.f1-tab__pe strong { color: var(--f1-accent); font-size: 1.02rem; font-weight: 850; font-variant-numeric: tabular-nums; }
+
+.f1-selo-estado { justify-self: start; padding: 3px 8px; border: 1px solid var(--f1-line); border-radius: 999px; color: var(--f1-text-soft); background: var(--f1-surface-up); font-size: var(--hbx-font-min); font-weight: 750; white-space: nowrap; }
+.f1-tab__lista li.is-entregue .f1-selo-estado,
+.f1-tab__lista li.is-ok .f1-selo-estado { border-color: color-mix(in srgb, var(--f1-success) 40%, transparent); color: var(--f1-success); background: color-mix(in srgb, var(--f1-success) 12%, transparent); }
+.f1-tab__lista li.is-rota .f1-selo-estado { border-color: color-mix(in srgb, var(--f1-accent) 45%, transparent); color: var(--f1-accent); background: var(--f1-accent-soft); }
+.f1-tab__lista li.is-mal .f1-selo-estado { border-color: color-mix(in srgb, var(--f1-warn) 45%, transparent); color: var(--f1-warn); background: color-mix(in srgb, var(--f1-warn) 12%, transparent); }
+.f1-tab__lista li.is-mal em { color: var(--f1-warn); }
+.f1-ava { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; color: var(--f1-accent); background: var(--f1-accent-soft); font-size: var(--hbx-font-min); font-weight: 850; }
+
+/* as colunas de cada tela */
+.f1-tab--pedidos li { grid-template-columns: minmax(0, 1fr) auto auto; }
+.f1-tab--corredor li { grid-template-columns: minmax(0, 1fr) auto auto; }
+.f1-tab--corredor em { display: grid; width: 30px; height: 24px; place-items: center; border-radius: 7px; color: var(--f1-success); background: color-mix(in srgb, var(--f1-success) 14%, transparent); font-size: var(--hbx-font-min); }
+.f1-tab--devedores li { grid-template-columns: 26px minmax(0, 1fr) auto; }
+.f1-tab--devedores em { color: var(--f1-warn); }
+.f1-tab--extrato li { grid-template-columns: 38px minmax(0, 1fr) auto; }
+.f1-tab--movimento li { grid-template-columns: 38px minmax(0, 1fr) auto; }
+.f1-tab--movimento li.is-mais b { color: var(--f1-success); }
+.f1-tab--movimento li.is-menos b { color: var(--f1-danger); }
+.f1-tab--saldo li { grid-template-columns: minmax(0, 1fr) auto; }
+.f1-tab--saldo em { color: var(--f1-success); font-size: 0.95rem; }
+.f1-tab--saldo li.is-baixo em { color: var(--f1-warn); }
+.f1-tab--historico li { grid-template-columns: minmax(0, 1fr) auto; }
+
+/* filtro do Prospector — o que está ligado na busca */
+.f1-filtro { display: flex; flex-wrap: wrap; gap: 6px; }
+.f1-filtro span { padding: 5px 10px; border: 1px solid var(--f1-line); border-radius: 999px; color: var(--f1-text-soft); background: var(--f1-surface); font-size: var(--hbx-font-min); font-weight: 700; }
+.f1-filtro span.is-on { border-color: color-mix(in srgb, var(--f1-accent) 45%, transparent); color: var(--f1-accent); background: var(--f1-accent-soft); }
+
+/* KPI e formas de pagamento — o desenho do Financeiro do app, em tamanho de
+   computador */
+.f1-kpi-linha { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
+.f1-kpi-linha article { display: grid; gap: 2px; padding: 9px 11px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); }
+.f1-kpi-linha small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.f1-kpi-linha strong { font-size: 1.02rem; font-weight: 850; font-variant-numeric: tabular-nums; }
+.f1-kpi-linha article.is-ok strong { color: var(--f1-success); }
+.f1-kpi-linha article.is-aviso strong { color: var(--f1-warn); }
+.f1-kpi-linha article.is-saldo strong { color: var(--f1-accent); }
+.f1-formas { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; }
+.f1-formas article { display: grid; align-content: center; gap: 2px; padding: 10px; border: 1px solid var(--f1-line); border-radius: var(--f1-radius-sm); background: var(--f1-surface); text-align: center; }
+.f1-formas small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.f1-formas strong { font-size: 0.95rem; font-weight: 850; font-variant-numeric: tabular-nums; }
+.f1-formas i { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-style: normal; }
+
+/* as grades das telas refeitas */
+.f1-pedidos-screen { grid-template-columns: minmax(0, 1fr) minmax(126px, 0.3fr); }
+.f1-prospector-screen { grid-template-columns: minmax(0, 1fr) minmax(126px, 0.28fr); }
+.f1-caixa-screen { grid-template-columns: minmax(0, 1fr) minmax(132px, 0.34fr); }
+.f1-caixa-lado { display: grid; align-content: start; gap: 8px; min-width: 0; }
+.f1-estoque-screen { grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr); }
+.f1-entregar-lado { display: grid; align-content: start; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 8px; min-width: 0; }
+.f1-rota-paradas li { grid-template-columns: 22px minmax(0, 1fr) auto auto; }
+
+/* a assinatura e ESCRITA, nao desenhada */
+.f1-firma-txt { display: inline-block; overflow: hidden; color: var(--f1-text); font-family: "Segoe Script", "Bradley Hand", "Brush Script MT", cursive; font-size: clamp(0.95rem, 1.7vw, 1.32rem); font-weight: 600; letter-spacing: 0.01em; line-height: 1.15; white-space: nowrap; animation: f1-firma-escreve 1.15s 0.3s var(--f1-ease) backwards; }
+@keyframes f1-firma-escreve { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+.f1-firma-linha { display: block; width: 74%; height: 1px; margin: 9px auto 6px; background: var(--f1-line-strong); transform-origin: left; animation: f1-firma-linha 0.5s 1.35s var(--f1-ease) backwards; }
+@keyframes f1-firma-linha { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.f1-firma-quem { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; animation: f1-rise-in 0.4s 1.7s var(--f1-ease) backwards; }
+.f1-rota-prova footer { gap: 14px; }
+.f1-rota-prova footer strong { font-family: var(--font-body, sans-serif); font-size: 0.78rem; font-weight: 760; }
 
 /* ==========================================================================
    O QUE ACONTECE NA RUA — faixa de dados. Número, frase e fonte; nada entra

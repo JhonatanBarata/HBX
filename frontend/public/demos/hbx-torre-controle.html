@@ -412,7 +412,6 @@ function montarPecas(){
   P.push(`<span class="poi" style="transform:translate(${POSTO[0]}px,${POSTO[1]}px)"><span class="caixa"><svg viewBox="0 0 24 24"><path d="M4 3h9a1 1 0 0 1 1 1v16H3V4a1 1 0 0 1 1-1Zm2 3v4h5V6H6Zm12 4 2.2 2.2c.5.5.8 1.2.8 1.9V19a2 2 0 1 1-4 0v-4h-2v-2h2V8h1v2ZM5 21h7v-2H5v2Z"/></svg>POSTO ESTRELA</span></span>`);
   const seta='<svg viewBox="0 0 24 24"><path d="M12 3.2 18.4 20 12 16.6 5.6 20 12 3.2Z"/></svg>';
   P.push(`<span class="puck" id="p1"><span class="anel"></span><span class="corpo">${seta}</span></span>`);
-  P.push(`<span class="puck" id="p2"><span class="corpo">${seta}</span></span>`);
   P.push(`<span class="chip-parado" id="chipParado">parado há <b>2 min</b></span>`);
   $('#pecas').innerHTML=P.join("");
 }
@@ -511,8 +510,6 @@ function iniciar(){
     if(u<.55&&dt>400)$('#ref').innerHTML='R. das Acácias — Campinas/SP';
     if(u>=.55&&u<1){$('#ref').innerHTML='R. Barão de Itapura — Campinas/SP';
       if($('#foneCarro1').className==='fone-carro')$('#foneRef1').textContent='R. Barão de Itapura — Campinas/SP';}
-    /* caminhão 2: vida ambiente em loop */
-    poePuck($('#p2'),emS(VOLTA2,(dt*0.052)%V2_TOT));
     /* carimbo de frescor da posição */
     $('#agora').textContent='posição de agora · há '+Math.max(1,Math.round((dt%4000)/1000))+' s';
     raf=requestAnimationFrame(quadro);

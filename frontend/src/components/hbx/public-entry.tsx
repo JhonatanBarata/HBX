@@ -146,41 +146,76 @@ function AgendaScreen() {
   );
 }
 
+const PEDIDOS: Array<[string, string, string, string, string, string]> = [
+  ["0424", "Mercado Bela Vista", "12 galões · 2 caixas", "R$ 468,00", "08:41", "entregue"],
+  ["0425", "Padaria Rio Novo", "8 galões", "R$ 256,00", "09:05", "entregue"],
+  ["0426", "Adega do Portugues", "6 galões · 4 caixas", "R$ 342,00", "09:38", "rota"],
+  ["0427", "Restaurante Vila Nova", "20 galões", "R$ 640,00", "10:12", "rota"],
+  ["0428", "Casa do Acai Central", "5 galões · 1 caixa", "R$ 196,00", "10:44", "rota"],
+  ["0429", "Mercadinho Bom Preço", "14 galões", "R$ 448,00", "11:20", "fila"],
+  ["0430", "Lanchonete Ponto Certo", "9 galões · 2 caixas", "R$ 322,00", "11:52", "fila"],
+];
+const PEDIDO_SELO: Record<string, string> = { entregue: "Entregue", rota: "Em rota", fila: "Na fila" };
+
 function EntregaScreen() {
   return (
-    <div className="f1-screen f1-delivery-screen">
-      <div className="f1-route-map">
-        <svg viewBox="0 0 560 300" aria-hidden="true">
-          <path className="f1-street f1-street--one" d="M-10 75C130 20 170 170 310 126s160-40 270 32" />
-          <path className="f1-street f1-street--two" d="M80-10c20 90-22 170 60 330M390-10c-50 120 60 180 8 330" />
-          <path className="f1-route" d="M85 230c58-70 90-24 145-90s145 34 238-75" />
-        </svg>
-        <span className="f1-pin f1-pin--start"><Icon name="route" /></span>
-        <span className="f1-pin f1-pin--end"><Icon name="check" /></span>
-        <span className="f1-van"><Icon name="arrow" /></span>
+    <div className="f1-screen f1-rota-screen f1-pedidos-screen">
+      <div className="f1-tab">
+        <span className="f1-rota-lista__topo">Pedidos de hoje · 23 paradas</span>
+        <ol className="f1-tab__lista f1-tab--pedidos">
+          {PEDIDOS.map(([num, cliente, itens, valor, hora, estado]) => (
+            <li className={`is-${estado}`} key={num}>
+              <span><strong>{cliente}</strong><small>#{num} · {itens} · {hora}</small></span>
+              <em>{valor}</em>
+              <span className="f1-selo-estado">{PEDIDO_SELO[estado]}</span>
+            </li>
+          ))}
+        </ol>
       </div>
-      <article className="f1-delivery-card">
-        <span className="f1-delivery-card__icon"><Icon name="route" /></span>
-        <span><small>Pedido 0428 · Mercado Bela Vista</small><strong>Parada 3 de 23</strong></span>
-        <b>Em rota</b>
-      </article>
+      <aside className="f1-rota-resumo">
+        <article><small>Fechados hoje</small><strong>7</strong></article>
+        <article className="is-saldo"><small>Na rua</small><strong>R$ 2.672</strong></article>
+        <article><small>Distância</small><strong>38,4 km</strong></article>
+        <article><small>Vasilhames</small><strong>74</strong></article>
+        <span className="f1-rota-botao">Cliente acompanha pelo link</span>
+      </aside>
     </div>
   );
 }
 
+const FORMAS: Array<[string, string, string]> = [
+  ["Pix", "R$ 704,00", "11"],
+  ["Dinheiro", "R$ 432,00", "9"],
+  ["Cartão", "R$ 318,00", "5"],
+  ["Boleto", "R$ 210,00", "2"],
+  ["Fiado", "R$ 156,00", "3"],
+];
+const DEVEDORES: Array<[string, string, string, string]> = [
+  ["AP", "Adega do Portugues", "fiado · 2 entregas", "R$ 156,00"],
+  ["PR", "Padaria Rio Novo", "boleto vence 21/08", "R$ 210,00"],
+  ["RV", "Restaurante Vila Nova", "cartão 1 de 2", "R$ 92,00"],
+  ["LP", "Lanchonete Ponto Certo", "fiado · desde 12/08", "R$ 154,00"],
+];
+
 function CobrancaScreen() {
   return (
-    <div className="f1-screen f1-billing-screen">
-      <section className="f1-billing-result">
-        <div className="f1-pay-ring"><Icon name="check" /></div>
-        <small>Pix recebido</small>
-        <strong>R$ 468,00</strong>
-        <span>Venda, entrega e recebimento conciliados</span>
-      </section>
-      <aside className="f1-payment-list">
-        <article><span><i /><b>Mercado Bela Vista</b></span><small>Pago</small></article>
-        <article><span><i /><b>Viva Café</b></span><small>Pago</small></article>
-        <article><span><i /><b>Padaria Rio Novo</b></span><small>Boleto 21/08</small></article>
+    <div className="f1-screen f1-rota-screen f1-caixa-screen">
+      <div className="f1-tab">
+        <span className="f1-rota-lista__topo">Quem está devendo · 4 clientes</span>
+        <ol className="f1-tab__lista f1-tab--devedores">
+          {DEVEDORES.map(([ini, nome, sub, valor]) => (
+            <li key={nome}><span className="f1-ava">{ini}</span><span><strong>{nome}</strong><small>{sub}</small></span><em>{valor}</em></li>
+          ))}
+        </ol>
+        <footer className="f1-tab__pe"><span>Total em aberto</span><strong>R$ 612,00</strong></footer>
+      </div>
+      <aside className="f1-rota-resumo">
+        <article className="is-saldo"><small>Recebido hoje</small><strong>R$ 1.664</strong></article>
+        <article className="is-aviso"><small>Em aberto</small><strong>R$ 612</strong></article>
+        {FORMAS.map(([nome, valor, qtd]) => (
+          <article className="is-forma" key={nome}><small>{nome}</small><strong>{valor}</strong><i>{qtd}</i></article>
+        ))}
+        <span className="f1-rota-botao">Cobrar no WhatsApp</span>
       </aside>
     </div>
   );
@@ -215,88 +250,180 @@ function FiscalScreen() {
 // AS TELAS DE COMPUTADOR — HBX LOGÍSTICA. Cada tela do celular tem a irmã
 // grande: o motorista faz, o gestor confere.
 // ---------------------------------------------------------------------------
+const CORREDOR: Array<[string, string, string, string, string, string]> = [
+  ["Mercado Bela Vista", "12.660.907/0001-70", "(19) 3255-0912", "0,2 km", "92", "WhatsApp confirmado"],
+  ["Adega do Portugues", "28.192.110/0001-11", "(19) 3241-0669", "0,4 km", "87", "Aberta há 12 dias"],
+  ["Restaurante Vila Nova", "68.043.458/0001-03", "(19) 3232-0347", "0,6 km", "78", "Na Av. Campos Sales"],
+  ["Padaria Rio Novo", "41.907.220/0001-58", "(19) 3216-0774", "0,7 km", "71", "Mesma rua da parada 4"],
+  ["Casa do Acai Central", "55.318.004/0001-92", "(19) 3228-0155", "0,9 km", "69", "WhatsApp confirmado"],
+  ["Lanchonete Ponto Certo", "07.443.981/0001-24", "(19) 3271-0430", "1,1 km", "66", "Aberta há 3 meses"],
+  ["Pet Shop Amigo Fiel", "33.870.115/0001-06", "(19) 3299-0668", "1,2 km", "63", "Fecha às 18h"],
+  ["Auto Center Avenida", "80.114.552/0001-77", "(19) 3260-0341", "1,4 km", "58", "Sem telefone fixo"],
+];
+
 function RotaProspectorScreen() {
   return (
-    <div className="f1-screen f1-rota-screen f1-rota-prospector">
-      <div className="f1-rota-mapa" aria-hidden="true">
-        <svg viewBox="0 0 460 260">
-          <path className="f1-rota-mapa__rua" d="M-10 70h480M-10 150h480M-10 218h480M90-10v280M215-10v280M340-10v280" />
-          <path className="f1-rota-mapa__corredor" d="M20 218h195V70h225" />
-        </svg>
-        <span className="f1-rota-pino f1-rota-pino--um" />
-        <span className="f1-rota-pino f1-rota-pino--dois" />
-        <span className="f1-rota-pino f1-rota-pino--tres" />
+    <div className="f1-screen f1-rota-screen f1-prospector-screen">
+      <div className="f1-tab">
+        <div className="f1-filtro">
+          <span className="is-on">Bebidas</span>
+          <span>Campinas/SP</span>
+          <span>Até 1,5 km da rota</span>
+          <span>Com telefone</span>
+        </div>
+        <ol className="f1-tab__lista f1-tab--corredor">
+          {CORREDOR.map(([nome, cnpj, fone, dist, score, marca]) => (
+            <li key={cnpj}>
+              <span><strong>{nome}</strong><small><u className="f1-mono">{cnpj}</u> · {fone} · {marca}</small></span>
+              <i>{dist}</i>
+              <em>{score}</em>
+            </li>
+          ))}
+        </ol>
       </div>
-      <div className="f1-rota-lista">
-        <span className="f1-rota-lista__topo">4 empresas no corredor</span>
-        <article><strong>Pet Shop Amigo Fiel</strong><span><small>28.192.110/0001-11</small><b>(11) 95555-0669</b></span></article>
-        <article><strong>Auto Center Avenida</strong><span><small>68.043.458/0001-03</small><b>(11) 95555-0347</b></span></article>
-        <article><strong>Mercado Bela Vista</strong><span><small>12.660.907/0001-70</small><b>(11) 95555-0912</b></span></article>
-      </div>
+      <aside className="f1-rota-resumo">
+        <article><small>Na base</small><strong>86</strong></article>
+        <article className="is-saldo"><small>Com telefone</small><strong>81</strong></article>
+        <article><small>No corredor de hoje</small><strong>12</strong></article>
+        <article><small>Já são clientes</small><strong>9</strong></article>
+        <span className="f1-rota-botao">Mandar 1ª mensagem</span>
+      </aside>
     </div>
   );
 }
+
+const PARADAS_DIA: Array<[string, string, string, string, string]> = [
+  ["1", "João da Silva", "R. das Acácias, 218", "08:10", ""],
+  ["2", "Mercadinho Bom Preço", "Av. Campos Sales, 90", "08:26", "fiado"],
+  ["3", "Maria Aparecida", "R. Barão de Itapura, 41", "08:41", ""],
+  ["4", "Padaria Rio Novo", "R. Quatro, 77", "08:58", ""],
+  ["5", "Adega do Portugues", "R. Sergento Silva, 512", "09:14", "vasilhame"],
+  ["6", "Restaurante Vila Nova", "Av. Brasil, 1.204", "09:31", ""],
+  ["7", "Casa do Acai Central", "R. Onze, 45", "09:47", ""],
+  ["8", "Lanchonete Ponto Certo", "R. das Palmeiras, 88", "10:03", "1ª entrega"],
+];
 
 function RotaMontagemScreen() {
   return (
     <div className="f1-screen f1-rota-screen f1-rota-montagem">
       <div className="f1-rota-paradas">
-        <span className="f1-rota-lista__topo">Rota de hoje · 23 paradas</span>
+        <span className="f1-rota-lista__topo">Rota de hoje · 23 paradas · Carlos · FLV3B58</span>
         <ol>
-          <li><i>1</i><span><strong>João da Silva</strong><small>R. das Acácias, 218</small></span><b>08:10</b></li>
-          <li><i>2</i><span><strong>Mercadinho Bom Preço</strong><small>Av. Campos Sales, 90</small></span><b>08:26</b></li>
-          <li className="is-arrastando"><i>3</i><span><strong>Maria Aparecida</strong><small>R. Barão de Itapura, 41</small></span><b>08:41</b></li>
-          <li><i>4</i><span><strong>Padaria Rio Novo</strong><small>R. Quatro, 77</small></span><b>08:58</b></li>
+          {PARADAS_DIA.map(([n, nome, end, hora, marca], i) => (
+            <li className={i === 2 ? "is-arrastando" : ""} key={n}>
+              <i>{n}</i>
+              <span><strong>{nome}</strong><small>{end}</small></span>
+              {marca ? <u>{marca}</u> : null}
+              <b>{hora}</b>
+            </li>
+          ))}
         </ol>
       </div>
       <aside className="f1-rota-resumo">
         <article><small>Distância</small><strong>38,4 km</strong></article>
         <article><small>Tempo</small><strong>4h12</strong></article>
         <article><small>Carga do dia</small><strong>180 galões</strong></article>
-        <span className="f1-rota-botao">Iniciar rota</span>
+        <article className="is-saldo"><small>A receber</small><strong>R$ 2.672</strong></article>
+        <span className="f1-rota-botao">Enviar pro motorista</span>
       </aside>
     </div>
   );
 }
+
+const HISTORICO: Array<[string, string, string]> = [
+  ["Hoje 08:41", "3 galões · pagou no Pix", "R$ 96,00"],
+  ["11/08 08:52", "3 galões · pagou em dinheiro", "R$ 96,00"],
+  ["04/08 09:06", "2 galões · marcou pra depois", "R$ 64,00"],
+  ["28/07 08:37", "3 galões · pagou no cartão", "R$ 96,00"],
+];
 
 function RotaEntregarScreen() {
   return (
     <div className="f1-screen f1-rota-screen f1-rota-entregar">
       <article className="f1-rota-prova">
-        <header><span><small>Parada 3 de 23</small><strong>Maria Aparecida</strong></span><b className="is-ok">Entregue</b></header>
+        <header><span><small>Parada 3 de 23 · código 4F2K-90</small><strong>Maria Aparecida</strong></span><b className="is-ok">Entregue 08:41</b></header>
         <div className="f1-rota-prova__grade">
-          <span className="f1-rota-prova__foto"><i /></span>
-          <span className="f1-rota-prova__assina"><svg viewBox="0 0 120 44" aria-hidden="true"><path d="M6 34c14-26 22 4 33-8s16 14 27 2 18-16 28-6" /></svg></span>
+          <span className="f1-rota-prova__foto">
+            <small>Foto na entrega</small>
+            <svg viewBox="0 0 120 100" aria-hidden="true">
+              <rect className="f1-galao-chao" x="8" y="84" width="104" height="9" rx="4.5" />
+              <rect className="f1-galao-tampa" x="51" y="5" width="18" height="8" rx="3" />
+              <rect className="f1-galao-gargalo" x="54" y="11" width="12" height="9" />
+              <rect className="f1-galao-corpo" x="37" y="18" width="46" height="67" rx="11" />
+              <rect className="f1-galao-agua" x="41" y="43" width="38" height="38" rx="8" />
+              <rect className="f1-galao-rotulo" x="44" y="50" width="32" height="12" rx="3" />
+            </svg>
+          </span>
+          <span className="f1-rota-prova__assina">
+            <b className="f1-firma-txt">Assinatura</b>
+            <span className="f1-firma-linha" />
+            <small className="f1-firma-quem">Maria Aparecida · 08:41</small>
+          </span>
         </div>
-        <footer><span><small>Código</small><strong>4F2K-90</strong></span><span><small>Recebido às</small><strong>08:41</strong></span></footer>
+        <footer>
+          <span><small>Foto</small><strong>galão na porta</strong></span>
+          <span><small>Assinatura</small><strong>no aparelho</strong></span>
+          <span><small>Recebido por</small><strong>Maria A.</strong></span>
+        </footer>
       </article>
-      <aside className="f1-rota-vasilhame">
-        <span className="f1-rota-lista__topo">Vasilhames</span>
-        <article><small>Levou</small><strong>3</strong></article>
-        <article><small>Voltou</small><strong>2</strong></article>
-        <article className="is-saldo"><small>Saldo do cliente</small><strong>+1</strong></article>
+      <aside className="f1-entregar-lado">
+        <div className="f1-kpi-linha">
+          <article><small>Levou</small><strong>3</strong></article>
+          <article><small>Voltou</small><strong>2</strong></article>
+          <article className="is-saldo"><small>Saldo</small><strong>+1</strong></article>
+        </div>
+        <span className="f1-rota-lista__topo">Histórico de Maria Aparecida</span>
+        <ol className="f1-tab__lista f1-tab--historico">
+          {HISTORICO.map(([quando, oque, valor]) => (
+            <li key={quando}><span><strong>{quando}</strong><small>{oque}</small></span><em>{valor}</em></li>
+          ))}
+        </ol>
+        <footer className="f1-tab__pe"><span>Comprovantes do dia</span><strong>23/23</strong></footer>
       </aside>
     </div>
   );
 }
 
+const EXTRATO: Array<[string, string, string, string, string]> = [
+  ["08:41", "Maria Aparecida", "Pix", "R$ 96,00", "ok"],
+  ["08:58", "Padaria Rio Novo", "Dinheiro", "R$ 256,00", "ok"],
+  ["09:14", "Adega do Portugues", "Marcou", "R$ 156,00", "mal"],
+  ["09:31", "Restaurante Vila Nova", "Cartão", "R$ 92,00", "ok"],
+  ["09:47", "Casa do Acai Central", "Pix", "R$ 196,00", "ok"],
+  ["10:03", "Lanchonete Ponto Certo", "Marcou", "R$ 154,00", "mal"],
+  ["10:22", "Mercadinho Bom Preço", "Dinheiro", "R$ 176,00", "ok"],
+  ["10:44", "João da Silva", "Pix", "R$ 64,00", "ok"],
+];
+const FECHAMENTO: Array<[string, string, string]> = [
+  ["Pix", "R$ 704,00", "11"],
+  ["Dinheiro", "R$ 432,00", "9"],
+  ["Cartão", "R$ 318,00", "5"],
+  ["Marcou", "R$ 310,00", "3"],
+];
+
 function RotaFecharScreen() {
   return (
-    <div className="f1-screen f1-rota-screen f1-rota-fechar">
-      <div className="f1-rota-caixa">
-        <span className="f1-rota-lista__topo">Fechamento do dia</span>
-        <div className="f1-rota-caixa__grade">
-          <article><small>Dinheiro</small><strong>R$ 132,00</strong></article>
-          <article><small>Pix</small><strong>R$ 98,00</strong></article>
-          <article><small>Cartão</small><strong>R$ 68,00</strong></article>
-          <article><small>Fiado</small><strong>R$ 38,00</strong></article>
-        </div>
-        <footer><span>Total do dia</span><strong>R$ 336,00</strong></footer>
+    <div className="f1-screen f1-rota-screen f1-caixa-screen">
+      <div className="f1-tab">
+        <span className="f1-rota-lista__topo">Extrato do dia · 23 paradas</span>
+        <ol className="f1-tab__lista f1-tab--extrato">
+          {EXTRATO.map(([hora, cliente, forma, valor, tom]) => (
+            <li className={`is-${tom}`} key={hora}>
+              <i>{hora}</i>
+              <span><strong>{cliente}</strong><small>{forma}</small></span>
+              <em>{valor}</em>
+            </li>
+          ))}
+        </ol>
+        <footer className="f1-tab__pe"><span>Recebido hoje</span><strong>R$ 1.454,00</strong></footer>
       </div>
-      <aside className="f1-rota-conferido">
-        <article><small>Entregas</small><strong>23</strong></article>
-        <article><small>Comprovantes</small><strong>23</strong></article>
-        <article><small>Vasilhames na rua</small><strong>14</strong></article>
+      <aside className="f1-rota-resumo">
+        <article className="is-saldo"><small>Recebido hoje</small><strong>R$ 1.454</strong></article>
+        <article className="is-aviso"><small>Marcado</small><strong>R$ 310</strong></article>
+        {FECHAMENTO.map(([nome, valor, qtd]) => (
+          <article className="is-forma" key={nome}><small>{nome}</small><strong>{valor}</strong><i>{qtd}</i></article>
+        ))}
+        <article><small>Comprovantes</small><strong>23/23</strong></article>
         <span className="f1-rota-botao">Fechar o caixa</span>
       </aside>
     </div>
@@ -305,23 +432,50 @@ function RotaFecharScreen() {
 
 // Controle de estoque: o saldo que a carga do dia consome e o extrato que
 // explica cada número — mesmo módulo do Fiscal, visto pela operação.
+const MOVIMENTOS: Array<[string, string, string, string]> = [
+  ["08:04", "Entrada (XML compra)", "NF 12.845 · Distribuidora Aliança", "+168"],
+  ["08:20", "Carga do dia", "rota FLV3B58 · Carlos", "−180"],
+  ["08:41", "Devolução de vasilhame", "parada 3 · Maria Aparecida", "+2"],
+  ["08:52", "Carga do dia", "rota BBS4J33 · Diego", "−96"],
+  ["09:10", "Inventário conferido", "conferência de balcão", "+3"],
+  ["09:34", "Devolução de vasilhame", "parada 7 · Casa do Acai", "+5"],
+  ["10:02", "Perda registrada", "galão trincado · motivo obrigatório", "−1"],
+  ["10:26", "Venda no balcão", "cupom 0912", "−12"],
+];
+const PRODUTOS: Array<[string, string, string, string, string]> = [
+  ["Água mineral 20L", "311", "168", "479", "ok"],
+  ["Água mineral 10L", "84", "40", "124", "ok"],
+  ["Água com gás 1,5L", "18", "12", "30", "baixo"],
+  ["Refrigerante 2L", "126", "48", "174", "ok"],
+  ["Galão vazio (casco)", "9", "0", "9", "baixo"],
+];
+
 function RotaEstoqueScreen() {
   return (
     <div className="f1-screen f1-rota-screen f1-estoque-screen">
-      <div className="f1-estoque-extrato">
+      <div className="f1-tab">
         <span className="f1-rota-lista__topo">Extrato de hoje · Água mineral 20L</span>
-        <ol>
-          <li className="is-mais"><span><strong>Entrada (XML compra)</strong><small>NF 12.845 · 08:04</small></span><b>+168</b></li>
-          <li className="is-menos"><span><strong>Carga do dia</strong><small>rota FLV3B58 · 08:20</small></span><b>−180</b></li>
-          <li className="is-mais"><span><strong>Devolução de vasilhame</strong><small>parada 3 · 08:41</small></span><b>+2</b></li>
-          <li className="is-menos"><span><strong>Perda registrada</strong><small>galão trincado · motivo obrigatório</small></span><b>−1</b></li>
+        <ol className="f1-tab__lista f1-tab--movimento">
+          {MOVIMENTOS.map(([hora, oque, sub, qtd]) => (
+            <li className={qtd.startsWith("+") ? "is-mais" : "is-menos"} key={hora}>
+              <i>{hora}</i>
+              <span><strong>{oque}</strong><small>{sub}</small></span>
+              <b>{qtd}</b>
+            </li>
+          ))}
         </ol>
       </div>
-      <aside className="f1-rota-resumo">
-        <article className="is-saldo"><small>Disponível</small><strong>311</strong></article>
-        <article><small>Reservado</small><strong>168</strong></article>
-        <article><small>Físico</small><strong>479</strong></article>
-        <article><small>Estoque baixo</small><strong>2</strong></article>
+      <aside className="f1-tab">
+        <span className="f1-rota-lista__topo">Saldo por produto</span>
+        <ol className="f1-tab__lista f1-tab--saldo">
+          {PRODUTOS.map(([nome, disp, res, fis, tom]) => (
+            <li className={`is-${tom}`} key={nome}>
+              <span><strong>{nome}</strong><small>reservado {res} · físico {fis}</small></span>
+              <em>{disp}</em>
+            </li>
+          ))}
+        </ol>
+        <footer className="f1-tab__pe"><span>Estoque baixo</span><strong>2 produtos</strong></footer>
       </aside>
     </div>
   );
@@ -444,14 +598,26 @@ const PROVAS: Array<{ icon: IconName; texto: string }> = [
   { icon: "eye", texto: "Cliente acompanha a entrega pelo link" },
 ];
 
-// Números do mercado que a torre endereça. Fonte junto do dado — sem fonte
-// não entra.
-const DADOS: Array<{ valor: string; texto: string; fonte: string }> = [
+// Fonte junto do dado — sem fonte não entra. Na Logística são os números do
+// mercado que a torre endereça; em Vendas são os do próprio sistema (dizer
+// "roubo de carga" pra quem está vendendo é falar do assunto errado).
+type Dado = { valor: string; texto: string; fonte: string };
+const DADOS_LOGI: Dado[] = [
   { valor: "10.478", texto: "roubos de carga em 2024, R$ 1,2 bi de prejuízo", fonte: "NTC&Logística" },
   { valor: "38,5%", texto: "do prejuízo já é na entrega urbana — era 18,9%", fonte: "Overhaul" },
   { valor: "+17,5%", texto: "roubo de utilitários no 2º trimestre de 2026", fonte: "Transporte Moderno" },
   { valor: "2% a 5%", texto: "do frete some em glosa por canhoto perdido", fonte: "Transp.net" },
 ];
+const DADOS_VENDAS: Dado[] = [
+  { valor: "28 mi", texto: "CNPJs da base da Receita cruzados pelo Radar", fonte: "Receita Federal" },
+  { valor: "5 etapas", texto: "do sem contato ao fechado, sem planilha", fonte: "Funil do HBX" },
+  { valor: "4 blocos", texto: "hoje, atrasados, agendados e fechados na agenda", fonte: "Agenda do HBX" },
+  { valor: "1 clique", texto: "do pedido fechado à parada na rota do dia", fonte: "Venda → Entrega" },
+];
+const DADOS_TITULO: Record<Guia, string> = {
+  vendas: "O que o HBX faz na venda",
+  logistica: "O que acontece na rua",
+};
 
 function PhoneVisual({ screen, themeMode }: { screen: LogisticaRealScreen; themeMode: "dark" | "light" }) {
   return (
@@ -583,6 +749,9 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
         <span className="f1-orb f1-orb--one" />
         <span className="f1-orb f1-orb--two" />
         <span className="f1-grid" />
+        <span className="f1-pulso f1-pulso--um" />
+        <span className="f1-pulso f1-pulso--dois" />
+        <span className="f1-pulso f1-pulso--tres" />
         <span className="f1-noise" />
       </div>
 
@@ -682,9 +851,9 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           <PhoneVisual key={passo.key} screen={passo.fone} themeMode={themeMode} />
         </aside>
 
-        <div className="f1-dados">
-          <span className="f1-dados__titulo">O que acontece na rua</span>
-          {DADOS.map((dado) => (
+        <div className="f1-dados" key={guia}>
+          <span className="f1-dados__titulo">{DADOS_TITULO[guia]}</span>
+          {(guia === "vendas" ? DADOS_VENDAS : DADOS_LOGI).map((dado) => (
             <article key={dado.valor}>
               <b>{dado.valor}</b>
               <span>{dado.texto}</span>
@@ -758,9 +927,38 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
         </section>
       )}
 
+      {screen === "home" && (
+        <section className="f1-selos" aria-label="Infraestrutura e distribuição">
+          <span className="f1-selos__rot">Powered by</span>
+          <span className="f1-selo">
+            <svg className="f1-selo__logo" viewBox="0 0 100 100" aria-hidden="true">
+              <path className="f1-selo__host" d="M16 11 L47 28 L47 47 L16 30 Z" />
+              <path className="f1-selo__host" d="M53 28 L84 11 L84 49 L53 66 Z" />
+              <path className="f1-selo__host" d="M16 51 L47 68 L47 89 L16 72 Z" />
+              <path className="f1-selo__host" d="M53 53 L84 70 L84 89 L53 72 Z" />
+            </svg>
+            <b>HOSTINGER</b>
+          </span>
+          <i className="f1-selos__barra">/</i>
+          <span className="f1-selo">
+            <svg className="f1-selo__logo" viewBox="0 0 100 100" aria-hidden="true">
+              <polygon className="f1-play-1" points="18,10 61,50 18,90" />
+              <polygon className="f1-play-2" points="18,10 68,37 61,50" />
+              <polygon className="f1-play-3" points="61,50 68,63 18,90" />
+              <polygon className="f1-play-4" points="68,37 88,48 88,52 68,63 61,50" />
+            </svg>
+            <b>Google Play</b>
+          </span>
+        </section>
+      )}
+
       <footer className="f1-footer">
-        <span>© 2026 HBX</span>
-        <nav aria-label="Links legais">
+        <div className="f1-footer__casa">
+          <span>© 2026 HBX</span>
+          <strong>HBX SISTEMA DE GESTÃO E OPERAÇÕES LTDA</strong>
+          <small>CNPJ 68.608.683/0001-06</small>
+        </div>
+        <nav className="f1-footer__legal" aria-label="Links legais">
           <a href="/termos">Termos de Uso</a>
           <a href="/politicas">Política de Privacidade</a>
           <a href="/politicas#cookies">Política de Cookies</a>
