@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { LoginClient } from "@/components/hbx/login-client";
-import { LogisticaRealPreview } from "@/components/hbx/logistica-real-preview";
+import { LogisticaRealPreview, type LogisticaRealScreen } from "@/components/hbx/logistica-real-preview";
 import { RadarDisc } from "@/components/hbx/radar-disc";
 import { RegisterPanel } from "@/components/hbx/register-client";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
@@ -17,15 +17,19 @@ import { CONTACT_WHATSAPP_URL } from "@/lib/contato";
 type StageKey = "radar" | "vendas" | "whatsapp" | "entrega" | "cobranca";
 type IconName =
   | "arrow"
+  | "bell"
   | "bolt"
   | "check"
   | "chevron"
+  | "download"
   | "email"
+  | "eye"
   | "moon"
   | "play"
   | "radar"
   | "route"
   | "sun"
+  | "tower"
   | "wallet"
   | "whatsapp";
 
@@ -71,16 +75,45 @@ const ADS: Record<StageKey, { lines: [string, string, string]; subline: string }
 const STAGE_ROTATION_MS = 6300;
 const MANUAL_RESUME_MS = 18000;
 
+// HBX Logística dentro da vitrine: 4 telas no celular do motorista, 1 no
+// monitor do gestor.
+const LOGI: Array<{ key: LogisticaRealScreen; label: string; icon: IconName }> = [
+  { key: "prospector", label: "Prospector", icon: "radar" },
+  { key: "montagem", label: "Montar rota", icon: "route" },
+  { key: "folha", label: "Entregar", icon: "check" },
+  { key: "torre", label: "Torre de controle", icon: "tower" },
+  { key: "caderneta", label: "Fechar o dia", icon: "wallet" },
+];
+
+const PROVAS: Array<{ icon: IconName; texto: string }> = [
+  { icon: "check", texto: "Comprovante com foto e assinatura" },
+  { icon: "bell", texto: "Alerta de parada não prevista" },
+  { icon: "eye", texto: "Cliente acompanha a entrega pelo link" },
+];
+
+// Números do mercado que a torre endereça. Fonte junto do dado — sem fonte
+// não entra.
+const DADOS: Array<{ valor: string; texto: string; fonte: string }> = [
+  { valor: "10.478", texto: "roubos de carga em 2024, R$ 1,2 bi de prejuízo", fonte: "NTC&Logística" },
+  { valor: "38,5%", texto: "do prejuízo já é na entrega urbana — era 18,9%", fonte: "Overhaul" },
+  { valor: "+17,5%", texto: "roubo de utilitários no 2º trimestre de 2026", fonte: "Transporte Moderno" },
+  { valor: "2% a 5%", texto: "do frete some em glosa por canhoto perdido", fonte: "Transp.net" },
+];
+
 const ICONS: Record<IconName, string[]> = {
   arrow: ["M5 12h14", "M14 7l5 5-5 5"],
+  bell: ["M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6", "M10.3 19a2 2 0 0 0 3.4 0"],
   bolt: ["m13 2-9 12h7l-1 8 9-12h-7l1-8Z"],
   check: ["m5 12 4 4L19 6"],
   chevron: ["m9 18 6-6-6-6"],
+  download: ["M12 3v12", "m7 10 5 5 5-5", "M5 21h14"],
   email: ["M3 5h18v14H3z", "m3 8 6 5 6-5"],
+  eye: ["M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z", "M12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z"],
   moon: ["M20 15.2A8 8 0 0 1 8.8 4a8 8 0 1 0 11.2 11.2Z"],
   play: ["M8 5v14l11-7z"],
   radar: ["M12 12h.01", "M8.5 12a3.5 3.5 0 1 1 3.5 3.5", "M5 12a7 7 0 1 1 7 7", "M2 12a10 10 0 1 1 10 10"],
   route: ["M5 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z", "M19 9a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z", "M5 15V9a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4"],
+  tower: ["M12 20v-7", "m8 20 4-16 4 16", "M6.5 8.5 12 6l5.5 2.5", "M4 13a9 9 0 0 1 2-5", "M20 13a9 9 0 0 0-2-5"],
   sun: ["M12 3v2", "M12 19v2", "M3 12h2", "M19 12h2", "m5.6 5.6-1.4-1.4", "m15.8 15.8-1.4-1.4", "m18.4 5.6 1.4-1.4", "m4.2 19.8 1.4-1.4", "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"],
   wallet: ["M3 6h18v13H3z", "M16 10h5v5h-5a2.5 2.5 0 0 1 0-5Z", "M3 6l3-3h12l3 3"],
   whatsapp: ["M20 11.5a8 8 0 0 1-11.9 7L4 20l1.5-4.1A8 8 0 1 1 20 11.5Z", "M8.4 8.5c.8 3 3.1 5.3 6.1 6.1", "m14.5 14.6 1.4-1.4"],
@@ -190,12 +223,13 @@ function StageVisual({ stage }: { stage: StageKey }) {
   return <BillingScreen />;
 }
 
-function PhoneVisual({ themeMode }: { themeMode: "dark" | "light" }) {
+function PhoneVisual({ screen, themeMode }: { screen: LogisticaRealScreen; themeMode: "dark" | "light" }) {
   return (
-    <div className="f1-real-phone" aria-label="Prospector do HBX Logística em funcionamento">
+    <div className="f1-real-phone" aria-label="HBX Logística em funcionamento">
       <LogisticaRealPreview
         className="f1-real-phone__iframe"
-        screen="prospector"
+        key={`${screen}-${themeMode}`}
+        screen={screen}
         themeMode={themeMode}
       />
     </div>
@@ -212,8 +246,12 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
   const [screen, setScreen] = useState<EntryScreen>(initialScreen);
   const [themeMode, setThemeModeState] = useState<"dark" | "light">("light");
   const [cookieVisible, setCookieVisible] = useState(true);
+  const [logi, setLogi] = useState<LogisticaRealScreen>("prospector");
   const stage = STAGES[stageIndex];
   const ad = ADS[stage.key];
+  // A torre é do gestor: ela toma o monitor central e a esteira para de girar.
+  const naTorre = logi === "torre";
+  const noFone = naTorre ? "prospector" : logi;
 
   // Logado nunca vê a landing: cargas de documento são resolvidas pelo boot
   // inline de app/page.tsx (antes da pintura); este efeito cobre a navegação
@@ -223,10 +261,10 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
   }, [router]);
 
   useEffect(() => {
-    if (manual || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (manual || naTorre || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const timer = window.setInterval(() => setStageIndex((current) => (current + 1) % STAGES.length), STAGE_ROTATION_MS);
     return () => window.clearInterval(timer);
-  }, [manual]);
+  }, [manual, naTorre]);
 
   useEffect(() => {
     if (!manual) return;
@@ -263,6 +301,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
   function chooseStage(index: number) {
     setStageIndex(index);
     setManual(true);
+    setLogi((atual) => (atual === "torre" ? "prospector" : atual));
   }
 
   function openLogin() {
@@ -296,7 +335,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
   }
 
   return (
-    <main className={"public-entry" + (screen !== "home" ? " is-login" : "")} data-stage={stage.key}>
+    <main className={"public-entry" + (screen !== "home" ? " is-login" : "")} data-stage={stage.key} data-logi={logi}>
       <div className="f1-backdrop" aria-hidden="true">
         <span className="f1-orb f1-orb--one" />
         <span className="f1-orb f1-orb--two" />
@@ -310,9 +349,6 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           <span>HBX</span>
         </Link>
         <nav className="f1-header__actions" aria-label="Ações principais">
-          <Link className="f1-icon-button" href="/rota" aria-label="Conhecer o Gerenciador de Rota" title="Gerenciador de Rota">
-            <Icon name="route" /><span>Rota</span>
-          </Link>
           <Link className="f1-icon-button" href="/tutorialexterno" aria-label="Ver o tutorial" title="Tutorial">
             <Icon name="play" />
           </Link>
@@ -339,6 +375,11 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
             </a>
             <a className="f1-secondary-cta" href={CONTACT_WHATSAPP_URL} target="_blank" rel="noreferrer">Fale conosco</a>
           </div>
+          <ul className="f1-provas">
+            {PROVAS.map((prova) => (
+              <li key={prova.texto}><Icon name={prova.icon} />{prova.texto}</li>
+            ))}
+          </ul>
         </div>
 
         <div className="f1-product-wrap" id="produto">
@@ -359,16 +400,56 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
               </aside>
               <section className="f1-product__content">
                 <header className="f1-screen-head">
-                  <span><small>{stage.eyebrow}</small><strong>{stage.title}</strong></span>
-                  <b><i /> {stage.signal}</b>
+                  <span>
+                    <small>{naTorre ? "Gestor" : stage.eyebrow}</small>
+                    <strong>{naTorre ? "A rua em tempo real." : stage.title}</strong>
+                  </span>
+                  <b><i /> {naTorre ? "Rota em andamento" : stage.signal}</b>
                 </header>
-                <div className="f1-screen-slot" key={stage.key}>
-                  <StageVisual stage={stage.key} />
+                <div className="f1-screen-slot" key={naTorre ? "torre" : stage.key}>
+                  {naTorre
+                    ? <LogisticaRealPreview className="f1-torre-frame" screen="torre" themeMode={themeMode} />
+                    : <StageVisual stage={stage.key} />}
                 </div>
               </section>
             </div>
           </article>
-          <PhoneVisual themeMode={themeMode} />
+        </div>
+
+        <aside className="f1-logi" aria-label="HBX Logística">
+          <PhoneVisual screen={noFone} themeMode={themeMode} />
+          <nav className="f1-logi__nav" aria-label="Telas do HBX Logística">
+            {LOGI.map((item) => (
+              <button
+                className={item.key === logi ? "is-active" : ""}
+                key={item.key}
+                type="button"
+                aria-pressed={item.key === logi}
+                onClick={() => setLogi(item.key)}
+              >
+                <Icon name={item.icon} />
+                <strong>{item.label}</strong>
+              </button>
+            ))}
+          </nav>
+          <div className="f1-baixar">
+            <a href={MOBILE_APK_URL} className="f1-baixar__apk">
+              <Icon name="download" />
+              <span>Baixar HBX Logística <small>Android</small></span>
+            </a>
+            <span className="f1-baixar__ios">iPhone em breve</span>
+          </div>
+        </aside>
+
+        <div className="f1-dados">
+          <span className="f1-dados__titulo">O que acontece na rua</span>
+          {DADOS.map((dado) => (
+            <article key={dado.valor}>
+              <b>{dado.valor}</b>
+              <span>{dado.texto}</span>
+              <small>{dado.fonte}</small>
+            </article>
+          ))}
         </div>
 
         <div className="f1-stage-shell">
@@ -395,37 +476,6 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           </div>
         )}
       </section>
-
-      {screen === "home" && (
-        <section className="f1-mobile-apps" aria-label="Aplicativos móveis HBX">
-          <article className="f1-mobile-app f1-mobile-app--apple">
-            <div className="f1-mobile-app__art-wrap">
-              <img src="/hbx-theme/assets/mobile-apps/apple-coming.png" alt="Ilustração de uma maçã tecnológica" />
-              <span className="f1-mobile-app__ribbon">Em breve</span>
-            </div>
-            <div className="f1-mobile-app__copy">
-              <small>HBX para iPhone</small>
-              <strong>Seu negócio também<br />no iOS.</strong>
-            </div>
-          </article>
-          <article className="f1-mobile-app f1-mobile-app--android">
-            <div className="f1-mobile-app__copy">
-              <small>HBX Logística para Android</small>
-              <strong>A operação na<br />palma da mão.</strong>
-              <span className="f1-mobile-app__links">
-                <a href={MOBILE_APK_URL} className="f1-mobile-app__link">Baixar HBX Logística <Icon name="arrow" /></a>
-                {/* 17/08: /rota não mostra mais preço (o dono tirou os 3 planos
-                    da vitrine). Botão que promete tabela e entrega vitrine é
-                    mentira de rótulo — o texto passou a dizer o que existe. */}
-                <Link href="/rota" className="f1-mobile-app__link f1-mobile-app__link--ghost">Ver o HBX Logística</Link>
-              </span>
-            </div>
-            <div className="f1-mobile-app__art-wrap">
-              <img src="/hbx-theme/assets/mobile-apps/android-hero.png" alt="Android futurista do HBX Logística" />
-            </div>
-          </article>
-        </section>
-      )}
 
       <footer className="f1-footer">
         <span>© 2026 HBX</span>

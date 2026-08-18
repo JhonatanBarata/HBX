@@ -57,9 +57,9 @@
   --glass:#ffffffee;
   --sombra-carta:0 10px 28px rgba(28,44,70,.14);
 
-  --map-fundo:#e2e8f0; --map-quadra:#f2f5f8; --map-lote:#e8edf3;
-  --map-rua:#ffffff; --map-rua2:#fbfcfe;
-  --map-parque:#d8e6da; --map-agua:#c7e2f2; --map-rotulo:#8494a9;
+  --map-fundo:#ccd6e2; --map-quadra:#eef3f8; --map-lote:#e4ebf3;
+  --map-rua:#ffffff; --map-rua2:#f7fafd;
+  --map-parque:#cfe2d3; --map-agua:#bcdcf0; --map-rotulo:#71829a;
   --map-rota:#5aa515; --map-rota-borda:#3a6f08;
 
   --ok:#4f9310; --ok-bg:#e9f6d5; --ok-fio:rgba(79,147,16,.4);
@@ -73,14 +73,16 @@
 
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
-body{background:transparent;overflow:hidden;display:grid;place-items:center;
+body{background:transparent;overflow:hidden;position:relative;
   font-family:"Segoe UI Variable Display","Segoe UI",Inter,ui-sans-serif,system-ui,-apple-system,Roboto,Arial,sans-serif;
   font-synthesis:none;-webkit-font-smoothing:antialiased}
 
-/* O palco escala pra caber no iframe — o berço do /rota tem a MESMA razão
-   (760/484), então o encaixe sai sem letterbox. */
-.mesa{width:760px;height:484px;transform:scale(var(--fit,1));transform-origin:center}
-.app{position:relative;width:760px;height:484px;overflow:hidden;border-radius:18px;
+/* O palco escala pra caber no berço. Centrar por `place-items` não serve:
+   quando a peça é MAIOR que a caixa o navegador a joga pro canto. O par
+   left/top 50% + translate(-50%,-50%) centra em qualquer tamanho. */
+.mesa{position:absolute;left:50%;top:50%;width:560px;height:357px;
+  transform:translate(-50%,-50%) scale(var(--fit,1))}
+.app{position:relative;width:560px;height:357px;overflow:hidden;border-radius:14px;
   background:var(--bg);color:var(--ink);font-size:13px;isolation:isolate}
 
 /* ------------------------------------------------------------------ MAPA -- */
@@ -100,8 +102,8 @@ body{background:transparent;overflow:hidden;display:grid;place-items:center;
 
 /* ---------------------------------------------------------------- PARADAS -- */
 .parada{position:absolute;left:0;top:0;width:0;height:0;z-index:6}
-.parada i{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;
-  display:grid;place-items:center;font-style:normal;font-size:9.5px;font-weight:700;
+.parada i{position:absolute;left:-7px;top:-7px;width:14px;height:14px;border-radius:50%;
+  display:grid;place-items:center;font-style:normal;font-size:8px;font-weight:700;
   background:var(--card);border:1.4px solid var(--line-2);color:var(--ink-2);
   transition:background .3s ease,border-color .3s ease,color .3s ease}
 .parada.feita i{background:var(--ok-bg);border-color:var(--ok-fio);color:var(--ok)}
@@ -111,24 +113,24 @@ body{background:transparent;overflow:hidden;display:grid;place-items:center;
 /* ------------------------------------------------------------------ PUCKS -- */
 .puck{position:absolute;left:0;top:0;width:0;height:0;z-index:8;
   transform:translate(var(--px,0),var(--py,0))}
-.puck .corpo{position:absolute;left:-11px;top:-11px;width:22px;height:22px;border-radius:50%;
+.puck .corpo{position:absolute;left:-9px;top:-9px;width:18px;height:18px;border-radius:50%;
   background:var(--puck);border:2px solid var(--puck-fio);
   box-shadow:0 3px 10px rgba(0,0,0,.45);display:grid;place-items:center;
   transition:background .4s ease}
 .app.claro .puck .corpo{box-shadow:0 3px 9px rgba(28,44,70,.3)}
-.puck .corpo svg{width:12px;height:12px;display:block;transform:rotate(var(--rumo,0deg))}
+.puck .corpo svg{width:10px;height:10px;display:block;transform:rotate(var(--rumo,0deg))}
 .puck .corpo path{fill:#fff}
 .app.claro .puck .corpo path{fill:#fff}
 
 /* Parado em alerta: o corpo veste o vermelho e o chão pulsa em anel. */
 .puck.alerta .corpo{background:var(--alerta)}
-.puck .anel{position:absolute;left:-26px;top:-26px;width:52px;height:52px;border-radius:50%;
+.puck .anel{position:absolute;left:-21px;top:-21px;width:42px;height:42px;border-radius:50%;
   border:1.6px solid var(--alerta-anel);opacity:0;pointer-events:none}
 .puck.alerta .anel{animation:anelPulsa 1.6s ease-out infinite}
 @keyframes anelPulsa{0%{opacity:.9;transform:scale(.35)}70%{opacity:0;transform:scale(1)}100%{opacity:0}}
 
 /* O relógio de parada nasce em cima do caminhão parado. */
-.chip-parado{position:absolute;left:0;top:0;z-index:9;transform:translate(var(--px),var(--py)) translate(-50%,-210%);
+.chip-parado{position:absolute;left:0;top:0;z-index:9;transform:translate(var(--px),var(--py)) translate(calc(-100% - 14px),-50%);
   padding:3px 9px;border-radius:999px;background:var(--alerta-bg);border:1px solid var(--alerta-fio);
   color:var(--alerta);font-size:10.5px;font-weight:700;white-space:nowrap;opacity:0;
   transition:opacity .35s ease}
@@ -136,14 +138,14 @@ body{background:transparent;overflow:hidden;display:grid;place-items:center;
 
 /* ------------------------------------------------------------ POI (posto) -- */
 .poi{position:absolute;left:0;top:0;width:0;height:0;z-index:5}
-.poi .caixa{position:absolute;left:-8px;top:-24px;display:flex;align-items:center;gap:4px;
+.poi .caixa{position:absolute;left:-7px;top:-20px;display:flex;align-items:center;gap:4px;
   color:var(--map-rotulo);font-size:9px;font-weight:700;letter-spacing:.4px;white-space:nowrap}
 .poi svg{width:11px;height:11px}
 .poi path{fill:var(--map-rotulo)}
 
 /* ---------------------------------------------------------------- CROMO --- */
-.topo{position:absolute;left:12px;top:12px;z-index:20;display:flex;align-items:center;gap:8px;
-  padding:8px 12px;border-radius:12px;background:var(--glass);border:.8px solid var(--line);
+.topo{position:absolute;left:9px;top:9px;z-index:20;display:flex;align-items:center;gap:7px;
+  padding:6px 10px;border-radius:10px;background:var(--glass);border:.8px solid var(--line);
   backdrop-filter:blur(14px);box-shadow:var(--sombra-carta)}
 .topo .titulo{font-size:11px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase}
 .topo .relogio{font-size:11px;color:var(--ink-2);font-variant-numeric:tabular-nums}
@@ -154,11 +156,11 @@ body{background:transparent;overflow:hidden;display:grid;place-items:center;
 .topo .fita b{color:var(--ink);font-variant-numeric:tabular-nums}
 
 /* ------------------------------------------------------- FEED DE EVENTOS -- */
-.feed{position:absolute;right:12px;top:12px;z-index:22;width:252px;display:flex;
-  flex-direction:column;gap:7px}
-.evento{padding:9px 11px;border-radius:12px;background:var(--glass);border:.8px solid var(--line);
+.feed{position:absolute;right:9px;top:9px;z-index:22;width:196px;display:flex;
+  flex-direction:column;gap:6px}
+.evento{padding:7px 9px;border-radius:10px;background:var(--glass);border:.8px solid var(--line);
   backdrop-filter:blur(14px);box-shadow:var(--sombra-carta);
-  transform:translateX(272px);opacity:0}
+  transform:translateX(214px);opacity:0}
 .evento.on{animation:eventoEntra .55s var(--cv-entra) forwards}
 @keyframes eventoEntra{to{transform:translateX(0);opacity:1}}
 .evento .linha1{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--ink-3);
@@ -183,13 +185,13 @@ body{background:transparent;overflow:hidden;display:grid;place-items:center;
 /* A homenagem consciente ao popup de GR de verdade: veículo, código da
    viagem, velocidade, ignição e a REFERÊNCIA humana. É o cartão que faz
    transportador reconhecer a própria língua. */
-.posicao{position:absolute;left:12px;bottom:12px;z-index:22;width:238px;
-  padding:11px 13px;border-radius:14px;background:var(--glass);border:.8px solid var(--line);
+.posicao{position:absolute;left:9px;bottom:9px;z-index:22;width:186px;
+  padding:9px 11px;border-radius:12px;background:var(--glass);border:.8px solid var(--line);
   backdrop-filter:blur(14px);box-shadow:var(--sombra-carta)}
 .posicao .cabeca{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .posicao .placa{font-size:13.5px;font-weight:800;letter-spacing:.8px;font-variant-numeric:tabular-nums}
 .posicao .viagem{font-size:10px;color:var(--ink-3);font-variant-numeric:tabular-nums}
-.posicao .grade{display:grid;grid-template-columns:1fr 1fr;gap:5px 10px;margin-top:8px}
+.posicao .grade{display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;margin-top:6px}
 .posicao .dado small{display:block;font-size:9px;letter-spacing:.6px;text-transform:uppercase;
   color:var(--ink-3)}
 .posicao .dado b{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
@@ -201,7 +203,7 @@ body{background:transparent;overflow:hidden;display:grid;place-items:center;
 .posicao .agora{margin-top:4px;font-size:9.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
 
 /* selo discreto de produto, canto de baixo — a vitrine assina, não grita */
-.selo{position:absolute;right:12px;bottom:12px;z-index:20;padding:4px 9px;border-radius:999px;
+.selo{position:absolute;right:9px;bottom:9px;z-index:20;padding:4px 9px;border-radius:999px;
   background:var(--glass);border:.8px solid var(--line);color:var(--ink-3);
   font-size:9.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase}
 
@@ -215,7 +217,7 @@ body{background:transparent;overflow:hidden;display:grid;place-items:center;
   <div class="app" id="app">
 
     <div class="mapa" aria-hidden="true">
-      <svg viewBox="0 0 760 484" id="cidade"></svg>
+      <svg viewBox="0 0 560 357" id="cidade"></svg>
     </div>
 
     <!-- paradas numeradas, pucks e o posto nascem por JS em cima do mapa -->
@@ -245,7 +247,7 @@ body{background:transparent;overflow:hidden;display:grid;place-items:center;
         <span class="dado"><small>Motorista</small><b>Carlos</b></span>
         <span class="dado"><small>Situação</small><b id="sit">Em trajeto</b></span>
       </div>
-      <div class="ref" id="ref">Av. Campos Sales — Campinas/SP</div>
+      <div class="ref" id="ref">R. das Acácias — Campinas/SP</div>
       <div class="agora" id="agora">posição de agora</div>
     </div>
 
@@ -260,19 +262,19 @@ const $=s=>document.querySelector(s);
 /* ------------------------------------------------------------ O MUNDO ----- */
 /* Malha em px do próprio palco (760x484). Quadra, rua, rota e desvio saem
    das MESMAS tabelas — rota nunca corta quadra (lei herdada do mock do GPS). */
-const RUAS_V=[70,180,290,400,510,620,700];
-const RUAS_H=[60,140,220,300,380,450];
-const AV_H=220, AV_V=400;                 /* avenidas (mais largas) */
+const RUAS_V=[52,133,214,295,376,457,516];
+const RUAS_H=[44,103,162,221,280,332];
+const AV_H=162, AV_V=295;                 /* avenidas (mais largas) */
 
-/* rota planejada do FLV3B58 (a fita verde) */
-const ROTA=[[40,450],[180,450],[180,300],[400,300],[400,140],[620,140],[620,60],[700,60]];
-/* trajeto que ele REALMENTE faz: segue a rota até a avenida e vira pro posto */
-const REAL=[[40,450],[180,450],[180,300],[400,300],[400,220],[560,220]];
-/* volta do segundo caminhão (vida ambiente, nunca dá problema) */
-const VOLTA2=[[620,380],[700,380],[700,450],[510,450],[510,380],[620,380]];
+/* Geometria com as caixas do cromo em mente: o feed mora no alto à direita e
+   a ficha de posição no rodapé à esquerda. O clímax — caminhão parado no posto
+   — cai no vão do meio-baixo, onde nada cobre. */
+const ROTA=[[26,103],[214,103],[214,221],[457,221],[457,103],[516,103]];
+const REAL=[[26,103],[214,103],[214,221],[295,221],[295,332],[368,332]];
+const VOLTA2=[[52,44],[214,44],[214,103],[133,103],[133,44],[52,44]];
 
-const PARADAS=[[120,450],[180,370],[300,300],[400,170],[540,140],[620,90]];
-const POSTO=[560,220];
+const PARADAS=[[88,103],[214,162],[258,221],[376,221],[457,162],[487,103]];
+const POSTO=[368,332];
 
 function polilinha(p){return p.map((q,i)=>(i?"L":"M")+q[0]+" "+q[1]).join(" ")}
 function comprimento(p){let t=0;for(let i=1;i<p.length;i++)t+=Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]);return t}
@@ -291,30 +293,29 @@ function emS(p,s){ /* ponto + rumo na distância s da polilinha */
 
 function montarCidade(){
   const P=[];
-  P.push(`<rect x="0" y="0" width="760" height="484" fill="var(--map-fundo)"/>`);
+  P.push(`<rect x="0" y="0" width="560" height="357" fill="var(--map-fundo)"/>`);
   /* quadras: o vão entre ruas vizinhas, com respiro de 7px */
-  const vs=[0,...RUAS_V,760], hs=[0,...RUAS_H,484];
+  const vs=[0,...RUAS_V,560], hs=[0,...RUAS_H,357];
   for(let i=0;i<vs.length-1;i++)for(let j=0;j<hs.length-1;j++){
-    const x=vs[i]+7,y=hs[j]+7,w=vs[i+1]-vs[i]-14,h=hs[j+1]-hs[j]-14;
-    if(w<16||h<16)continue;
-    P.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="5" fill="var(--map-quadra)"/>`);
+    const x=vs[i]+5,y=hs[j]+5,w=vs[i+1]-vs[i]-10,h=hs[j+1]-hs[j]-10;
+    if(w<12||h<12)continue;
+    P.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="var(--map-quadra)"/>`);
   }
   /* texturas de cidade: um parque e um espelho d'água, sem disputar cor */
-  P.push(`<rect x="77" y="67" width="96" height="66" rx="5" fill="var(--map-parque)"/>`);
-  P.push(`<rect x="627" y="307" width="66" height="66" rx="5" fill="var(--map-agua)"/>`);
+  P.push(`<rect x="57" y="49" width="70" height="48" rx="4" fill="var(--map-parque)"/>`);
+  P.push(`<rect x="462" y="226" width="48" height="48" rx="4" fill="var(--map-agua)"/>`);
   /* ruas */
-  for(const x of RUAS_V)P.push(`<line x1="${x}" y1="0" x2="${x}" y2="484" stroke="var(--map-rua2)" stroke-width="${x===AV_V?14:8}"/>`);
-  for(const y of RUAS_H)P.push(`<line x1="0" y1="${y}" x2="760" y2="${y}" stroke="var(--map-rua)" stroke-width="${y===AV_H?14:8}"/>`);
+  for(const x of RUAS_V)P.push(`<line x1="${x}" y1="0" x2="${x}" y2="357" stroke="var(--map-rua2)" stroke-width="${x===AV_V?11:6}"/>`);
+  for(const y of RUAS_H)P.push(`<line x1="0" y1="${y}" x2="560" y2="${y}" stroke="var(--map-rua)" stroke-width="${y===AV_H?11:6}"/>`);
   /* nomes de rua — referência humana é o idioma da torre */
-  P.push(`<text x="204" y="216" fill="var(--map-rotulo)" font-size="9" font-weight="600" letter-spacing="1.4">AV. CAMPOS SALES</text>`);
-  P.push(`<text x="408" y="472" fill="var(--map-rotulo)" font-size="9" font-weight="600" letter-spacing="1.4" transform="rotate(-90 408 472)" text-anchor="start"> </text>`);
-  P.push(`<text x="392" y="130" fill="var(--map-rotulo)" font-size="9" font-weight="600" letter-spacing="1.2" transform="rotate(-90 392 130)" text-anchor="end">R. BARÃO DE ITAPURA</text>`);
-  P.push(`<text x="52" y="437" fill="var(--map-rotulo)" font-size="9" font-weight="600" letter-spacing="1.4">R. DAS ACÁCIAS</text>`);
+  P.push(`<text x="232" y="216" fill="var(--map-rotulo)" font-size="8" font-weight="700" letter-spacing="1.1">AV. CAMPOS SALES</text>`);
+  P.push(`<text x="290" y="308" fill="var(--map-rotulo)" font-size="8" font-weight="700" letter-spacing="1" transform="rotate(-90 290 308)" text-anchor="start">R. BARÃO DE ITAPURA</text>`);
+  P.push(`<text x="70" y="98" fill="var(--map-rotulo)" font-size="8" font-weight="700" letter-spacing="1.1">R. DAS ACÁCIAS</text>`);
   /* a fita da rota planejada (verde, com borda, igual ao app) */
-  P.push(`<g class="fita-rota"><path d="${polilinha(ROTA)}" fill="none" stroke="var(--map-rota-borda)" stroke-width="8" stroke-linejoin="round" stroke-linecap="round"/><path d="${polilinha(ROTA)}" fill="none" stroke="var(--map-rota)" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/></g>`);
+  P.push(`<g class="fita-rota"><path d="${polilinha(ROTA)}" fill="none" stroke="var(--map-rota-borda)" stroke-width="6.5" stroke-linejoin="round" stroke-linecap="round"/><path d="${polilinha(ROTA)}" fill="none" stroke="var(--map-rota)" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/></g>`);
   /* o rastro do desvio (vermelho tracejado) — nasce apagado */
-  const desvio=[[400,220],[560,220]];
-  P.push(`<path id="trilhaDesvio" class="desvio-trilha" d="${polilinha(desvio)}" fill="none" stroke="var(--desvio)" stroke-width="3.4" stroke-linecap="round" style="--desvio-comp:${Math.ceil(comprimento(desvio))}"/>`);
+  const desvio=[[295,221],[295,332],[368,332]];
+  P.push(`<path id="trilhaDesvio" class="desvio-trilha" d="${polilinha(desvio)}" fill="none" stroke="var(--desvio)" stroke-width="2.8" stroke-linecap="round" style="--desvio-comp:${Math.ceil(comprimento(desvio))}"/>`);
   $('#cidade').innerHTML=P.join("");
 }
 
@@ -381,7 +382,7 @@ function iniciar(){
   daqui(()=>{ $('#par2').classList.add('feita');$('#feitas').textContent='7';
     evento('ok',h(2),'Entrega 3 concluída<small>comprovante com foto e assinatura</small>');},3300);
   daqui(()=>{ $('#trilhaDesvio').classList.add('on');
-    evento('aviso',h(0),'FLV3B58 saiu do trajeto planejado<small>Av. Campos Sales, sentido leste</small>');},5600);
+    evento('aviso',h(0),'FLV3B58 saiu do trajeto planejado<small>R. Barão de Itapura, sentido sul</small>');},5600);
   daqui(()=>{ $('#sit').textContent='Fora do trajeto';$('#sit').className='mal'; },5600);
   daqui(()=>{ $('#chipParado').classList.add('on'); },8600);
   daqui(()=>{ $('#p1').classList.add('alerta');
@@ -413,8 +414,8 @@ function iniciar(){
     if(dt%120<20)$('#vel').textContent=Math.round(vAlvo)+' km/h';
     if(u>=1)$('#vel').textContent='0 km/h';
     /* referência acompanha o trecho */
-    if(u<.62&&dt>400)$('#ref').innerHTML='R. das Acácias — Campinas/SP';
-    if(u>=.62&&u<1)$('#ref').innerHTML='Av. Campos Sales — Campinas/SP';
+    if(u<.55&&dt>400)$('#ref').innerHTML='R. das Acácias — Campinas/SP';
+    if(u>=.55&&u<1)$('#ref').innerHTML='R. Barão de Itapura — Campinas/SP';
     /* caminhão 2: vida ambiente em loop */
     poePuck($('#p2'),emS(VOLTA2,(dt*0.052)%V2_TOT));
     /* carimbo de frescor da posição */
@@ -424,11 +425,14 @@ function iniciar(){
 }
 
 /* ----------------------------------------------------------- MESA ---------- */
+/* O berço muda de tamanho DEPOIS do load (a vitrine troca de aba, o iframe
+   nasce estreito). Medir uma vez deixava a cena do tamanho de um selo. */
 function caber(){
-  const f=Math.min(innerWidth/760,innerHeight/484);
+  const f=Math.min(innerWidth/560,innerHeight/357);
   document.querySelector('.mesa').style.setProperty('--fit',f.toFixed(4));
 }
 addEventListener('resize',caber);
+new ResizeObserver(caber).observe(document.documentElement);
 
 const tick=()=>$('#relogio').textContent=HORA(new Date());
 setInterval(tick,30000);
