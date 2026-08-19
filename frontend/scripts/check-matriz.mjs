@@ -15,24 +15,72 @@
  * O que grita:
  *  1. 🔴 Palavra banida em STRING DE TELA (Fiado/Devendo/Ficou Pendente/Un/Total:)
  *     — comentário não conta; o dado do banco ('fiado', `devedores`) não é tela.
- *  2. 🔴 Paridade APK×web: todo botão `data-forma` do mock e o PAGAMENTOS do
+ *  2. 🔴 Paridade APK×web: todo botão `data-forma` dos mocks e o PAGAMENTOS do
  *     balcão web usam a MESMA palavra por forma — inclusive entre telas do
  *     próprio mock (pegou "Marcou"≠"Marcar" no acerto em 10/08). É assim que
  *     "varra o sistema" nunca mais acontece.
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 const raiz = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ler = rel => readFileSync(join(raiz, rel), "utf8");
 
-const PONTE_SRC_DIR = "EntregaShell/app/src/logistica/ponte-src";
-const MOCK = "docs/mockups/logistica2.0/logistica-2.0.html";
+/* 🔴 O FISCAL VARRE TODOS OS APPS DA ESTEIRA (LOTE 1 dos dois apps). Estava
+   cravado no `logistica/ponte-src` + no mock dele; com um segundo app na MESMA
+   casca, um fiscal de vocabulário que só olha o primeiro sai VERDE enquanto a
+   palavra proibida entra pelo outro — e "varra o sistema" acontece de novo.
+   Quem diz quais são os alvos é `scripts/lib/apps.js`, o mesmo mapa que os
+   geradores usam: fiscal e gerador olhando listas diferentes é como um alvo
+   nasce sem fiscal.
+   O que AINDA NÃO EXISTE é pulado sem drama (o `vendas` não tem `ponte-src/`
+   até o lote que a criar) — mas some da contagem final, então o número diz a
+   verdade sobre o que foi realmente medido. */
+const { APPS } = createRequire(import.meta.url)(join(raiz, "scripts", "lib", "apps.js"));
 const BALCAO = "frontend/src/app/(app)/balcao/page.client.tsx";
-const PONTE_SRC = readdirSync(join(raiz, PONTE_SRC_DIR))
-  .filter(f => f.endsWith(".js"))
-  .map(f => `${PONTE_SRC_DIR}/${f}`);
+
+const ALVOS = Object.values(APPS).map(app => {
+  const temPonte = existsSync(app.ponteSrc);
+  return {
+    nome: app.nome,
+    ponteSrcRel: app.ponteSrcRel,
+    mock: existsSync(app.mock) ? app.mockRel : null,
+    temPonte,
+    ponteSrc: temPonte
+      ? readdirSync(app.ponteSrc).filter(f => f.endsWith(".js")).map(f => `${app.ponteSrcRel}/${f}`)
+      : [],
+  };
+});
+const MOCKS = ALVOS.map(a => a.mock).filter(Boolean);
+const PONTE_SRC = ALVOS.flatMap(a => a.ponteSrc);
+if (!MOCKS.length) {
+  console.error("🔴 check-matriz: nenhum mock encontrado — a esteira não tem fonte viva pra fiscalizar.");
+  process.exit(1);
+}
+/* 🔴 "PULAR O QUE NÃO EXISTE" NÃO PODE VIRAR "NÃO MEDIR NADA". O `existsSync`
+   acima tolera o `vendas`, que ainda não tem ponte — legítimo, e por isso sai
+   com RECADO, nunca calado (alvo pulado em silêncio é como um alvo nasce sem
+   fiscal). Mas o MESMO `existsSync` deixava o fiscal sair VERDE se a pasta do
+   `logistica` sumisse — renomeada, apagada, movida num refactor: zero arquivo
+   medido, zero reclamação, portão verde. Verde que mede a coisa errada é pior
+   que vermelho. Então: alvo sem ponte é recado; TODOS sem ponte é impossível
+   nesta esteira e reprova alto. E pasta que EXISTE e está VAZIA não é "ainda
+   não nasceu" — é a ponte apagada por dentro, que é o mesmo cego com outra cara. */
+const semPonte = ALVOS.filter(a => !a.temPonte);
+for (const a of semPonte) {
+  console.log(`  · ${a.nome}: ainda sem ${a.ponteSrcRel}/ — a ponte dele nasce noutro lote, nada a fiscalizar aqui.`);
+}
+if (semPonte.length === ALVOS.length) {
+  console.error(`🔴 check-matriz: NENHUM dos ${ALVOS.length} alvos tem ponte-src/ — isso não acontece com a esteira de pé.`);
+  console.error("   Ou a pasta sumiu/foi renomeada, ou o mapa (scripts/lib/apps.js) aponta pra um caminho que não existe mais.");
+  process.exit(1);
+}
+for (const a of ALVOS.filter(x => x.temPonte && !x.ponteSrc.length)) {
+  console.error(`🔴 check-matriz: ${a.ponteSrcRel}/ existe e não tem UM .js — ponte esvaziada por dentro fiscaliza zero arquivo em silêncio.`);
+  process.exit(1);
+}
 
 let erros = 0;
 const erro = msg => { erros += 1; console.error(`🔴 check-matriz: ${msg}`); };
@@ -53,7 +101,7 @@ const BANIDAS = [
   [/>Fiado</, "'Fiado' é dado de banco, nunca rótulo de tela"],
   [/Un R\$|Total: R\$/, "telegrama (Lei 8): 'Un'/'Total:' morreram — 'Nome N×U,UU = R$T,TT'"],
 ];
-for (const arquivo of [...PONTE_SRC, MOCK, BALCAO]) {
+for (const arquivo of [...PONTE_SRC, ...MOCKS, BALCAO]) {
   const limpo = semComentario(ler(arquivo));
   for (const [padrao, msg] of BANIDAS) {
     const hit = limpo.match(padrao);
@@ -65,11 +113,16 @@ for (const arquivo of [...PONTE_SRC, MOCK, BALCAO]) {
 // APK: todo botão `data-forma="X" ... <b>Rótulo</b>` do mock (a fonte do
 // front do celular). Web: PAGAMENTOS do balcão. A palavra por forma é UMA —
 // entre telas do mock e entre APK e web.
+// A palavra por forma é UMA entre as telas de CADA mock e entre TODOS os mocks:
+// dois apps da casa cobrando com palavras diferentes é o mesmo defeito de
+// vocabulário que esta seção existe pra pegar, só que pior (o cliente vê os dois).
 const rotuloPorForma = new Map();
-for (const m of ler(MOCK).matchAll(/data-forma="(\w+)"[^]*?<b>([^<]+)<\/b>/g)) {
-  const [, forma, rotulo] = m;
-  if (!rotuloPorForma.has(forma)) rotuloPorForma.set(forma, new Set());
-  rotuloPorForma.get(forma).add(rotulo);
+for (const mock of MOCKS) {
+  for (const m of ler(mock).matchAll(/data-forma="(\w+)"[^]*?<b>([^<]+)<\/b>/g)) {
+    const [, forma, rotulo] = m;
+    if (!rotuloPorForma.has(forma)) rotuloPorForma.set(forma, new Set());
+    rotuloPorForma.get(forma).add(rotulo);
+  }
 }
 for (const [forma, rotulos] of rotuloPorForma) {
   if (rotulos.size > 1) erro(`mock: a forma "${forma}" aparece com ${rotulos.size} palavras (${[...rotulos].join(" / ")}) — a palavra de dinheiro é UMA em todas as telas.`);
@@ -88,4 +141,5 @@ if (erros) {
   console.error(`\ncheck-matriz: ${erros} violação(ões). O padrão mora em docs/PLANEJAMENTOS/PR05082026-MATRIZ-DA-TELA.md §2b.`);
   process.exit(1);
 }
-console.log(`✅ check-matriz: vocabulário cravado em ${PONTE_SRC.length + 2} arquivos da fonte viva, paridade APK×web ok (${paridade.length} formas).`);
+const alvosMedidos = ALVOS.map(a => `${a.nome}(${a.ponteSrc.length} ponte-src${a.mock ? " + mock" : ", sem mock"})`).join(" · ");
+console.log(`✅ check-matriz: vocabulário cravado em ${PONTE_SRC.length + MOCKS.length + 1} arquivos da fonte viva — ${alvosMedidos} — paridade APK×web ok (${paridade.length} formas).`);

@@ -2,7 +2,12 @@
 /**
  * CONFERE A CASCA INJETADA — ela ABRE, e abre IGUAL ao mock?
  *
- *     node scripts/casca-conferir.js
+ *     node scripts/casca-conferir.js                (= --app logistica)
+ *     node scripts/casca-conferir.js --app vendas
+ *
+ * O par mock×app vem de `scripts/lib/apps.js`: portão que mede um app cravado
+ * enquanto o trabalho é no outro sai VERDE mentindo — e verde mentiroso é pior
+ * que vermelho.
  *
  * Duas perguntas, as duas medidas num navegador de verdade:
  *
@@ -24,10 +29,13 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { chromium } = require('playwright');
+const { resolverApp } = require('./lib/apps');
 
 const raiz = path.join(__dirname, '..');
-const MOCK = path.join(raiz, 'docs/mockups/logistica2.0/logistica-2.0.html');
-const APP = path.join(raiz, 'EntregaShell/app/src/logistica/assets/app/index.html');
+// `--app <nome>`; sem o flag, o app do motorista. O alvo é do mapa, não daqui.
+const ALVO = resolverApp(process.argv);
+const MOCK = ALVO.mock;
+const APP = ALVO.indice;
 const urlDe = (p) => 'file:///' + p.replace(/\\/g, '/');
 const MODOS = ['escuro', 'claro'];
 
@@ -43,6 +51,12 @@ body{margin:0;display:block;overflow:hidden;background:#06090f}
 .app{position:fixed;top:0;left:0;width:412px!important;height:940px!important;border-radius:0!important}`;
 
 (async () => {
+  if (!fs.existsSync(APP)) {
+    console.error(`✗ o app "${ALVO.nome}" não tem casca injetada: ${ALVO.indiceRel} não existe.`);
+    console.error(`   Rode: node scripts/casca-injetar.js --app ${ALVO.nome}`);
+    process.exit(1);
+  }
+  console.log(`[conferir] app: ${ALVO.nome} (${ALVO.rotulo}) · fonte: ${ALVO.mockRel}`);
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 412, height: 940 }, deviceScaleFactor: 1 });
 
@@ -111,11 +125,24 @@ body{margin:0;display:block;overflow:hidden;background:#06090f}
      dado, a pintura tem que ser a mesma. Então o dado do mock é copiado pro
      app antes das fotos. O que sobrar de diferença é casca, que é o que este
      portão existe pra pegar. */
-  const estadoDoMock = await mock.p.evaluate(() => ({
-    DADOS: JSON.parse(JSON.stringify(DADOS)),
-    PARADAS: JSON.parse(JSON.stringify(PARADAS)),
-    estadoRota,
-  }));
+  /* 🔴 SEAM QUE SÓ UM DOS APPS TEM NÃO PODE DERRUBAR O PORTÃO DOS DOIS.
+     `PARADAS` e `estadoRota` são a lista de paradas e o estado da rota — coisas
+     do app do MOTORISTA. O app de vendas não tem rota, não tem parada e não
+     declara nenhum dos dois; lendo-os cravados, este `evaluate` estourava
+     `ReferenceError: PARADAS is not defined` e o conferidor do vendas morria
+     ANTES da primeira foto, sem medir uma tela sequer.
+     A régua não afrouxa nem um grau: o que é medido continua sendo o pixel, e o
+     dado que EXISTE dos dois lados continua sendo copiado igual. O lado que
+     ESCREVE já tinha essa tolerância (os `try` do `tirar`, logo abaixo, dizem
+     "seam ausente"); faltava no lado que LÊ. */
+  const estadoDoMock = await mock.p.evaluate(() => {
+    const copia = (fn) => { try { const v = fn(); return v === undefined ? null : JSON.parse(JSON.stringify(v)); } catch (_) { return null; } };
+    return {
+      DADOS: copia(() => DADOS),
+      PARADAS: copia(() => PARADAS),
+      estadoRota: copia(() => estadoRota),
+    };
+  });
 
   /* 🔴 …E O DADO TEM QUE FICAR IGUAL ATÉ O FIM (09/08). Copiar UMA VEZ não
      bastava: no navegador o `temPonte()` do app é VERDADEIRO, então a ponte
@@ -147,8 +174,10 @@ body{margin:0;display:block;overflow:hidden;background:#06090f}
       // O estado é RECRAVADO antes de cada foto (e não uma vez só lá em cima):
       // é o que garante que a 66ª comparação mede o mesmo que a 1ª.
       Object.keys(est.DADOS).forEach((s) => { DADOS[s] = est.DADOS[s]; });
-      try { if (typeof window.PARADAS !== 'undefined') window.PARADAS = est.PARADAS; else PARADAS = est.PARADAS; } catch (_) { /* seam ausente */ }
-      try { estadoRota = est.estadoRota; } catch (_) { /* idem */ }
+      // Seam que o app não tem vem NULO da leitura acima — e escrever nulo aqui
+      // criaria uma global de mentira num app que nunca declarou a variável.
+      if (est.PARADAS !== null) { try { if (typeof window.PARADAS !== 'undefined') window.PARADAS = est.PARADAS; else PARADAS = est.PARADAS; } catch (_) { /* seam ausente */ } }
+      if (est.estadoRota !== null) { try { estadoRota = est.estadoRota; } catch (_) { /* idem */ } }
       document.documentElement.dataset.luz = m;
       try { atual = key; } catch (_) { /* seam ausente: segue como estava */ }
       const a = document.getElementById('app'); a.innerHTML = '';

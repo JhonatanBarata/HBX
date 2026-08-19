@@ -2,7 +2,8 @@
 /**
  * PORTÃO ANTES×DEPOIS DO MOCK — refatoração interna não pode mudar UM pixel.
  *
- *     node scripts/casca-antes-e-depois.js [commit]     (padrão: HEAD)
+ *     node scripts/casca-antes-e-depois.js [commit]                 (padrão: HEAD)
+ *     node scripts/casca-antes-e-depois.js --app vendas [commit]
  *
  * O `casca-conferir` compara MOCK × PELE — numa refatoração do próprio mock os
  * dois mudam JUNTOS e ele fica verde mesmo com a tela mudada (lição paga na
@@ -17,10 +18,15 @@ const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
 const { chromium } = require('playwright');
+const { resolverApp, semFlagDeApp } = require('./lib/apps');
 
 const raiz = path.join(__dirname, '..');
-const REL = 'docs/mockups/logistica2.0/logistica-2.0.html';
-const commit = process.argv[2] || 'HEAD';
+// `--app <nome>` escolhe QUAL mock é medido; o commit continua posicional.
+// 🔴 O flag sai da lista ANTES de ler o posicional: sem isso `--app` viraria o
+// commit e o `git show` reprovaria com uma mensagem que não explica nada.
+const ALVO = resolverApp(process.argv);
+const REL = ALVO.mockRel;
+const commit = semFlagDeApp(process.argv)[2] || 'HEAD';
 
 const antesHtml = execFileSync('git', ['show', `${commit}:${REL}`], {
   cwd: raiz, maxBuffer: 64 * 1024 * 1024,

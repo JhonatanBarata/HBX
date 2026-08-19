@@ -92,6 +92,7 @@ import { reservarVarianteDeAbertura } from './vendas-copy-reserva';
 import { WaColdContactGateService } from '../messaging/wa-cold-contact-gate.service';
 import { parseSignalsJson } from '../webscraping/radar/03-enrichment/lead-signals.util';
 import { ensureVendasComplaintsRuntimeSchema } from './vendas-complaints-runtime';
+import { planejarContatoManual } from './vendas-contato-manual';
 import { buildLeadFingerprints } from './commercial-contact-fingerprint';
 import {
   TEAM_POLICY_UNLIMITED_LIMIT,
@@ -11549,14 +11550,64 @@ export class VendasService {
       throw new NotFoundException('Lead comercial nao encontrado.');
     }
 
+    /* A TENTATIVA MANUAL TAMBÉM MOVE O CARD (19/08).
+       Até aqui este caminho só somava `attemptCount` e carimbava `lastContactAt`
+       — o card ficava em "Sem contato" depois de a pessoa ter aberto o WhatsApp
+       dela e falado com o lead. A conta é a mesma que o §2 do worker já pagou no
+       envio pelo motor (`vendas-conversation.service#registrarContatoManual`): a
+       vendedora reabre a lista, lê "Sem contato" e manda DE NOVO pro mesmo
+       contato frio — mensagem repetida no mesmo número é a máquina de ban
+       (veredito do dono, 04/08: o chip …884 caiu por disparo repetido).
+
+       A decisão mora em `vendas-contato-manual.ts` (puro e testado); aqui é I/O.
+       `jaRespondeu` sai da projeção do cockpit: depois que o lead responde,
+       mensagem minha é CONVERSA, não tentativa de alcançar ninguém. Se a
+       projeção falhar, cai em `false` — contar a tentativa é o lado
+       conservador (o teto de tentativas do lead fica mais apertado, nunca mais
+       frouxo). */
+    let jaRespondeu = false;
+    try {
+      const estados = await this.cockpitProjector.getCockpitStatesForLeads(context.companyId, [existing.id]);
+      jaRespondeu = estados.get(String(existing.id))?.engagement?.hasInboundReply === true;
+    } catch (error: any) {
+      this.logger.warn(
+        `[vendas-attempt] projecao do cockpit indisponivel lead=${existing.id}: ${String(error?.message || error)}`,
+      );
+    }
+    const plano = planejarContatoManual({
+      status: existing.status,
+      pipelineStage: existing.pipelineStage,
+      jaRespondeu,
+    });
+
     const updated = await this.prisma.$transaction(async (tx) => {
+      /* O CARIMBO DE CONTATO É INCONDICIONAL e continua sendo um `update` por id:
+         é o registro do toque que acabou de acontecer, e ele não pode se perder
+         por causa de corrida nenhuma. */
       const row = await tx.vendasLead.update({
         where: { id: existing.id },
         data: {
-          attemptCount: { increment: 1 },
+          ...(plano.contaTentativa ? { attemptCount: { increment: 1 } } : {}),
           lastContactAt: new Date(),
         },
       });
+
+      /* A SUBIDA DE ETAPA É SEPARADA, e com o status ANTIGO no `where`: se o
+         webhook de uma resposta chegou entre a leitura e a escrita, ele já moveu
+         o card pra "Respondeu" e este update simplesmente não casa. Nunca
+         rebaixa — a mesma trava do envio pelo motor. */
+      let subiu = false;
+      if (plano.novoStatus) {
+        const movidos = await tx.vendasLead.updateMany({
+          where: { id: existing.id, status: String(existing.status || 'novo') },
+          data: {
+            status: plano.novoStatus,
+            ...(plano.novoPipelineStage ? { pipelineStage: plano.novoPipelineStage } : {}),
+            ...(plano.novoLastResult ? { lastResult: plano.novoLastResult } : {}),
+          },
+        });
+        subiu = Number(movidos?.count || 0) > 0;
+      }
 
       await tx.vendasLeadTimelineEvent.create({
         data: {
@@ -11569,6 +11620,27 @@ export class VendasService {
           }),
         },
       });
+
+      // Rastro na ficha: o vendedor tem que ver POR QUE o card andou.
+      if (subiu) {
+        await tx.vendasLeadTimelineEvent.create({
+          data: {
+            leadId: existing.id,
+            ...this.buildTimelineEvent({
+              eventType: 'stage_changed',
+              title: 'Contato feito pelo WhatsApp',
+              description: dto?.channel
+                ? `Contato manual registrado (${String(dto.channel)}).`
+                : 'Contato manual registrado.',
+              sourceType: 'vendas_human',
+              statusFrom: String(existing.status || 'novo'),
+              statusTo: plano.novoStatus as string,
+              resultLabel: plano.novoLastResult,
+              createdByUserId: context.userId,
+            }),
+          },
+        });
+      }
 
       return tx.vendasLead.findUniqueOrThrow({
         where: { id: row.id },

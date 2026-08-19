@@ -6,10 +6,11 @@
  *
  * 🔴 A LEI (16/08, LOTE 1.4 — armadilha que mordeu a própria revisão
  * adversarial). Neste repo NADA do que a prova serve é fonte:
- *   · `EntregaShell/app/src/logistica/assets/app/ponte.js` é GERADO por
- *     `ponte-costurar` a partir de `ponte-src/*.js`;
+ *   · `EntregaShell/app/src/<flavor>/assets/app/ponte.js` é GERADO por
+ *     `ponte-costurar` a partir de `<flavor>/ponte-src/*.js`;
  *   · `assets/app/mock.js` + `index.html` são GERADOS por `casca-injetar` a
- *     partir de `docs/mockups/logistica2.0/logistica-2.0.html`.
+ *     partir do mock do app (`docs/mockups/<app>2.0/<app>-2.0.html`).
+ * Os alvos são os de `scripts/lib/apps.js` — TODOS eles, não só o do motorista.
  * As provas de Playwright abrem o GERADO (é ele que roda no aparelho). Então
  * uma prova que não regenera mede o gerado que estiver no disco — o de ontem,
  * ou o da OUTRA sessão que rodou por último.
@@ -47,8 +48,10 @@
  * não some nem atrapalha) — o que morreu foi a chance de confundir depuração
  * com portão.
  */
+const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { APPS } = require('./lib/apps');
 
 const RAIZ = path.join(__dirname, '..');
 
@@ -90,9 +93,26 @@ function regenerarGerados(opts) {
     carimbarPlacarInvalido(rotulo);
     return false;
   }
-  console.log(`[${rotulo}] regenerando ponte.js + mock.js/index.html (é o GERADO que a prova mede)…`);
-  execFileSync(process.execPath, [path.join(RAIZ, 'scripts', 'ponte-costurar.js')], { stdio: 'inherit' });
-  execFileSync(process.execPath, [path.join(RAIZ, 'scripts', 'casca-injetar.js')], { stdio: 'inherit' });
+  /* 🔴 REGENERA OS DOIS APPS (LOTE 1 da esteira de dois alvos). Antes daqui só
+     existia um alvo cravado; com dois apps na mesma casca, regenerar só o do
+     motorista devolveria a MESMA armadilha que este helper existe pra matar —
+     a prova abriria o gerado de ontem do app novo e sairia verde sobre código
+     que não existe mais. O que AINDA NÃO NASCEU é pulado com recado (o `vendas`
+     não tem `ponte-src/` até o lote que a criar): pular calado é como o gerado
+     velho entra de novo. */
+  console.log(`[${rotulo}] regenerando ponte.js + mock.js/index.html dos ${Object.keys(APPS).length} apps (é o GERADO que a prova mede)…`);
+  for (const app of Object.values(APPS)) {
+    if (fs.existsSync(app.ponteSrc)) {
+      execFileSync(process.execPath, [path.join(RAIZ, 'scripts', 'ponte-costurar.js'), '--app', app.nome], { stdio: 'inherit' });
+    } else {
+      console.log(`[${rotulo}] ${app.nome}: sem ${app.ponteSrcRel} — nada de ponte pra costurar (ainda).`);
+    }
+    if (fs.existsSync(app.mock)) {
+      execFileSync(process.execPath, [path.join(RAIZ, 'scripts', 'casca-injetar.js'), '--app', app.nome], { stdio: 'inherit' });
+    } else {
+      console.log(`[${rotulo}] ${app.nome}: sem ${app.mockRel} — nada de casca pra injetar (ainda).`);
+    }
+  }
   return true;
 }
 

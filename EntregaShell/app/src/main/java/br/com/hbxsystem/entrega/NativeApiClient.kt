@@ -238,18 +238,83 @@ class NativeApiClient(
 internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpoint: String): Boolean {
     val method = methodInput.uppercase()
     val segments = endpoint.trim('/').split('/').filter(String::isNotBlank)
+    /* 🔴 A ALLOWLIST DO HBX VENDAS — e ela cresceu de 7 para 20 linhas em 19/08,
+       quando a PONTE do app nasceu (`src/vendas/ponte-src/`). Até esse dia o app
+       era uma maquete: a casca desenhava 17 telas e ninguém chamava o servidor,
+       então a lista de 7 caminhos servia a um app que não pedia nada.
+
+       A LEI DESTE BLOCO, escrita com o preço que ela já cobrou quatro vezes no
+       app do motorista: CAMINHO QUE NÃO ESTÁ AQUI MORRE DENTRO DO APARELHO
+       ("Esta operação não pertence ao vendas"), sem sair pra rede — com o
+       backend 100% verde e o log do servidor LIMPO. O defeito aparece na tela
+       como "a busca não acha nada" / "o recado não chega", e três diagnósticos
+       vão pro backend antes de alguém olhar pra cá. Regra da casa: ponte +
+       allowlist + rebuild do APK, os TRÊS ou nada. E cada linha aqui ganha
+       assertion no `NativeApiClientPathPolicyTest` no MESMO commit.
+
+       🔴 A LISTA É CENTRALIZADA DE PROPÓSITO (todos os 6 módulos do app, não só
+       os que já foram plugados). Os módulos entram em levas e em sessões
+       diferentes; se cada uma editasse este `when`, duas colidiriam neste
+       arquivo e a perdedora sairia do APK sem ninguém ver.
+
+       🔴 E `webscraping/radar/claim-runs` SAIU. Grep zero no `backend/src`: era
+       porta aberta pra um endereço que não existe — o pior tipo de sobra numa
+       allowlist, porque ninguém a remove enquanto acreditar que ela serve. */
     val vendasEndpoint = when {
         method == "GET" && segments in listOf(
+            // O FUNIL (a tela em que o app abre) e o placar de 30 dias.
             listOf("vendas", "board"),
             listOf("vendas", "report"),
             listOf("vendas", "pending-summary"),
             listOf("products"),
+            // O RADAR: contagem por preferência e a colheita já paga.
+            listOf("webscraping", "radar", "preference-suggestions"),
+            // A AGENDA do vendedor (`/atividades` é gateado pelo módulo `vendas`
+            // no próprio controller — é a agenda dentro da carteira, não um
+            // módulo à parte).
+            listOf("atividades", "agenda"),
+            // A CARTEIRA de empresas (base PJ do tenant).
+            listOf("nucleo", "empresas"),
+            // AJUSTES: quem sou eu, o que a empresa liberou e o chip que envia.
+            // 🔴 `modules/me` é o que manda na BARRA do app: sem ele o vendedor
+            // toca num módulo desligado e leva 403 mudo (medido em 18/08: 39
+            // respostas 403 em 65 s, e a tela não dizia uma palavra).
+            listOf("modules", "me"),
+            listOf("profile"),
+            listOf("companies", "me", "whatsapp-status"),
         ) -> true
         method == "GET" && segments.size == 3 && segments.take(3) == listOf("webscraping", "radar", "leads") -> true
-        method == "GET" && segments.size == 4 && segments.take(3) == listOf("webscraping", "radar", "claim-runs") -> true
-        method == "POST" && segments == listOf("vendas", "manual") -> true
-        method == "POST" && segments.size == 4 && segments.take(2) == listOf("vendas", "lead") && segments[3] in setOf("attempt", "negativar") -> true
+        // A ficha de UMA empresa achada pelo Radar: GET /webscraping/radar/leads/:id.
+        method == "GET" && segments.size == 4 && segments.take(3) == listOf("webscraping", "radar", "leads") -> true
+        // As corridas de busca: `/latest` (a última) e `/:id` (o acompanhamento).
+        // Os dois têm 4 segmentos e a mesma leitura — uma linha cobre o par.
+        method == "GET" && segments.size == 4 && segments.take(3) == listOf("webscraping", "radar", "search-runs") -> true
+        // A ficha de UMA empresa da carteira: GET /nucleo/empresas/:id.
+        method == "GET" && segments.size == 3 && segments.take(2) == listOf("nucleo", "empresas") -> true
+        // O CARD do lead e a CONVERSA dele (a lista e o histórico de mensagens).
+        method == "GET" && segments.size == 4 && segments.take(2) == listOf("vendas", "lead")
+            && segments[3] in setOf("card", "conversation") -> true
+        method == "GET" && segments.size == 5 && segments.take(2) == listOf("vendas", "lead")
+            && segments[3] == "conversation" && segments[4] == "messages" -> true
+        method == "POST" && segments in listOf(
+            listOf("vendas", "manual"),
+            // 🔴 CONTAR É GRÁTIS, PUXAR COBRA — e as duas são POST porque o filtro
+            // (segmento, cidade, UF, quantidade) não cabe em query string.
+            listOf("webscraping", "radar", "count"),
+            listOf("webscraping", "radar", "cnpj-base", "query"),
+            listOf("webscraping", "radar", "search-runs"),
+            // A atividade nova da Agenda.
+            listOf("atividades"),
+        ) -> true
+        method == "POST" && segments.size == 4 && segments.take(2) == listOf("vendas", "lead") && segments[3] in setOf("attempt", "negativar", "conversation") -> true
+        // Mandar UMA mensagem pelo WhatsApp da empresa: POST .../conversation/message.
+        method == "POST" && segments.size == 5 && segments.take(2) == listOf("vendas", "lead")
+            && segments[3] == "conversation" && segments[4] == "message" -> true
         method == "POST" && segments.size == 5 && segments.take(3) == listOf("webscraping", "radar", "leads") && segments[4] == "send-to-vendas" -> true
+        // Parar a corrida de busca que está rodando: POST .../search-runs/:id/cancel.
+        method == "POST" && segments.size == 5 && segments.take(3) == listOf("webscraping", "radar", "search-runs") && segments[4] == "cancel" -> true
+        // Concluir a atividade do dia: POST /atividades/:id/concluir.
+        method == "POST" && segments.size == 3 && segments[0] == "atividades" && segments[2] == "concluir" -> true
         method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("vendas", "lead") -> true
         else -> false
     }

@@ -190,6 +190,17 @@ function ensureRequiredEnv(env) {
       env.NEXT_PUBLIC_ANDROID_APK_URL
       || `${frontendUrl}/download/android-logistica`,
     ).trim(),
+    // São DOIS APKs publicados pelo mesmo nginx e o frontend tem um botão pra
+    // cada (`MOBILE_APK_URL` e `MOBILE_APK_URL_VENDAS`, frontend/src/lib/
+    // app-mobile.ts). Esta rota de deploy REESCREVE o docker-compose.frontend.yml
+    // no servidor (ensure_frontend_compose_file, mais abaixo): sem a var aqui,
+    // ela apagaria o ARG do Vendas do compose commitado e o botão dele voltaria
+    // ao fallback relativo — o link certo por sorte do nginx, e errado no dia em
+    // que o domínio do download mudar.
+    androidVendasApkUrl: String(
+      env.NEXT_PUBLIC_ANDROID_APK_VENDAS_URL
+      || `${frontendUrl}/download/android`,
+    ).trim(),
     webwhatsAppDir: String(env.WEBWHATS_APP_DIR || `${env.HOSTINGER_APP_DIR}/Webwhats`).trim(),
     webwhatsSystemdService: String(env.WEBWHATS_SYSTEMD_SERVICE || 'webwhats').trim(),
   };
@@ -337,6 +348,7 @@ function buildRemoteDeployScript(config, mode) {
     `REQUESTED_HBX_CLIENT_RESERVED_ENGINES=${shellSingleQuote(config.hbxClientReservedEngines)}`,
     `REQUESTED_NEXT_PUBLIC_GOOGLE_CLIENT_ID=${shellSingleQuote(config.googleClientId)}`,
     `REQUESTED_NEXT_PUBLIC_ANDROID_APK_URL=${shellSingleQuote(config.androidApkUrl)}`,
+    `REQUESTED_NEXT_PUBLIC_ANDROID_APK_VENDAS_URL=${shellSingleQuote(config.androidVendasApkUrl)}`,
     `HBX_ENGINE_HARD_LIMIT=${shellSingleQuote(HBX_ENGINE_HARD_LIMIT)}`,
     `WEBWHATS_APP_DIR=${shellSingleQuote(config.webwhatsAppDir)}`,
     `WEBWHATS_SYSTEMD_SERVICE=${shellSingleQuote(config.webwhatsSystemdService)}`,
@@ -375,6 +387,7 @@ function buildRemoteDeployScript(config, mode) {
     'upsert_root_env HBX_RADAR_CLIENT_FALLBACK_TO_POOL "${HBX_RADAR_CLIENT_FALLBACK_TO_POOL:-true}"',
     'if [ -n "$REQUESTED_NEXT_PUBLIC_GOOGLE_CLIENT_ID" ]; then upsert_root_env NEXT_PUBLIC_GOOGLE_CLIENT_ID "$REQUESTED_NEXT_PUBLIC_GOOGLE_CLIENT_ID"; fi',
     'upsert_root_env NEXT_PUBLIC_ANDROID_APK_URL "$REQUESTED_NEXT_PUBLIC_ANDROID_APK_URL"',
+    'upsert_root_env NEXT_PUBLIC_ANDROID_APK_VENDAS_URL "$REQUESTED_NEXT_PUBLIC_ANDROID_APK_VENDAS_URL"',
     'export POSTGRES_USER="$(awk -F= \'/^POSTGRES_USER=/{print substr($0, length("POSTGRES_USER")+2); exit}\' .env)"',
     'export POSTGRES_PASSWORD="$(awk -F= \'/^POSTGRES_PASSWORD=/{print substr($0, length("POSTGRES_PASSWORD")+2); exit}\' .env)"',
     'export POSTGRES_DB="$(awk -F= \'/^POSTGRES_DB=/{print substr($0, length("POSTGRES_DB")+2); exit}\' .env)"',
@@ -382,6 +395,7 @@ function buildRemoteDeployScript(config, mode) {
     'export NEXT_PUBLIC_API_URL="$(awk -F= \'/^NEXT_PUBLIC_API_URL=/{print substr($0, length("NEXT_PUBLIC_API_URL")+2); exit}\' .env)"',
     'export NEXT_PUBLIC_GOOGLE_CLIENT_ID="$(awk -F= \'/^NEXT_PUBLIC_GOOGLE_CLIENT_ID=/{print substr($0, length("NEXT_PUBLIC_GOOGLE_CLIENT_ID")+2); exit}\' .env)"',
     'export NEXT_PUBLIC_ANDROID_APK_URL="$(awk -F= \'/^NEXT_PUBLIC_ANDROID_APK_URL=/{print substr($0, length("NEXT_PUBLIC_ANDROID_APK_URL")+2); exit}\' .env)"',
+    'export NEXT_PUBLIC_ANDROID_APK_VENDAS_URL="$(awk -F= \'/^NEXT_PUBLIC_ANDROID_APK_VENDAS_URL=/{print substr($0, length("NEXT_PUBLIC_ANDROID_APK_VENDAS_URL")+2); exit}\' .env)"',
     'if [ -n "$NEXT_PUBLIC_GOOGLE_CLIENT_ID" ]; then upsert_backend_env GOOGLE_CLIENT_ID "$NEXT_PUBLIC_GOOGLE_CLIENT_ID"; fi',
     'if [ -z "$POSTGRES_USER" ] || [ -z "$POSTGRES_PASSWORD" ] || [ -z "$POSTGRES_DB" ] || [ -z "$POSTGRES_DATA_VOLUME" ] || [ -z "$NEXT_PUBLIC_API_URL" ]; then echo "ERRO: .env raiz sem variaveis obrigatorias do docker-compose."; exit 1; fi',
     'export HBX_ENGINE_COUNT="$(awk -F= \'/^HBX_ENGINE_COUNT=/{print substr($0, length("HBX_ENGINE_COUNT")+2); exit}\' .env)"',
@@ -513,6 +527,9 @@ function buildRemoteDeployScript(config, mode) {
     '        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}',
     '        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}',
     '        NEXT_PUBLIC_ANDROID_APK_URL: ${NEXT_PUBLIC_ANDROID_APK_URL:-}',
+    // Este heredoc SOBRESCREVE o docker-compose.frontend.yml do repo no servidor:
+    // toda linha que existir lá e faltar aqui é uma linha APAGADA no deploy.
+    '        NEXT_PUBLIC_ANDROID_APK_VENDAS_URL: ${NEXT_PUBLIC_ANDROID_APK_VENDAS_URL:-}',
     '        NEXT_PUBLIC_PAYMENTS_PROVIDER: ${NEXT_PUBLIC_PAYMENTS_PROVIDER:-mercadopago}',
     '        NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY: ${NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY:-}',
     '    restart: unless-stopped',
@@ -522,6 +539,7 @@ function buildRemoteDeployScript(config, mode) {
     '      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}',
     '      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}',
     '      NEXT_PUBLIC_ANDROID_APK_URL: ${NEXT_PUBLIC_ANDROID_APK_URL:-}',
+    '      NEXT_PUBLIC_ANDROID_APK_VENDAS_URL: ${NEXT_PUBLIC_ANDROID_APK_VENDAS_URL:-}',
     '      NEXT_PUBLIC_PAYMENTS_PROVIDER: ${NEXT_PUBLIC_PAYMENTS_PROVIDER:-mercadopago}',
     '      NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY: ${NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY:-}',
     '    ports:',

@@ -3018,6 +3018,138 @@ test('registerAttemptForUser requires timeline access before loading the card', 
   assert.equal(findFirstCalls, 0);
 });
 
+/**
+ * A TENTATIVA MANUAL TAMBÉM MOVE O CARD (19/08).
+ *
+ * O app de Vendas abre o WhatsApp PESSOAL do vendedor por intent nativo e depois
+ * bate em `POST /vendas/lead/:id/attempt`. Enquanto esse caminho só somava
+ * `attemptCount`, o card continuava em "Sem contato" depois de a pessoa ter
+ * falado com o lead — e a vendedora reabria a lista e mandava DE NOVO pro mesmo
+ * contato frio, que é a máquina de ban (o chip …884 caiu por disparo repetido).
+ * A régua é a mesma do envio pelo motor (`vendas-conversation.service`).
+ */
+function createAttemptHarness(lead: any, options: { corrida?: boolean; jaRespondeu?: boolean } = {}) {
+  const updates: any[] = [];
+  const updateManyCalls: any[] = [];
+  const timeline: any[] = [];
+  const { service } = createService({
+    vendasLead: {
+      findFirst: async () => lead,
+    },
+    cockpitProjector: {
+      getCockpitStatesForLeads: async () => new Map([
+        [String(lead.id), { engagement: { hasInboundReply: options.jaRespondeu === true } }],
+      ]),
+    },
+    prisma: {
+      $transaction: async (fn: any) => fn({
+        vendasLead: {
+          update: async ({ data }: any) => {
+            updates.push(data);
+            return { ...lead };
+          },
+          updateMany: async ({ where, data }: any) => {
+            updateManyCalls.push({ where, data });
+            return { count: options.corrida ? 0 : 1 };
+          },
+          findUniqueOrThrow: async () => ({ ...lead, timelineEvents: [] }),
+        },
+        vendasLeadTimelineEvent: {
+          create: async ({ data }: any) => {
+            timeline.push(data);
+            return {};
+          },
+          createMany: async () => ({ count: 0 }),
+        },
+      }),
+    },
+  });
+  return { service, updates, updateManyCalls, timeline };
+}
+
+const ADMIN_QUE_PROSPECTA = { companyId: 7, id: 99, role: 'ADMIN' };
+
+test('registerAttemptForUser moves a lead out of "Sem contato" when the seller used the personal WhatsApp', async () => {
+  const { service, updates, updateManyCalls, timeline } = createAttemptHarness({
+    id: 'lead-1', companyId: 7, status: 'novo', pipelineStage: null,
+    name: 'Distribuidora Agua Viva', phone: '5519998887766', attemptCount: 0,
+  });
+
+  const out: any = await service.registerAttemptForUser(
+    ADMIN_QUE_PROSPECTA,
+    'lead-1',
+    { channel: 'whatsapp_pessoal' },
+  );
+  assert.equal(out.ok, true);
+
+  // O carimbo do toque é incondicional e continua num update por id.
+  assert.equal(updates.length, 1);
+  assert.deepEqual(updates[0].attemptCount, { increment: 1 });
+  assert.ok(updates[0].lastContactAt instanceof Date);
+
+  // A subida de etapa é separada e guarda o status ANTIGO no `where`: resposta
+  // que chegue no meio não pode ser rebaixada por este endpoint.
+  assert.equal(updateManyCalls.length, 1);
+  assert.equal(updateManyCalls[0].where.status, 'novo');
+  assert.equal(updateManyCalls[0].data.status, 'contato');
+  // `pipelineStage` nulo tem que ser preenchido, senão o lead sai do alcance do
+  // gatilho de qualificação do bot (que casa por `{pipelineStage:null,status:'novo'}`).
+  assert.equal(updateManyCalls[0].data.pipelineStage, 'prospeccao');
+  assert.match(String(updateManyCalls[0].data.lastResult), /1o contato/i);
+
+  // Rastro na ficha: o vendedor tem que ver POR QUE o card andou.
+  const tipos = timeline.map((e) => e.eventType);
+  assert.deepEqual(tipos, ['contact_made', 'stage_changed']);
+  assert.equal(timeline[1].statusFrom, 'novo');
+  assert.equal(timeline[1].statusTo, 'contato');
+});
+
+test('registerAttemptForUser never regresses a lead that already answered', async () => {
+  const { service, updates, updateManyCalls, timeline } = createAttemptHarness({
+    id: 'lead-2', companyId: 7, status: 'retorno', pipelineStage: 'qualificacao',
+    name: 'Mercado Sao Jorge', phone: '5519970001234', attemptCount: 4,
+  }, { jaRespondeu: true });
+
+  await service.registerAttemptForUser(ADMIN_QUE_PROSPECTA, 'lead-2', { channel: 'whatsapp_pessoal' });
+
+  // Responder quem já respondeu é CONVERSA, não tentativa de alcançar ninguém.
+  assert.equal(updates[0].attemptCount, undefined);
+  assert.ok(updates[0].lastContactAt instanceof Date);
+  assert.equal(updateManyCalls.length, 0);
+  assert.deepEqual(timeline.map((e) => e.eventType), ['contact_made']);
+});
+
+test('registerAttemptForUser does not resurrect a closed lead', async () => {
+  const { service, updates, updateManyCalls } = createAttemptHarness({
+    id: 'lead-3', companyId: 7, status: 'encerrado', pipelineStage: 'fechamento',
+    name: 'Padaria do Ze', phone: '5519999990001', attemptCount: 2,
+  });
+
+  await service.registerAttemptForUser(ADMIN_QUE_PROSPECTA, 'lead-3', { channel: 'whatsapp_pessoal' });
+
+  assert.equal(updateManyCalls.length, 0);
+  // Reabrir card fechado é decisão do vendedor, não efeito colateral de um toque.
+  assert.deepEqual(updates[0].attemptCount, { increment: 1 });
+});
+
+test('registerAttemptForUser keeps the contact stamp when a race already moved the card', async () => {
+  const { service, updates, updateManyCalls, timeline } = createAttemptHarness({
+    id: 'lead-4', companyId: 7, status: 'novo', pipelineStage: null,
+    name: 'Oficina Central', phone: '5519970004321', attemptCount: 0,
+  }, { corrida: true });
+
+  await service.registerAttemptForUser(ADMIN_QUE_PROSPECTA, 'lead-4', { channel: 'whatsapp_pessoal' });
+
+  // O `updateMany` não casou (o webhook de uma resposta chegou antes), mas o
+  // toque continua registrado — perder `lastContactAt` por corrida seria voltar
+  // ao defeito que este teste existe pra impedir.
+  assert.equal(updateManyCalls.length, 1);
+  assert.deepEqual(updates[0].attemptCount, { increment: 1 });
+  assert.ok(updates[0].lastContactAt instanceof Date);
+  // Sem subida de verdade, não se escreve rastro de subida.
+  assert.deepEqual(timeline.map((e) => e.eventType), ['contact_made']);
+});
+
 test('enrichLeadForUser requires manual enrichment access before loading the card', async () => {
   let findFirstCalls = 0;
   const { service } = createService({

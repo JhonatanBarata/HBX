@@ -299,7 +299,7 @@ const T = {};
 
 /* 1 — RADAR: quem precisa de você, com CNPJ e telefone. */
 T.radar = {
-  titulo: 'Radar', sub: 'Bebidas · Campinas/SP', icone: 'radar', nav: 0,
+  titulo: 'Clientes novos', sub: 'Bebidas · Campinas/SP', icone: 'radar', nav: 0,
   corpo: `
   <div class="disco">
     <span class="varre"></span>
@@ -337,7 +337,7 @@ T.radar = {
 
 /* 2 — VENDAS: os blocos da agenda e o funil de 5 etapas, como no /vendas. */
 T.vendas = {
-  titulo: 'Vendas', sub: '23 negócios abertos', icone: 'bolt', nav: 1,
+  titulo: 'Pedidos', sub: '23 pedidos abertos', icone: 'bolt', nav: 1,
   corpo: `
   <div class="fitas">
     <span class="on"><b>6</b> hoje</span>
@@ -439,7 +439,7 @@ T.agenda = {
 
 /* 4 — ENTREGA: a venda vira parada. O mesmo pedido que o motorista recebe. */
 T.entrega = {
-  titulo: 'Entrega', sub: 'Pedido 0428 · Bela Vista', icone: 'rota', nav: 3,
+  titulo: 'Entregas', sub: 'Pedido 0428 · Bela Vista', icone: 'rota', nav: 3,
   corpo: `
   <div class="fitas">
     <span><b>12</b> galões</span>
@@ -487,7 +487,7 @@ T.entrega = {
 
 /* 5 — COBRANÇA: o que caiu e o que falta, por forma de pagamento. */
 T.cobranca = {
-  titulo: 'Cobrança', sub: 'Recebimentos de hoje', icone: 'carteira', nav: 4,
+  titulo: 'Dinheiro e fiado', sub: 'Recebido e a receber', icone: 'carteira', nav: 4,
   corpo: `
   <div class="grade">
     <article class="pago"><small>Pix</small><b>R$ 98,00</b></article>
@@ -495,7 +495,7 @@ T.cobranca = {
     <article class="pago"><small>Cartão</small><b>R$ 68,00</b></article>
     <article class="falta"><small>Fiado</small><b>R$ 38,00</b></article>
   </div>
-  <div class="secao"><span>Em aberto</span><span>Vence</span></div>
+  <div class="secao"><span>A receber</span><span>Vence</span></div>
   <div class="lista">
     <article class="cartao" id="cobra1">
       <span class="cab"><strong>Mercado Bela Vista</strong><span class="nota">R$ 468</span></span>
@@ -514,13 +514,13 @@ T.cobranca = {
       <span class="pe"><span>Cartão · 1 de 2</span><b>30/08</b></span>
     </article>
   </div>
-  <div class="rodape"><span>Recebido hoje</span><b id="total">R$ 336,00</b></div>`,
+  <div class="rodape"><span>Recebido hoje</span><b id="total">R$ 298,00</b></div>`,
   cena(daqui) {
     daqui(() => {
       $('#via1').textContent = 'Pix · recebido';
       $('#dia1').textContent = 'agora';
       $('#cobra1').classList.add('subiu');
-      $('#total').textContent = 'R$ 804,00';
+      $('#total').textContent = 'R$ 766,00';
     }, 3200);
     daqui(() => $('#cobra1').classList.remove('subiu'), 4600);
   }
@@ -528,7 +528,7 @@ T.cobranca = {
 
 /* 6 — FISCAL: o XML da compra entra, o estoque anda, a nota sai autorizada. */
 T.fiscal = {
-  titulo: 'Fiscal', sub: 'Entrada, estoque e nota', icone: 'nota', nav: 5,
+  titulo: 'Nota e estoque', sub: 'Entrada, estoque e nota', icone: 'nota', nav: 5,
   corpo: `
   <div class="esteira">
     <article class="ok"><span class="ic">${IC.arquivo}</span>

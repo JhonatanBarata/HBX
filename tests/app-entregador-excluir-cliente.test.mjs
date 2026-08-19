@@ -44,16 +44,57 @@ const semComentarios = (s) => s
 // A FONTE do app é o mock (o `mock.js` do APK é GERADO por casca-injetar.js).
 const mock = semComentarios(read("docs/mockups/logistica2.0/logistica-2.0.html"));
 const ponte = read("EntregaShell/app/src/logistica/assets/app/ponte.js");
+const ponteCodigo = semComentarios(ponte);
+
+/* Só o ATRIBUTO conta, nunca o seletor. O visualizador tem um
+   `closest('[data-superficie]')` no script dele: é o mecanismo do cromo, não um
+   botão de tela. Exigir aspas separa os dois sem depender de contagem. */
+const RE_SUPERFICIE = /data-superficie\s*=\s*["'][^"']*["']/g;
+
+/* Recorta o objeto literal que começa em `marcador`, casando as chaves. Recorte
+   por LINHA (ou por "do marcador até o próximo `});`") é o que envelhece: basta
+   alguém inserir uma chave no meio pra régua reprovar código são. Devolve null
+   se não achar/não fechar — o chamador confere o tamanho, porque recorte que
+   estoura vira "o arquivo todo" e aí o teste passa medindo qualquer coisa. */
+function recorteDeObjeto(fonte, marcador) {
+  const i = fonte.indexOf(marcador);
+  if (i < 0) return null;
+  const abre = fonte.indexOf("{", i);
+  if (abre < 0) return null;
+  let nivel = 0;
+  for (let k = abre; k < fonte.length; k++) {
+    if (fonte[k] === "{") nivel++;
+    else if (fonte[k] === "}" && --nivel === 0) return fonte.slice(abre, k + 1);
+  }
+  return null;
+}
 
 test("nenhuma tela do app usa a confirmação decorativa do mock", () => {
-  // O único `data-superficie` que pode sobrar é o par de botões do cabeçalho do
-  // VISUALIZADOR (o cromo que o injetor descarta) — ele vive ao lado do
-  // `data-avisar`, nunca dentro de um `T.<tela>.render()`.
-  const usos = mock.match(/data-superficie="[a-z]+"/g) || [];
-  assert.equal(usos.length, 2, `sobrou confirmação decorativa em tela: ${usos.join(", ")}`);
+  /* 🔴 A RÉGUA MEDE ONDE, NÃO QUANTOS (a versão antiga cravava "exatamente 2" e
+     ficou vermelha em 18/08 quando o visualizador ganhou um 3º botão legítimo,
+     "▸ Chegou" — régua reprovando código que serve). A garantia real é a do
+     comentário de sempre: `data-superficie` só pode existir no cabeçalho do
+     VISUALIZADOR (o cromo que `casca-injetar.js` descarta — `.seg` está na lista
+     CROMO dele), nunca dentro de um `T.<tela>.render()`, que é o que vira APK.
+     Assim o teste segue verde pro 4º botão do cromo e fica VERMELHO no instante
+     em que um `data-superficie` vaza pra uma tela — que é o defeito de 08/08. */
   const cromo = mock.match(/<div class="seg" id="avdisparo">[\s\S]*?<\/div>/);
   assert.ok(cromo, "o cabeçalho do visualizador mudou de forma — reveja a contagem acima");
-  assert.equal((cromo[0].match(/data-superficie="[a-z]+"/g) || []).length, 2);
+  // O cromo mora ao lado do `data-avisar`: se o recorte não tiver os dois
+  // vizinhos, ele pegou outro bloco e o zero lá embaixo seria zero por engano.
+  assert.match(cromo[0], /data-avisar=/, "o recorte não é o cabeçalho do visualizador");
+
+  const noCromo = cromo[0].match(RE_SUPERFICIE) || [];
+  /* 🔴 PROVA DE QUE A RÉGUA ESTÁ MEDINDO. Sem isto, um dia em que o atributo
+     mudasse de nome (ou o `semComentarios` engolisse o bloco) daria zero por
+     CEGUEIRA, não por limpeza — e o fiscal morreria calado, verde. */
+  assert.ok(noCromo.length >= 1, "nenhum `data-superficie` no cromo: a régua perdeu o objeto de medição");
+
+  // Tira o cromo do arquivo e conta o que sobrou: tudo que resta é TELA.
+  const semCromo = mock.replace(cromo[0], "");
+  assert.ok(semCromo.length < mock.length, "o cromo não saiu do recorte");
+  const emTela = semCromo.match(RE_SUPERFICIE) || [];
+  assert.equal(emTela.length, 0, `sobrou confirmação decorativa em tela: ${emTela.join(", ")}`);
 });
 
 test("o Excluir da ficha tem ação própria e só nasce pra admin", () => {
@@ -62,9 +103,46 @@ test("o Excluir da ficha tem ação própria e só nasce pra admin", () => {
   // de classe" — quem não pode não vê, em vez de ver e tomar 403).
   assert.match(mock, /data-acao="excluir-cliente">\$\{ic\('trash',17\)\}<b>Excluir<\/b><\/button>`:''\}/);
   assert.match(ponte, /'excluir-cliente': excluirCliente,/);
-  // E o dado do slot vem do MESMO sinal das chaves de dinheiro: quem é admin
-  // quem diz é o servidor (ausência do bloco comercial no /logistica/config).
-  assert.match(ponte, /admin: ehAdmin\(\) \? 1 : 0,\s*\n\s*ini: iniciais/);
+
+  /* 🔴 A RÉGUA MEDE A CORRENTE, NÃO A VIZINHANÇA DE DUAS LINHAS. A versão antiga
+     exigia `admin:` COLADO em `ini:`; em 18/08 entrou um `volta:` legítimo entre
+     os dois e o teste ficou vermelho sem defeito nenhum — o que envelheceu foi a
+     formatação, não a garantia. A garantia é a mesma de sempre: o slot `admin`
+     da ficha vem do MESMO sinal das chaves de dinheiro — quem é admin quem diz é
+     o SERVIDOR (ausência do bloco comercial no /logistica/config), nunca um
+     campo do item nem um `1` cravado. */
+  const objetoDaFicha = recorteDeObjeto(ponte, "window.usarDados('ficha', {");
+  assert.ok(objetoDaFicha, "sumiu o `window.usarDados('ficha', …)` — a ponte parou de publicar a ficha");
+  // O recorte tem que ser O OBJETO: chave-de-abertura desbalanceada devolveria o
+  // arquivo inteiro e o `assert.match` abaixo passaria medindo qualquer coisa.
+  assert.ok(objetoDaFicha.length > 400 && objetoDaFicha.length < 8000, `recorte do objeto da ficha suspeito: ${objetoDaFicha.length} chars`);
+  assert.match(objetoDaFicha, /\bnome:/, "o recorte não é o objeto da ficha");
+  assert.match(objetoDaFicha, /\badmin:\s*ehAdmin\(\)/, "o `admin` da ficha deixou de derivar de ehAdmin()");
+
+  /* E nenhum OUTRO `admin:` da ponte pode nascer de outra fonte — senão a cura
+     seria só empurrar o botão morto pra o slot do vizinho. Único valor solto
+     permitido é o `0` do esqueleto de carregamento: enquanto o config não
+     chegou, ninguém é admin (esconder botão < oferecer exclusão que volta 403). */
+  const valoresAdmin = [...ponteCodigo.matchAll(/\badmin:\s*([^,\n]+)/g)].map((m) => m[1].trim());
+  assert.ok(valoresAdmin.length >= 1, "nenhum `admin:` na ponte — a régua perdeu o objeto de medição");
+  for (const valor of valoresAdmin) {
+    const doServidor = /\behAdmin\(\)/.test(valor);
+    const esqueleto = valor === "0";   // tela ainda carregando: ninguém é admin
+    assert.ok(doServidor || esqueleto, `admin cravado ou de fonte local na ponte: \`admin: ${valor}\``);
+  }
+
+  /* A PONTA DE LÁ DA CORRENTE: `ehAdmin` lê o `config`, e `config` só é
+     preenchido com a RESPOSTA de `/logistica/config`. Sem estas duas, alguém
+     podia manter a letra `ehAdmin()` e trocar a fonte por um campo do usuário —
+     e o motorista voltaria a ver o Excluir pra tomar 403 traduzido como "sua
+     sessão expirou". */
+  assert.match(ponteCodigo, /const ehAdmin = \(\) => !!config && Object\.prototype\.hasOwnProperty\.call\(config, 'modoRotaPadrao'\)/);
+  const atribuicoes = [...ponteCodigo.matchAll(/^[ \t]*config = [^;\n]+;/gm)];
+  assert.ok(atribuicoes.length >= 1, "ninguém preenche `config` — ehAdmin() ficaria sempre falso");
+  for (const a of atribuicoes) {
+    const antes = ponteCodigo.slice(Math.max(0, a.index - 1200), a.index);
+    assert.match(antes, /window\.API\.get\('\/logistica\/config'\)/, `\`${a[0].trim()}\` não vem de GET /logistica/config`);
+  }
 });
 
 test("a confirmação cita o cliente aberto e chama a porta real", () => {

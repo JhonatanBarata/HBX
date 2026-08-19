@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 /**
- * COSTURA A PONTE — `logistica/ponte-src/*.js` (a FONTE) vira o `ponte.js` do APK.
+ * COSTURA A PONTE — `<flavor>/ponte-src/*.js` (a FONTE) vira o `ponte.js` do APK.
  *
- *     node scripts/ponte-costurar.js
+ *     node scripts/ponte-costurar.js                (= --app logistica)
+ *     node scripts/ponte-costurar.js --app vendas
+ *
+ * Qual flavor é do mapa (`scripts/lib/apps.js`) — nenhum caminho cravado aqui.
  *
  * Mesmo desenho da casca (mock HTML é a fonte, `mock.js` é gerado): quem se
  * edita é `ponte-src/`; `assets/app/ponte.js` é SAÍDA. A costura é concatenação
@@ -25,11 +28,14 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { resolverApp } = require('./lib/apps');
 
 const raiz = path.join(__dirname, '..');
-const LOGISTICA = path.join(raiz, 'EntregaShell/app/src/logistica');
-const PONTE = path.join(LOGISTICA, 'assets', 'app', 'ponte.js'); // GERADO, vai no APK
-const SRC = path.join(LOGISTICA, 'ponte-src');                   // FONTE, fica fora do APK
+// `--app <nome>`; sem o flag, o app do motorista (é o que o `deploy-vps` e as
+// 25+ provas chamam). Os caminhos são do mapa — nenhum flavor cravado aqui.
+const ALVO = resolverApp(process.argv);
+const PONTE = ALVO.pontePath; // GERADO, vai no APK
+const SRC = ALVO.ponteSrc;    // FONTE, fica fora do APK
 
 const NOME_VALIDO = /^[0-9A-Z]{2}-[a-z0-9-]+\.js$/;
 /* 🔴 O TETO DE 1.000 LINHAS CAIU (17/08, ordem do dono: *"destrave esse teto de
@@ -43,16 +49,18 @@ const NOME_VALIDO = /^[0-9A-Z]{2}-[a-z0-9-]+\.js$/;
    (e o dia em que o dono quiser um teto de novo é uma linha). */
 const TETO = Infinity;
 
-/** lê a fonte em ordem e devolve { partes, buffer } */
-function costurar() {
-  if (!fs.existsSync(SRC)) {
-    const e = new Error(`fonte da ponte não encontrada em ${path.relative(raiz, SRC)}`);
+/** lê a fonte em ordem e devolve { partes, buffer }. `app` é do mapa (opcional:
+ *  sem ele vale o alvo do argv, que é como os chamadores antigos usam). */
+function costurar(app) {
+  const src = (app && app.ponteSrc) || SRC;
+  if (!fs.existsSync(src)) {
+    const e = new Error(`fonte da ponte não encontrada em ${path.relative(raiz, src)}`);
     e.semFonte = true;
     throw e;
   }
-  const arquivos = fs.readdirSync(SRC).filter((f) => f.endsWith('.js')).sort();
+  const arquivos = fs.readdirSync(src).filter((f) => f.endsWith('.js')).sort();
   if (!arquivos.length) {
-    const e = new Error(`nenhum .js em ${path.relative(raiz, SRC)}`);
+    const e = new Error(`nenhum .js em ${path.relative(raiz, src)}`);
     e.semFonte = true;
     throw e;
   }
@@ -64,7 +72,7 @@ function costurar() {
     );
   }
   const partes = arquivos.map((f) => {
-    const buffer = fs.readFileSync(path.join(SRC, f));
+    const buffer = fs.readFileSync(path.join(src, f));
     const linhas = buffer.length ? buffer.toString('latin1').split('\n').length - 1 : 0;
     if (buffer.length && buffer[buffer.length - 1] !== 0x0a) {
       throw new Error(`${f} não termina em quebra de linha — a costura grudaria duas instruções na mesma linha.`);
@@ -74,12 +82,12 @@ function costurar() {
   return { partes, buffer: Buffer.concat(partes.map((p) => p.buffer)) };
 }
 
-module.exports = { costurar, PONTE, SRC, TETO };
+module.exports = { costurar, PONTE, SRC, TETO, ALVO };
 
 if (require.main === module) {
   let costura;
   try {
-    costura = costurar();
+    costura = costurar(ALVO);
   } catch (erro) {
     console.error(`\n❌ ${erro.message}\n`);
     process.exit(1);
@@ -89,7 +97,7 @@ if (require.main === module) {
   const mudou = !anterior.equals(costura.buffer);
   if (mudou) fs.writeFileSync(PONTE, costura.buffer);
   const sha = crypto.createHash('sha256').update(costura.buffer).digest('hex');
-  console.log(`ponte costurada: ${costura.partes.length} fontes → ${costura.buffer.toString('latin1').split('\n').length - 1} linhas`);
+  console.log(`ponte costurada (${ALVO.nome}): ${costura.partes.length} fontes → ${costura.buffer.toString('latin1').split('\n').length - 1} linhas`);
   console.log(`  ${path.relative(raiz, PONTE)} ${mudou ? 'REESCRITO' : 'já estava igual'} · sha256 ${sha.slice(0, 16)}…`);
   if (gordos.length) {
     console.warn(`  ⚠️ passaram de ${TETO} linhas: ${gordos.map((p) => `${p.nome} (${p.linhas})`).join(', ')}`);

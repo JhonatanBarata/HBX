@@ -2,7 +2,8 @@
 /**
  * CONFERE A PONTE — o `ponte.js` embarcado É a costura da fonte?
  *
- *     node scripts/ponte-conferir.js
+ *     node scripts/ponte-conferir.js                (= --app logistica)
+ *     node scripts/ponte-conferir.js --app vendas
  *
  * A vacina contra a lição que já custou caro duas vezes no `index.html`:
  * alguém conserta o arquivo GERADO, o gerador roda depois e o conserto some
@@ -18,7 +19,14 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { costurar, PONTE, SRC, TETO } = require('./ponte-costurar.js');
+const { costurar, TETO } = require('./ponte-costurar.js');
+const { resolverApp } = require('./lib/apps');
+
+// `--app <nome>`; sem o flag, o app do motorista (é assim que o `deploy-vps`
+// chama). Os caminhos vêm do mapa — o conferidor não conhece flavor.
+const ALVO = resolverApp(process.argv);
+const PONTE = ALVO.pontePath;
+const SRC = ALVO.ponteSrc;
 
 const raiz = path.join(__dirname, '..');
 const rel = (p) => path.relative(raiz, p).split(path.sep).join('/');
@@ -31,13 +39,13 @@ function reprovar(msg) {
 
 let costura;
 try {
-  costura = costurar();
+  costura = costurar(ALVO);
 } catch (erro) {
   reprovar(`${erro.message}\n\n   A fonte da ponte é ${rel(SRC)} (corte por scripts/ponte-picar.js).`);
 }
 
 if (!fs.existsSync(PONTE)) {
-  reprovar(`${rel(PONTE)} não existe.\n\n   Rode: node scripts/ponte-costurar.js`);
+  reprovar(`${rel(PONTE)} não existe.\n\n   Rode: node scripts/ponte-costurar.js --app ${ALVO.nome}`);
 }
 
 const embarcado = fs.readFileSync(PONTE);
@@ -59,7 +67,7 @@ if (!embarcado.equals(costura.buffer)) {
     `     fonte  : ${JSON.stringify((b[i] || '').slice(0, 110))}\n\n` +
     `   sha256 gerado ${sha(embarcado).slice(0, 16)}… × fonte ${sha(costura.buffer).slice(0, 16)}…\n\n` +
     `   O GERADO NÃO SE EDITA. Leve a mudança para ${rel(SRC)}/ e rode:\n` +
-    '     node scripts/ponte-costurar.js',
+    `     node scripts/ponte-costurar.js --app ${ALVO.nome}`,
   );
 }
 
@@ -74,5 +82,5 @@ if (gordos.length) {
 
 const total = costura.partes.reduce((s, p) => s + p.linhas, 0);
 const teto = Number.isFinite(TETO) ? `teto ${TETO}` : 'sem teto';
-console.log(`✅ ponte conferida: ${costura.partes.length} fontes (maior ${Math.max(...costura.partes.map((p) => p.linhas))} linhas, ${teto}) = ${total} linhas`);
+console.log(`✅ ponte conferida (${ALVO.nome}): ${costura.partes.length} fontes (maior ${Math.max(...costura.partes.map((p) => p.linhas))} linhas, ${teto}) = ${total} linhas`);
 console.log(`   ${rel(PONTE)} é EXATAMENTE a costura da fonte · sha256 ${sha(embarcado).slice(0, 16)}…`);

@@ -2,6 +2,10 @@
 <html lang="pt-BR" data-tr="eixox" data-av="sino" data-luz="escuro">
 <head>
   <meta charset="utf-8">
+  <!-- A viewport sai do MAPA porque ela DIVERGE por app, e a divergência é a
+       decisão: o vendas é app de formulário e quer `interactive-widget`; o do
+       motorista está em PRODUÇÃO, com tela cheia de mapa e piso medido, e não
+       se mexe no teclado dele sem pedido e sem teste no aparelho. -->
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- CSP: o script do mock foi pra arquivo justamente por causa do 'self'. -->
   <!-- `worker-src blob:` é do MAPA: o maplibre desenha num Web Worker criado a
@@ -20,6 +24,10 @@
        (e8033eb9, 5 h depois) devolveu o `self` sozinho. O lugar é ESTE arquivo.
        Guardado por `tests/app-cordao-de-update.test.mjs`. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://www.hbxsystem.com.br https://api.hbxsystem.com.br; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <!-- 🔴 UM VALOR, NÃO UM PAR `media`. Quem manda no modo de luz deste app é
+       `temaResolvido()` (escolha do dono › virada de turno › aparelho), e uma
+       `<meta media>` só enxerga o aparelho — à noite ela pintaria a barra ao
+       contrário da tela. O porquê inteiro mora em scripts/lib/apps.js. -->
   <meta name="theme-color" content="#080d17">
   <title>HBX Logística</title>
   <link rel="stylesheet" href="mock.css">

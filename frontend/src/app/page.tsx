@@ -3,9 +3,14 @@ import { redirect } from "next/navigation";
 
 import { PublicEntry } from "@/components/hbx/public-entry";
 
+// O <title> é o único lugar da vitrine onde "ERP" entra: é o termo que o
+// contador e o comprador mais maduro digitam, e a tela em si fala "sistema" —
+// que é a palavra de 7 dos 8 concorrentes que vendem pra dono de depósito.
+// O que o comprador digita no Google vem PRIMEIRO; a marca vem depois.
 export const metadata: Metadata = {
-  title: "HBX System — Prospecção conectada",
-  description: "Radar, vendas, WhatsApp, entrega e cobrança em uma única esteira.",
+  title: "Sistema para distribuidora de água, gás e bebidas | HBX",
+  description:
+    "Sistema (ERP) para distribuidora que entrega: rota do dia, entrega com foto e assinatura, vasilhame contado, Pix, dinheiro, cartão e fiado conferidos contra a entrega, entrada de XML e NF-e. Do pedido no WhatsApp à nota fiscal.",
 };
 
 // Boot de AUTENTICAÇÃO antes da pintura (W1/PR10072026, mesmo molde do

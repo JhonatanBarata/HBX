@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch, getToken } from "@/lib/api";
-import { MOBILE_APK_URL } from "@/lib/app-mobile";
+import { MOBILE_APK_URL, MOBILE_APK_URL_VENDAS } from "@/lib/app-mobile";
 import { setMobileCallMode, useMobileCallMode } from "@/lib/mobile-call-mode";
 import { setWaOpenMode, useWaOpenMode } from "@/lib/wa-open-mode";
 
@@ -160,13 +160,18 @@ function MobileDeviceAction() {
   const online = isOnline(primary, now);
   const linked = activeDevices.length > 0;
   const state = failed ? "error" : online ? "active" : "off";
+  // 🔴 O RÓTULO É O APARELHO, NÃO UM APP. O que estes textos descrevem é o
+  // celular pareado (`/mobile/devices`) — e o MESMO par de 10 minutos serve os
+  // dois APKs, que este próprio popover oferece lado a lado no rodapé. Enquanto
+  // dizia "HBX Logística — online", o rótulo contradizia o corpo: quem instalou
+  // o HBX Vendas lia o status de um app que nem tem no celular.
   const title = failed
-    ? "HBX Logística — não foi possível consultar o aparelho"
+    ? "HBX no celular — não foi possível consultar o aparelho"
     : online
-      ? "HBX Logística — online"
+      ? "HBX no celular — online"
       : linked
-        ? "HBX Logística — aparelho offline"
-        : "HBX Logística — vincular aparelho";
+        ? "HBX no celular — aparelho offline"
+        : "HBX no celular — vincular aparelho";
   const buttonClass = "round-btn wa-action-btn"
     + (state === "active" ? " wa-action-btn--active" : "")
     + (state === "error" ? " wa-action-btn--error" : "");
@@ -189,11 +194,11 @@ function MobileDeviceAction() {
         {!loading && linked && <span className={`${styles.statusDot} ${online ? styles.statusDotOnline : ""}`} />}
       </button>
       {open && (
-        <div className={`hbx-pop ${styles.popover}`} role="dialog" aria-label="HBX Logística">
+        <div className={`hbx-pop ${styles.popover}`} role="dialog" aria-label="HBX no celular">
           <div className={styles.heading}>
             <span className={styles.deviceGlyph}><I d={MOBILE_ICON} size={18} /></span>
             <div>
-              <strong>HBX Logística</strong>
+              <strong>HBX no celular</strong>
               <span className={online ? styles.onlineText : styles.mutedText}>
                 {online ? "Online agora" : linked ? "Offline" : "Nenhum aparelho vinculado"}
               </span>
@@ -271,9 +276,16 @@ function MobileDeviceAction() {
             >
               {linked ? "Gerenciar aparelho" : "Vincular aparelho"}
             </button>
+            {/* `.downloads` sempre foi grid de 2 colunas com UM botão só: a
+                metade vazia era o HBX Vendas, que já está publicado no mesmo
+                nginx. Rótulo curto porque o popover tem 360px e a coluna sobra em
+                ~165px: "Baixar HBX Logística" quebraria em 2 linhas. */}
             <div className={styles.downloads}>
-              <a className="btn-ghost" href={MOBILE_APK_URL} target="_blank" rel="noreferrer">
-                Baixar HBX Logística
+              <a className="btn-ghost" href={MOBILE_APK_URL} target="_blank" rel="noreferrer" title="Baixar o aplicativo HBX Logística" aria-label="Baixar o aplicativo HBX Logística">
+                HBX Logística
+              </a>
+              <a className="btn-ghost" href={MOBILE_APK_URL_VENDAS} target="_blank" rel="noreferrer" title="Baixar o aplicativo HBX Vendas" aria-label="Baixar o aplicativo HBX Vendas">
+                HBX Vendas
               </a>
             </div>
           </div>

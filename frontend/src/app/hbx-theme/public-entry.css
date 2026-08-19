@@ -148,6 +148,61 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 
 .f1-product-wrap { position: relative; grid-area: product; width: 100%; min-width: 0; margin-left: 0; perspective: 1400px; animation: f1-product-in 1.15s 0.24s var(--f1-ease) both; }
 
+
+/* ==========================================================================
+   AS PECAS DO SELETOR UNICO — o chip do modulo manda em tudo: hero, monitor,
+   celular e faixa. Antes eram DOIS seletores mandando em regioes diferentes
+   da mesma tela, e a pagina se contradizia sozinha.
+   ========================================================================== */
+
+/* A LINHA DE FOCO. Quem responde ao clique do chip. O H1 ficou fixo: antes
+   ele trocava de tese a cada 6,3s e cada visitante caia num produto
+   diferente, conforme o passo aceso na hora em que chegou. */
+.f1-foco {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: clamp(14px, 2vh, 22px);
+  padding: 9px 14px;
+  align-items: baseline;
+  gap: 4px 10px;
+  border: 1px solid var(--f1-line);
+  border-left: 2px solid var(--f1-accent);
+  border-radius: var(--f1-radius-sm);
+  background: var(--f1-surface);
+  animation: f1-rise-in 0.46s var(--f1-ease) both;
+}
+.f1-foco b { color: var(--f1-accent); font-size: var(--hbx-font-min); font-weight: 900; letter-spacing: 0.1em; text-transform: uppercase; }
+.f1-foco span { color: var(--f1-text); font-size: 0.95rem; font-weight: 700; letter-spacing: -0.012em; line-height: 1.3; }
+
+/* A PORTA ABERTA. O nicho no titulo fecha a porta pra quem entrega outra
+   coisa; esta linha reabre sem diluir a promessa. Especificidade acima de
+   ".f1-copy > p" de proposito — sem isso ela herdaria o corpo do subtitulo. */
+.f1-copy > p.f1-porta-aberta {
+  max-width: 44ch;
+  margin-top: clamp(12px, 1.8vh, 18px);
+  color: var(--f1-text-soft);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.45;
+  opacity: 0.8;
+  animation: f1-rise-in 0.8s 0.74s var(--f1-ease) both;
+}
+
+/* O ANTIDOTO. Seis chips numa barra parecem seis coisas pra aprender de uma
+   vez — e e o que faz o dono achar que o sistema e grande demais pra ele. */
+.f1-antidoto {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0 4px 3px;
+  color: var(--f1-text-soft);
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-align: center;
+  opacity: 0.78;
+  animation: f1-rise-in 0.8s 1s var(--f1-ease) both;
+}
+
 @media (min-width: 801px) {
   .f1-copy { margin-left: 0; }
 }
@@ -343,17 +398,6 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   70% { opacity: 0.5; }
   100% { opacity: 0; transform: scale(1.05); }
 }
-.f1-guias button.is-active::before {
-  content: "";
-  position: absolute;
-  inset: -2px 2px;
-  border-radius: 11px;
-  background: radial-gradient(ellipse at center, color-mix(in srgb, var(--f1-accent) 22%, transparent), transparent 76%);
-  opacity: 0;
-  animation: f1-acende 6.3s var(--f1-ease) both;
-  pointer-events: none;
-}
-
 @keyframes f1-drop-in { from { opacity: 0; transform: translateY(-18px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes f1-rise-in { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes f1-title-in { from { opacity: 0; transform: translateY(58%); } to { opacity: 1; transform: translateY(0); } }
@@ -549,12 +593,23 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-mobile-app__link { display: inline-flex; width: fit-content; min-height: 38px; margin-top: 5px; padding: 0 14px; align-items: center; gap: 7px; border: 1px solid color-mix(in srgb, var(--f1-accent) 45%, transparent); border-radius: 12px; color: var(--f1-text); background: color-mix(in srgb, var(--f1-accent) 16%, transparent); font-size: 0.72rem; font-weight: 800; transition: transform 0.25s ease, background 0.25s ease; }
 .f1-mobile-app__link:hover { background: color-mix(in srgb, var(--f1-accent) 26%, transparent); transform: translateY(-2px); }
 .f1-mobile-app__link .f1-icon { width: 14px; height: 14px; }
-/* Card do Android leva a DOIS destinos: baixar o app (ação) e a vitrine do
-   Gerenciador de Rota em /rota (venda). O segundo é fantasma pra não brigar
-   com o primeiro. */
+/* Card do Android leva aos DOIS APKs publicados: Loghbx.apk (Logística) e
+   Salehbx.apk (Vendas). O segundo é fantasma pra não brigar com o primeiro —
+   um par de botões cheios disputaria o olho e o card não tem largura pra isso.
+   `flex-wrap` é o que segura os dois no card estreito sem estourar a coluna. */
 .f1-mobile-app__links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.f1-mobile-app__link--ghost { border-color: var(--f1-line-strong); color: var(--f1-text-soft); background: transparent; }
-.f1-mobile-app__link--ghost:hover { color: var(--f1-text); background: var(--f1-surface); }
+/* 🔴 A HIERARQUIA MORAVA NUMA DECLARAÇÃO MORTA (Lei nº1: CSS morre calado).
+   `.public-entry a { color: inherit }` (topo do arquivo, serve TODO link da
+   landing) tem especificidade (0,1,1); `.f1-mobile-app__link--ghost` tinha
+   (0,1,0) — perdia por um elemento, e o `color` daqui nunca chegou à tela: o
+   fantasma saía com a MESMA tinta do primário nos dois modos (medido:
+   rgb(234,243,255) no escuro e rgb(11,26,49) no claro para os DOIS botões), e o
+   `:hover` (0,2,0) empatava com o repouso — hover morto, hierarquia inexistente.
+   O `.public-entry` na frente é o idioma do próprio arquivo
+   (`.public-entry.is-login .f1-mobile-apps`) e leva estas duas a (0,2,0)/(0,3,0):
+   ganham da genérica sem `!important` e sem tocar nela, que é de todo mundo. */
+.public-entry .f1-mobile-app__link--ghost { border-color: var(--f1-line-strong); color: var(--f1-text-soft); background: transparent; }
+.public-entry .f1-mobile-app__link--ghost:hover { color: var(--f1-text); background: var(--f1-surface); }
 
 @media (max-width: 800px) {
   .f1-mobile-apps { width: calc(100% - 32px); margin-top: 8px; grid-template-columns: 1fr; gap: 14px; }
@@ -600,8 +655,24 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   text-transform: uppercase;
   opacity: 0.75;
 }
-.f1-trilha-nome--barra { display: inline-flex; align-items: center; gap: 8px; padding: 0 4px 0 8px; white-space: nowrap; }
-.f1-trilha-nome--barra b { display: grid; width: 21px; height: 21px; place-items: center; border-radius: 7px; color: var(--f1-accent-ink); background: var(--f1-accent); font-size: var(--hbx-font-min); font-weight: 900; letter-spacing: 0; }
+.f1-trilha-nome--barra { display: grid; max-width: 215px; padding: 0 4px 0 10px; align-content: center; gap: 3px; }
+.f1-trilha-nome--barra i { overflow: hidden; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+/* A microcopy do modulo aceso mora AQUI, e nao sob cada chip: a pilula
+   deslizante tem largura fixa (100% - 8px)/6 — chip que cresce descasa a
+   pilula do botao. Este slot tem espaco e nao desliza. */
+.f1-trilha-nome--barra em {
+  overflow: hidden;
+  color: var(--f1-text);
+  font-size: var(--hbx-font-min);
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+  animation: f1-rise-in 0.42s var(--f1-ease) both;
+}
 
 .f1-provas {
   display: grid;
@@ -744,53 +815,30 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-rota-caixa footer strong { color: var(--f1-accent); font-size: 1.02rem; font-weight: 850; font-variant-numeric: tabular-nums; }
 
 /* ==========================================================================
-   AS DUAS GUIAS — o botão do cabeçalho diz QUAL história está no ar (o
-   contador anda 1/6…6/6) e pula pra outra. Mesmo vocabulário da trilha de
-   baixo: caixa, pílula que desliza, realce no ativo.
+   A CATEGORIA — o centro do topo é a posição de maior autoridade da página e
+   estava gasta com um seletor de DEMONSTRAÇÃO (duas trilhas da mesma história,
+   vestidas de dois produtos). Aqui não é controle: é a única linha que diz o
+   que o HBX é e pra quem. Não pisca, não muda, não clica.
    ========================================================================== */
-.f1-guias {
+.f1-categoria {
   position: relative;
   z-index: 2;
-  display: grid;
-  height: 44px;
-  padding: 4px;
+  max-width: 100%;
+  margin: 0;
+  padding: 0 10px;
   justify-self: center;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  border: 1px solid var(--f1-line);
-  border-radius: 15px;
-  background: color-mix(in srgb, var(--f1-surface-solid) 74%, transparent);
-  box-shadow: inset 0 1px 0 var(--f1-line);
-  backdrop-filter: blur(18px);
+  overflow: hidden;
+  color: var(--f1-text-soft);
+  font-size: var(--hbx-font-min);
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  line-height: 1.35;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
-.public-entry.is-login .f1-guias { display: none; }
-.f1-guias__pill {
-  position: absolute;
-  z-index: 0;
-  left: 4px;
-  top: 4px;
-  width: calc((100% - 8px) / 2);
-  height: 34px;
-  border: 1px solid var(--f1-line-strong);
-  border-radius: 11px;
-  background: var(--f1-surface-up);
-  box-shadow: 0 10px 24px var(--f1-shadow-soft), inset 0 1px 0 var(--f1-line-strong);
-  transition: transform 0.6s var(--f1-ease);
-}
-.public-entry[data-guia="logistica"] .f1-guias__pill { transform: translateX(100%); }
-.f1-guias button {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  min-width: 0;
-  padding: 0 16px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-}
-.f1-guias button strong { overflow: hidden; color: var(--f1-text-soft); font-size: 0.82rem; font-weight: 800; letter-spacing: -0.01em; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; transition: color 0.3s ease; }
-.f1-guias button.is-active strong { color: var(--f1-text); }
+.public-entry.is-login .f1-categoria { display: none; }
 
 /* ==========================================================================
    AS TELAS GRANDES DO HBX VENDAS — irmãs das do Rota, mesma família.
@@ -1149,23 +1197,20 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
   .f1-radar-live { left: -2%; width: 56%; }
 }
 
-/* No celular as duas guias nao cabem na mesma linha da marca e dos botoes:
-   elas descem pra uma faixa propria, larga o bastante pro dedo. */
+/* No celular a linha da categoria nao cabe ao lado da marca e dos botoes:
+   ela desce pra uma faixa propria e ganha permissao pra quebrar em duas. */
 @media (max-width: 620px) {
   .f1-header {
     height: auto;
     padding-top: 10px;
     padding-bottom: 10px;
     grid-template-columns: auto minmax(0, 1fr);
-    grid-template-areas: "marca acoes" "guias guias";
+    grid-template-areas: "marca acoes" "categoria categoria";
     row-gap: 9px;
   }
   .f1-brand { grid-area: marca; }
   .f1-header__actions { grid-area: acoes; justify-content: flex-end; }
-  .f1-guias { height: 40px; padding: 3px; grid-area: guias; justify-self: stretch; border-radius: 13px; }
-  .f1-guias__pill { left: 3px; top: 3px; height: 32px; border-radius: 10px; }
-  .f1-guias button { padding: 0 8px; }
-  .f1-guias button strong { font-size: 0.8rem; }
+  .f1-categoria { grid-area: categoria; justify-self: stretch; padding: 0; letter-spacing: 0.08em; white-space: normal; }
   .public-entry.is-login .f1-header { padding-top: 0; padding-bottom: 0; }
 }
 
@@ -1179,7 +1224,7 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 
 @media (max-width: 480px) {
   .f1-brand { gap: 9px; }
-  .f1-guias button strong { font-size: 0.66rem; }
+  .f1-categoria { letter-spacing: 0.05em; }
   .f1-header { gap: 6px; }
   .f1-brand__mark { width: 31px; height: 31px; }
   .f1-header__actions { gap: 6px; }

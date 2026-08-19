@@ -2,13 +2,23 @@
 /**
  * INJETA O MOCK COMO FRONT DO APP.
  *
- *     node scripts/casca-injetar.js
+ *     node scripts/casca-injetar.js                 (= --app logistica)
+ *     node scripts/casca-injetar.js --app vendas
  *
  * Ordem do dono (06/08): *"limpa todo o front feito por vc, TUDO. E injete o
  * mock, depois eu puxo backend."*
  *
- * Então o mock não é mais referência: **ele É o front**. Este script pega
- * `docs/mockups/logistica2.0/logistica-2.0.html` e escreve, dentro do app:
+ * 🔴 DOIS APPS, UMA ESTEIRA (LOTE 1). Quem diz o mock, o destino, o título, a
+ * theme-color, a lista de <script> e o connect-src é `scripts/lib/apps.js` —
+ * este arquivo não conhece caminho de flavor nenhum. O que NÃO virou parâmetro
+ * são as travas de FORMA daqui pra baixo (cromo, caixa 412x940, body, modo
+ * claro, token circular, pintarRail/#phone/#rail): elas são a LEI DA CASCA e
+ * valem IGUAL para os dois. Afrouxar uma "pro app novo passar" é entregar casca
+ * quebrada com portão verde.
+ *
+ * Então o mock não é mais referência: **ele É o front**. Este script pega o
+ * mock do app (ex.: `docs/mockups/logistica2.0/logistica-2.0.html`) e escreve,
+ * dentro do app:
  *
  *     mock.css   ← a folha inteira do mock
  *     mock.js    ← o script inteiro do mock
@@ -47,11 +57,47 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { resolverApp, PADRAO } = require('./lib/apps');
 
 const raiz = path.join(__dirname, '..');
-const MOCK = path.join(raiz, 'docs/mockups/logistica2.0/logistica-2.0.html');
-const DESTINO = path.join(raiz, 'EntregaShell/app/src/logistica/assets/app');
-const CASCAS = path.join(raiz, 'docs/mockups/logistica2.0/cascas');
+/* 🔴 QUAL APP? `--app <nome>`; sem o flag vale `logistica` (os 25+ chamadores
+   antigos não conhecem o flag). O alvo mora em `scripts/lib/apps.js` e em
+   lugar NENHUM aqui: alvo cravado em 6 scripts é alvo que discorda de si mesmo
+   no dia seguinte — e o jeito como isso aparece é o portão VERDE medindo o app
+   do motorista enquanto o trabalho era no app novo. */
+const APP = resolverApp(process.argv);
+const MOCK = APP.mock;
+const DESTINO = APP.destino;
+const CASCAS = APP.cascas;
+if (!fs.existsSync(MOCK)) {
+  throw new Error(`[casca] o mock do app "${APP.nome}" não existe: ${APP.mockRel}`);
+}
+/* 🔴 `mkdirSync(recursive:true)` MATERIALIZA ÁRVORE EM SILÊNCIO — e é aí que um
+   erro de digitação vira APK vazio. Um `flavor` errado no mapa (`vedas`,
+   `logisitca`) fazia o injetor CRIAR `EntregaShell/app/src/<typo>/assets/app/`
+   e encher de gerado: 3 arquivos escritos, log verde, `casca-conferir` feliz —
+   e o Gradle nunca empacota um sourceSet que não existe no `build.gradle.kts`,
+   então o front simplesmente não vai no APK. Falha muda é a categoria de
+   defeito que mais custou dinheiro neste app.
+   Quem manda na existência do sourceSet é o GRADLE, não este script: se a pasta
+   do flavor não está no disco, o nome está errado — e reprova ALTO, com a lista
+   do que existe de verdade, porque "criei a pasta pra você" é justamente o
+   comportamento que esconde o erro. */
+if (!fs.existsSync(APP.sourceSet)) {
+  const paiDosFlavors = path.dirname(APP.sourceSet);
+  const reais = fs.existsSync(paiDosFlavors)
+    ? fs.readdirSync(paiDosFlavors, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).join(', ')
+    : '(nem a pasta dos flavors existe)';
+  const ondeRel = path.relative(raiz, paiDosFlavors).split(path.sep).join('/');
+  throw new Error(
+    `[casca] o flavor "${APP.flavor}" (app "${APP.nome}") não tem sourceSet no disco: ${APP.sourceSetRel}/\n` +
+    '   NÃO vou criar a árvore: o Gradle só empacota sourceSet declarado no build.gradle.kts —\n' +
+    '   o gerado nasceria completo, o portão sairia verde e o APK subiria SEM front.\n' +
+    `   Flavors de verdade em ${ondeRel}/: ${reais}\n` +
+    '   Conserte o campo `flavor` em scripts/lib/apps.js.',
+  );
+}
+fs.mkdirSync(DESTINO, { recursive: true });
 const fonte = fs.readFileSync(MOCK, 'utf8');
 
 // --------------------------------------------------------------------------
@@ -159,11 +205,16 @@ try{
 // ---------------------------------------------------------------------------
 // ESCRITA
 // ---------------------------------------------------------------------------
+/* O comando que REGENERA este arquivo, escrito exatamente como se digita: sem
+   `--app` quando o alvo é o padrão. Não é enfeite — é o que impede que ligar o
+   segundo app reescreva o cabeçalho dos gerados do MOTORISTA (o `git diff` do
+   flavor `logistica` tem que sair VAZIO neste lote). */
+const comando = `node scripts/casca-injetar.js${APP.nome === PADRAO ? '' : ` --app ${APP.nome}`}`;
 const aviso = (nome) => `/* ==========================================================================
    ${nome} — GERADO. NÃO EDITE.
 
-   Fonte : docs/mockups/logistica2.0/logistica-2.0.html
-   Gerador: node scripts/casca-injetar.js
+   Fonte : ${APP.mockRel}
+   Gerador: ${comando}
 
    O mock É o front. Mexeu no mock, roda o gerador — o app acompanha.
    Editar aqui à mão some na próxima injeção.
@@ -172,16 +223,26 @@ const aviso = (nome) => `/* ====================================================
 
 // A casca entra por ÚLTIMO: ela só redeclara token, nunca toca em tela.
 const folhaFinal = css + (folhaCasca
-  ? `\n/* ==== CASCA "${nomeCasca}" — docs/mockups/logistica2.0/cascas/${nomeCasca}.css ==== */\n${folhaCasca}`
+  ? `\n/* ==== CASCA "${nomeCasca}" — ${APP.cascasRel}/${nomeCasca}.css ==== */\n${folhaCasca}`
   : '');
 fs.writeFileSync(path.join(DESTINO, 'mock.css'), aviso('FOLHA DO MOCK') + folhaFinal);
 fs.writeFileSync(path.join(DESTINO, 'mock.js'), aviso('SCRIPT DO MOCK') + js);
+
+// 🔴 O TEMPLATE É BURRO DE PROPÓSITO. Título, theme-color, a lista de <script>
+// e o connect-src saem do MAPA (`scripts/lib/apps.js`) — nunca de um `if
+// (app === 'vendas')` aqui dentro. Com dois apps, a linha do connect-src
+// escrita "à mão para cada um" seria a TERCEIRA perda do cordão de atualização.
+const tagsDeScript = APP.scripts.map((s) => `  <script src="${s}"></script>`).join('\n');
 
 fs.writeFileSync(path.join(DESTINO, 'index.html'), `<!doctype html>
 <html lang="pt-BR" data-tr="eixox" data-av="sino" data-luz="escuro">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- A viewport sai do MAPA porque ela DIVERGE por app, e a divergência é a
+       decisão: o vendas é app de formulário e quer \`interactive-widget\`; o do
+       motorista está em PRODUÇÃO, com tela cheia de mapa e piso medido, e não
+       se mexe no teclado dele sem pedido e sem teste no aparelho. -->
+  <meta name="viewport" content="${APP.viewport}">
   <!-- CSP: o script do mock foi pra arquivo justamente por causa do 'self'. -->
   <!-- \`worker-src blob:\` é do MAPA: o maplibre desenha num Web Worker criado a
        partir de blob. Sem esta palavra o mapa morre com a CSP barrando o
@@ -198,9 +259,13 @@ fs.writeFileSync(path.join(DESTINO, 'index.html'), `<!doctype html>
        escrito à mão no \`index.html\`, que é GERADO — a injeção seguinte
        (e8033eb9, 5 h depois) devolveu o \`self\` sozinho. O lugar é ESTE arquivo.
        Guardado por \`tests/app-cordao-de-update.test.mjs\`. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://www.hbxsystem.com.br https://api.hbxsystem.com.br; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <meta name="theme-color" content="#080d17">
-  <title>HBX Logística</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src ${APP.connectSrc}; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <!-- 🔴 UM VALOR, NÃO UM PAR \`media\`. Quem manda no modo de luz deste app é
+       \`temaResolvido()\` (escolha do dono › virada de turno › aparelho), e uma
+       \`<meta media>\` só enxerga o aparelho — à noite ela pintaria a barra ao
+       contrário da tela. O porquê inteiro mora em scripts/lib/apps.js. -->
+  <meta name="theme-color" content="${APP.themeColor}">
+  <title>${APP.titulo}</title>
   <link rel="stylesheet" href="mock.css">
 </head>
 <body>
@@ -209,17 +274,17 @@ fs.writeFileSync(path.join(DESTINO, 'index.html'), `<!doctype html>
        (o que é do aparelho: API, Voltar, teclado, tema). O native é carregado
        ANTES porque ele resolve o tema no load; a ponte DEPOIS porque ela se
        apoia no que o mock declarou. -->
-  <script src="native.js"></script>
-  <script src="mock.js"></script>
-  <script src="ponte.js"></script>
+${tagsDeScript}
 </body>
 </html>
 `);
 
 const telas = [...fonte.matchAll(/^T\.([a-z0-9]+)=\{nome:'([^']+)'/gm)];
+console.log(`[casca] app      : ${APP.nome} (${APP.rotulo}) → ${APP.destinoRel}`);
+console.log(`[casca] fonte    : ${APP.mockRel}`);
 console.log(`[casca] casca    : ${nomeCasca || 'padrão (tokens do próprio mock)'}`);
 console.log(`[casca] mock.css : ${folhaFinal.split('\n').length} linhas`);
 console.log(`[casca] mock.js  : ${js.split('\n').length} linhas`);
 console.log(`[casca] telas    : ${telas.length}`);
 console.log('[casca] cromo do visualizador fora; caixa virou tela; script em arquivo (CSP)');
-console.log('[casca] confira: node scripts/casca-conferir.js');
+console.log(`[casca] confira: node scripts/casca-conferir.js --app ${APP.nome}`);

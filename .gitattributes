@@ -16,6 +16,16 @@
 *.prisma text eol=lf
 *.toml text eol=lf
 *.sh text eol=lf
+# 19/08 — `app/versao-<flavor>.properties` guarda o PISO do versionCode de cada
+# APK, e o conteúdo BYTE A BYTE desse arquivo entra na impressão digital que
+# decide quem baixa 3 MB (scripts/ops/deploy-vps.js). Sem `eol=lf` o checkout
+# converte pra CRLF nesta máquina e pra LF no VPS: o mesmo commit teria duas
+# digitais, e um `git clone` novo faria a frota inteira baixar um APK idêntico
+# ao que já tem — sem que nenhuma linha de código tivesse mudado. As duas pontas
+# que leem esses arquivos (java.util.Properties e o publish) tratam LF sem
+# ressalva. Os `.properties` versionados hoje já estão em LF no disco: a regra
+# fixa o que já é verdade em vez de mexer em algo.
+*.properties text eol=lf
 
 *.ps1 text eol=crlf
 *.cmd text eol=crlf

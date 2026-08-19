@@ -11,8 +11,13 @@ const vendasBackendSource = read("backend/src/vendas/vendas.service.ts");
 const vendasControllerSource = read("backend/src/vendas/vendas.controller.ts");
 const radarDesktopSource = read("frontend/src/app/(app)/leads/page.client.tsx");
 const radarDetailSource = read("frontend/src/app/(app)/leads/[id]/page.client.tsx");
-const vendasMobileSource = read("frontend/src/components/casca/screens/vendas-funil.tsx");
-const radarMobileSource = read("frontend/src/components/casca/screens/vendas-buscar.tsx");
+// 🪦 `vendasMobileSource` (casca/screens/vendas-funil.tsx) e `radarMobileSource`
+// (casca/screens/vendas-buscar.tsx) moravam aqui. Foram apagados junto com a
+// pasta `components/casca/` inteira no commit 694abdc5 ("o HBX do navegador é de
+// COMPUTADOR — a view mobile morreu inteira"): no celular o app virou parede +
+// "baixe o .app", não existe mais tela de telefone pra ler. Custo que este
+// bilhete evita: sem ele o próximo que topar com o teste reapontado abaixo
+// tenta "consertar" recriando a leitura de um arquivo que não volta mais.
 const centralDoLeadSource = read("frontend/src/components/hbx/central-do-lead.tsx");
 const kitSource = read("frontend/src/app/hbx-theme/kit.css");
 
@@ -121,15 +126,37 @@ test("Vendas consulta a missão pelo radarLeadId real", () => {
   assert.match(vendasSource, /aiStatusMap\[card\.radarLeadId \|\| ""\]/);
 });
 
-test("Radar e Vendas mobile reutilizam o mesmo badge e atualizam ao concluir", () => {
-  for (const source of [vendasMobileSource, radarMobileSource]) {
-    assert.match(source, /import \{ RadarAiBadge \}/);
-    assert.match(source, /useRadarAiStatusPoll/);
-    assert.match(source, /onTerminal:/);
-    assert.match(source, /<RadarAiBadge/);
+// 06/08 (694abdc5): este teste lia as DUAS telas mobile da casca. Elas morreram,
+// mas a garantia NÃO: o que ele pinava era "Radar e Vendas mostram o MESMO selo,
+// vindo do MESMO poll, e a tela se atualiza sozinha quando a missão termina" — e
+// quem a mobile copiava (as telas de COMPUTADOR /vendas e /leads) segue vivo com
+// exatamente esse desenho. Então a leitura foi REAPONTADA pras telas vivas, em vez
+// de o teste ser apagado. Único pedaço que se perdeu de propósito: a palavra
+// "mobile" — não há segunda superfície pra cobrar reuso hoje.
+test("Radar e Vendas usam o mesmo selo, o mesmo poll e se atualizam ao concluir", () => {
+  for (const [tela, source] of [["Vendas", vendasSource], ["Radar", radarDesktopSource]]) {
+    // O selo é IMPORTADO do módulo central: se alguém forkar um badge próprio na
+    // tela, os estados divergem e o vendedor vê duas verdades pro mesmo lead.
+    assert.match(
+      source,
+      /import \{ RadarAiBadge \} from "@\/components\/hbx\/radar-ai-badge"/,
+      `${tela} deve importar o selo central, não forkar o seu`,
+    );
+    // `onTerminal` é o que faz a tela reagir SOZINHA ao fim da missão — sem ele o
+    // selo fica verde mas os dados enriquecidos só aparecem no próximo F5.
+    assert.match(
+      source,
+      /useRadarAiStatusPoll\([^;]*onTerminal:\s*\(radarLeadId\) =>/s,
+      `${tela} deve assinar o poll com onTerminal`,
+    );
+    assert.match(source, /<RadarAiBadge status=\{aiStatusMap\[/, `${tela} deve pintar o selo do mapa do poll`);
   }
-  assert.match(vendasMobileSource, /card\.radarLeadId \|\| ""/);
-  assert.match(radarMobileSource, /items\.map\(item => item\.id\)/);
+  // Cada tela chaveia pelo id CERTO: Vendas pelo radarLeadId do card (o id
+  // comercial não é radarLeadId), o Radar pelo id do próprio lead. Os nomes dos
+  // parâmetros da lambda ficam soltos de propósito — renomear `row`/`item` não é
+  // regressão, trocar o CAMPO é.
+  assert.match(vendasSource, /useRadarAiStatusPoll\(flatLeads\.map\(\w+ => \w+\.radarLeadId \|\| ""\)/);
+  assert.match(radarDesktopSource, /useRadarAiStatusPoll\(items\.map\(\w+ => \w+\.id\)/);
 });
 
 // 28/07: o Detalhes do /vendas foi reescrito no desenho aprovado ("Central do
@@ -151,12 +178,15 @@ test("status da IA aparece uma vez por tela, sem polling duplicado", () => {
   assert.doesNotMatch(centralDoLeadSource, /useRadarAiStatusPoll|RadarAiBadge/);
 });
 
+// Este teste tinha DUAS metades: a de computador (endpoint do card + as duas
+// telas que o chamam) e a mobile, que repetia a mesma cobrança nas telas da
+// casca. A metade mobile saiu com os arquivos dela em 694abdc5; a de computador
+// — que é onde o recarregamento cirúrgico de fato acontece hoje — ficou INTEIRA.
 test("conclusão recarrega somente o card afetado", () => {
   assert.match(vendasControllerSource, /@Get\('lead\/:leadId\/card'\)/);
   assert.match(vendasBackendSource, /async getLeadCardForUser/);
   assert.match(vendasSource, /refreshBoardLead/);
+  // Recarrega UM card pelo endpoint de card — nunca a lista inteira.
   assert.match(vendasSource, /\/vendas\/lead\/\$\{encodeURIComponent\(current\.id\)\}\/card/);
-  assert.match(vendasMobileSource, /\/vendas\/lead\/\$\{encodeURIComponent\(current\.id\)\}\/card/);
   assert.match(radarDesktopSource, /\/webscraping\/radar\/leads\/\$\{encodeURIComponent\(radarLeadId\)\}/);
-  assert.match(radarMobileSource, /\/webscraping\/radar\/leads\/\$\{encodeURIComponent\(radarLeadId\)\}/);
 });

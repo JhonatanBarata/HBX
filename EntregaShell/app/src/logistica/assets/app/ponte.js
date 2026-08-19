@@ -1277,8 +1277,24 @@
       // centavos na origem. Financeiro OFF ⇒ campo vazio (é resposta, não
       // falha). ⚠️ Já a fonte FORA DO AR mantém o que estava: apagar o caixa
       // por causa de rede ruim é pior que mostrar o número de um minuto atrás.
+      //
+      // 🔴 19/08 — o `saldo` era `fechamento.totalCents`, e o totalCents SOMA O
+      // FIADO. Este comentário jurava "o CAIXA do dia" e entregava o total: o
+      // motorista lia na tela que mais olha um número inflado pelo que ele NÃO
+      // recebeu. Nos números do próprio desenho dá 336 onde deveria dar 184
+      // (logistica-2.0.html:4695 — saldo 184 = dinheiro 132 + pix 52), e o erro
+      // é INVISÍVEL: o split ao lado só mostra Dinheiro e Pix, então não há
+      // como reconstruir a diferença olhando a tela. Não existe acerto de
+      // dinheiro no servidor (só o físico, de galão) — quem faz a conta do
+      // acerto é o motorista de cabeça, com este número.
+      // A régua é a MESMA já escrita e comentada em 90-ajustes-financeiro.js:489
+      // (que inclusive cita "a mesma régua do `saldo` da Rota"): recebido é o
+      // que ENTROU — dinheiro + pix + cartão. O fiado tem casa própria ("Marcou")
+      // e o total tem rótulo próprio ("Total do dia"). Uma palavra, um número.
       ...(caixaR.status === 'fulfilled' ? {
-        saldo: caixa && caixa.fechamento ? centavosSeTiver(caixa.fechamento.totalCents) : '',
+        saldo: formas
+          ? centavosSeTiver((formas.dinheiroCents || 0) + (formas.pixCents || 0) + (formas.cartaoCents || 0))
+          : '',
         dinheiro: formas ? centavosSeTiver(formas.dinheiroCents) : '',
         pix: formas ? centavosSeTiver(formas.pixCents) : '',
       } : {}),

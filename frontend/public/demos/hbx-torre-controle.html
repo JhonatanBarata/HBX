@@ -477,11 +477,11 @@ function iniciar(){
     $('#foneSit1').textContent='Fora do trajeto';$('#foneCarro1').className='fone-carro alerta'; },5600);
   daqui(()=>{ $('#chipParado').classList.add('on'); },8600);
   daqui(()=>{ $('#p1').classList.add('alerta');
-    $('#sit').textContent='Parada não prevista';$('#sit').className='mal';
+    $('#sit').textContent='Parou fora da rota';$('#sit').className='mal';
     $('#ref').innerHTML='<b>0,11 km de POSTO ESTRELA</b> — Campinas/SP';
-    $('#foneSit1').textContent='Parada não prevista';
+    $('#foneSit1').textContent='Parou fora da rota';
     $('#foneRef1').innerHTML='12 min parado fora de ponto de entrega · <b>0,11 km de POSTO ESTRELA</b>';
-    evento('alerta',h(0),'Parada não prevista<small>12 min parado fora de ponto de entrega · 0,11 km de POSTO ESTRELA</small>',
+    evento('alerta',h(0),'Parou fora da rota<small>12 min parado fora de ponto de entrega · 0,11 km de POSTO ESTRELA</small>',
       '<button class="liga" type="button">Ligar para o condutor</button><button type="button">Autorizar</button>');},11600);
   daqui(()=>{if(meu===ficha)iniciar()},21500);
 

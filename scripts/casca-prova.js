@@ -2,7 +2,8 @@
 /**
  * PROVA DA CASCA — a casca troca o ambiente INTEIRO e continua legível?
  *
- *     node scripts/casca-prova.js <nome>      (ex.: ferro)
+ *     node scripts/casca-prova.js <nome>                  (ex.: ferro)
+ *     node scripts/casca-prova.js --app vendas <nome>
  *
  * Duas medições, as duas num navegador de verdade, nas 32 telas × 2 modos:
  *
@@ -19,15 +20,19 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { chromium } = require('playwright');
+const { resolverApp, semFlagDeApp } = require('./lib/apps');
 
 const raiz = path.join(__dirname, '..');
-const APP = path.join(raiz, 'EntregaShell/app/src/logistica/assets/app/index.html');
-const nome = process.argv[2];
-if (!nome) { console.log('uso: node scripts/casca-prova.js <nome-da-casca>'); process.exit(1); }
+// `--app <nome>` diz de QUEM é a casca; o nome da casca continua posicional —
+// e o flag sai da lista antes, senão `--app` viraria o nome da casca.
+const ALVO = resolverApp(process.argv);
+const APP = ALVO.indice;
+const nome = semFlagDeApp(process.argv)[2];
+if (!nome) { console.log('uso: node scripts/casca-prova.js [--app <app>] <nome-da-casca>'); process.exit(1); }
 
 const injetar = (casca) => execFileSync(
   process.execPath,
-  [path.join(__dirname, 'casca-injetar.js'), ...(casca ? ['--casca', casca] : [])],
+  [path.join(__dirname, 'casca-injetar.js'), '--app', ALVO.nome, ...(casca ? ['--casca', casca] : [])],
   { cwd: raiz },
 ).toString().trim().split('\n').filter((l) => l.includes('casca    :'))[0];
 

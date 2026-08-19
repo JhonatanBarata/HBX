@@ -1211,7 +1211,11 @@ const DADOS={
      marcações · a mais antiga de 28/07") é o único pedaço desta tela SEM PORTA
      em servidor nenhum — ver o `carregarFinanceiro` da ponte. */
   financeiro:{
-    recebido:'R$ 336,00', emAberto:'R$ 257,00',
+    /* 268 = 132 + 52 + 84. NAO somar o `marcou` (68) aqui: fiado nao entrou no
+       caixa. Quem pinta esta tela e o `carregarFinanceiro` da ponte, que calcula
+       dinheiro+pix+cartao (90-ajustes-financeiro.js:489) — o dataset tem que
+       mostrar o mesmo numero que o app mostraria, senao o desenho ensina errado. */
+    recebido:'R$ 268,00', emAberto:'R$ 257,00',
     formas:[['cash','var(--lime)','Dinheiro','R$ 132,00'],['pix','var(--blue-l)','Pix','R$ 52,00'],
             ['card','var(--purple)','Cartão','R$ 84,00']],
     marcou:'R$ 68,00',

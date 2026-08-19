@@ -80,9 +80,10 @@
 //      terceiro é o que decide:
 //        1. Em arquivo gerado não existe decisão de aparência pra fiscalizar —
 //           a decisão foi tomada na FONTE. `mock.css`/`mock.js`/`index.html`
-//           saem inteiros de `docs/mockups/logistica2.0/logistica-2.0.html`
-//           (`scripts/casca-injetar.js`); `ponte.js` é a costura de
-//           `logistica/ponte-src/*.js` (`scripts/ponte-costurar.js`).
+//           saem inteiros do mock do app (`docs/mockups/<app>2.0/*.html`, via
+//           `scripts/casca-injetar.js`); `ponte.js` é a costura de
+//           `<flavor>/ponte-src/*.js` (`scripts/ponte-costurar.js`). Quem diz
+//           quais são os flavors-alvo é `scripts/lib/apps.js`.
 //        2. O conserto lá NÃO GRUDA: a próxima geração apaga. Regra que aponta
 //           pra um arquivo onde o conserto some é regra que só ensina a ignorar
 //           o fiscal — que é, palavra por palavra, como os 45 hex entraram.
@@ -170,11 +171,25 @@ const ENTREGA_TOKEN_BLOCK_OPEN_RE = /^:root(\[data-(?:theme|app)=["'][\w-]+["']\
 const ENTREGA_VENDOR_RE = /[\\/]vendor[\\/]/; // isenção (e) — ver topo
 // Isenção (f) — SAÍDA de gerador, ver topo. Cada linha traz quem a escreve;
 // arquivo novo só entra aqui junto com o gerador dele.
+//
+// 🔴 A ISENÇÃO É POR FLAVOR-ALVO DA ESTEIRA, não pelo literal `logistica/`
+// (LOTE 1 dos dois apps). O mesmo `casca-injetar` passou a gerar também o
+// `vendas`, e o `mock.css` dele nasce com ~432 hex + ~271 style inline —
+// exatamente os mesmos do logística, porque é a MESMA saída do MESMO gerador.
+// Com o literal cravado aqui, o lint ficaria VERMELHO ETERNO no instante em que
+// o app novo nascesse, e vermelho eterno é como o fiscal vira ruído que todo
+// mundo aprende a ignorar (foi assim que os 45 hex entraram).
+// ⚠️ ISTO NÃO AFROUXA NADA ESCRITO À MÃO. O que a lista perdoa é SAÍDA de
+// gerador — `app.js`/`opening.html` do vendas, que são escritos por gente,
+// continuam sendo varridos linha a linha pelo R6/R7.
+const ENTREGA_FLAVOR_GERADO = "(?:logistica|vendas)";
+const geradoDe = arquivo =>
+  new RegExp(`${ENTREGA_FLAVOR_GERADO}[\\\\/]assets[\\\\/]app[\\\\/]${arquivo}$`);
 const ENTREGA_GERADO = [
-  /logistica[\\/]assets[\\/]app[\\/]mock\.css$/,   // scripts/casca-injetar.js
-  /logistica[\\/]assets[\\/]app[\\/]mock\.js$/,    // scripts/casca-injetar.js
-  /logistica[\\/]assets[\\/]app[\\/]index\.html$/, // scripts/casca-injetar.js
-  /logistica[\\/]assets[\\/]app[\\/]ponte\.js$/,   // scripts/ponte-costurar.js
+  geradoDe("mock\\.css"),   // scripts/casca-injetar.js
+  geradoDe("mock\\.js"),    // scripts/casca-injetar.js
+  geradoDe("index\\.html"), // scripts/casca-injetar.js
+  geradoDe("ponte\\.js"),   // scripts/ponte-costurar.js
 ];
 // Isenção (g) — hex que é FALLBACK de leitura de token. Tira só o hex; o resto
 // da linha continua sendo varrido (um segundo hex solto ao lado ainda reprova).

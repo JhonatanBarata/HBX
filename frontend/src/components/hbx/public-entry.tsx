@@ -10,7 +10,7 @@ import { RadarDisc } from "@/components/hbx/radar-disc";
 import { RegisterPanel } from "@/components/hbx/register-client";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
 import { isTokenLive } from "@/lib/api";
-import { MOBILE_APK_URL } from "@/lib/app-mobile";
+import { MOBILE_APK_URL, MOBILE_APK_URL_VENDAS } from "@/lib/app-mobile";
 import { CONTACT_WHATSAPP_URL } from "@/lib/contato";
 
 type IconName =
@@ -183,16 +183,27 @@ function EntregaScreen() {
   );
 }
 
+// A CONTA TEM QUE FECHAR. Antes a dívida de R$ 210,00 da Padaria estava contada
+// nos DOIS lados — somada em "recebido hoje" (1.664) e, ao mesmo tempo, listada
+// como dívida dela. Prova que não fecha queima o selo inteiro: o visitante soma,
+// vê que não bate, e desconta a credibilidade do sistema, não da tela.
+// Aqui só entra o que ENTROU: 704 + 432 + 318 = 1.454.
+// E só entram as formas que a logística ACEITA de verdade — pix, dinheiro,
+// cartão e fiado (allowedReceipt, logistica-offline.service.ts:468). Boleto não
+// é uma delas: ele existe no financeiro com que a HBX cobra o lojista, não no
+// que o lojista cobra o cliente dele. Vender forma que o sistema não registra é
+// promessa que o concorrente derruba com um print.
 const FORMAS: Array<[string, string, string]> = [
   ["Pix", "R$ 704,00", "11"],
   ["Dinheiro", "R$ 432,00", "9"],
   ["Cartão", "R$ 318,00", "5"],
-  ["Boleto", "R$ 210,00", "2"],
-  ["Fiado", "R$ 156,00", "3"],
 ];
+const RECEBIDO_HOJE = "R$ 1.454";
+// E o que falta: 210 + 156 + 154 (fiado) + 92 (cartão 1 de 2) = 612.
+const A_RECEBER = "R$ 612,00";
 const DEVEDORES: Array<[string, string, string, string]> = [
   ["AP", "Adega do Portugues", "fiado · 2 entregas", "R$ 156,00"],
-  ["PR", "Padaria Rio Novo", "boleto vence 21/08", "R$ 210,00"],
+  ["PR", "Padaria Rio Novo", "fiado · desde 21/07", "R$ 210,00"],
   ["RV", "Restaurante Vila Nova", "cartão 1 de 2", "R$ 92,00"],
   ["LP", "Lanchonete Ponto Certo", "fiado · desde 12/08", "R$ 154,00"],
 ];
@@ -201,17 +212,21 @@ function CobrancaScreen() {
   return (
     <div className="f1-screen f1-rota-screen f1-caixa-screen">
       <div className="f1-tab">
-        <span className="f1-rota-lista__topo">Quem está devendo · 4 clientes</span>
+        {/* LEI: duas palavras pro dinheiro e só duas — RECEBIDO e A RECEBER.
+            Morreram: em aberto, quem está devendo, total em aberto, vence.
+            Cada sinônimo a mais é um controle novo pra quem lê pouco. */}
+        <span className="f1-rota-lista__topo">A receber · 4 clientes</span>
         <ol className="f1-tab__lista f1-tab--devedores">
           {DEVEDORES.map(([ini, nome, sub, valor]) => (
             <li key={nome}><span className="f1-ava">{ini}</span><span><strong>{nome}</strong><small>{sub}</small></span><em>{valor}</em></li>
           ))}
         </ol>
-        <footer className="f1-tab__pe"><span>Total em aberto</span><strong>R$ 612,00</strong></footer>
+        <footer className="f1-tab__pe"><span>A receber</span><strong>{A_RECEBER}</strong></footer>
       </div>
       <aside className="f1-rota-resumo">
-        <article className="is-saldo"><small>Recebido hoje</small><strong>R$ 1.664</strong></article>
-        <article className="is-aviso"><small>Em aberto</small><strong>R$ 612</strong></article>
+        <article className="is-saldo"><small>Recebido hoje</small><strong>{RECEBIDO_HOJE}</strong></article>
+        {/* O card "Em aberto R$ 612" saiu: era o MESMO número do rodapé, com
+            outro nome. Número repetido com dois rótulos vira dois números. */}
         {FORMAS.map(([nome, valor, qtd]) => (
           <article className="is-forma" key={nome}><small>{nome}</small><strong>{valor}</strong><i>{qtd}</i></article>
         ))}
@@ -482,142 +497,228 @@ function RotaEstoqueScreen() {
 }
 
 // ---------------------------------------------------------------------------
-// A FITA: duas guias, seis passos cada, o MESMO capítulo em cada índice. O
-// vendedor faz no computador o que o motorista faz no celular — é a mesma
-// história contada duas vezes, em duas interfaces.
+// OS SEIS MÓDULOS — o dia da distribuidora, na ordem em que ele acontece.
+//
+// LEI: um só seletor manda na página. O chip escolhido veste o hero, o monitor,
+// o celular e a faixa de números. Antes eram DOIS seletores mandando em regiões
+// diferentes da mesma tela (a guia do topo governava hero/monitor/faixa; a barra
+// governava outra coisa) — e a tela se contradizia sozinha: chip "Cobrança",
+// faixa "o que o HBX faz na VENDA", monitor "/ vendas".
+//
+// LEI: uma palavra vive em UM nível só. Por isso "Vendas" sumiu como rótulo
+// (o módulo é "Pedidos") e "Logística" sumiu de vez (é "Entregas").
+//
+// LEI: a prova pertence ao módulo em foco. Cada módulo carrega os PRÓPRIOS 4
+// bullets e os PRÓPRIOS 4 números — prova de outro módulo não soma, subtrai
+// foco. Antes `PROVAS` era constante global e os números eram por guia.
+//
+// Segmento (água/gás/bebidas) é PÁGINA, nunca botão: seletor no topo gera uma
+// URL só — invisível pro Google e sem destino pra colar no anúncio.
 // ---------------------------------------------------------------------------
-type Guia = "vendas" | "logistica";
 
-type Passo = {
+// Fonte junto do dado — sem fonte não entra.
+type Dado = { valor: string; texto: string; fonte: string };
+
+// As chaves `fone`/`monitorCheio` são CONTRATO com os mocks (`?tela=`): chave
+// inexistente não dá erro, o mock cai em tela errada CALADO. Ao reorganizar,
+// mover a tela de módulo é livre — renomear a chave, nunca.
+type Tela = {
   key: string;
-  label: string;
-  icon: IconName;
-  capitulo: string;
+  nome: string;
   eyebrow: string;
   titulo: string;
   signal: string;
-  lines: [string, string, string];
-  subline: string;
   fone: LogisticaRealScreen;
   Desktop?: () => React.JSX.Element;
   // A torre veste o monitor inteiro (iframe próprio, sem trilho nem cabeçalho).
   monitorCheio?: LogisticaRealScreen;
 };
 
-const VENDAS: Passo[] = [
+type Modulo = {
+  key: string;
+  label: string;
+  icon: IconName;
+  microcopy: string;
+  // A linha de FOCO é quem responde ao clique do chip. O H1 é fixo: antes ele
+  // trocava de tese a cada 6,3s e cada visitante caía num produto diferente,
+  // dependendo de qual passo estava aceso quando ele chegou.
+  foco: string;
+  sub: string;
+  provas: Array<{ icon: IconName; texto: string }>;
+  dados: Dado[];
+  telas: Tela[];
+};
+
+const MODULOS: Modulo[] = [
   {
-    key: "radar", label: "Radar", icon: "radar", capitulo: "Achar",
-    eyebrow: "Oportunidade", titulo: "Empresas com CNPJ e telefone.", signal: "Radar ativo",
-    lines: ["Encontre", "clientes", "de verdade."], subline: "86 empresas do seu ramo na cidade — 81 com telefone.",
-    fone: "v-radar", Desktop: RadarScreen,
+    key: "pedidos",
+    label: "Pedidos",
+    icon: "bolt",
+    microcopy: "todo pedido num lugar só",
+    foco: "O pedido entra sem ninguém redigitar.",
+    sub: "WhatsApp, telefone e balcão numa lista só — e o pedido fechado vira parada na rota do dia.",
+    provas: [
+      { icon: "whatsapp", texto: "O pedido do WhatsApp entra sem ninguém redigitar" },
+      { icon: "bolt", texto: "Cada pedido numa etapa: do sem contato ao fechado" },
+      { icon: "route", texto: "Pedido fechado vira parada na rota do dia" },
+      { icon: "bell", texto: "Fora do horário, a IA responde e fecha no WhatsApp" },
+    ],
+    dados: [
+      { valor: "1 lugar", texto: "WhatsApp, telefone e balcão numa lista só", fonte: "Entrada de pedido" },
+      { valor: "5 etapas", texto: "do sem contato ao fechado, sem planilha", fonte: "Acompanhamento" },
+      { valor: "0 digitação", texto: "o pedido fechado vira parada na rota do dia", fonte: "Pedido → rota" },
+      { valor: "24 h", texto: "a IA responde e fecha pedido no WhatsApp fora do horário", fonte: "Atendimento" },
+    ],
+    telas: [
+      { key: "vendas", nome: "O quadro de pedidos", eyebrow: "Movimento", titulo: "Cada pedido numa etapa.", signal: "5 etapas no ar", fone: "v-vendas", Desktop: VendasScreen },
+    ],
   },
   {
-    key: "vendas", label: "Vendas", icon: "bolt", capitulo: "Organizar",
-    eyebrow: "Movimento", titulo: "Cada negócio numa etapa.", signal: "Funil em movimento",
-    lines: ["Venda", "sem perder", "o fio."], subline: "Sem contato, contato feito, respondeu, ligação marcada, fechado.",
-    fone: "v-vendas", Desktop: VendasScreen,
+    key: "agenda",
+    label: "Agenda",
+    icon: "calendar",
+    microcopy: "o que ficou pra hoje",
+    foco: "Nada fica sem retorno.",
+    sub: "Hoje, atrasados, agendados e fechados — o que não foi feito vira atrasado sozinho.",
+    provas: [
+      { icon: "calendar", texto: "Hoje, atrasados, agendados e fechados — em quatro blocos" },
+      { icon: "bell", texto: "O retorno que não foi feito vira atrasado sozinho" },
+      { icon: "check", texto: "Ligação, visita e mensagem: cada cliente com hora marcada" },
+      { icon: "bolt", texto: "Da agenda pro pedido sem redigitar nada" },
+    ],
+    dados: [
+      { valor: "4 blocos", texto: "hoje, atrasados, agendados e fechados", fonte: "O que fazer hoje" },
+      { valor: "0 esquecido", texto: "o que não foi feito vira atrasado sozinho", fonte: "Nada sem retorno" },
+      { valor: "1 toque", texto: "remarcar sem perder o histórico do cliente", fonte: "Remarcar" },
+      { valor: "1 clique", texto: "da agenda pro pedido, sem redigitar", fonte: "Agenda → pedido" },
+    ],
+    telas: [
+      { key: "agenda", nome: "O dia de hoje", eyebrow: "Retorno", titulo: "O retorno tem hora marcada.", signal: "4 compromissos hoje", fone: "v-agenda", Desktop: AgendaScreen },
+    ],
   },
   {
-    key: "agenda", label: "Agenda", icon: "calendar", capitulo: "Acompanhar",
-    eyebrow: "Retorno", titulo: "O retorno tem hora marcada.", signal: "4 compromissos hoje",
-    lines: ["Nada", "fica", "sem retorno."], subline: "Ligação, reunião, visita e mensagem — o que não foi vira atrasado.",
-    fone: "v-agenda", Desktop: AgendaScreen,
+    key: "entregas",
+    label: "Entregas",
+    icon: "route",
+    microcopy: "rota, foto e vasilhame",
+    foco: "A entrega volta provada.",
+    sub: "A rota do dia sai pronta, o motorista aparece no mapa e cada parada volta com foto, assinatura e o vasilhame contado.",
+    provas: [
+      { icon: "check", texto: "O motorista entrega com foto, assinatura e código em cada parada" },
+      { icon: "route", texto: "A rota do dia sai pronta: 23 paradas, 38,4 km, 4h12" },
+      { icon: "box", texto: "O vasilhame que saiu e o que voltou, contado sozinho na entrega" },
+      { icon: "eye", texto: "O cliente acompanha a entrega dele pelo link" },
+    ],
+    dados: [
+      { valor: "23 paradas", texto: "a ordem do dia sai pronta em um toque", fonte: "Rota do dia" },
+      { valor: "1 foto", texto: "comprovante com foto e assinatura em cada parada", fonte: "Prova da entrega" },
+      { valor: "180 galões", texto: "o que saiu, o que voltou e o casco de cada cliente", fonte: "Vasilhame" },
+      { valor: "1 link", texto: "o cliente acompanha a entrega dele pelo link", fonte: "Cliente final" },
+    ],
+    telas: [
+      { key: "montagem", nome: "Montar a rota", eyebrow: "Operação", titulo: "A rota do dia.", signal: "23 paradas", fone: "montagem", Desktop: RotaMontagemScreen },
+      { key: "torre", nome: "A rua ao vivo", eyebrow: "Operação", titulo: "A rua em tempo real.", signal: "2 veículos em rota", fone: "torreFone", monitorCheio: "torre" },
+      { key: "folha", nome: "A prova da entrega", eyebrow: "Operação", titulo: "A prova da entrega.", signal: "23 comprovantes", fone: "folha", Desktop: RotaEntregarScreen },
+      { key: "entrega", nome: "Do pedido para a rua", eyebrow: "Operação", titulo: "O pedido vira parada.", signal: "Rota em andamento", fone: "v-entrega", Desktop: EntregaScreen },
+    ],
   },
   {
-    key: "entrega", label: "Entrega", icon: "route", capitulo: "Entregar",
-    eyebrow: "Operação", titulo: "A venda vira parada.", signal: "Rota em andamento",
-    lines: ["Da venda", "para a rua", "sem digitar."], subline: "O pedido fechado entra na rota do dia sozinho.",
-    fone: "v-entrega", Desktop: EntregaScreen,
+    key: "dinheiro",
+    label: "Dinheiro e fiado",
+    icon: "wallet",
+    microcopy: "quem pagou, quem deve",
+    foco: "Entregou, recebeu, conferiu.",
+    sub: "Pix, dinheiro, cartão e fiado conferidos contra a entrega — o que entrou no caixa separado do que ficou marcado.",
+    provas: [
+      { icon: "wallet", texto: "O que falta receber, de quem e desde quando — sem caderno" },
+      { icon: "check", texto: "Pix, dinheiro, cartão e fiado conferidos contra a entrega" },
+      { icon: "route", texto: "O que entrou no caixa nunca soma com o que ficou fiado" },
+      { icon: "whatsapp", texto: "A cobrança sai no WhatsApp do cliente, direto da tela" },
+    ],
+    dados: [
+      { valor: "4 formas", texto: "Pix, dinheiro, cartão e fiado, marcados na entrega", fonte: "Como o cliente paga" },
+      { valor: "1 fechamento", texto: "o dia fecha por forma — o que entrou e o que ficou marcado", fonte: "Fim do dia" },
+      { valor: "1 tela", texto: "quem deve, quanto e desde quando", fonte: "O fiado sem caderno" },
+      { valor: "1 toque", texto: "a cobrança sai no WhatsApp do cliente", fonte: "Cobrar sem ligar" },
+    ],
+    telas: [
+      { key: "cobranca", nome: "Quem falta pagar", eyebrow: "Dinheiro", titulo: "Entregou, recebeu, conferiu.", signal: "Bateu com a entrega", fone: "v-cobranca", Desktop: CobrancaScreen },
+      { key: "caderneta", nome: "Fechar o dia", eyebrow: "Dinheiro", titulo: "O caixa do dia.", signal: "Caixa conferido", fone: "caderneta", Desktop: RotaFecharScreen },
+    ],
   },
   {
-    key: "cobranca", label: "Cobrança", icon: "wallet", capitulo: "Receber",
-    eyebrow: "Recebimento", titulo: "Entregou, cobrou, recebeu.", signal: "Fluxo concluído",
-    lines: ["Cobre", "e receba", "em dia."], subline: "Pix, dinheiro, cartão e fiado conferidos contra a entrega.",
-    fone: "v-cobranca", Desktop: CobrancaScreen,
+    key: "nota",
+    label: "Nota e estoque",
+    icon: "nota",
+    microcopy: "a carga não sai sem nota",
+    foco: "XML entra, nota sai.",
+    sub: "A compra do fornecedor dá entrada por XML, o estoque anda sozinho e a NF-e sai autorizada com certificado A1.",
+    provas: [
+      { icon: "nota", texto: "O XML da compra dá entrada e o estoque anda sozinho" },
+      { icon: "check", texto: "NF-e e NFC-e autorizadas com certificado A1" },
+      { icon: "box", texto: "Disponível, reservado e físico — com extrato de cada movimento" },
+      { icon: "bell", texto: "A carga não sai sem nota" },
+    ],
+    dados: [
+      { valor: "1 XML", texto: "a compra do fornecedor dá entrada sozinha", fonte: "Entrada de XML" },
+      { valor: "NF-e e NFC-e", texto: "nota autorizada com certificado A1", fonte: "Documentos" },
+      { valor: "3 saldos", texto: "disponível, reservado e físico, com extrato de cada movimento", fonte: "Estoque" },
+      { valor: "0 carga sem nota", texto: "a nota sai junto da carga, não depois do dinheiro", fonte: "Ordem certa" },
+    ],
+    telas: [
+      { key: "fiscal", nome: "XML e nota", eyebrow: "Fiscal", titulo: "XML entra, nota sai.", signal: "Certificado A1 válido", fone: "v-fiscal", Desktop: FiscalScreen },
+      { key: "estoque", nome: "O estoque", eyebrow: "Fiscal", titulo: "O saldo que a rota consome.", signal: "Estoque ligado", fone: "v-estoque", Desktop: RotaEstoqueScreen },
+    ],
   },
   {
-    key: "fiscal", label: "Fiscal", icon: "nota", capitulo: "Nota e estoque",
-    eyebrow: "Fiscal", titulo: "XML entra, nota sai.", signal: "Certificado A1 válido",
-    lines: ["Entrada", "fiscal e", "nota emitida."], subline: "O XML da compra dá entrada, o estoque anda, a nota sai autorizada.",
-    fone: "v-fiscal", Desktop: FiscalScreen,
+    key: "clientes",
+    label: "Clientes novos",
+    icon: "radar",
+    microcopy: "quem ainda não compra",
+    foco: "Os comércios do seu bairro que ainda não compram de você.",
+    sub: "Com CNPJ, telefone e endereço, prontos pra virar cliente — quem acha é o Radar, sobre a base da Receita Federal.",
+    provas: [
+      { icon: "radar", texto: "Mostra os comércios do seu bairro que ainda não compram de você" },
+      { icon: "check", texto: "Vem com CNPJ, telefone e endereço — você não digita nada" },
+      { icon: "eye", texto: "Quem já é seu cliente e quem nunca comprou, no mesmo mapa" },
+      { icon: "route", texto: "Também acha no corredor da sua rota, sem sair do caminho" },
+    ],
+    // O número do bairro vem PRIMEIRO. Os 28 milhões impressionam investidor e
+    // assustam o dono — o que converte é "quantos clientes existem na sua rua".
+    dados: [
+      { valor: "312 empresas", texto: "comércios do seu bairro que ainda não compram de você", fonte: "No seu bairro" },
+      { valor: "0 digitação", texto: "o cliente novo entra na sua lista com telefone e endereço", fonte: "Cadastro pronto" },
+      { valor: "1 mapa", texto: "quem já compra e quem nunca comprou, na mesma tela", fonte: "Mapa da sua rua" },
+      { valor: "28 milhões", texto: "todo CNPJ do Brasil, direto da base", fonte: "Receita Federal" },
+    ],
+    telas: [
+      { key: "radar", nome: "No seu bairro", eyebrow: "Oportunidade", titulo: "Empresas com CNPJ e telefone.", signal: "Radar ativo", fone: "v-radar", Desktop: RadarScreen },
+      { key: "prospector", nome: "No corredor da sua rota", eyebrow: "Oportunidade", titulo: "Empresas do corredor.", signal: "Prospector ativo", fone: "prospector", Desktop: RotaProspectorScreen },
+    ],
   },
 ];
 
-const LOGISTICA: Passo[] = [
-  {
-    key: "prospector", label: "Prospector", icon: "radar", capitulo: "Achar",
-    eyebrow: "No computador", titulo: "Empresas do corredor.", signal: "Prospector ativo",
-    lines: ["Ache", "clientes", "na sua rota."], subline: "Empresas com CNPJ e telefone no corredor da entrega.",
-    fone: "prospector", Desktop: RotaProspectorScreen,
-  },
-  {
-    key: "montagem", label: "Montar rota", icon: "route", capitulo: "Organizar",
-    eyebrow: "No computador", titulo: "A rota do dia.", signal: "23 paradas",
-    lines: ["Monte", "o dia", "em um toque."], subline: "A ordem das paradas sai pronta — 38,4 km, 4h12, 180 galões.",
-    fone: "montagem", Desktop: RotaMontagemScreen,
-  },
-  {
-    key: "torre", label: "Torre de controle", icon: "tower", capitulo: "Acompanhar",
-    eyebrow: "No computador", titulo: "A rua em tempo real.", signal: "2 veículos em rota",
-    lines: ["Veja", "a rua", "em tempo real."], subline: "Desvio, parada não prevista e o motorista no mapa.",
-    fone: "torreFone", monitorCheio: "torre",
-  },
-  {
-    key: "folha", label: "Entregar", icon: "check", capitulo: "Entregar",
-    eyebrow: "No computador", titulo: "A prova da entrega.", signal: "23 comprovantes",
-    lines: ["Entregue", "com prova", "na mão."], subline: "Foto, assinatura e código a cada parada.",
-    fone: "folha", Desktop: RotaEntregarScreen,
-  },
-  {
-    key: "caderneta", label: "Fechar o dia", icon: "wallet", capitulo: "Receber",
-    eyebrow: "No computador", titulo: "O caixa do dia.", signal: "Caixa conferido",
-    lines: ["Feche", "o caixa", "no fim do dia."], subline: "Dinheiro, Pix, cartão e fiado conferidos.",
-    fone: "caderneta", Desktop: RotaFecharScreen,
-  },
-  {
-    key: "estoque", label: "Controle de estoque", icon: "box", capitulo: "Nota e estoque",
-    eyebrow: "No computador", titulo: "O saldo que a rota consome.", signal: "Estoque ligado",
-    lines: ["Controle", "o estoque", "sem planilha."], subline: "Disponível, reservado e físico — com extrato de cada movimento.",
-    fone: "v-estoque", Desktop: RotaEstoqueScreen,
-  },
-];
+// A fita de rotação passeia pelas 12 telas na ordem dos módulos: acabou o
+// módulo, cai sozinho no próximo. Cada parada é (módulo, tela).
+const PARADAS: Array<{ m: number; t: number }> = MODULOS.flatMap((modulo, m) => modulo.telas.map((_, t) => ({ m, t })));
+const PRIMEIRA_PARADA: Record<string, number> = Object.fromEntries(
+  MODULOS.map((modulo) => [modulo.key, PARADAS.findIndex((parada) => MODULOS[parada.m].key === modulo.key)]),
+);
 
-const PASSOS = [...VENDAS, ...LOGISTICA];
-const POR_GUIA = VENDAS.length;
-const GUIA_NOME: Record<Guia, string> = { vendas: "Vendas", logistica: "Logística" };
-const GUIA_TRILHA: Record<Guia, Passo[]> = { vendas: VENDAS, logistica: LOGISTICA };
+// Entregas aceso por padrão: é a dor com que o dono acorda. "Clientes novos"
+// fica por último de propósito — é o clímax (SÓ NO HBX), não a abertura.
+const PARADA_INICIAL = PRIMEIRA_PARADA.entregas;
+
+// A frase-âncora da marca. Fixa: não muda com o chip, nem com o tema.
+const CATEGORIA = "Sistema para Distribuidoras ";
+// Medido, não chutado: a headline é TRIPLA e cada linha é `nowrap` — a coluna
+// do hero tem ~356px a 1440 e a fonte bate 50px, então cada linha tem ~12
+// caracteres de teto. "O sistema da distribuidora" dava 601px e estourava.
+// O <em> (linha 2) é o acento: tem que cair na palavra que importa.
+const H1: [string, string, string] = ["O dia da sua", "distribuidora", "num sistema."];
 
 const STAGE_ROTATION_MS = 6300;
 const MANUAL_RESUME_MS = 18000;
-
-// O que o sistema registra sozinho — vale para as duas histórias.
-const PROVAS: Array<{ icon: IconName; texto: string }> = [
-  { icon: "nota", texto: "Entrada de XML, estoque e emissão de nota" },
-  { icon: "check", texto: "Comprovante com foto e assinatura" },
-  { icon: "bell", texto: "Alerta de parada não prevista" },
-  { icon: "eye", texto: "Cliente acompanha a entrega pelo link" },
-];
-
-// Fonte junto do dado — sem fonte não entra. Na Logística são os números do
-// mercado que a torre endereça; em Vendas são os do próprio sistema (dizer
-// "roubo de carga" pra quem está vendendo é falar do assunto errado).
-type Dado = { valor: string; texto: string; fonte: string };
-const DADOS_LOGI: Dado[] = [
-  { valor: "10.478", texto: "roubos de carga em 2024, R$ 1,2 bi de prejuízo", fonte: "NTC&Logística" },
-  { valor: "38,5%", texto: "do prejuízo já é na entrega urbana — era 18,9%", fonte: "Overhaul" },
-  { valor: "+17,5%", texto: "roubo de utilitários no 2º trimestre de 2026", fonte: "Transporte Moderno" },
-  { valor: "2% a 5%", texto: "do frete some em glosa por canhoto perdido", fonte: "Transp.net" },
-];
-const DADOS_VENDAS: Dado[] = [
-  { valor: "28 mi", texto: "CNPJs da base da Receita cruzados pelo Radar", fonte: "Receita Federal" },
-  { valor: "5 etapas", texto: "do sem contato ao fechado, sem planilha", fonte: "Funil do HBX" },
-  { valor: "4 blocos", texto: "hoje, atrasados, agendados e fechados na agenda", fonte: "Agenda do HBX" },
-  { valor: "1 clique", texto: "do pedido fechado à parada na rota do dia", fonte: "Venda → Entrega" },
-];
-const DADOS_TITULO: Record<Guia, string> = {
-  vendas: "O que o HBX faz na venda",
-  logistica: "O que acontece na rua",
-};
 
 function PhoneVisual({ screen, themeMode }: { screen: LogisticaRealScreen; themeMode: "dark" | "light" }) {
   return (
@@ -636,19 +737,18 @@ type EntryScreen = "home" | "login" | "criar";
 
 export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryScreen } = {}) {
   const router = useRouter();
-  const [passoIndex, setPassoIndex] = useState(0);
+  const [paradaIndex, setParadaIndex] = useState(PARADA_INICIAL);
   const [manual, setManual] = useState(false);
   // "/?entrar"/"/?criar" chegam com o card JÁ aberto (SSR — sem flash da home).
   const [screen, setScreen] = useState<EntryScreen>(initialScreen);
   const [themeMode, setThemeModeState] = useState<"dark" | "light">("light");
   const [cookieVisible, setCookieVisible] = useState(true);
 
-  // 12 passos numa fita só: 0-5 é a história do Vendas, 6-11 é a MESMA
-  // história na Logística. Acabou uma, cai sozinho na outra.
-  const guia: Guia = passoIndex < POR_GUIA ? "vendas" : "logistica";
-  const noGuia = passoIndex % POR_GUIA;
-  const passo = PASSOS[passoIndex];
-  const trilha = GUIA_TRILHA[guia];
+  // 12 telas numa fita só, na ordem dos módulos. Acabou o módulo, cai sozinho
+  // no próximo — e o chip da barra acompanha, porque é o MESMO seletor.
+  const parada = PARADAS[paradaIndex];
+  const modulo = MODULOS[parada.m];
+  const tela = modulo.telas[parada.t];
 
   // Logado nunca vê a landing: cargas de documento são resolvidas pelo boot
   // inline de app/page.tsx (antes da pintura); este efeito cobre a navegação
@@ -659,7 +759,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
 
   useEffect(() => {
     if (manual || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const timer = window.setInterval(() => setPassoIndex((current) => (current + 1) % PASSOS.length), STAGE_ROTATION_MS);
+    const timer = window.setInterval(() => setParadaIndex((current) => (current + 1) % PARADAS.length), STAGE_ROTATION_MS);
     return () => window.clearInterval(timer);
   }, [manual]);
 
@@ -667,7 +767,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
     if (!manual) return;
     const timer = window.setTimeout(() => setManual(false), MANUAL_RESUME_MS);
     return () => window.clearTimeout(timer);
-  }, [manual, passoIndex]);
+  }, [manual, paradaIndex]);
 
   useEffect(() => {
     const currentMode = document.documentElement.getAttribute("data-theme-mode");
@@ -695,14 +795,14 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
     return () => window.clearTimeout(timer);
   }, [screen]);
 
-  function escolherPasso(index: number) {
-    setPassoIndex(index);
+  function escolherParada(index: number) {
+    setParadaIndex(index);
     setManual(true);
   }
 
-  // O botão da guia PULA pra outra história e recomeça do primeiro passo.
-  function escolherGuia(alvo: Guia) {
-    escolherPasso(alvo === "vendas" ? 0 : POR_GUIA);
+  // O chip PULA pro módulo e recomeça da primeira tela dele.
+  function escolherModulo(key: string) {
+    escolherParada(PRIMEIRA_PARADA[key]);
   }
 
   function openLogin() {
@@ -735,15 +835,20 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
     setThemeModeState(nextMode);
   }
 
-  const Desktop = passo.Desktop;
+  const Desktop = tela.Desktop;
+
+  // O APK segue a TELA que está no celular, não o módulo: são dois apps
+  // publicados (Loghbx/Salehbx) e o `v-` do mock diz qual deles está no ar.
+  // Entregar o app errado é o engano silencioso — instala, abre, e não é a tela.
+  const appDoEntregador = !tela.fone.startsWith("v-");
 
   return (
     <main
       className={"public-entry" + (screen !== "home" ? " is-login" : "")}
-      data-guia={guia}
-      data-passo={passo.key}
-      data-n={noGuia}
-      data-cheia={passo.monitorCheio ? "on" : "off"}
+      data-modulo={modulo.key}
+      data-passo={tela.key}
+      data-n={parada.m}
+      data-cheia={tela.monitorCheio ? "on" : "off"}
     >
       <div className="f1-backdrop" aria-hidden="true">
         <span className="f1-orb f1-orb--one" />
@@ -761,30 +866,20 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           <span>HBX</span>
         </Link>
 
-        {/* As duas guias: mostra qual história está no ar e pula pra outra. */}
-        <div className="f1-guias" role="group" aria-label="Escolher a história">
-          <span className="f1-guias__pill" aria-hidden="true" />
-          {(["vendas", "logistica"] as Guia[]).map((item) => (
-            <button
-              className={item === guia ? "is-active" : ""}
-              key={item}
-              type="button"
-              aria-pressed={item === guia}
-              onClick={() => escolherGuia(item)}
-            >
-              <strong>{GUIA_NOME[item]}</strong>
-            </button>
-          ))}
-        </div>
+        {/* A CATEGORIA. O centro do topo é a posição de maior autoridade da
+            página e estava gasta com um seletor de DEMONSTRAÇÃO — duas trilhas
+            da mesma história, vestidas de dois produtos. Aqui não é controle:
+            é a única linha que diz o que o HBX é e pra quem. Nunca muda. */}
+        <p className="f1-categoria">{CATEGORIA}</p>
 
         <nav className="f1-header__actions" aria-label="Ações principais">
-          <Link className="f1-icon-button" href="/tutorialexterno" aria-label="Ver o tutorial">
+          <Link className="f1-icon-button" href="/tutorialexterno" aria-label="Ver como o HBX funciona">
             <Icon name="play" />
-            <span>Tutorial</span>
+            <span>Como funciona</span>
           </Link>
           <button className="f1-icon-button" type="button" onClick={toggleTheme} aria-label={themeMode === "dark" ? "Usar tema claro" : "Usar tema escuro"}>
             <Icon name={themeMode === "dark" ? "sun" : "moon"} />
-            <span>{themeMode === "dark" ? "Day" : "Night"}</span>
+            <span>{themeMode === "dark" ? "Claro" : "Escuro"}</span>
           </button>
           {screen === "home"
             ? <button className="f1-login" type="button" onClick={openLogin}>Entrar <Icon name="arrow" /></button>
@@ -794,23 +889,34 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
 
       <section className="f1-hero f1-home" aria-hidden={screen !== "home"} inert={screen !== "home"}>
         <div className="f1-copy">
-          <h1 key={passo.key} aria-label={passo.lines.join(" ")} aria-live="polite">
-            <span>{passo.lines[0]}</span>
-            <span><em>{passo.lines[1]}</em></span>
-            <span>{passo.lines[2]}</span>
+          {/* H1 FIXO: a marca ganha frase-âncora. Antes ele trocava de tese a
+              cada 6,3s — quem chegava caía num produto diferente conforme o
+              passo que estava aceso. Quem responde ao chip agora é a linha de
+              foco, que é menor e não desmonta o hero. */}
+          <h1 aria-label={H1.join(" ")}>
+            <span>{H1[0]}</span>
+            <span><em>{H1[1]}</em></span>
+            <span>{H1[2]}</span>
           </h1>
-          <p key={`${passo.key}-subline`}>{passo.subline}</p>
+          
+          <div className="f1-foco" key={modulo.key} aria-live="polite">
+            <b>{modulo.label}</b>
+            <span>{modulo.foco}</span>
+          </div>
           <div className="f1-cta-row">
             <a className="f1-primary-cta" href="#produto">
-              Conhecer a HBX <Icon name="arrow" />
+              Quero ver na minha distribuidora <Icon name="arrow" />
             </a>
-            <a className="f1-secondary-cta" href={CONTACT_WHATSAPP_URL} target="_blank" rel="noreferrer">Fale conosco</a>
+            <a className="f1-secondary-cta" href={CONTACT_WHATSAPP_URL} target="_blank" rel="noreferrer">Falar no WhatsApp</a>
           </div>
-          <ul className="f1-provas">
-            {PROVAS.map((prova) => (
+          {/* A prova é do módulo em foco e de mais nenhum: prova de outro
+              módulo não soma, subtrai foco. */}
+          <ul className="f1-provas" key={`${modulo.key}-provas`}>
+            {modulo.provas.map((prova) => (
               <li key={prova.texto}><Icon name={prova.icon} />{prova.texto}</li>
             ))}
           </ul>
+          
         </div>
 
         <div className="f1-product-wrap" id="produto">
@@ -818,13 +924,17 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           <article className="f1-product">
             <header className="f1-product__bar">
               <span className="f1-product__dots"><i /><i /><i /></span>
-              <span className="f1-product__brand"><b>HBX</b><small>/ {GUIA_NOME[guia].toLowerCase()}</small></span>
-              <span className="f1-live"><i /> AO VIVO</span>
+              {/* Gerado do módulo aceso, nunca escrito à mão: era assim que o
+                  monitor jurava "/ vendas" com a Cobrança acesa. */}
+              <span className="f1-product__brand"><b>HBX</b><small>· {modulo.label}</small></span>
+              {/* "AO VIVO" é reservado a UMA coisa: o motorista no mapa. Em
+                  qualquer outro lugar a tela é de verdade, mas não é ao vivo. */}
+              <span className="f1-live"><i /> {tela.monitorCheio ? "AO VIVO" : "TELA DE VERDADE"}</span>
             </header>
             <div className="f1-product__body">
               <aside className="f1-product__rail" aria-hidden="true">
-                {trilha.map((item) => (
-                  <span className={item.key === passo.key ? "is-active" : ""} key={item.key}>
+                {MODULOS.map((item) => (
+                  <span className={item.key === modulo.key ? "is-active" : ""} key={item.key}>
                     <Icon name={item.icon} />
                   </span>
                 ))}
@@ -832,28 +942,29 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
               <section className="f1-product__content">
                 <header className="f1-screen-head">
                   <span>
-                    <small>{passo.eyebrow}</small>
-                    <strong>{passo.titulo}</strong>
+                    <small>{tela.eyebrow}</small>
+                    <strong>{tela.titulo}</strong>
                   </span>
-                  <b><i /> {passo.signal}</b>
+                  <b><i /> {tela.signal}</b>
                 </header>
-                <div className="f1-screen-slot" key={passo.key}>
-                  {passo.monitorCheio
-                    ? <LogisticaRealPreview className="f1-torre-frame" screen={passo.monitorCheio} themeMode={themeMode} />
+                <div className="f1-screen-slot" key={tela.key}>
+                  {tela.monitorCheio
+                    ? <LogisticaRealPreview className="f1-torre-frame" screen={tela.monitorCheio} themeMode={themeMode} />
                     : Desktop ? <Desktop /> : null}
                 </div>
               </section>
             </div>
           </article>
+
         </div>
 
         <aside className="f1-logi" aria-label="HBX no celular">
-          <PhoneVisual key={passo.key} screen={passo.fone} themeMode={themeMode} />
+          <PhoneVisual key={tela.key} screen={tela.fone} themeMode={themeMode} />
         </aside>
 
-        <div className="f1-dados" key={guia}>
-          <span className="f1-dados__titulo">{DADOS_TITULO[guia]}</span>
-          {(guia === "vendas" ? DADOS_VENDAS : DADOS_LOGI).map((dado) => (
+        <div className="f1-dados" key={modulo.key}>
+          <span className="f1-dados__titulo">{modulo.label} em números</span>
+          {modulo.dados.map((dado) => (
             <article key={dado.valor}>
               <b>{dado.valor}</b>
               <span>{dado.texto}</span>
@@ -863,31 +974,51 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
         </div>
 
         <div className="f1-stage-shell">
+          {/* Sem número. Contagem com denominador vira dívida quando virarem 9
+              módulos — e o "5 RECEBER" ainda era um SEGUNDO vocabulário pro
+              mesmo chip que dizia "Cobrança". */}
           <span className="f1-trilha-nome f1-trilha-nome--barra">
-            <b>{noGuia + 1}</b>{passo.capitulo}
+            <i>{modulo.label}</i>
+            {/* A microcopy mora AQUI, e não sob cada chip: a pílula deslizante
+                tem largura fixa (100% - 8px)/6 — chip que cresce descasa a
+                pílula do botão. O slot da régua tem espaço e não desliza. */}
+            <em key={modulo.key}>{modulo.microcopy}</em>
           </span>
-          <div className="f1-stage-track" role="group" aria-label={`Etapas do HBX ${GUIA_NOME[guia]}`}>
+          <div className="f1-stage-track" role="group" aria-label="Módulos do HBX">
             <span className="f1-stage-pill" aria-hidden="true" />
-            {trilha.map((item, index) => (
+            {MODULOS.map((item) => (
               <button
-                className={item.key === passo.key ? "is-active" : ""}
+                className={item.key === modulo.key ? "is-active" : ""}
                 type="button"
                 key={item.key}
-                onClick={() => escolherPasso((guia === "vendas" ? 0 : POR_GUIA) + index)}
-                aria-pressed={item.key === passo.key}
+                onClick={() => escolherModulo(item.key)}
+                aria-pressed={item.key === modulo.key}
               >
                 <Icon name={item.icon} />
                 <strong>{item.label}</strong>
               </button>
             ))}
           </div>
-          <a href={MOBILE_APK_URL} className="f1-baixar">
+          {/* São DOIS APKs publicados (Loghbx/Salehbx) e o botão agora declara
+              DE QUEM é o app. Ele segue a TELA que está no celular, não o
+              módulo: baixar o do entregador enquanto se lê a tela do vendedor
+              era o engano silencioso — instala, abre e não é o app da tela. */}
+          <a
+            href={appDoEntregador ? MOBILE_APK_URL : MOBILE_APK_URL_VENDAS}
+            className="f1-baixar"
+            aria-label={`Baixar o aplicativo do ${appDoEntregador ? "entregador" : "vendedor"} para Android`}
+          >
             <Icon name="download" />
-            <span>Baixar o app <small>Android</small></span>
+            <span>App do {appDoEntregador ? "entregador" : "vendedor"} <small>Android</small></span>
           </a>
           <a className="f1-whatsapp-mini" href={CONTACT_WHATSAPP_URL} target="_blank" rel="noreferrer" aria-label="Falar no WhatsApp">
             <Icon name="whatsapp" />
           </a>
+          {/* Antídoto: seis chips numa barra parecem seis coisas pra aprender
+              de uma vez — é o que faz o dono achar que é grande demais pra ele.
+              Mora DENTRO da barra (segunda linha do grid): solto no hero ele
+              cairia na mesma célula "stages" e ficaria POR CIMA dela. */}
+          
         </div>
       </section>
 
@@ -914,14 +1045,20 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           </article>
           <article className="f1-mobile-app f1-mobile-app--android">
             <div className="f1-mobile-app__copy">
-              <small>HBX Logística para Android</small>
+              <small>HBX para Android</small>
               <strong>A operação na<br />palma da mão.</strong>
+              {/* São DOIS APKs no ar (Loghbx.apk e Salehbx.apk), servidos pelo
+                  mesmo nginx. O card ficava com um botão só e o Vendas não
+                  existia pra quem chega pelo site. Irmão dentro do MESMO
+                  `__links`: .f1-mobile-apps é grid de 2 colunas fixas — um 3º
+                  <article> quebraria a faixa inteira. */}
               <span className="f1-mobile-app__links">
-                <a href={MOBILE_APK_URL} className="f1-mobile-app__link">Baixar HBX Logística <Icon name="arrow" /></a>
+                <a href={MOBILE_APK_URL} className="f1-mobile-app__link">Baixar o app do entregador <Icon name="arrow" /></a>
+                <a href={MOBILE_APK_URL_VENDAS} className="f1-mobile-app__link f1-mobile-app__link--ghost">Baixar o app do vendedor <Icon name="arrow" /></a>
               </span>
             </div>
             <div className="f1-mobile-app__art-wrap">
-              <img src="/hbx-theme/assets/mobile-apps/android-hero.png" alt="Android futurista do HBX Logística" />
+              <img src="/hbx-theme/assets/mobile-apps/android-hero.png" alt="Android futurista dos aplicativos HBX" />
             </div>
           </article>
         </section>

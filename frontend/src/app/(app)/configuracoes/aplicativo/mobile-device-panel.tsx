@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
-import { MOBILE_APK_URL } from "@/lib/app-mobile";
+import { MOBILE_APK_URL, MOBILE_APK_URL_VENDAS } from "@/lib/app-mobile";
 
 import styles from "./mobile-device-panel.module.css";
 
@@ -206,8 +206,14 @@ export function MobileDevicePanel() {
       <section className="panel">
         <div className="panel-head" style={{ gap: 12, flexWrap: "wrap" }}>
           <div>
+            {/* O título NÃO é o nome de um app: o passo 1 logo abaixo oferece os
+                DOIS (Logística e Vendas), e o par de 10 minutos do passo 2 vale
+                para os dois. "HBX Logística" aqui em cima era rótulo mentindo
+                sobre o próprio corpo — quem chegou pelo HBX Vendas lia que estava
+                na página do outro app. Casa com o title da rota ("HBX —
+                Aplicativo móvel"). */}
             <h2 style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <I d={ICONS.phone} size={18} /> HBX Logística
+              <I d={ICONS.phone} size={18} /> HBX no celular
             </h2>
             <p className={styles.description} style={{ margin: "5px 0 0" }}>
               Este aparelho será ligado à mesma conta que você já usa no HBX web.
@@ -221,13 +227,20 @@ export function MobileDevicePanel() {
         <div style={{ padding: 18, display: "grid", gap: 18 }}>
           <div className={styles.setupGrid}>
             <article className={styles.setupCard}>
-              <strong>1. Instale o HBX Logística</strong>
+              <strong>1. Instale o aplicativo</strong>
               <p className={styles.description}>
-                Um único aplicativo reúne Vendas e Logística. Ele não exibe o site HBX nem pede e-mail e senha.
+                São dois: o HBX Logística leva a rota do dia, a entrega na porta e o recebimento na hora; o HBX Vendas leva
+                os clientes, as conversas e o fechamento no bolso. Nenhum dos dois exibe o site HBX nem pede e-mail e senha.
               </p>
+              {/* A grade é auto-fit desde que nasceu — cabia o segundo APK e o
+                  passo só oferecia o Logística. O par vinculado é o MESMO
+                  código de 10 minutos do passo 2, então os dois moram aqui. */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 }}>
                 <a className="btn-ghost" href={MOBILE_APK_URL} target="_blank" rel="noreferrer" style={{ textDecoration: "none", justifyContent: "center" }}>
                   Baixar HBX Logística
+                </a>
+                <a className="btn-ghost" href={MOBILE_APK_URL_VENDAS} target="_blank" rel="noreferrer" style={{ textDecoration: "none", justifyContent: "center" }}>
+                  Baixar HBX Vendas
                 </a>
               </div>
             </article>

@@ -2707,7 +2707,10 @@ const DADOS={
      marcações · a mais antiga de 28/07") é o único pedaço desta tela SEM PORTA
      em servidor nenhum — ver o `carregarFinanceiro` da ponte. */
   financeiro:{
-    recebido:'R$ 336,00', emAberto:'R$ 257,00',
+    /* 268 = 132 + 52 + 84. NAO somar o `marcou` (68): fiado nao entrou no caixa.
+       Sincronizado a mao com docs/mockups/logistica2.0/logistica-2.0.html:5300 —
+       este arquivo NAO tem gerador (casca-injetar so escreve os mock.js). */
+    recebido:'R$ 268,00', emAberto:'R$ 257,00',
     formas:[['cash','var(--lime)','Dinheiro','R$ 132,00'],['pix','var(--blue-l)','Pix','R$ 52,00'],
             ['card','var(--purple)','Cartão','R$ 84,00']],
     marcou:'R$ 68,00',
@@ -3713,7 +3716,7 @@ T.financeiro={nome:'Ajustes · Financeiro',grupo:'Ajustes',render(){const f=DADO
   const semana=[cel(f.semanaRecebido,'recebido'),cel(f.semanaMarcado,'marcado'),
     cel(f.semanaPendencia,'pendência','var(--amber)')].join('');
   const kpis=`${f.recebido?`<div class="kpi money"><span class="l">Recebido hoje</span><b class="v">${f.recebido}</b></div>`:''}${f.emAberto?`
-      <div class="kpi money"><span class="l">Em aberto</span><b class="v" style="color:var(--amber)">${f.emAberto}</b></div>`:''}`;
+      <div class="kpi money"><span class="l">A receber</span><b class="v" style="color:var(--amber)">${f.emAberto}</b></div>`:''}`;
   const formas=`${f.formas.map(x=>`<div class="form-c"><span style="color:${x[1]}">${ic(x[0],19)}</span><small>${x[2]}</small><b>${x[3]}</b></div>`).join('')}${f.marcou?`
       <div class="form-c total"><small style="margin-top:0">Marcou</small><b>${f.marcou}</b></div>`:''}`;
   /* A TELA INTEIRA É DADO, então ela inteira passa pelo `miolo`. Sem isto, a
@@ -3727,7 +3730,7 @@ T.financeiro={nome:'Ajustes · Financeiro',grupo:'Ajustes',render(){const f=DADO
     ${secao('Por forma, hoje',formas?`<div class="forms">
       ${formas}
     </div>`:'')}
-    ${secao('Quem está devendo',f.devedores.length?`<div class="cartao-lista" style="padding:0 11px">
+    ${secao('A receber de',f.devedores.length?`<div class="cartao-lista" style="padding:0 11px">
       ${f.devedores.map(x=>dev(x[0],x[1],x[2],x[3],x[4])).join('')}
     </div>`:'')}
     ${secao('Semana',semana?`<div class="sum" style="margin-top:0">
@@ -3764,7 +3767,7 @@ T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){const a=DADOS.a
     <span><strong>${t}</strong></span>
     <span style="display:flex;align-items:center;gap:9px">${val?`<b style="font-size:12px;color:var(--ink-2)">${val}</b>`:''}<span class="chave ${on?'on':''}"><i></i></span></span></button>`;
   return telaAjuste('Avançado',miolo(a,'gear','recarregar-ajustes',5,!a.admin?'':`
-    <div class="grupo" style="margin-top:2px">Cobrança</div>
+    <div class="grupo" style="margin-top:2px">Dinheiro e fiado</div>
     <div class="cartao-lista">
       ${ch('wallet','Financeiro ligado',a.financeiro,'chave-financeiro')}
       ${a.financeiro?ch('note','Cobrança simples na chegada',a.cobrancaSimples,'chave-cobranca-simples'):''}
