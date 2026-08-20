@@ -22,7 +22,6 @@ import { COMPANY_KIND_PLATFORM_INFRA, isPlatformInfraCompany } from '../common/c
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
 import {
   buildProvisioningLedger,
-  seedConversasOptOutTx,
   seedLogisticaConfigTx,
   seedTenantDefaultProductsTx,
   serializeProvisioningLedger,
@@ -548,9 +547,8 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
         detail: `${seededProducts.filter((product) => product.created).length} criado(s)`,
       });
 
-      // S7 LEAD-CENTRICO: empresa nova nasce com o post-it 'conversas' OFF
-      // (ver seedConversasOptOutTx) — mesma regra das outras 2 portas.
-      await seedConversasOptOutTx(tx, company.id);
+      // 19/08: sem post-it de opt-out do 'conversas' (ele anda com 'vendas'
+      // agora) — mesma regra das outras 2 portas de nascimento.
       // ROTA v2 F2b (10/08) — empresa nova nasce no nível CREDITO (ver
       // seedLogisticaConfigTx).
       await seedLogisticaConfigTx(tx, company.id);

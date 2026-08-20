@@ -21,7 +21,6 @@ import {
 } from '../products/tenant-product-seed';
 import {
   buildProvisioningLedger,
-  seedConversasOptOutTx,
   seedLogisticaConfigTx,
   seedManualEntitlementsTx,
   seedTenantModulesTx,
@@ -385,9 +384,8 @@ export class MasterProvisioningService {
         detail: explicitModules ? null : 'post-it vazio (módulos do plano ao vivo)',
       });
 
-      // S7 LEAD-CENTRICO: empresa nova nasce com o post-it 'conversas' OFF
-      // (ver seedConversasOptOutTx) — mesma regra das outras 2 portas.
-      await seedConversasOptOutTx(tx, company.id);
+      // 19/08: sem post-it de opt-out do 'conversas' (ele anda com 'vendas'
+      // agora) — mesma regra das outras 2 portas de nascimento.
       // ROTA v2 F2b (10/08) — empresa nova nasce no nível CREDITO (ver
       // seedLogisticaConfigTx).
       await seedLogisticaConfigTx(tx, company.id);

@@ -53,7 +53,6 @@ import {
 import { allowsAdminMultiSession, MAX_ADMIN_WEB_SESSIONS } from './session-policy';
 import {
   buildProvisioningLedger,
-  seedConversasOptOutTx,
   seedLogisticaConfigTx,
   seedTenantDefaultProductsTx,
   serializeProvisioningLedger,
@@ -677,12 +676,9 @@ export class AuthService implements OnModuleInit {
     // post-it (exceção explícita do master, no Full). Sem seed = sem cópia
     // congelada que ignoraria as edições do plano.
     //
-    // S7 LEAD-CENTRICO — ÚNICA exceção deliberada a essa regra: 'conversas'
-    // fica FORA da caixa de qualquer plano (não está em
-    // COMMERCIAL_PLAN_MODULE_KEYS), então sem post-it ela seguiria
-    // SystemModule.defaultEnabled — e o pedido do dono é "empresa nova nasce
-    // OFF". Grava o post-it explícito aqui (ver seedConversasOptOutTx).
-    await seedConversasOptOutTx(tx, companyId);
+    // 19/08: o post-it de opt-out do 'conversas' saiu daqui (ver o túmulo em
+    // tenant-provisioning.pipeline.ts). Empresa nova não nasce mais com módulo
+    // trancado sem tela para destrancar — 'conversas' agora anda com 'vendas'.
     // ROTA v2 F2b (10/08) — empresa nova nasce no nível CREDITO (ver
     // seedLogisticaConfigTx). Cobre as 2 portas self_service (Google + e-mail)
     // num gesto só, porque as duas chamam este método privado.

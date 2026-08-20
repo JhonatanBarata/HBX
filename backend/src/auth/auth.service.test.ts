@@ -1093,9 +1093,8 @@ function buildAuthServiceForNeutralSignup() {
         systemModuleFinds.push(args);
         return [];
       },
-      // seedConversasOptOutTx (S7): módulo 'conversas' não semeado → best-effort
-      // vira no-op e o nascimento segue sem post-it (fora do systemModuleFinds,
-      // que mede só a consulta de módulos de PLANO).
+      // 19/08: o opt-out do 'conversas' saiu do nascimento (ele anda com
+      // 'vendas'). O mock fica porque outros passos usam findUnique.
       findUnique: async () => null,
     },
     // seedLogisticaConfigTx (ROTA v2 F2b): linha inexistente → cria CREDITO.

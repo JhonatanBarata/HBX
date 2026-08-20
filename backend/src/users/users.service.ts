@@ -27,6 +27,7 @@ import {
 } from './preferred-segments.util';
 import {
   CATEGORY_MANAGED_MODULE_KEYS,
+  isCoupledCategory,
   MODULE_CATEGORY_KEYS,
   MODULE_CATEGORY_MAP,
   normalizeModuleCategories,
@@ -975,7 +976,12 @@ export class UsersService {
           ceilingOff: Boolean(row && (row as any).masterEnabled === false),
         };
       });
-      const plan = planCategoryModuleWrites(chosen.has(categoryKey), states);
+      // Acoplamento (19/08): 'vendas' arrasta 'conversas' — sem isto o ANY
+      // ("já tem módulo ON") faria a categoria vendas nunca escrever nada e a
+      // conversas ficaria OFF para sempre. Ver COUPLED_CATEGORY_KEYS.
+      const plan = planCategoryModuleWrites(chosen.has(categoryKey), states, {
+        coupled: isCoupledCategory(categoryKey),
+      });
       skippedModuleKeys.push(...plan.skippedModuleKeys);
       for (const write of plan.writes) {
         const systemModule = moduleByKey.get(write.moduleKey);

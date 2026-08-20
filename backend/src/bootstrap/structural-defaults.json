@@ -12,7 +12,7 @@
     {
       "key": "conversas",
       "name": "Conversas",
-      "description": "S7 LEAD-CENTRICO: tela opcional de inbox humano (WhatsApp) sobre a MESMA infra de mensageria do modulo Atendimento. Kill-switch por empresa; nasce ligado (empresa existente fica como esta). Empresa nova nasce com post-it OFF (seedConversasOptOutTx) - o master religa por empresa em /master quando quiser. NAO gateia pairing/recovery/outbox/webhook, so a tela/nav.",
+      "description": "Inbox humano do WhatsApp sobre a MESMA infra de mensageria do modulo Atendimento. Anda JUNTO com o modulo Vendas (19/08): a categoria \"Vendas e Agenda\" liga e desliga os dois (MODULE_CATEGORY_MAP + COUPLED_CATEGORY_KEYS). NAO gateia pairing/recovery/outbox/webhook, so a tela/nav.",
       "monthlyPrice": 0,
       "defaultEnabled": true,
       "companyAssignable": true,

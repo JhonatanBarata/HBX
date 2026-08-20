@@ -137,30 +137,23 @@ export async function seedTenantModulesTx(
   return { resolvedModuleKeys: moduleRows.map((row: any) => String(row.key)) };
 }
 
-// S7 LEAD-CENTRICO (07-pool-raiz.md, item 3 "rebaixar Conversas por flag") —
-// passo COMPARTILHADO pelas 3 portas de nascimento de tenant (self_service em
-// auth.service.ts via seedDefaultCompanyModulesTx, master_invite em
-// companies.service.ts, master_full aqui embaixo em master-provisioning.service.ts).
-// Grava o post-it EXPLÍCITO enabled:false do módulo 'conversas' pra toda
-// empresa NOVA — é o único jeito de "nasce OFF" sem migração/backfill: empresa
-// SEM post-it segue SystemModule.defaultEnabled=true (structural-defaults.json),
-// ou seja, empresa EXISTENTE (nenhuma delas tem esta linha) continua
-// exatamente como está hoje ("ficam como estão", decisão do dono 25/07). O
-// master religa por empresa em /master quando quiser. Best-effort silencioso
-// se o módulo ainda não foi semeado no boot (ensureDefaultSystemModules) —
-// nunca derruba o nascimento do tenant por causa de um flag de UI opcional.
-export async function seedConversasOptOutTx(tx: any, companyId: number): Promise<void> {
-  const conversasModule = await tx.systemModule.findUnique({
-    where: { key: 'conversas' },
-    select: { id: true },
-  });
-  if (!conversasModule) return;
-  await tx.companyModule.upsert({
-    where: { companyId_moduleId: { companyId, moduleId: conversasModule.id } },
-    update: {},
-    create: { companyId, moduleId: conversasModule.id, enabled: false },
-  });
-}
+// 🪦 seedConversasOptOutTx — REMOVIDO em 19/08/2026 (ordem do dono).
+//
+// Ele existia desde 25/07 e gravava o post-it EXPLÍCITO `conversas.enabled=false`
+// em TODA empresa nova, pelas 3 portas de nascimento. A intenção era "nasce OFF
+// e o master religa quando quiser"; o efeito medido em produção foi outro:
+// 'conversas' não pertencia a nenhuma categoria da tela do tenant, então NINGUÉM
+// dentro da empresa tinha onde ligar — nem o ADMIN, nem o dono. As 4 empresas
+// com a linha (49, 51, 52, 53) receberam o 403 "fale com o administrador"
+// mandando falar com quem já era o administrador.
+//
+// A decisão nova é acoplamento, não opt-out: 'conversas' anda junto com 'vendas'
+// (MODULE_CATEGORY_MAP.vendas + COUPLED_CATEGORY_KEYS, em modules/module-categories.ts).
+// Quem escolhe "Vendas e Agenda" no primeiro acesso liga as duas; quem não
+// escolhe, desliga as duas. Sem linha nenhuma, a empresa segue
+// SystemModule.defaultEnabled (true) — o mesmo caminho de qualquer outra chave
+// fora de plano. Não recriar este seed: um módulo só pode nascer desligado se
+// existir tela viva onde alguém possa ligá-lo.
 
 // ROTA v2 F2b (10/08, "PICAR A PONTE" — refundação da cobrança) — passo
 // COMPARTILHADO pelas 4 portas de nascimento de tenant (master_invite em
