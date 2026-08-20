@@ -1622,6 +1622,56 @@ button,input{font:inherit;color:inherit}
 .act.full{width:100%}
 .act .chev{margin-left:auto;opacity:.65}
 
+/* ---------- A FILA DE AÇÕES DA FICHA DO LEAD (19/08) ----------
+   🔴 ISTO É O PADRÃO DO MERCADO, E ELE É UM SÓ. Contatos do Android, Contatos
+   do iOS, HubSpot, Pipedrive, Zoho e Kommo desenham a MESMA coisa embaixo do
+   nome: uma fileira de alvos grandes, ícone em cima e uma palavra embaixo, um
+   por canal. Ninguém escreve "Telefone: (11) 9…" e deixa a pessoa copiar na
+   mão — o dado de contato é o BOTÃO.
+
+   As medidas não são gosto: 72px de altura e 4 colunas em 412px dão ~95px de
+   largura por alvo, bem acima do piso de 44px do dedo (WCAG 2.5.5 / Material).
+   Coluna e não linha porque o rótulo embaixo do glifo é o que faz um ícone de
+   fone significar "ligar" pra quem nunca usou o app — ícone mudo é adivinhação.
+
+   🔴 CADA CANAL TEM COR PRÓPRIA, e é a mesma família que o resto do app já usa
+   (`--lime-*` pro WhatsApp, `--blue-*` pro telefone): duas peles, zero hex
+   solto, e o verde continua querendo dizer "isto fala com o cliente". */
+.acoes-rapidas{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:7px;margin-top:9px}
+.acao-rapida{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  min-height:72px;padding:10px 4px;border-radius:14px;cursor:pointer;font:inherit;
+  background:var(--card);border:.7px solid var(--line);color:var(--ink)}
+.acao-rapida i{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:var(--bg-2);border:.7px solid var(--line);color:var(--ink-2)}
+.acao-rapida b{font-size:11px;font-weight:500;color:var(--ink-2);line-height:1.1}
+.acao-rapida.zap i{background:var(--lime-bg);border-color:var(--lime-line);color:var(--lime)}
+.acao-rapida.zap b{color:var(--lime)}
+.acao-rapida.liga i{background:var(--blue-bg);border-color:var(--blue-line);color:var(--blue-l)}
+
+/* ---------- A LINHA DE CONTATO QUE FAZ, EM VEZ DE INFORMAR (19/08) ----------
+   O defeito que ela cura tem foto: a ficha antiga listava quatro telefones e
+   dois e-mails como TEXTO, num popup sem um único botão. O vendedor lia o
+   número na tela e digitava no discador — no meio da rua, com o cliente
+   esperando. Aqui a linha inteira é o alvo (a ação óbvia do canal: WhatsApp
+   pra telefone, e-mail pro e-mail) e os verbos extras moram à direita, em
+   alvos próprios de 36px. `div` por fora e `button` por dentro porque botão
+   dentro de botão é HTML inválido — e o roteador do mock já resolve o
+   aninhamento pelo `closest`, que entrega sempre o alvo mais interno. */
+.linha-toque{display:flex;align-items:center;gap:10px;width:100%;padding:10px 0;text-align:left;cursor:pointer}
+.linha-toque+.linha-toque{border-top:1px dashed var(--line-2)}
+.linha-toque>i{width:32px;height:32px;border-radius:9px;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg-2);border:.7px solid var(--line);color:var(--ink-2)}
+.linha-toque .txt{min-width:0;flex:1}
+.linha-toque .txt strong{display:block;font-size:13.5px;font-weight:500;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.linha-toque .txt span{display:block;font-size:11px;color:var(--ink-2)}
+.linha-toque .verbos{margin-left:auto;display:flex;gap:6px;flex:0 0 auto}
+.linha-toque .verbos button{width:36px;height:36px;border-radius:10px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg-2);border:.7px solid var(--line);color:var(--ink-2)}
+.linha-toque .verbos .zap{background:var(--lime-bg);border-color:var(--lime-line);color:var(--lime)}
+
 /* ---------- navegação — 6 abas (decisão do dono) ----------
    Chat e Ajustes voltaram pra barra: o Chat é o canal do escritório com o
    motorista e não podia morar em menu escondido. Com 6 colunas o rótulo cai
@@ -4091,6 +4141,16 @@ const I = {
 menu:'<path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 bell:'<path d="M7 17V11a5 5 0 0 1 10 0v6M5.5 17h13M10 20h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
 chat:'<path d="M4.5 5.5h15v10h-9l-6 4.5v-14.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+/* 🔴 OS DOIS VERBOS DE FALAR NASCEM AQUI (19/08) porque a ficha do lead os
+   pede pelo NOME e ícone que não existe no dicionário vira quadrado vermelho
+   na cara do vendedor (`ic()` desenha o erro em vez de esconder). `phone` é o
+   fone clássico — nenhum outro glifo daqui diz "ligar"; `whats` é o balão com
+   o fone dentro, e ele é DIFERENTE do `chat` de propósito: `chat` é a conversa
+   dentro do app (o módulo Conversas), `whats` é sair do app e cair no WhatsApp
+   do aparelho. Mesmo glifo pros dois faria a pessoa achar que os dois botões
+   levam ao mesmo lugar — e um deles cobra chip da empresa e o outro não. */
+phone:'<path d="M7.6 3.9l2.1 3.9-1.9 1.9a12.7 12.7 0 0 0 4.5 4.5l1.9-1.9 3.9 2.1v3.1c0 1-.8 1.8-1.8 1.7C9.5 18.6 5.4 14.5 4.8 5.7c-.1-1 .7-1.8 1.7-1.8h1.1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+whats:'<path d="M4.4 19.6l1.2-3.6a7.9 7.9 0 1 1 3 2.9l-4.2.7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.7 9.2c.3 2.6 2.5 4.8 5.1 5.1.5.1.9-.3.9-.8v-.7l-1.6-.8-.9.9a6 6 0 0 1-1.9-1.9l.9-.9-.8-1.6h-.7c-.5 0-.9.4-.9.9z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>',
 route:'<circle cx="6" cy="18" r="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="6" r="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.6 18h5.4a3.4 3.4 0 0 0 0-6.8H10a3.4 3.4 0 0 1 0-6.8h5.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="1 3.2"/>',
 check:'<circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.2 12.3l2.6 2.6 5-5.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>',
 list:'<path d="M4 6.5h.01M4 12h.01M4 17.5h.01M8.5 6.5H20M8.5 12H20M8.5 17.5H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',

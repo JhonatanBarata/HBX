@@ -9,6 +9,33 @@
 
 ---
 
+## ✅ EXECUTADO NA MESMA NOITE (GO do dono, 19/08 ~21h50)
+
+**Ordem:** *"'conversas' tem que ser ligado junto com o vendas. Garanta isso e comece a implantação.
+No menu inicial, se a pessoa é vendas, tem que já ativar o conversas."*
+
+| O quê | Onde | Estado |
+|---|---|---|
+| `conversas` entrou na categoria **Vendas e Agenda** | `modules/module-categories.ts:19` | ✅ |
+| **Categoria acoplada** — ligar a categoria liga TODOS os módulos dela (o `ANY` faria `vendas` já-ON não escrever nada e `conversas` ficaria OFF para sempre) | `module-categories.ts` (`COUPLED_CATEGORY_KEYS`) + `users.service.ts` | ✅ |
+| **`seedConversasOptOutTx` REMOVIDO** — empresa nova não nasce mais com módulo trancado sem tela para destrancar (3 portas de nascimento) | `tenant-provisioning.pipeline.ts` (túmulo no lugar), `auth.service.ts`, `companies.service.ts`, `master-provisioning.service.ts` | ✅ |
+| Backfill de produção: as linhas de opt-out apagadas onde `vendas` está ON | `hbx_prod` — **3 linhas** (companies 49, 52, 53); a 50 ficou OFF **de propósito** (vendas dela está OFF) | ✅ |
+| Testes da lei nova (6 casos: acoplado com vendas-ON, tudo-OFF, teto do master, desligar, idempotente, mapa) | `module-categories.test.ts` — **14/14** | ✅ |
+| `tsc` do backend + `auth` e `master-provisioning` | **44/44**, typecheck limpo | ✅ |
+
+**Régua que já se mexeu:** linhas trancadas pelo próprio post-it **16 → 13**.
+
+**Medido no g15 (21:48):** com o módulo ligado, o app precisou de **restart** para a aba Conversas
+aparecer — a barra nasce do `/modules/me` do boot. Depois do restart a aba abre normal (foto `s4`).
+É o *"nem assim ativou direito"* do dono: **a ponte já tem refresh** (visibilitychange + foco +
+60 s, `ponte-src/10-portao-fontes.js:316-319`), então o aparelho dele estava com build anterior a
+esse bloco — o publish desta noite leva o refresh junto.
+
+**Decisões que isto responde:** §5.1 (`conversas` nasce ligado?) → **anda com `vendas`**;
+§13.3 (`conversas` separado de `atendimento`?) → **sim, ele é de Vendas**.
+
+---
+
 ## 0. O QUE FOI COMBINADO E NÃO FOI CUMPRIDO
 
 `PR18082026-PORTA-TRANCADA-MODULO-403.md` (18/08) mapeou esta doença inteira, com 3 leis, 7 lotes e
