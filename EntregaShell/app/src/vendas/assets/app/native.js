@@ -391,6 +391,25 @@
       const alvo = `https://wa.me/${d}${m ? `?text=${encodeURIComponent(m)}` : ""}`;
       try { window.open(alvo, "_blank", "noopener"); } catch (_) {}
     },
+    // 19/08 — O E-MAIL DO APARELHO, o quarto canal da ficha do lead (o dono:
+    // *"telefone já ligar, whatsapp já abrir o whatsapp, e-mail abrir o e-mail do celular"*).
+    // MESMO FORMATO DO `whatsapp()` LOGO ACIMA, e pelo mesmo motivo: tenta a
+    // ponte nativa (ACTION_SENDTO) e, fora do app, cai no `mailto:` do
+    // navegador — que é o equivalente web de verdade, como o `wa.me` é do zap.
+    // Sem esta segunda metade o toque na bancada ficaria indistinguível de
+    // botão morto, e a prova não teria o que medir.
+    email(to, subject, body) {
+      const t = String(to || "").trim();
+      if (!t || t.indexOf("@") < 0) return;
+      const s = String(subject || "");
+      const b = String(body || "");
+      try { if (bridge && bridge.openEmail) { bridge.openEmail(t, s, b); return; } } catch (_) {}
+      const q = [
+        s ? "subject=" + encodeURIComponent(s) : "",
+        b ? "body=" + encodeURIComponent(b) : "",
+      ].filter(Boolean).join("&");
+      try { window.location.href = "mailto:" + t + (q ? "?" + q : ""); } catch (_) {}
+    },
     maps(lat, lng, address) { bridge && bridge.openMaps && bridge.openMaps(lat == null ? null : String(lat), lng == null ? null : String(lng), String(address || "")); },
     // S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — TTS nativo pt-BR (android.speech.tts).
     // Mesmo padrão de guard de maps()/vibrate: bridge ausente (preview fora do

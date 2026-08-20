@@ -298,7 +298,16 @@
   function abrirConversaDoLead(el) {
     const id = String((el && el.dataset && el.dataset.lead) || '').trim();
     if (!id) return;                       // linha sem id não abre o nada
+    irParaConversa(id);
+  }
 
+  /* 🔴 O ID VIAJA SOZINHO, SEM O NÓ (19/08). Até aqui só o cartão do funil e a
+     linha da agenda abriam conversa, e os dois tinham `data-lead` no nó tocado.
+     A FICHA do lead abre pelo botão "Conversa", que não carrega o id em atributo
+     nenhum — ele mora no estado da tela. Fabricar um `{dataset:{lead:id}}` de
+     mentira pra caber na porta antiga é o tipo de gambiarra que o próximo leitor
+     não entende; a porta é que passa a receber o que ela realmente usa. */
+  function irParaConversa(id) {
     const deOnde = telaAtual();
     leadDaConversa = id;
     rascunhoDaConversa = '';
@@ -500,95 +509,6 @@
       });
   }
 
-  /* ==========================================================================
-     ABRIR FICHA — o botão que estava desenhado em DOIS lugares e não tinha dono
-     em ponte nenhuma (medido em 19/08: o dedo tocava, nada acontecia, e o
-     console gritava "ação sem dono"). Ele aparece no cartão do cabeçalho e no
-     aviso "Sem telefone", que é justamente o lead que não dá pra chamar.
-
-     🔴 O QUE ELE ABRE JÁ ESTÁ NA MÃO — e é exatamente por isso que ele existe.
-     O `/vendas/lead/:id/card` devolve muito mais do que os quatro campos que o
-     cabeçalho pinta: CNPJ, razão social, o nome do dono, os e-mails achados e
-     os OUTROS telefones do enriquecimento. Nada disso tem tela neste app, e o
-     caso do "Sem telefone" é o que prova o custo: o cartão mostra "sem
-     telefone" enquanto a resposta traz três números em `phones[]`. O lead
-     parecia morto por falta de tela, não por falta de dado.
-
-     🔴 E É LEITURA, SEM VERBO DE REDE. Portão, não tela nova: tela nova custa
-     desenho, rota, aula e podar; o portão é a superfície que esta ponte já usa
-     pra dizer número de verdade. Nenhum botão daqui gasta crédito, manda
-     mensagem ou grava nada — quem faz isso continua sendo a pílula lá fora.
-     ========================================================================== */
-  /** Uma linha do corpo do portão, na MESMA peça que a ficha de empresa usa
-   *  (`.rowline`: rótulo à esquerda, valor à direita, risco tracejado entre
-   *  duas). Peça nova pra dizer a mesma coisa é como duas telas passam a
-   *  mostrar o mesmo dado de dois jeitos.
-   *  🔴 Campo sem fonte NÃO VIRA LINHA (Lei do IF): "CNPJ: não informado" é
-   *  ruído que empurra pra fora da tela a informação que a pessoa veio ver. */
-  const linhaDaFicha = (rotulo, valor) => {
-    const v = String(valor == null ? '' : valor).trim();
-    return v
-      ? `<div class="rowline"><span style="color:var(--ink-2)">${esc(rotulo)}</span><b style="color:var(--ink)">${esc(v)}</b></div>`
-      : '';
-  };
-
-  function abrirFichaDoLead() {
-    if (typeof window.portao !== 'function') return;
-    const l = fichaCruaDoLead;
-    /* Sem ficha não se inventa ficha. Pode ser que a porta do `/card` tenha
-       caído ou que a conversa tenha sido aberta pela barra, sem lead — e um
-       portão vazio com título de ficha é pior que a recusa honesta. */
-    if (!l) {
-      window.portao({
-        tom: 'info', ico: 'alert', titulo: 'Ficha ainda não chegou',
-        sub: 'Os dados desta empresa não vieram do servidor. Puxe a conversa de novo e tente outra vez.',
-        acoes: [['Fechar', '', true]],
-      });
-      return;
-    }
-
-    /* Os telefones: o principal e os que o enriquecimento achou, sem repetir o
-       que já está no cabeçalho. É esta lista que salva o lead "sem telefone" —
-       ela é o motivo de o aviso ter um botão. */
-    const jaMostrado = String(l.phone || '').replace(/\D/g, '');
-    const outros = (Array.isArray(l.phones) ? l.phones : [])
-      .map((p) => String((p && (p.phone || p.number)) || p || ''))
-      .filter((p) => p && p.replace(/\D/g, '') !== jaMostrado)
-      .map((p) => telefoneBonito(p) || p);
-    const emails = (Array.isArray(l.emails) ? l.emails : [])
-      .map((e) => String((e && (e.email || e.address)) || e || '').trim())
-      .filter(Boolean);
-
-    /* 🔴 TETO EM CADA LISTA, e ele é de TELA, não de gosto. O portão não rola
-       (`.portao` é uma caixa centrada): oito telefones empurrariam o botão
-       "Fechar" pra fora do vidro e o portão viraria uma armadilha — o defeito
-       que o "portão sem saída é beco" desta casa já nomeou. */
-    const corpo = [
-      linhaDaFicha('Razão social', l.razaoSocial),
-      linhaDaFicha('CNPJ', l.cnpj),
-      linhaDaFicha('Situação', l.companySituation),
-      linhaDaFicha('Responsável', l.ownerName),
-      linhaDaFicha('Telefone', telefoneBonito(l.phone)),
-      outros.slice(0, 3).map((p) => linhaDaFicha('Outro telefone', p)).join(''),
-      emails.slice(0, 2).map((e) => linhaDaFicha('E-mail', e)).join(''),
-      linhaDaFicha('Onde', local(l.city, l.state)),
-      linhaDaFicha('Tentativas', l.attemptCount ? String(l.attemptCount) : ''),
-    ].filter(Boolean).join('');
-
-    window.portao({
-      tom: 'info', ico: 'store',
-      // 🔴 `esc()` no TÍTULO: razão social da RFB vem com `&` ("COMÉRCIO & CIA")
-      // e o template do portão interpola cru — um `<` some com a caixa inteira.
-      titulo: esc(String(l.name || 'Ficha do lead')),
-      /* O subtítulo é a NOTÍCIA do caso vazio: sem ele o portão abriria mudo
-         justamente para quem tocou no aviso "Sem telefone". */
-      sub: corpo
-        ? ''
-        : 'O servidor não devolveu nenhum outro dado desta empresa além do que já está na tela.',
-      corpo,
-      acoes: [['Fechar', '', true]],
-    });
-  }
 
   /* ------------------------------------------------------------------------
      O QUE O DEDO FAZ NESTA TELA.
@@ -596,8 +516,13 @@
   registrarTelas({ conversas: carregarConversa });
 
   registrarAcoes({
-    // O cartão do Funil e a linha da Agenda apontam pro mesmo verbo.
-    'abrir-lead': abrirConversaDoLead,
+    /* 🔴 O TOQUE NO CARTÃO NÃO MORA MAIS AQUI (19/08). `abrir-lead` passou a ser
+       do `70-leadficha.js`: tocar num lead abre a FICHA dele, e a conversa é
+       UMA das ações de lá — foi o pedido do dono ("eu clico nele abre conversas,
+       como assim?") e é o que todo CRM de celular faz.
+       O que sobrou aqui é o ATALHO: o balão verde do cartão, que continua
+       levando direto pro fio pra quem já sabe o que quer. */
+    'abrir-conversa': abrirConversaDoLead,
 
     /* A PÍLULA. Ela só carimba a preferência — quem decide se a posição
        "Empresa" existe é a casca, a cada pintura, com as duas bandeiras do
@@ -614,10 +539,12 @@
        antes de qualquer repinte — ver a guarda dentro do `enviarMensagem`. */
     'abrir-whats-pessoal': (el) => enviarMensagem('celular', null, el),
 
-    /* Os DOIS lugares em que a casca desenha "Abrir ficha" (o cartão do
-       cabeçalho e o botão do aviso "Sem telefone") apontam pro mesmo verbo —
-       um dono só, senão as duas portas explicam o mesmo lead de dois jeitos. */
-    'abrir-ficha-lead': abrirFichaDoLead,
+    /* 🔴 `abrir-ficha-lead` MUDOU DE ARQUIVO (19/08) — os dois lugares em que a
+       casca escreve "Abrir ficha" (o cartão do cabeçalho e o botão do aviso
+       "Sem telefone") agora abrem a TELA da ficha, e ela mora no
+       `70-leadficha.js` com todo o resto dela. O portão de leitura que morava
+       aqui morreu junto: ele listava os telefones como TEXTO, sem um botão pra
+       ligar — era exatamente esse o defeito que o dono viu na foto. */
 
     /* 🔴 REENVIO É UM TOQUE DE GENTE, UMA VEZ, COM O MESMO CORPO. O botão trava
        no mesmo quadro do dedo (`disabled`) porque o repinte só chega depois da

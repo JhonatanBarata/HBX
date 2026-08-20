@@ -380,6 +380,36 @@ class NativeAppBridge(
         open(Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$digits?text=${Uri.encode(text)}")))
     }
 
+    /**
+     * O E-MAIL DO APARELHO (19/08, ordem do dono: *"cadê as opções de já abrir o
+     * e-mail do celular"*). Era o único canal da ficha do lead sem dono nativo —
+     * telefone (`openCall`), WhatsApp (`openWhatsapp`) e mapa (`openMaps`) já
+     * moravam aqui; o e-mail ficava como texto na tela pra pessoa copiar na mão.
+     *
+     * 🔴 `ACTION_SENDTO` COM `mailto:`, NUNCA `ACTION_SEND`. O SENDTO só é
+     * respondido por aplicativo de e-mail de verdade; o SEND abre a bandeja de
+     * COMPARTILHAR — WhatsApp, Drive, Bluetooth — e o vendedor que queria mandar
+     * um orçamento acabaria mandando pra si mesmo no Telegram. É a mesma razão
+     * de o `openCall` usar DIAL e não CALL: cada intenção com o verbo exato.
+     *
+     * O corpo e o assunto viajam como parâmetro do `mailto:` porque
+     * `Intent.EXTRA_*` é ignorado por parte dos clientes de e-mail do Android;
+     * na query eles chegam nos dois caminhos.
+     */
+    @JavascriptInterface
+    fun openEmail(to: String, subject: String, body: String) {
+        val destino = to.trim().filterNot(Char::isISOControl).take(320)
+        if (destino.isBlank() || !destino.contains('@')) return
+        val assunto = subject.filterNot(Char::isISOControl).take(200)
+        val corpo = body.take(4_000)
+        val query = listOfNotNull(
+            assunto.takeIf { it.isNotBlank() }?.let { "subject=${Uri.encode(it)}" },
+            corpo.takeIf { it.isNotBlank() }?.let { "body=${Uri.encode(it)}" },
+        ).joinToString("&")
+        val uri = Uri.parse("mailto:${Uri.encode(destino, "@")}" + if (query.isBlank()) "" else "?$query")
+        open(Intent(Intent.ACTION_SENDTO, uri))
+    }
+
     @JavascriptInterface
     fun openMaps(latitude: String?, longitude: String?, address: String?) {
         val lat = latitude?.toDoubleOrNull()?.takeIf { it in -90.0..90.0 }

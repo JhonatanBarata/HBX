@@ -154,15 +154,6 @@
       "serviceUrl": "/dashboard/website"
     },
     {
-      "key": "vc",
-      "name": "VC — Alterador de voz",
-      "description": "Permite ao admin alterar a propria voz (feminina/masculina) ao gravar notas de voz no Atendimento. Liberado pelo master, empresa por empresa.",
-      "monthlyPrice": 0,
-      "defaultEnabled": false,
-      "companyAssignable": true,
-      "serviceUrl": null
-    },
-    {
       "key": "master",
       "name": "Master",
       "description": "Gestao global do sistema (empresas, modulos, usuarios e billing).",
@@ -188,7 +179,8 @@
   ],
   "retiredModuleKeys": [
     "cadastros",
-    "hbx_recovery"
+    "hbx_recovery",
+    "vc"
   ],
   "developmentSeed": {
     "company": {

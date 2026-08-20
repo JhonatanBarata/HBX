@@ -233,9 +233,16 @@ Sai do catálogo. Medido antes de propor:
 | Mecanismo de aposentadoria | **já existe**: `retiredModuleKeys` (`bootstrap/structural-defaults.json:189`) apaga `CompanyModule` + `SystemModule` no boot (`modules.service.ts:1846`) |
 | Raio de alcance | **4 arquivos**: entrada JSON (`:157-164`), categoria `structural` (`modules.service.ts:1668`), popover do Atendimento (`atendimento/page.client.tsx:812,1615`), lib `frontend/src/lib/voice-fx.ts` |
 
-**Lote (L9):** remover a entrada do JSON, acrescentar `"vc"` em `retiredModuleKeys`, apagar
-`voice-fx.ts` e o popover, tirar a linha de categoria. Sem migration — a rotina de boot faz a limpeza.
-O `/master` cai de **17 para 16** linhas.
+**Lote (L9) — ✅ EXECUTADO 19/08 22h:** entrada removida do JSON, `"vc"` em `retiredModuleKeys`,
+linha de categoria fora do `getModuleCategory`. Sem migration — `removeRetiredSystemModules` apaga
+`CompanyModule` + `SystemModule` no boot. O `/master` cai de **17 para 16** linhas.
+
+**L9b (aberto, de propósito):** o **código** do alterador continua no repo (`frontend/src/lib/voice-fx.ts`
++ popover, sliders e `voiceMode` na tela de Atendimento). A UI está provada morta — `vcAllowed` foi
+cravado em `false` (`atendimento/page.client.tsx:820`) em vez de consultar a chave, e o microfone
+grava direto pelo caminho "normal". A limpeza do morto é lote separado porque ela mexe no fluxo de
+**gravação de áudio**, que é feature viva do Atendimento e precisa da tela exercitada — não se
+desmonta um fluxo vivo de carona num publish de catálogo.
 
 ---
 

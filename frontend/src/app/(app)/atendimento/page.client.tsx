@@ -809,9 +809,15 @@ export function AtendimentoClient() {
   const previewBlobRef = useRef<Blob | null>(null);  // blob que será enviado (original ou WAV processado)
   const previewExtRef = useRef("webm");
 
-  // Alterador de voz (módulo "VC") — só admin + módulo liberado pelo master
-  const mods = useMyModules();
-  const vcAllowed = souAdmin && Boolean(mods.byKey["vc"]?.accessible);
+  // 🪦 ALTERADOR DE VOZ (módulo "VC") — APOSENTADO em 19/08/2026 (ordem do dono).
+  // A chave saiu do catálogo (`retiredModuleKeys` em structural-defaults.json), e o
+  // boot do backend apaga SystemModule + CompanyModule dela. Fica cravado em `false`
+  // em vez de consultar `mods.byKey["vc"]`: chave que não existe mais não pode voltar
+  // a acender UI por acidente se alguém recriar o registro. O caminho da gravação
+  // segue inteiro pelo modo "normal" (blob original) — o botão do microfone grava
+  // direto. A limpeza do código morto (voice-fx.ts + popover + sliders) é lote
+  // separado, com a tela de Atendimento exercitada: gravação é feature viva.
+  const vcAllowed = false;
   const [voiceMode, setVoiceMode] = useState<VoiceMode>("normal"); // nunca inicia ligado
   const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);        // popover (só aparece ao clicar)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);

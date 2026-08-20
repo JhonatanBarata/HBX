@@ -1595,6 +1595,73 @@ button,input{font:inherit;color:inherit}
 .act.full{width:100%}
 .act .chev{margin-left:auto;opacity:.65}
 
+/* ---------- A FILA DE AÇÕES DA FICHA DO LEAD (19/08) ----------
+   🔴 ISTO É O PADRÃO DO MERCADO, E ELE É UM SÓ. Contatos do Android, Contatos
+   do iOS, HubSpot, Pipedrive, Zoho e Kommo desenham a MESMA coisa embaixo do
+   nome: uma fileira de alvos grandes, ícone em cima e uma palavra embaixo, um
+   por canal. Ninguém escreve "Telefone: (11) 9…" e deixa a pessoa copiar na
+   mão — o dado de contato é o BOTÃO.
+
+   As medidas não são gosto: 72px de altura e 4 colunas em 412px dão ~95px de
+   largura por alvo, bem acima do piso de 44px do dedo (WCAG 2.5.5 / Material).
+   Coluna e não linha porque o rótulo embaixo do glifo é o que faz um ícone de
+   fone significar "ligar" pra quem nunca usou o app — ícone mudo é adivinhação.
+
+   🔴 CADA CANAL TEM COR PRÓPRIA, e é a mesma família que o resto do app já usa
+   (`--lime-*` pro WhatsApp, `--blue-*` pro telefone): duas peles, zero hex
+   solto, e o verde continua querendo dizer "isto fala com o cliente". */
+.acoes-rapidas{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:7px;margin-top:9px}
+.acao-rapida{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+  min-height:72px;padding:10px 4px;border-radius:14px;cursor:pointer;font:inherit;
+  background:var(--card);border:.7px solid var(--line);color:var(--ink)}
+.acao-rapida i{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:var(--bg-2);border:.7px solid var(--line);color:var(--ink-2)}
+.acao-rapida b{font-size:11px;font-weight:500;color:var(--ink-2);line-height:1.1}
+.acao-rapida.zap i{background:var(--lime-bg);border-color:var(--lime-line);color:var(--lime)}
+.acao-rapida.zap b{color:var(--lime)}
+.acao-rapida.liga i{background:var(--blue-bg);border-color:var(--blue-line);color:var(--blue-l)}
+
+/* ---------- A LINHA DE CONTATO QUE FAZ, EM VEZ DE INFORMAR (19/08) ----------
+   O defeito que ela cura tem foto: a ficha antiga listava quatro telefones e
+   dois e-mails como TEXTO, num popup sem um único botão. O vendedor lia o
+   número na tela e digitava no discador — no meio da rua, com o cliente
+   esperando. Aqui a linha inteira é o alvo (a ação óbvia do canal: WhatsApp
+   pra telefone, e-mail pro e-mail) e os verbos extras moram à direita, em
+   alvos próprios de 36px. `div` por fora e `button` por dentro porque botão
+   dentro de botão é HTML inválido — e o roteador do mock já resolve o
+   aninhamento pelo `closest`, que entrega sempre o alvo mais interno. */
+.linha-toque{display:flex;align-items:center;gap:10px;width:100%;padding:10px 0;text-align:left;cursor:pointer}
+.linha-toque+.linha-toque{border-top:1px dashed var(--line-2)}
+.linha-toque>i{width:32px;height:32px;border-radius:9px;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg-2);border:.7px solid var(--line);color:var(--ink-2)}
+.linha-toque .txt{min-width:0;flex:1}
+.linha-toque .txt strong{display:block;font-size:13.5px;font-weight:500;color:var(--ink);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.linha-toque .txt span{display:block;font-size:11px;color:var(--ink-2)}
+.linha-toque .verbos{margin-left:auto;display:flex;gap:6px;flex:0 0 auto}
+.linha-toque .verbos button{width:36px;height:36px;border-radius:10px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg-2);border:.7px solid var(--line);color:var(--ink-2)}
+.linha-toque .verbos .zap{background:var(--lime-bg);border-color:var(--lime-line);color:var(--lime)}
+/* 🔴 O RÓTULO DA `.rowline` ERA `style="color:…"` INLINE em duas telas — e
+   estilo inline é o que a virada de luz não alcança (ele ganha de qualquer
+   seletor). Vira classe, como o botão de perigo já virou. */
+.rowline .rot{color:var(--ink-2)}
+/* Caixa de LEITURA: o valor é tinta de texto, não de destaque. O `--lime` da
+   `.rowline` nasceu pra número de dinheiro; usá-lo em "Razão social" faria a
+   tela gritar o que é só cadastro. */
+.box.dados .rowline b{color:var(--ink)}
+/* Valor que se copia num toque — o CNPJ é o caso: ninguém digita 14 dígitos
+   olhando pra tela. Alvo de 30px de altura, dentro da própria linha. */
+.copiavel{display:inline-flex;align-items:center;gap:6px;min-height:30px;padding:2px 7px;border-radius:8px;
+  font-size:13px;cursor:pointer;background:var(--bg-2);border:.7px solid var(--line);color:var(--ink)}
+/* O balão verde do cartão do funil: 36px de alvo, o piso do dedo. Ele mora na
+   coluna da direita, onde antes havia só a seta. */
+.zap-atalho{width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;background:var(--lime-bg);border:.7px solid var(--lime-line);color:var(--lime)}
+.seta{color:var(--ink-3);display:flex}
+
 /* ---------- navegação — 6 abas (decisão do dono) ----------
    Chat e Ajustes voltaram pra barra: o Chat é o canal do escritório com o
    motorista e não podia morar em menu escondido. Com 6 colunas o rótulo cai

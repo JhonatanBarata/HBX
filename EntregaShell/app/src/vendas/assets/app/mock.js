@@ -15,6 +15,16 @@ const I = {
 menu:'<path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 bell:'<path d="M7 17V11a5 5 0 0 1 10 0v6M5.5 17h13M10 20h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
 chat:'<path d="M4.5 5.5h15v10h-9l-6 4.5v-14.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+/* 🔴 OS DOIS VERBOS DE FALAR NASCEM AQUI (19/08) porque a ficha do lead os
+   pede pelo NOME e ícone que não existe no dicionário vira quadrado vermelho
+   na cara do vendedor (`ic()` desenha o erro em vez de esconder). `phone` é o
+   fone clássico — nenhum outro glifo daqui diz "ligar"; `whats` é o balão com
+   o fone dentro, e ele é DIFERENTE do `chat` de propósito: `chat` é a conversa
+   dentro do app (o módulo Conversas), `whats` é sair do app e cair no WhatsApp
+   do aparelho. Mesmo glifo pros dois faria a pessoa achar que os dois botões
+   levam ao mesmo lugar — e um deles cobra chip da empresa e o outro não. */
+phone:'<path d="M7.6 3.9l2.1 3.9-1.9 1.9a12.7 12.7 0 0 0 4.5 4.5l1.9-1.9 3.9 2.1v3.1c0 1-.8 1.8-1.8 1.7C9.5 18.6 5.4 14.5 4.8 5.7c-.1-1 .7-1.8 1.7-1.8h1.1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+whats:'<path d="M4.4 19.6l1.2-3.6a7.9 7.9 0 1 1 3 2.9l-4.2.7z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.7 9.2c.3 2.6 2.5 4.8 5.1 5.1.5.1.9-.3.9-.8v-.7l-1.6-.8-.9.9a6 6 0 0 1-1.9-1.9l.9-.9-.8-1.6h-.7c-.5 0-.9.4-.9.9z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>',
 route:'<circle cx="6" cy="18" r="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="6" r="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.6 18h5.4a3.4 3.4 0 0 0 0-6.8H10a3.4 3.4 0 0 1 0-6.8h5.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="1 3.2"/>',
 check:'<circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.2 12.3l2.6 2.6 5-5.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>',
 list:'<path d="M4 6.5h.01M4 12h.01M4 17.5h.01M8.5 6.5H20M8.5 12H20M8.5 17.5H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
@@ -425,6 +435,38 @@ const DADOS={
     temWhats:0, chip:{conectado:0},
     canal:'', enviando:0, vazio:'Nenhuma mensagem ainda',
     conversa:[],
+  },
+
+  /* ==== A FICHA DO LEAD =================================================
+     GET /vendas/lead/:id/card — a MESMA porta que a conversa já lê, então
+     esta tela não custou endpoint novo nem linha na allowlist do APK.
+
+     🔴 `fone` É O CRU E `fones[].rot` É O BONITO, e a separação é o que faz o
+     discador receber "5519990000001" enquanto a tela mostra "(19) 99000-0001".
+     Misturar os dois é como um número formatado chega no `tel:` e o Android
+     abre o teclado com parênteses dentro.
+     🔴 `linha` e `historia` são LISTAS DE PARES, não objetos: quem preenche é a
+     ponte, e o que não veio do servidor simplesmente não entra na lista — a
+     Lei do IF aplicada à FONTE, e não ao desenho. */
+  leadficha:{
+    volta:'vendas', id:'l1',
+    ini:'E1', nome:'Empresa 1', tom:'',
+    etapa:'Em contato', etapaTom:'blue', selo:'', seloTom:'',
+    onde:'Cidade 1 · SP', segmento:'Bebidas',
+    fone:'5519900000001', email:'contato@empresa1.com.br',
+    fones:[
+      {cru:'5519900000001', rot:'(19) 90000-0001', sub:'principal · toque para abrir no WhatsApp'},
+      {cru:'5519300000000', rot:'(19) 3000-0000', sub:'toque para abrir no WhatsApp'},
+    ],
+    emails:['contato@empresa1.com.br'],
+    cnpj:'00.000.000/0001-01', razaoSocial:'EMPRESA 1 COMERCIO LTDA',
+    situacao:'Ativa', responsavel:'Pessoa 1', nota:'4,6 · 128 avaliações', site:'empresa1.com.br',
+    endereco:'Rua 1, 100', recado:'Pediu pra chamar depois das 14h.',
+    linha:[['Etapa','Em contato'],['Tentativas','3'],['Último toque','há 4 d'],['Retorno marcado','21/08 · 09:00']],
+    historia:[
+      ['há 4 d','Mensagem enviada','Primeira abordagem pelo WhatsApp da empresa.'],
+      ['há 9 d','Empresa puxada do Radar',''],
+    ],
   },
 
   /* ==== EMPRESAS — A CARTEIRA ============================================
@@ -860,13 +902,24 @@ T.vendas={nome:'Vendas · o funil',grupo:'Vendas',render(){
                 kpi('chart','var(--lime)',v.conversao,'conversão')].join('');
   /* O card é a EMPRESA: quem é, onde fica, por onde falo, em que pé está e
      quando foi o último toque. O gancho nasce do dado — sem id a linha sai
-     inerte. */
+     inerte.
+
+     🔴 DUAS INTENÇÕES, DOIS ALVOS (19/08). O corpo do cartão abre a FICHA
+     (quem toca num lead muitas vezes quer o CNPJ, o endereço, o histórico); o
+     balão verde abre a CONVERSA em um toque, pra quem já sabe o que quer. Foi
+     assim que a ficha entrou sem cobrar um toque a mais de quem só queria
+     falar — o erro que a mudança de destino cometeria se o balão não existisse.
+     Sem telefone não há balão: sobra a seta, que é a promessa honesta de "aqui
+     dentro tem mais". */
   const card=c=>`<div class="cli"${c.id?` data-acao="abrir-lead" data-lead="${c.id}"`:''}>
       <span class="ava ${c.tom||''}">${c.ini||''}</span>
       <span><strong>${c.nome||''}</strong>
         <span>${[c.local,c.fone].filter(Boolean).join(' · ')}</span>
         <span class="tags">${c.etapa?`<b class="tag ${c.etapaTom||''}">${c.etapa}</b>`:''}${c.selo?`<b class="tag ${c.seloTom||''}">${c.selo}</b>`:''}</span></span>
-      <span class="rgt">${c.toque?`<small>${c.toque}</small>`:''}<span style="color:var(--ink-3)">${ic('chev',15)}</span></span></div>`;
+      <span class="rgt">${c.toque?`<small>${c.toque}</small>`:''}
+        ${c.id&&c.fone
+          ?`<button class="zap-atalho" data-acao="abrir-conversa" data-lead="${c.id}" aria-label="Abrir a conversa">${ic('whats',17)}</button>`
+          :`<span class="seta">${ic('chev',15)}</span>`}</span></div>`;
   const lista=Array.isArray((v.blocos||{})[sel])?v.blocos[sel]:[];
   const vazio=(v.vazios||{})[sel]||{};
   const corpo=lista.length
@@ -1352,6 +1405,137 @@ ${hdr({voltar:DADOS.conversassemchip.volta||'vendas'})}
   ${corpoDaConversa(DADOS.conversassemchip)}
 </div>
 ${nav('conversas')}`;}};
+
+/* 4b — A FICHA DO LEAD (19/08, ordem do dono: *"eu quero ver detalhes do lead
+   que puxei ao clicar nele, eu clico nele abre conversas, como assim?"* e
+   *"cadê as opções de já abrir o e-mail do celular, telefone já ligar,
+   WhatsApp já abrir o WhatsApp"*).
+
+   🔴 O QUE ESTAVA ERRADO, E ERAM DUAS COISAS. (1) O toque no cartão do funil
+   pulava DIRETO pra conversa: o app tinha 17 telas e nenhuma mostrava o LEAD.
+   (2) O que se chamava "ficha" era um popup de LEITURA — quatro telefones e
+   dois e-mails escritos como texto, sem um único botão (foto do g15, 19/08).
+   O vendedor lia o número na tela e digitava no discador na mão, na rua.
+
+   🔴 O QUE O MERCADO FAZ, E É UM SÓ. Contatos do Android/iOS, HubSpot,
+   Pipedrive, Zoho e Kommo abrem o REGISTRO ao tocar na lista, e embaixo do
+   nome vem a fileira de canais (ligar · mensagem · e-mail · rota). O dado de
+   contato NUNCA é texto morto: é o alvo. A conversa é UMA das ações, não o
+   destino do toque — porque quem toca num lead às vezes quer o CNPJ, o e-mail,
+   o endereço ou o histórico, e não mandar mensagem.
+
+   🔴 E POR ISSO A LISTA GANHOU ATALHO PRÓPRIO. Empurrar todo mundo por mais um
+   toque pra falar seria trocar um defeito por outro: no cartão do funil o
+   balão verde abre a conversa em UM toque (quem já sabe o que quer), e o resto
+   do cartão abre esta ficha (quem precisa saber). Duas intenções, dois alvos.
+
+   🔴 ZERO DADO INVENTADO: tudo aqui sai de `GET /vendas/lead/:id/card`, que a
+   allowlist do APK já deixava passar (a conversa lê a mesma porta). Nenhuma
+   linha nasce sem fonte — a Lei do IF vale campo a campo, e é ela que faz esta
+   tela encolher sozinha num lead cru do Radar e crescer num lead enriquecido. */
+T.leadficha={nome:'Ficha do lead',grupo:'Vendas',render(){
+  const d=DADOS.leadficha;
+  const fones=Array.isArray(d.fones)?d.fones:[];
+  const emails=Array.isArray(d.emails)?d.emails:[];
+  const linha=Array.isArray(d.linha)?d.linha:[];
+  const historia=Array.isArray(d.historia)?d.historia:[];
+
+  /* Os quatro canais. Cada um só existe com o fato por trás (Lei do IF): sem
+     telefone não há "Ligar" nem "WhatsApp", sem e-mail não há "E-mail". Botão
+     desenhado que não faz nada é pior que botão ausente — a pessoa toca, nada
+     acontece, e conclui que o aplicativo está quebrado. */
+  const canais=[
+    d.id?`<button class="acao-rapida" data-acao="lead-conversar"><i>${ic('chat',19)}</i><b>Conversa</b></button>`:'',
+    d.fone?`<button class="acao-rapida zap" data-acao="lead-zap"><i>${ic('whats',19)}</i><b>WhatsApp</b></button>`:'',
+    d.fone?`<button class="acao-rapida liga" data-acao="lead-ligar"><i>${ic('phone',19)}</i><b>Ligar</b></button>`:'',
+    d.email?`<button class="acao-rapida" data-acao="lead-email"><i>${ic('mail',19)}</i><b>E-mail</b></button>`:'',
+  ].filter(Boolean).join('');
+
+  /* Uma linha de contato: o corpo inteiro é a ação ÓBVIA do canal e os verbos
+     extras moram à direita. `dado` é o que viaja pro discador/WhatsApp — o
+     bonito é pra ler, o cru é pra agir, e misturar os dois é o que faz um
+     "(19) 9…" chegar formatado no `tel:`. */
+  const linhaFone=(f,i)=>`<div class="linha-toque" data-acao="lead-zap" data-fone="${f.cru}">
+    <i>${ic('phone',15)}</i>
+    <span class="txt"><strong>${f.rot}</strong><span>${f.sub||'toque para abrir no WhatsApp'}</span></span>
+    <span class="verbos">
+      <button class="zap" data-acao="lead-zap" data-fone="${f.cru}" aria-label="WhatsApp">${ic('whats',16)}</button>
+      <button data-acao="lead-ligar" data-fone="${f.cru}" aria-label="Ligar">${ic('phone',16)}</button>
+      <button data-acao="lead-copiar" data-copia="${f.rot}" aria-label="Copiar">${ic('copy',16)}</button>
+    </span></div>`;
+  const linhaEmail=(e)=>`<div class="linha-toque" data-acao="lead-email" data-email="${e}">
+    <i>${ic('mail',15)}</i>
+    <span class="txt"><strong>${e}</strong><span>toque para escrever</span></span>
+    <span class="verbos">
+      <button data-acao="lead-copiar" data-copia="${e}" aria-label="Copiar">${ic('copy',16)}</button>
+    </span></div>`;
+
+  const falar=(fones.length||emails.length)
+    ?`<div class="box">${fones.map(linhaFone).join('')}${emails.map(linhaEmail).join('')}</div>`
+    :`<div class="box"><div class="box-t">Sem telefone e sem e-mail</div>
+      <div class="box-s">O servidor não devolveu nenhum contato desta empresa — por aqui não há como falar com ela.</div></div>`;
+
+  /* Leitura pura: rótulo à esquerda, valor à direita. É a MESMA peça da ficha
+     de empresa (`.rowline`) — peça nova pra dizer a mesma coisa é como duas
+     telas passam a mostrar o mesmo dado de dois jeitos. */
+  const par=(rot,val,copia)=>val?`<div class="rowline"><span class="rot">${rot}</span>
+    ${copia?`<button class="copiavel" data-acao="lead-copiar" data-copia="${val}">${val}${ic('copy',13)}</button>`
+           :`<b>${val}</b>`}</div>`:'';
+
+  /* O site é LINHA DE TOQUE e não par de leitura: ele abre no navegador do
+     aparelho, e é o que o vendedor olha antes de ligar (preço, foto, se a loja
+     ainda existe). Sem site a linha some — nunca "não informado". */
+  const quem=[par('CNPJ',d.cnpj,1),par('Razão social',d.razaoSocial),par('Situação',d.situacao),
+              par('Responsável',d.responsavel),par('Segmento',d.segmento),par('Nota',d.nota),
+              d.site?`<div class="linha-toque" data-acao="lead-site"><i>${ic('search',15)}</i>
+                <span class="txt"><strong>${d.site}</strong><span>toque para abrir o site</span></span>
+                <span class="verbos"><button data-acao="lead-copiar" data-copia="${d.site}" aria-label="Copiar">${ic('copy',16)}</button></span></div>`:''
+             ].filter(Boolean).join('');
+
+  const onde=d.endereco||d.onde
+    ?`<div class="box">
+      ${d.endereco?`<div class="linha-toque" data-acao="lead-mapa"><i>${ic('map',15)}</i>
+        <span class="txt"><strong>${d.endereco}</strong><span>${d.onde||'toque para ver no mapa'}</span></span>
+        <span class="verbos"><button data-acao="lead-mapa" aria-label="Mapa">${ic('nav',16)}</button></span></div>`
+       :`<div class="rowline"><span class="rot">Cidade</span><b>${d.onde}</b></div>`}
+    </div>`:'';
+
+  const corpo=`<div class="lista-card">
+    <div class="cli">
+      <span class="ava${d.tom?` ${d.tom}`:''}">${d.ini}</span>
+      <span><strong>${d.nome}</strong><span>${d.onde||'sem cidade'}</span>
+        <span class="tags">${d.etapa?`<b class="tag${d.etapaTom?` ${d.etapaTom}`:''}">${d.etapa}</b>`:''}
+          ${d.selo?`<b class="tag${d.seloTom?` ${d.seloTom}`:''}">${d.selo}</b>`:''}</span></span>
+    </div>
+  </div>
+
+  <div class="acoes-rapidas">${canais}</div>
+  ${d.fone?'':`<div class="banner alerta">${ic('alert',15)}
+    <span>Sem telefone: esta empresa não vira conversa. O Radar às vezes acha o número depois.</span></div>`}
+
+  <div class="grupo">Falar</div>
+  ${falar}
+
+  ${quem?`<div class="grupo">Quem é</div><div class="box dados">${quem}</div>`:''}
+
+  ${onde?`<div class="grupo">Onde é</div>${onde}`:''}
+
+  ${linha.length?`<div class="grupo">Como está</div>
+    <div class="box dados">${linha.map(l=>par(l[0],l[1])).join('')}</div>`:''}
+
+  ${d.recado?`<div class="grupo">Recado</div>
+    <div class="box"><div class="box-s">${d.recado}</div></div>`:''}
+
+  ${historia.length?`<div class="grupo">O que já aconteceu</div>
+    <div class="box">${historia.map(h=>`<div class="rowline"><span class="rot">${h[1]}</span><b>${h[0]}</b></div>
+      ${h[2]?`<div class="box-s">${h[2]}</div>`:''}`).join('')}</div>`:''}`;
+
+  return `${status}
+${hdr({voltar:d.volta||'vendas'})}
+<div class="body">
+  ${miolo(d,'store','recarregar-leadficha',6,corpo)}
+</div>
+${nav('vendas')}`;}};
 
 /* 5 — EMPRESAS (a carteira) -----------------------------------------------
    Fonte: GET /nucleo/empresas?query=&uf=&page=&pageSize= — READ-ONLY,
@@ -1920,7 +2104,7 @@ T.tutorial={nome:'Tutorial',grupo:'Ajustes',render(){
 /* ==========================================================================
    MONTAGEM
    ========================================================================== */
-const ORDEM=['entrada','saida','vendas','agenda','conversas','conversassemchip','radar',
+const ORDEM=['entrada','saida','vendas','leadficha','agenda','conversas','conversassemchip','radar',
              'empresas','empresaficha','ajustes','perfil','whatsapp','modulos','creditos',
              'tutorial','semclientes','portoes'];
 const GRUPOS=['Sistema','Vendas','Radar','Conversas','Empresas','Ajustes'];
@@ -3087,7 +3271,7 @@ const AULAS={
   vendas:[
     ['.kpis','Seu placar','Quantas empresas você chamou, quantas responderam e quanto virou venda.'],
     ['.chips','Onde cada empresa está','Atrasados, hoje, agendados e fechados. Comece pelos atrasados.'],
-    ['.cli','Cada cartão é uma empresa','Toque pra abrir a ficha e falar com ela.'],
+    ['.cli','Cada cartão é uma empresa','Toque pra abrir a ficha dela. O balão verde vai direto pra conversa.'],
     ['.sum','Quanto ainda cabe','Carteira cheia é o Radar parando de mandar empresa nova.'],
   ],
   radar:[
@@ -3099,6 +3283,12 @@ const AULAS={
        estar ali é a lâmpada ensinando a procurar o que não existe — e a aula é
        o fiscal do desenho, não o remendo dele. */
     ['.tmx-dock','Buscar não cobra','Buscar e contar não gastam nada. Só o Puxar gasta crédito.'],
+  ],
+  /* A ficha ensina os CANAIS, que é o que ela trouxe de novo: cada um sai do
+     app e cai no aplicativo do aparelho (WhatsApp, discador, e-mail, mapa). */
+  leadficha:[
+    ['.acoes-rapidas','Fale por onde quiser','WhatsApp, ligação e e-mail abrem no aplicativo do seu celular.'],
+    ['.linha-toque','Cada contato é um botão','Toque no número pra chamar no WhatsApp; do lado, ligar e copiar.'],
   ],
   agenda:[
     ['.chips','Atrasado, hoje, semana','Três listas, uma resposta: o que fazer agora.'],

@@ -133,6 +133,20 @@
         lead: '', ini: '', nome: '', telefone: '', etapa: '', origem: '',
         temWhats: 0, chip: {}, canal: '', enviando: 0, conversa: [],
       },
+      /* A FICHA DO LEAD. As QUATRO listas zeram juntas e isso não é zelo: elas
+         são do LEAD, não da tela. Sobrando do lead anterior, a ficha abriria com
+         o telefone de outra empresa enquanto a resposta não chega — e é um dado
+         que termina em ligação telefônica. `fone`/`email` vazios apagam os
+         botões de canal, que é o lado certo de errar: canal sem destino manda a
+         pessoa pro WhatsApp na tela de "número inválido". */
+      leadficha: {
+        carregando: false, semFonte: false,
+        volta: 'vendas', id: '', ini: '', nome: '', tom: '',
+        etapa: '', etapaTom: '', selo: '', seloTom: '', onde: '', segmento: '',
+        fone: '', email: '', fones: [], emails: [],
+        cnpj: '', razaoSocial: '', situacao: '', responsavel: '', nota: '', site: '',
+        endereco: '', recado: '', linha: [], historia: [],
+      },
       /* A CARTEIRA DE EMPRESAS. `ufs:[]` some com a fileira de chips inteira —
          27 siglas chutadas seriam filtro prometendo base que não existe. */
       empresas: {
