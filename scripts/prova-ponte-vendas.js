@@ -126,8 +126,20 @@ const SERVIDOR_FALSO = {
       // O que só a FICHA mostra — e o motivo de o "Abrir ficha" existir.
       cnpj: '12.345.678/0001-90', razaoSocial: 'MERCADO SAO JORGE & CIA LTDA',
       companySituation: 'ATIVA', ownerName: 'Jorge da Silva',
+      // O ENDERECO e o que faz a linha do 'Onde e' virar ALVO de mapa. Sem ele a
+      // ficha mostra so a cidade em texto, DE PROPOSITO: mapa aberto no centro de
+      // Hortolandia nao leva o vendedor a porta de ninguem.
+      address: 'Rua das Palmeiras, 120',
       phones: [{ phone: '1930001122' }, { phone: '19998887000' }],
       emails: [{ email: 'contato@saojorge.com.br' }],
+      // 🔴 O HISTÓRICO COMO ELE VEM DE VERDADE (copiado de um lead de produção,
+      // 19/08): o evento de enriquecimento guarda o PAYLOAD no `description`, e
+      // a ficha despejava esse JSON na tela do vendedor. O título fica; o miolo
+      // de máquina não.
+      timeline: [
+        { id: 'e-1', title: 'Contato feito pelo WhatsApp', description: 'Contato manual registrado (whatsapp_pessoal).', createdAt: new Date(Date.now() - 7200000).toISOString() },
+        { id: 'e-2', title: 'Enriquecimento social do Radar', description: '{"radarLeadId":"cmqu6nmd507lisl5hjepsqp16","website":null,"enrichmentStatus":"queued"}', createdAt: new Date(Date.now() - 10800000).toISOString() },
+      ],
     },
   },
   [`POST /vendas/lead/${LEAD_DA_CONVERSA}/attempt`]: { ok: true },
@@ -618,6 +630,15 @@ function varrerBotoesSemDono() {
           setTimeout(entregar, 20);
         },
         openWhatsapp(fone, texto) { window.__registrarChamada(`INTENT whatsapp ${fone}`); },
+        /* 🔴 OS TRÊS CANAIS QUE A FICHA DO LEAD TROUXE (19/08). Sem eles no
+           dublê, tocar em "Ligar" ou "E-mail" na prova cairia no `catch` da
+           ponte e a medida diria "sem destino" com o app perfeito. O que
+           registram é o ARGUMENTO, porque é ele que a prova mede: número
+           CRU no discador (o formatado abre o teclado com parênteses) e
+           e-mail inteiro no mailto. */
+        openCall(fone) { window.__registrarChamada(`INTENT call ${fone}`); },
+        openEmail(para, assunto, corpo) { window.__registrarChamada(`INTENT email ${para}`); },
+        openMaps(lat, lng, endereco) { window.__registrarChamada(`INTENT maps ${endereco}`); },
         appInfo() {
           return JSON.stringify({
             mode: 'vendas', versionName: 'beta1', versionCode: 9, platform: 'android',
@@ -962,14 +983,80 @@ function varrerBotoesSemDono() {
   conferir(voltar[3].tratou === true && voltar[3].portaoAindaNaTela === true,
     'o portão SEM escape tinha que ENGOLIR o Voltar e continuar de pé');
 
-  // ---- 4c. A CONVERSA: o "Abrir ficha" e o UM TOQUE do WhatsApp -----------
+  // ---- 4c. O TOQUE NO CARTÃO ABRE A FICHA, E OS CANAIS SAEM DO APP -------
+  /* 🔴 A RÉGUA MUDOU EM 19/08, POR ORDEM DO DONO: *"eu quero ver detalhes do
+     lead que puxei ao clicar nele, eu clico nele abre conversas, como assim?"*
+     O cartão do funil abria a CONVERSA e o app não tinha tela nenhuma do LEAD.
+     Agora `abrir-lead` abre a FICHA — e é ela que precisa provar as duas coisas
+     que o dono cobrou na mesma frase: que os detalhes aparecem, e que cada
+     canal SAI DO APP (WhatsApp, discador, e-mail, mapa) em vez de virar texto
+     pra copiar na mão. */
+  await pagina.click('#app .tela .nav button[data-nav="vendas"]');
+  await esperarModulo(pagina, 'vendas');
+  await pagina.click(`#app .tela [data-acao="abrir-lead"][data-lead="${LEAD_DA_CONVERSA}"]`);
+  // A ficha pede o `/card`: a fila de canais só existe depois que ele volta.
+  await esperarPeca(pagina, '[data-acao="lead-zap"]');
+  const naFicha = await pagina.evaluate(() => {
+    const camadas = document.querySelectorAll('#app .tela');
+    const tela = camadas[camadas.length - 1];
+    const texto = tela.textContent.replace(/\s+/g, ' ').trim();
+    const canal = (a) => !!tela.querySelector(`[data-acao="${a}"]`);
+    return {
+      seam: typeof DADOS === 'undefined' ? null : String(DADOS.leadficha && DADOS.leadficha.nome || ''),
+      canais: { conversa: canal('lead-conversar'), zap: canal('lead-zap'), liga: canal('lead-ligar'), email: canal('lead-email') },
+      linhasDeToque: tela.querySelectorAll('.linha-toque').length,
+      temCnpj: /12\.345\.678/.test(texto),
+      temOutroFone: /\(19\) 99888-7000/.test(texto),
+      temEmail: /contato@saojorge\.com\.br/.test(texto),
+      temDono: /Jorge da Silva/.test(texto),
+      // O histórico: o TÍTULO do evento é o que a pessoa lê; o payload do
+      // enriquecimento é vocabulário de banco e não pode chegar à tela.
+      temHistoria: /Enriquecimento social do Radar/.test(texto),
+      vazouJson: /radarLeadId|enrichmentStatus|\{"/.test(texto),
+    };
+  });
+  console.log('\n===== 4c. O CARTÃO ABRE A FICHA DO LEAD =====');
+  console.log('a ficha ..........', JSON.stringify(naFicha));
+  conferir(naFicha.seam === 'Mercado Sao Jorge &amp; Cia',
+    `o toque no cartão tinha que abrir a ficha DESTE lead; o seam diz "${naFicha.seam}"`);
+  conferir(naFicha.canais.conversa && naFicha.canais.zap && naFicha.canais.liga && naFicha.canais.email,
+    `os quatro canais tinham que estar na tela; medi ${JSON.stringify(naFicha.canais)}`);
+  conferir(naFicha.temCnpj && naFicha.temOutroFone && naFicha.temEmail && naFicha.temDono,
+    'a ficha tinha que mostrar o que só ela sabe: CNPJ, o outro telefone, o e-mail e o dono');
+  conferir(naFicha.linhasDeToque >= 3,
+    `cada contato tinha que ser um ALVO, não texto; achei ${naFicha.linhasDeToque} linha(s) de toque`);
+  conferir(naFicha.temHistoria, 'o histórico do lead tinha que aparecer na ficha');
+  conferir(!naFicha.vazouJson,
+    'o payload do enriquecimento VAZOU pra tela — JSON cru na cara do vendedor (medido no g15 em 19/08)');
+
+  /* 🔴 CADA CANAL COM O SEU DESTINO, e o número vai CRU. Este é o defeito que
+     a foto do dono mostrava: a ficha antiga escrevia "(11) 99900-2928" e
+     acabava ali. Aqui o toque tem que virar intent do aparelho. */
+  const antesDosCanais = chamadas.length;
+  for (const verbo of ['lead-zap', 'lead-ligar', 'lead-email', 'lead-mapa']) {
+    await pagina.evaluate((a) => {
+      const camadas = document.querySelectorAll('#app .tela');
+      const b = camadas[camadas.length - 1].querySelector(`[data-acao="${a}"]`);
+      if (b) b.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    }, verbo);
+  }
+  const canais = chamadas.slice(antesDosCanais).filter((c) => c.startsWith('INTENT'));
+  console.log('o que saiu do app:', JSON.stringify(canais));
+  conferir(canais.some((c) => c === 'INTENT whatsapp 1930001122'),
+    `o WhatsApp tinha que receber o número CRU; saiu ${JSON.stringify(canais)}`);
+  conferir(canais.some((c) => c === 'INTENT call 1930001122'),
+    `o discador tinha que receber o número CRU; saiu ${JSON.stringify(canais)}`);
+  conferir(canais.some((c) => c === 'INTENT email contato@saojorge.com.br'),
+    `o e-mail do aparelho tinha que abrir no endereço do lead; saiu ${JSON.stringify(canais)}`);
+  conferir(canais.some((c) => c.startsWith('INTENT maps') && /Hortolandia/.test(c)),
+    `o mapa tinha que abrir no endereço do lead; saiu ${JSON.stringify(canais)}`);
+
+  // ---- 4d. DA FICHA PRA CONVERSA, E O UM TOQUE DO WHATSAPP ---------------
   /* 🔴 O VERBO QUE NÃO TINHA GUARDA. Medido em 19/08: três toques = três
      intents do WhatsApp e três POSTs de `attempt`, e a tela não mudava um pixel
      entre eles. Três carimbos de contato no mesmo lead é a conta que decide se
      a vendedora manda de novo pro mesmo contato frio — a máquina de ban. */
-  await pagina.click('#app .tela .nav button[data-nav="vendas"]');
-  await esperarModulo(pagina, 'vendas');
-  await pagina.click(`#app .tela [data-acao="abrir-lead"][data-lead="${LEAD_DA_CONVERSA}"]`);
+  await pagina.click('#app .tela [data-acao="lead-conversar"]');
   // A conversa abre TRÊS portas (mensagens, ficha, whatsapp-status): a peça que
   // interessa só existe depois que elas voltam.
   await esperarPeca(pagina, '[data-acao="canal-conversa"][data-canal="celular"]');
@@ -1027,7 +1114,7 @@ function varrerBotoesSemDono() {
   const depoisDoZap = chamadas.slice(antesDoZap);
   const intents = depoisDoZap.filter((c) => c.startsWith('INTENT whatsapp')).length;
   const attempts = depoisDoZap.filter((c) => c.indexOf('/attempt') >= 0).length;
-  console.log('\n===== 4c. "ABRIR NO MEU WHATSAPP" — 3 TOQUES =====');
+  console.log('\n===== 4d. "ABRIR NO MEU WHATSAPP" — 3 TOQUES =====');
   console.log('durante o 1º toque:', JSON.stringify(durante));
   console.log('2º toque .........:', toque2);
   console.log('3º toque .........:', toque3);
@@ -1041,25 +1128,33 @@ function varrerBotoesSemDono() {
   conferir(!!durante && durante.travado && /Abrindo/.test(durante.texto),
     `o botão tinha que MOSTRAR que pegou o toque; medi ${JSON.stringify(durante)}`);
 
+  /* 🔴 O "ABRIR FICHA" DA CONVERSA ERA UM PORTÃO DE LEITURA — e era o defeito
+     da foto: quatro telefones e dois e-mails escritos como TEXTO, sem um botão
+     pra ligar. Agora ele abre a mesma TELA do cartão, e a medida é essa: a
+     ficha em pé, com os canais no lugar. */
   const ficha = await pagina.evaluate(async () => {
     const espera = (ms) => new Promise((r) => setTimeout(r, ms));
-    const camadas = document.querySelectorAll('#app .tela');
-    const b = camadas[camadas.length - 1].querySelector('[data-acao="abrir-ficha-lead"]');
+    const viva = () => { const c = document.querySelectorAll('#app .tela'); return c[c.length - 1]; };
+    const b = viva().querySelector('[data-acao="abrir-ficha-lead"]');
     if (!b) return { achou: false };
     b.click();
-    // O portão sobe numa camada própria: espera ELE, não um cronômetro.
     const fim = Date.now() + 4000;
-    while (Date.now() < fim && !document.querySelector('.portao-wrap')) await espera(25);
-    const p = document.querySelector('.portao-wrap');
-    const texto = p ? p.textContent.replace(/\s+/g, ' ').trim() : '';
-    document.querySelectorAll('.portao-wrap').forEach((n) => n.remove());
-    return { achou: true, abriu: !!p, texto };
+    while (Date.now() < fim && !viva().querySelector('[data-acao="lead-ligar"]')) await espera(25);
+    const tela = viva();
+    const texto = tela.textContent.replace(/\s+/g, ' ').trim();
+    return {
+      achou: true,
+      abriu: !!tela.querySelector('[data-acao="lead-ligar"]'),
+      portaoVelho: !!document.querySelector('.portao-wrap'),
+      texto,
+    };
   });
-  console.log('\n===== 4d. "ABRIR FICHA" (era botão morto) =====');
-  console.log('portão .........', JSON.stringify(ficha));
+  console.log('\n===== 4e. "ABRIR FICHA" DA CONVERSA ABRE A TELA =====');
+  console.log('ficha ..........', JSON.stringify({ achou: ficha.achou, abriu: ficha.abriu, portaoVelho: ficha.portaoVelho }));
   conferir(ficha.achou, 'a casca não desenhou o "Abrir ficha" na conversa');
-  conferir(ficha.abriu, 'o "Abrir ficha" continuou sem dono — o toque não abriu nada');
-  conferir(/12\.345\.678/.test(ficha.texto) && /19998887000|\(19\) 99888-7000/.test(ficha.texto),
+  conferir(ficha.abriu, 'o "Abrir ficha" tinha que abrir a TELA da ficha, com os canais');
+  conferir(!ficha.portaoVelho, 'o portão de leitura tinha que estar morto — quem manda agora é a tela');
+  conferir(/12\.345\.678/.test(ficha.texto) && /\(19\) 99888-7000/.test(ficha.texto),
     `a ficha tinha que mostrar o que só ela sabe (CNPJ e o outro telefone); veio "${ficha.texto}"`);
 
   // ---- 4e. O RADAR NÃO ESCREVE PREÇO QUE O SERVIDOR NÃO DISSE -------------
@@ -1096,7 +1191,7 @@ function varrerBotoesSemDono() {
     usarDados('radar', { custoPuxar: '' });
     return { semPreco, comPreco };
   });
-  console.log('\n===== 4e. O PREÇO DO BOTÃO QUE COBRA =====');
+  console.log('\n===== 4f. O PREÇO DO BOTÃO QUE COBRA =====');
   console.log('sem preço do servidor (é o caso de HOJE):');
   console.log('  botão ....', JSON.stringify(preco.semPreco.botao), '· data-custo:', preco.semPreco.temCusto);
   console.log('  aviso ....', JSON.stringify(preco.semPreco.aviso));

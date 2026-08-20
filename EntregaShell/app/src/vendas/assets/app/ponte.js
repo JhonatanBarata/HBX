@@ -3127,12 +3127,30 @@
     return doNo || foneCruDoLead(fichaCruaDoLead);
   }
 
+  /* 🔴 O E-MAIL VEM EM DUAS FORMAS DO SERVIDOR — texto puro e `{email}` /
+     `{address}` do enriquecimento — e as DUAS já apareceram em produção. Esta
+     régua é uma só porque ela serve o DESENHO e a AÇÃO: em 19/08 elas eram
+     duas, o desenho lia o objeto e a ação lia o cru, e o botão "E-mail"
+     aparecia na tela pra depois dizer "este lead não tem e-mail" — o pior dos
+     dois mundos (o portão da prova pegou).
+     🔴 E ELA DEVOLVE O CRU, NUNCA O `esc()`: quem escapa é a tradução, na
+     borda da tela. Um `&amp;` viajando dentro de um `mailto:` é um endereço
+     que não existe. */
+  const umEmail = (bruto) => String((bruto && (bruto.email || bruto.address)) || bruto || '').trim();
+  function emailsDoLead(l) {
+    const c = l || {};
+    const achados = [];
+    [c.email].concat(Array.isArray(c.emails) ? c.emails : []).forEach((e) => {
+      const limpo = umEmail(e);
+      if (limpo && limpo.indexOf('@') > 0 && achados.indexOf(limpo) < 0) achados.push(limpo);
+    });
+    return achados;
+  }
+
   function emailDoToque(el) {
     const doNo = String((el && el.dataset && el.dataset.email) || '').trim();
     if (doNo) return doNo;
-    const l = fichaCruaDoLead || {};
-    const lista = Array.isArray(l.emails) ? l.emails : [];
-    return String(l.email || lista[0] || '').trim();
+    return emailsDoLead(fichaCruaDoLead)[0] || '';
   }
 
   /* "21/08 · 09:00" — o compromisso marcado, no fuso da operação. Régua própria
@@ -3192,14 +3210,7 @@
       somarFone((p && (p.phone || p.number)) || p, '');
     });
 
-    const emails = [];
-    const somarEmail = (bruto) => {
-      const e = String((bruto && (bruto.email || bruto.address)) || bruto || '').trim();
-      if (!e || e.indexOf('@') < 0 || emails.indexOf(esc(e)) >= 0) return;
-      emails.push(esc(e));
-    };
-    somarEmail(c.email);
-    (Array.isArray(c.emails) ? c.emails : []).forEach(somarEmail);
+    const emails = emailsDoLead(c).map(esc);
 
     /* O ESTADO DO LEAD em pares — e o que não veio simplesmente não entra na
        lista, então a caixa some inteira num lead que ninguém tocou ainda. */
@@ -3219,11 +3230,35 @@
 
     /* O HISTÓRICO é o que o servidor já guarda (`timeline`, 12 últimos eventos).
        Teto de 6 porque esta é uma tela de DECIDIR o próximo toque, não um
-       relatório: o sétimo evento empurra pra baixo o que interessa. */
+       relatório: o sétimo evento empurra pra baixo o que interessa.
+
+       🔴 A DESCRIÇÃO PASSA POR UM FILTRO, E ELE NASCEU DE UMA FOTO (19/08, g15).
+       O evento "Enriquecimento social do Radar" guarda no `description` o
+       PAYLOAD do enriquecimento — `{"radarLeadId":"cmqu6…","enrichmentStatus":
+       "queued",…` — e a tela despejava isso na cara do vendedor, quinze linhas
+       de JSON no meio do histórico. Vocabulário de banco na tela é a coisa que
+       esta casa não publica: o TÍTULO do evento ("Enriquecimento social do
+       Radar") já diz tudo que uma pessoa precisa saber dele.
+       O filtro é sobre a FORMA, não sobre uma lista de eventos proibidos: o dia
+       em que o servidor guardar JSON noutro tipo de evento, ele já está coberto.
+       E o corte de 160 caracteres é de TELA — descrição que vira parágrafo
+       empurra os outros eventos pra fora do vidro. */
+    const pareceMaquina = (t) => {
+      const texto = String(t || '').trim();
+      if (!texto) return true;
+      if (texto[0] === '{' || texto[0] === '[') return true;      // JSON cru, inteiro
+      if (/"[a-zA-Z_]+"\s*:/.test(texto)) return true;            // par chave:valor no meio da frase
+      return false;
+    };
+    const recadoDoEvento = (t) => {
+      if (pareceMaquina(t)) return '';
+      const texto = String(t).trim().replace(/\s+/g, ' ');
+      return texto.length > 160 ? `${texto.slice(0, 157)}…` : texto;
+    };
     const historia = (Array.isArray(c.timeline) ? c.timeline : []).slice(0, 6).map((e) => [
       esc(quandoDoToque(e && e.createdAt) || ''),
       esc((e && e.title) || 'Atualização'),
-      esc((e && e.description) || ''),
+      esc(recadoDoEvento(e && e.description)),
     ]).filter((h) => h[1]);
 
     const nota = Number(c.rating);
