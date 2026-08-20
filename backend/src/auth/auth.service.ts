@@ -51,6 +51,7 @@ import {
   resolveOperationalAccessProjection,
 } from '../team/operational-capabilities';
 import { allowsAdminMultiSession, MAX_ADMIN_WEB_SESSIONS } from './session-policy';
+import { disablePlanManagedCompanyModulesTx } from '../modules/plan-managed-modules';
 import {
   buildProvisioningLedger,
   seedLogisticaConfigTx,
@@ -705,10 +706,10 @@ export class AuthService implements OnModuleInit {
         })
       : [];
 
-    await tx.companyModule.updateMany({
-      where: { companyId },
-      data: { enabled: false },
-    });
+    // L7 (19/08): só o universo de PLANO cai aqui. Chave fora de plano
+    // (logistica, conversas, comex…) não tem dono comercial e não pode ser
+    // zerada por caminho de dinheiro — ver plan-managed-modules.ts.
+    await disablePlanManagedCompanyModulesTx(tx, companyId);
 
     for (const moduleRow of enabledModuleRows) {
       await tx.companyModule.upsert({
@@ -854,7 +855,7 @@ export class AuthService implements OnModuleInit {
       },
     });
     if (!selectedPlanKey) {
-      await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+      await disablePlanManagedCompanyModulesTx(tx, companyId);
       // FIXER PR10072026 — com HBX_CREDITS_ENABLED OFF (kill-switch de emergência), conta
       // nova confirma o e-mail e fica pending_checkout SEM plano, SEM módulo e SEM rota de
       // checkout self-service (subscription/create aposentado, 410): só o master destrava.
@@ -869,7 +870,7 @@ export class AuthService implements OnModuleInit {
       return null;
     }
     await this.syncPlanModulesTx(tx, companyId, selectedPlanKey);
-    await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+    await disablePlanManagedCompanyModulesTx(tx, companyId);
     await this.createPendingCheckoutEntitlementsTx(tx, companyId, selectedPlanKey, activatedAt);
     return null;
   }

@@ -20,6 +20,7 @@ import {
 } from './master-whatsapp-company.constants';
 import { COMPANY_KIND_PLATFORM_INFRA, isPlatformInfraCompany } from '../common/company-kind';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
+import { disablePlanManagedCompanyModulesTx } from '../modules/plan-managed-modules';
 import {
   buildProvisioningLedger,
   seedLogisticaConfigTx,
@@ -1606,7 +1607,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
           );
 
           await this.prisma.$transaction(async (tx) => {
-            await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+            await disablePlanManagedCompanyModulesTx(tx, companyId);
             await tx.company.update({
               where: { id: companyId },
               data: {
@@ -1708,7 +1709,7 @@ export class CompaniesService implements OnModuleInit, OnModuleDestroy {
     const now = new Date();
     const reason = String(input?.reason || '').trim() || null;
     const archived = await this.prisma.$transaction(async (tx) => {
-      await tx.companyModule.updateMany({ where: { companyId: id }, data: { enabled: false } });
+      await disablePlanManagedCompanyModulesTx(tx, id);
       return tx.company.update({
         where: { id },
         data: {

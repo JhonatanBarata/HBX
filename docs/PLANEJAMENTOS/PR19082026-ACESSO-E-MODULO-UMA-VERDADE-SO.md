@@ -188,7 +188,7 @@ diferentes: *"empresa desligou"* (/master), *"fora do plano da empresa"* (/equip
 | **L4** | **LEI 5** — guarda de auto-bloqueio no backend + separar "Módulos" (inerte p/ admin) de "Acessos" (letal) no painel | o dono | — |
 | **L5** | **LEI 6** — /master: 3 estados, selo honesto ("HBX desligou" × "empresa desligou" × "plano não cobre") e reparo em 1 clique | o master (hoje faz OFF→ON às cegas) | L1 |
 | **L6** | **LEI 7** — `userMessage` no `/mobile/devices/session` + primeira tela do app com o mapa | parque instalado | L2 |
-| **L7** | Escopar os **7 `updateMany`** de cobrança a `PLAN_MANAGED_MODULE_KEYS` + teste de downgrade | **quem paga** | — |
+| **L7** | ✅ **FEITO 19/08 22h10 — commitado, NÃO publicado.** Eram **8** (não 7) `updateMany` cegos; todos passaram por `disablePlanManagedCompanyModulesTx` (`modules/plan-managed-modules.ts`, fonte única do universo de plano, reusada pelo `modules.service`). Escopo = **união** das caixas, então MELHOR→LITE segue derrubando `atendimento`/`cadastro`. Testes 4/4 + `tsc` limpo. **Publish segurado:** sessão paralela mexendo no `ponte-src` do Vendas no mesmo minuto — `commitEverything` levaria o trabalho pela metade dela junto | **quem paga** | — |
 | **L8** | Portões A/B/C/D do PR18082026 §4 no `gate.js` e no `deploy-vps.js` + `docs/Rules/PAGAMENTOS.md:14` reescrito | o futuro | L1–L7 |
 
 > **L0 e L7 não dependem de decisão nenhuma e são os que sangram agora** — um cria vítima nova a cada

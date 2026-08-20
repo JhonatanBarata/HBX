@@ -48,6 +48,7 @@ import { MailService } from '../mail/mail.service';
 import { HbxCommissionSyncService } from '../commissions/hbx-commission-sync.service';
 import { CreditWalletService } from '../credits/credit-wallet.service';
 import { emitMasterEvent } from '../common/master-event';
+import { disablePlanManagedCompanyModulesTx } from '../modules/plan-managed-modules';
 
 const BILLING_GRACE_WINDOW_MS = 48 * 60 * 60 * 1000;
 const BILLING_GRACE_SECOND_NOTICE_MS = 24 * 60 * 60 * 1000;
@@ -608,7 +609,9 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
         })
       : [];
 
-    await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+    // L7 (19/08): este caminho roda NO PAGAMENTO. Antes ele zerava TUDO e
+    // religava só o plano — quem pagava perdia a logística para sempre.
+    await disablePlanManagedCompanyModulesTx(tx, companyId);
     for (const moduleRow of moduleRows) {
       await tx.companyModule.upsert({
         where: {
@@ -1654,7 +1657,7 @@ export class FinanceiroService implements OnModuleInit, OnModuleDestroy {
           deactivatedAt: blockedAt,
         },
       });
-      await tx.companyModule.updateMany({ where: { companyId: company.id }, data: { enabled: false } });
+      await disablePlanManagedCompanyModulesTx(tx, company.id);
       await tx.companyCommercialEntitlement.updateMany({
         where: { companyId: company.id, status: 'grace' },
         data: {

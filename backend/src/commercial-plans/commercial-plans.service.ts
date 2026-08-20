@@ -36,6 +36,7 @@ import { resolveCompanyAccessState, normalizeCompanyAccountType } from '../modul
 import { isCreditsFeatureEnabled } from '../credits/credits.flags';
 import { MasterAlertService } from '../master-alert/master-alert.service';
 import { MailService } from '../mail/mail.service';
+import { disablePlanManagedCompanyModulesTx } from '../modules/plan-managed-modules';
 
 type CommercialCurrentState = {
   planKey: ActiveCommercialPlanKey | null;
@@ -614,7 +615,9 @@ export class CommercialPlansService {
         })
       : [];
 
-    await tx.companyModule.updateMany({ where: { companyId }, data: { enabled: false } });
+    // L7 (19/08): troca de plano mexe só nas chaves de plano (a UNIÃO — é ela
+    // que faz MELHOR→LITE derrubar atendimento/cadastro).
+    await disablePlanManagedCompanyModulesTx(tx, companyId);
 
     for (const moduleRow of enabledModuleRows) {
       await tx.companyModule.upsert({

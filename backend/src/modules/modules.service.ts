@@ -75,6 +75,7 @@ import {
   storedCompanyStatusFromAccessState,
 } from './company-access-state';
 import { CATEGORY_MANAGED_MODULE_KEYS } from './module-categories';
+import { PLAN_MANAGED_MODULE_KEY_SET } from './plan-managed-modules';
 import {
   ensureUserTeamPolicyForUser,
   parseTeamPolicyAccessMap,
@@ -124,11 +125,9 @@ const RETIRED_MODULE_KEYS = Array.isArray((structuralDefaults as any).retiredMod
 // post-it segue SystemModule.defaultEnabled, mesmo contrato do
 // resolveKillSwitchModuleKeys. Antes, o fallback sem-linha era SÓ a caixa do
 // plano e o @ModuleAccess('logistica') dava 403 pra empresa antiga sem post-it.
-const PLAN_MANAGED_MODULE_KEYS = new Set(
-  Object.values(COMMERCIAL_PLAN_MODULE_KEYS)
-    .flat()
-    .map((key) => String(key || '').trim().toLowerCase()),
-);
+// FONTE ÚNICA (19/08): o universo de plano mora em plan-managed-modules.ts, o
+// mesmo que os 8 caminhos de cobrança usam para NÃO zerar chave fora de plano.
+const PLAN_MANAGED_MODULE_KEYS = PLAN_MANAGED_MODULE_KEY_SET;
 const EMPLOYEE_BLOCKED_MODULE_KEYS = new Set([
   'atendimento',
   'vendas',
