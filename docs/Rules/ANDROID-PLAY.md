@@ -319,6 +319,21 @@ Web client `959050454992-6pcir0…`):
 dois pacotes: foi baixado antes de os clientes existirem. Baixar de novo depois da
 correção é o jeito barato de CONFERIR o registro sem abrir o Console.
 
+### 🔴 ISTO NÃO SE REFAZ A CADA PUBLICAÇÃO (pergunta do dono, 21/08)
+
+**A impressão é da CHAVE, não da versão.** Cadastra-se uma vez por chave e nunca
+mais. Publicar v2, v3, v50 não pede nada no Cloud Console — o binário muda, a
+chave que o assina não. São **duas chaves na vida inteira deste app**:
+
+| Chave | Assina | Muda quando |
+|---|---|---|
+| `DF:CB:94:8D…` (Google) | todo binário que sai da **loja** | nunca, salvo rotação de chave pedida por você |
+| `B4:21:95:11…` (`hbx-upload.jks`) | o APK compilado **aqui** | só em reset por keystore perdido |
+
+O segundo cliente é o **último**, não "mais um": ele existe só para o APK local
+fazer login. Sem ele nada se prova no g15 antes de subir — toda verificação vira
+"sobe na Play e vê".
+
 ### ✅ E o defeito que fez isso custar 15 horas (corrigido em 21/08)
 
 `PairingActivity.startGoogleSignIn()` tinha `catch (_: GetCredentialCancellationException)
