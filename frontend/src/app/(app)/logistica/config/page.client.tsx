@@ -802,6 +802,42 @@ export function LogisticaConfigClient() {
               </div>
             </div>
 
+            {/* ── Dinheiro na porta ──────────────────────────────────────────────
+                🔴 ESTE INTERRUPTOR NÃO EXISTIA, e o buraco foi medido em 21/08:
+                `moduloFinanceiroAtivo` estava declarado no tipo `Cfg` desde
+                sempre e não era renderizado em NENHUMA tela — nem aqui, nem no
+                Master. Ou seja: o único jeito de ligar era UPDATE no banco.
+                Resultado no banco de produção: 12 das 14 empresas com o
+                financeiro desligado sem nunca terem escolhido isso.
+                E o efeito não é cosmético — com ele off o servidor nem envia
+                `valorHoje` (logistica.service.ts), então a Folha da venda abre
+                com "Conta do item" VAZIA na porta do cliente.
+                Fica FORA do bloco `billingOwner`: o DTO trata este toggle como
+                OPERACIONAL (o `@Admin()` do PATCH já basta) — mesmo padrão do
+                `cobrancaSimples`. */}
+            <div className="log-cfg__block">
+              <strong className="log-cfg__block-title">Dinheiro na porta</strong>
+              <p className="log-cfg__note">
+                Com isso ligado, o entregador vê quanto cobrar em cada parada, escolhe a
+                forma de pagamento e fecha o caixa do dia. Desligado, o app entrega sem
+                falar de dinheiro.
+              </p>
+              <label className="log-cfg__switch">
+                <input
+                  type="checkbox"
+                  checked={!!cfg.moduloFinanceiroAtivo}
+                  disabled={saving}
+                  onChange={(e) => patch({ moduloFinanceiroAtivo: e.target.checked })}
+                />
+                <span className="log-cfg__switch-txt">
+                  <span className="log-cfg__switch-name">Mostrar valores e recebimento no app</span>
+                  <span className="log-cfg__switch-hint">
+                    Desligado, a Folha da venda abre sem valor nenhum
+                  </span>
+                </span>
+              </label>
+            </div>
+
             {/* ── Parâmetros de rota ─────────────────────────────────────────── */}
             <div className="log-cfg__block">
               <strong className="log-cfg__block-title">Rota e chegada</strong>

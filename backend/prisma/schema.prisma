@@ -2196,7 +2196,13 @@ model LogisticaConfig {
   trackingAtivo                    Boolean   @default(false)
   modoRotaPadrao                   String    @default("ESSENTIAL") // ESSENTIAL | TRACKED
   cobrancaNaEntrega                Boolean   @default(false)
-  moduloFinanceiroAtivo            Boolean   @default(false)
+  // 🔴 NASCE LIGADO desde 21/08/2026 (ordem do dono). Era `false`, e o preco
+  // disso foi medido: 12 das 14 empresas estavam com o financeiro DESLIGADO sem
+  // nunca terem escolhido isso — e com ele off o servidor nem envia `valorHoje`
+  // (logistica.service.ts), entao a Folha da venda abre com "Conta do item"
+  // VAZIA na porta do cliente. Um app de entrega que nao diz quanto cobrar nao
+  // e um app de entrega. Default que faz a tela mentir e default errado.
+  moduloFinanceiroAtivo            Boolean   @default(true)
   moduloRecoveryAtivo              Boolean   @default(false)
   // ROTA-CONFERIDA (S4/S5/S6 PR25072026) — tela de conferência + rota congelada
   // + preview de créditos no APK. Ligada geral em 26/07, mesma lei acima.

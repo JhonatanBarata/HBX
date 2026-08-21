@@ -242,11 +242,17 @@ export class LogisticaConfigService {
     if (input.sentinelaAtrasoMin !== undefined) data.sentinelaAtrasoMin = clampInt(input.sentinelaAtrasoMin, 0, 240, 20);
     if (input.cobrancaNaEntrega !== undefined) data.cobrancaNaEntrega = !!input.cobrancaNaEntrega;
     if (input.moduloFinanceiroAtivo !== undefined) {
-      // PR27072026 F1 — GATE de uso: financeiro real é Advanced+ na matriz do
-      // plano. O tenant NUNCA liga por cima do teto do nível (Master pode tudo).
-      if (input.moduloFinanceiroAtivo && !actor?.isSystemMaster && (await nivelDoTenant()) === 'BASIC') {
-        throw new ForbiddenException('Financeiro completo é do plano Advanced.');
-      }
+      /* 🔴 O GATE DE NÍVEL SAIU EM 21/08/2026, e tinha que sair no MESMO gesto
+         que o default novo — senão os dois juntos viram uma armadilha.
+         Antes: `if (ligar && !master && nivel === 'BASIC') throw`.
+         Com o financeiro nascendo LIGADO em todos os níveis (ver
+         `nivelPresetPatch` e o `@default(true)` do schema), um tenant BASIC
+         nasceria com ele on, desligaria uma vez e **não conseguiria mais
+         religar** — barrado por um gate que defende um teto que o próprio
+         nascimento já não respeita. Botão que desliga e não liga de volta é
+         pior que botão nenhum.
+         ⚠️ O QUE SE PERDE: o financeiro era o carro-chefe do Advanced na escada
+         de venda (PR27072026 F1). Decisão do dono, com esse custo na mesa. */
       data.moduloFinanceiroAtivo = !!input.moduloFinanceiroAtivo;
     }
     // PR27072026 F2 — PARADA AMARELA DE DEVEDOR: modo do tratamento na rota de
@@ -985,7 +991,8 @@ export function storedNivel(value: unknown): LogisticaNivel {
 function nivelPresetPatch(nivel: LogisticaNivel): Record<string, unknown> {
   if (nivel === 'CREDITO') {
     return {
-      moduloFinanceiroAtivo: false,
+      // 21/08: LIGADO em todos os niveis — ver o comentario do schema.
+      moduloFinanceiroAtivo: true,
       cobrancaWhatsAtiva: false,
       cobrancaAutomatica: false,
       trackingAtivo: false,
@@ -994,7 +1001,8 @@ function nivelPresetPatch(nivel: LogisticaNivel): Record<string, unknown> {
   }
   if (nivel === 'BASIC') {
     return {
-      moduloFinanceiroAtivo: false,
+      // 21/08: LIGADO em todos os niveis — ver o comentario do schema.
+      moduloFinanceiroAtivo: true,
       cobrancaWhatsAtiva: false,
       cobrancaAutomatica: false,
       trackingAtivo: false,

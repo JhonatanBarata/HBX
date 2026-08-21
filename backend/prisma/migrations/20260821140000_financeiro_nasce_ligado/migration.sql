@@ -1,0 +1,17 @@
+-- FINANCEIRO NASCE LIGADO (21/08/2026) — ordem do dono.
+--
+-- MEDIDO ANTES DE MEXER, no hbx_prod: 12 das 14 empresas estavam com
+-- `moduloFinanceiroAtivo = false`. Nenhuma delas ESCOLHEU isso — a coluna
+-- nascia `@default(false)` e a tela de Ajustes nunca teve o interruptor
+-- (o campo existia no tipo do frontend e não era renderizado em lugar nenhum).
+--
+-- O QUE O DEFAULT ERRADO CAUSAVA, na porta do cliente: com o módulo off,
+-- `logistica.service.ts` NEM ENVIA o campo `valorHoje` — e a Folha da venda,
+-- que lê `item.valorHoje`, abre com "Conta do item" VAZIA e "Recebido hoje
+-- R$ 0,00". O entregador chega no cliente sem saber quanto cobrar.
+--
+-- ⚠️ ESTE ALTER MUDA SÓ O NASCIMENTO. Linha já gravada continua como está —
+-- é assim que DEFAULT funciona no Postgres. As 12 existentes são tratadas à
+-- parte, uma decisão de cada vez, porque ligar o financeiro de uma empresa
+-- muda o que os entregadores DELA veem no meio do expediente.
+ALTER TABLE "LogisticaConfig" ALTER COLUMN "moduloFinanceiroAtivo" SET DEFAULT true;
