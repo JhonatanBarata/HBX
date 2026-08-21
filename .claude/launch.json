@@ -4,7 +4,10 @@
     {
       "name": "frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 3001,
       "autoPort": false,
       "cwd": "frontend"
@@ -12,9 +15,26 @@
     {
       "name": "frontend-preview",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:preview"],
+      "runtimeArgs": [
+        "run",
+        "dev:preview"
+      ],
       "autoPort": true,
       "cwd": "frontend"
+    },
+    {
+      "name": "casca-logistica",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "--yes",
+        "http-server",
+        "EntregaShell/app/src/logistica/assets/app",
+        "-p",
+        "4173",
+        "-c-1"
+      ],
+      "port": 4173,
+      "autoPort": false
     }
   ]
 }

@@ -13,20 +13,51 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- MODO PASSEIO (29/07): alarme EXATO do "tempo no lugar" (PasseioAlarme.kt).
-         USE_EXACT_ALARM (33+) é concedida sozinha — app distribuído fora da Play,
-         e o alarme é função de despertador de verdade; SCHEDULE_EXACT_ALARM cobre
-         as APIs 31-32 (auto-concedida lá). -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- ALARME EXATO — modo passeio (PasseioAlarme.kt) e despertador da missão
+         (MissaoAlarme.kt).
+
+         🔴 USE_EXACT_ALARM SAIU EM 20/08/2026. Ela era declarada aqui com a
+         justificativa, escrita neste próprio comentário, de que o app era
+         "distribuído fora da Play". Essa premissa morre no dia do upload.
+         Na Google Play, USE_EXACT_ALARM é permissão RESTRITA: só se qualifica
+         quem É um app de alarme, timer ou calendário. O HBX é um app de ROTA que
+         TEM um alarme — o Console barra o upload, e insistir seria declaração
+         falsa.
+
+         SCHEDULE_EXACT_ALARM é exatamente a alternativa que a política aponta
+         para quem não se qualifica: mesma precisão, sem formulário no Console,
+         concedida pelo USUÁRIO. Por isso o `maxSdkVersion="32"` também saiu —
+         agora ela vale em todo SDK.
+
+         ⚠️ EM ANDROID 13+ ELA NASCE NEGADA. A queda já era prevista e é suave:
+         MissaoAlarme.kt cai em janela de 5 min e PasseioAlarme.kt em 10 min
+         quando `canScheduleExactAlarms()` é falso. Quem quiser o minuto certo
+         precisa conceder — e o pedido tem que nascer NA TELA ONDE O MOTORISTA
+         MARCA A MISSÃO, nunca na abertura: pedir na abertura é o jeito
+         conhecido de fazer o usuário negar. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <!-- AGENDADOR DE MISSÃO (02/08): é ela que deixa o despertador da rota
          marcada abrir a tela INTEIRA por cima do bloqueio. Sem ela o alarme
          vira notificação comum — e notificação comum o motorista não vê no
          bolso. Em 14+ o sistema só concede sozinho pra quem é alarme/chamada;
          a notificação leva CATEGORY_ALARM justamente por isso. -->
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
-    <!-- Auto-update (F4): instalar o APK baixado do próprio VPS via PackageInstaller. -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 🔴 USE_FULL_SCREEN_INTENT REMOVIDA EM 20/08/2026 — ela era inútil e cara.
+         Desde 22/01/2025 só é pré-concedida a app cujo núcleo é chamada ou alarme; o
+         HBX não é nenhum dos dois, e o app NUNCA pedia a permissão ao usuário (o
+         caminho ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT nunca foi implementado).
+         Ou seja: em Android 14+ o alarme JÁ caía para notificação heads-up. O que
+         sobrava era uma declaração restrita no Play Console em troca de nada.
+         O alarme da missão continua vivo por duas vias (MissaoAlarme.kt): notificação
+         ongoing que não se dispensa arrastando, e startActivity direto com o app em
+         primeiro plano. Perde-se só a tomada de tela cheia em Android <= 13. -->
+    <!-- 🔴 REQUEST_INSTALL_PACKAGES SAIU DAQUI EM 20/08/2026.
+         Ela habilitava o auto-update (instalar o APK baixado do próprio VPS via
+         PackageInstaller) e agora é declarada SÓ em src/canal-site/AndroidManifest.xml.
+         Motivo: no Google Play a permissão é restrita a app cujo NÚCLEO é instalar
+         apps, e a política diz literalmente que ela "may not be used to perform
+         self updates". Estando em main/, ela entrava nos DOIS APKs — inclusive no
+         Vendas, onde os métodos já eram no-op e a permissão nunca serviu pra nada.
+         Ver docs/Rules/ANDROID-PLAY.md §3.1. -->
 
     <queries>
         <!-- Android 11+: sem declarar o serviço, a medição nativa pode dizer que
@@ -55,6 +86,25 @@
         android:usesCleartextTraffic="${hbxUsesCleartextTraffic}"
         android:theme="@style/Theme.EntregaShell"
         tools:targetApi="s">
+
+        <!-- 20/08/2026 — MEDIDO NO g15: `NotificationPermissionActivity` apareceu
+             DEITADA logo após o login, num aparelho em retrato. Causa: ela, a
+             `ClosingActivity` e a `ChegadaActivity` eram as únicas 3 sem trava de
+             orientação (vêm assim desde 7308a3d5, 13/07 — não é regressão do
+             API 36). Chegada deitada é defeito de campo: é a tela que o motorista
+             encara ao parar o caminhão. Agora são 10 de 10 em `portrait`. -->
+        <!-- ANDROID 16 IGNORA `screenOrientation` EM TELA >= 600dp (20/08/2026).
+             As 10 activities daqui declaram `portrait`, e a casca 2.0 inteira foi
+             desenhada, medida e provada em retrato. Sem este opt-out, em tablet,
+             dobrável aberto ou Chromebook o app abre em PAISAGEM numa composição
+             que nunca foi testada assim — e quem descobre é um testador do teste
+             fechado, no pior momento possível.
+             É a saída OFICIAL, e ela tem prazo: vale até o app mirar a API 37.
+             O conserto definitivo é layout adaptativo; isto é o que segura a
+             ponte até lá, e está anotado como dívida em docs/Rules/ANDROID-PLAY.md §6. -->
+        <property
+            android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
+            android:value="true" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -117,6 +167,7 @@
 
         <activity
             android:name=".ClosingActivity"
+            android:screenOrientation="portrait"
             android:exported="false"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.EntregaShell.Closing" />
@@ -162,6 +213,7 @@
 
         <activity
             android:name=".NotificationPermissionActivity"
+            android:screenOrientation="portrait"
             android:exported="false"
             android:excludeFromRecents="true"
             android:theme="@style/Theme.EntregaShell.NoActionBar" />
@@ -176,6 +228,7 @@
 
         <activity
             android:name=".ChegadaActivity"
+            android:screenOrientation="portrait"
             android:exported="false"
             android:launchMode="singleInstance"
             android:excludeFromRecents="true"
@@ -260,13 +313,13 @@
             </intent-filter>
         </receiver>
 
-        <receiver
-            android:name=".AppAtualizadoReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
-            </intent-filter>
-        </receiver>
+        <!-- 🔴 O AppAtualizadoReceiver SAIU DAQUI EM 20/08/2026 e agora é declarado
+             só em src/canal-site/AndroidManifest.xml — junto da classe, que foi
+             para src/canal-site/java/. Ele avisa "HBX atualizado, toque para
+             abrir" depois da instalação silenciosa, e num app de loja isso não
+             existe: a Play reabre e notifica sozinha.
+             O MissaoBootReceiver acima FICA nos dois canais: ele rearma alarme
+             depois de reboot/troca de pacote, o que é legítimo em qualquer app. -->
 
     </application>
 

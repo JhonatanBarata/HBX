@@ -229,7 +229,19 @@
   /** os pacotes vêm no MESMO `/credits/me` do saldo — não há porta separada */
   let pacoteEscolhido = null;
   function encherCarteira(cred) {
-    const packs = Array.isArray(cred && cred.packs) ? cred.packs : [];
+    // 🔴 CANAL PLAY: SALDO SIM, VITRINE NÃO (20/08/2026).
+    // A política de Pagamentos do Google não proíbe só o botão de pagar — ela
+    // proíbe "levar o usuário a um meio de pagamento que não seja o do Google
+    // Play", e isso cobre preço, promoção e chamada pra ação dentro do app.
+    // Então, num binário de loja, os PACOTES somem e o CTA some; o que fica é
+    // saldo, vencimento e extrato — informação da conta, que é legítima e que o
+    // motorista precisa pra entender por que a rota não inicia.
+    // ⚠️ Não é preciso mexer no desenho: o mock já esconde o bloco inteiro
+    // "Escolha o pacote" (e a nota do Mercado Pago junto) quando `pacotes` vem
+    // vazio, e não desenha o botão do rodapé quando `cta` é ''. Uma linha aqui
+    // apaga a vitrine inteira sem deixar buraco na tela.
+    const daLoja = !!((window.HBX && window.HBX.info && window.HBX.info()) || {}).play;
+    const packs = daLoja ? [] : (Array.isArray(cred && cred.packs) ? cred.packs : []);
     const saldo = typeof cred.balance === 'number' ? cred.balance : null;
     if (!pacoteEscolhido) {
       const rec = packs.find((p) => p.recommended) || packs[0];

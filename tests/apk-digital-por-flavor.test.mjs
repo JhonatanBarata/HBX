@@ -63,7 +63,7 @@ function arvoreDeMentira() {
   escrever(raiz, "app/src/main/java/Ponte.kt", "class Ponte\n");
   escrever(raiz, "app/src/logistica/assets/app/mock.js", "// motorista\n");
   escrever(raiz, "app/src/logistica/assets/app/ponte.js", "// ponte do motorista, COSTURADA\n");
-  escrever(raiz, "app/src/logistica/assets/checkout/checkout.js", "// recarga\n");
+  escrever(raiz, "app/src/checkout-mp/assets/checkout/checkout.js", "// recarga\n");
   escrever(raiz, "app/src/logistica/ponte-src/00-nucleo.js", "// fonte da ponte do motorista\n");
   escrever(raiz, "app/src/vendas/assets/app/mock.js", "// vendedor\n");
   escrever(raiz, "app/src/vendas/assets/app/ponte.js", "// ponte do vendedor, COSTURADA\n");
@@ -150,22 +150,32 @@ test("o que é de MAIN e do GRADLE move os DOIS — é o que vai dentro dos dois
   });
 });
 
-test("🔴 o checkout do logística move o VENDAS também — o Gradle copia ele pra dentro do APK de Vendas", () => {
+test("🔴 o checkout move o VENDAS e NÃO move o Logística — ele só viaja num dos dois APKs", () => {
   /* `prepareVendasCheckoutAssets` (EntregaShell/app/build.gradle.kts) faz
-     `from("src/logistica/assets/checkout")` para dentro do sourceSet do vendas:
-     a recarga é função geral do sistema e mora num lugar só. Recortar a digital
-     "por flavor" sem enxergar esse cano faria uma correção no checkout mudar o
-     APK do Vendas SEM mudar a digital dele — versão parada, aparelho nunca
-     atualizando, e nenhum erro em tela. */
+     `from("src/checkout-mp/assets/checkout")` para dentro do sourceSet do vendas.
+     Recortar a digital "por flavor" sem enxergar esse cano faria uma correção no
+     checkout mudar o APK do Vendas SEM mudar a digital dele — versão parada,
+     aparelho nunca atualizando, e nenhum erro em tela.
+
+     🔴 A SEGUNDA METADE DESTE PORTÃO NASCEU EM 20/08/2026, e é a mais importante:
+     até então o checkout morava DENTRO de `app/src/logistica/` e entrava nos dois
+     APKs. Quando o Logística virou app só de Google Play, ele teve de sair de lá —
+     formulário de cartão de gateway externo não pode viajar num binário de loja,
+     nem que nenhum botão chame a tela (o revisor extrai o .aab e acha).
+     Se um dia alguém devolver a pasta para o sourceSet do logística, a digital
+     dele volta a sentir o checkout — e é ISSO que a segunda asserção pega, antes
+     que o binário chegue na revisão da Google. */
   comArvore((raiz, digital) => {
     const antesLog = digital("logistica");
     const antesVen = digital("vendas");
-    escrever(raiz, "app/src/logistica/assets/checkout/checkout.js", "// recarga corrigida\n");
+    escrever(raiz, "app/src/checkout-mp/assets/checkout/checkout.js", "// recarga corrigida\n");
     assert.notEqual(digital("vendas"), antesVen,
       "o checkout entra no APK do Vendas e a digital dele não sentiu — correção de recarga "
       + "publicada e nenhum aparelho de Vendas vendo versão nova.");
-    assert.notEqual(digital("logistica"), antesLog,
-      "o checkout é do sourceSet do logística: obviamente entra na digital dele também");
+    assert.equal(digital("logistica"), antesLog,
+      "o checkout do Mercado Pago voltou a contar na digital do LOGÍSTICA — ou seja, voltou a "
+      + "ser empacotado no app que vai para a Google Play. Isso reprova em Pagamentos. "
+      + "Confira o sourceSet em app/build.gradle.kts e docs/Rules/ANDROID-PLAY.md §3.2.");
   });
 });
 
@@ -270,10 +280,10 @@ test("no repo de verdade, a lista de cada app não invade o sourceSet do outro",
       + "que manda a frota de motoristas baixar por nada:\n  " + invasores.join("\n  "));
 
   // O vendas pode ler do logística UMA coisa só: o checkout que o Gradle copia.
-  const doOutro = listas.vendas.filter((f) => f.startsWith("app/src/logistica/"));
+  const doOutro = listas.vendas.filter((f) => f.startsWith("app/src/checkout-mp/"));
   for (const arquivo of doOutro) {
     assert.ok(
-      arquivo.startsWith("app/src/logistica/assets/checkout/"),
+      arquivo.startsWith("app/src/checkout-mp/assets/checkout/"),
       `a digital do VENDAS está lendo ${arquivo}, que não é o checkout compartilhado. `
         + "Ou o Gradle passou a copiar mais coisa (e aí a lista de extras tem que dizer isso), "
         + "ou a digital voltou a varrer o sourceSet do vizinho.",

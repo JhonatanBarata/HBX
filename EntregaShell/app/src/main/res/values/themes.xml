@@ -24,8 +24,15 @@
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:backgroundDimEnabled">false</item>
         <item name="android:windowDisablePreview">true</item>
-        <item name="android:statusBarColor">#050713</item>
-        <item name="android:navigationBarColor">#02040B</item>
+        <!-- 🔴 `statusBarColor` e `navigationBarColor` SAÍRAM daqui (20/08/2026).
+             Em Android 16 (targetSdk 36) os dois são NO-OP: o edge-to-edge é
+             obrigatório e quem pinta atrás das barras é o fundo da própria View.
+             Deixá-los aqui não quebrava nada — mas atributo que não faz mais
+             nada é pior que atributo ausente: no dia em que a moldura escura da
+             saída aparecer errada, alguém vai ler estas duas linhas e concluir
+             que a cor está resolvida.
+             Quem pinta hoje: o `root` da ClosingActivity, com o mesmo #050713
+             que estava aqui, cobrindo a tela inteira (ClosingActivity.kt). -->
         <item name="android:windowLightStatusBar">false</item>
     </style>
 

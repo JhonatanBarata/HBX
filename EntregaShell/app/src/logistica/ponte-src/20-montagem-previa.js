@@ -441,8 +441,8 @@
   function pilhaDoDesfechoDaParada(p) {
     if (!p) return null;
     if (p.feito) return ['Entregue', 'lime'];
-    if (String(p.status) === 'cancelada') return ['Nao entregue', 'mute'];
-    return ['Nao feita', 'mute'];
+    if (String(p.status) === 'cancelada') return ['Não entregue', 'mute'];
+    return ['Não feita', 'mute'];
   }
   /** so pro caso do cartao nao ter titulo (ex.: entrou pelo link direto) */
   function diaPorExtenso(iso) {

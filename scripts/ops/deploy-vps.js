@@ -279,14 +279,21 @@ const apkFingerprintRootsCompartilhados = [
 
 // O que o Gradle empacota de FORA do sourceSet do próprio flavor.
 // 🔴 SEM ISTO O CONSERTO VIRA UM BURACO NOVO: o `prepareVendasCheckoutAssets`
-// (app/build.gradle.kts) copia `src/logistica/assets/checkout` PARA DENTRO do
-// APK do vendas — a recarga é função geral do sistema e mora num lugar só.
+// (app/build.gradle.kts) copia a pasta do checkout PARA DENTRO do APK do vendas.
 // Recortar a digital "por flavor" sem enxergar esse cano faria uma correção no
 // checkout mudar o APK do Vendas sem mudar a digital dele: número parado,
 // aparelho nunca atualizando, e nenhum erro em tela. É a mesma classe de defeito
 // que este bloco existe pra matar, só que virada do avesso.
+//
+// 🔴 O CAMINHO MUDOU EM 20/08/2026: era `app/src/logistica/assets/checkout`.
+// Quando o Logística virou app só de Google Play, o checkout do Mercado Pago
+// teve de sair do sourceSet dele — formulário de cartão de gateway externo não
+// pode viajar dentro de um binário de loja, nem que nenhum botão chame a tela.
+// A pasta virou NEUTRA (`app/src/checkout-mp/`, fora de qualquer sourceSet
+// Android) e hoje só o Vendas a injeta. Por isso ela continua na digital do
+// vendas — e SÓ na dele.
 const apkFingerprintExtras = {
-  vendas: [path.join('app', 'src', 'logistica', 'assets', 'checkout')],
+  vendas: [path.join('app', 'src', 'checkout-mp', 'assets', 'checkout')],
 };
 
 // O ARQUIVO DE VERSÃO DE UM APP — o piso do versionCode e o versionName dele.

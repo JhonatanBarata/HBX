@@ -257,9 +257,20 @@
 
   async function checkAppUpdate(forcado) {
     if (!forcado && Date.now() - updateCheckEm < 1800000) return;   // 30 min
+    // 🔴 O CORDÃO MORRE AQUI, ANTES DA REDE (20/08/2026).
+    // Em 20/08 o HBX Logística virou app só de Google Play, e os três verbos
+    // nativos de auto-update foram DELETADOS do Kotlin. Consequência: este
+    // `typeof` — que já existia para aparelho com APK antigo — passou a ser
+    // sempre falso, e o `return` acontece ANTES do `fetch` do version.json.
+    // Nenhuma requisição ao VPS por causa de update, nenhum portão "Atualizar
+    // agora", e o relógio de 10 min gira em falso sem custo nenhum.
+    //
+    // ⚠️ NÃO "consertar" isto devolvendo um stub no Kotlin. Um método presente
+    // devolvendo false faria o teste passar e reacenderia o portão sem instalar
+    // nada — que é pior que não ter portão.
     const b = bridgeCru();
-    if (!b || typeof b.downloadAndInstall !== 'function') {         // nativo antigo: sem auto-update
-      if (forcado) respostaSeco('Atualização', 'Esta versão do aplicativo não atualiza sozinha. Fale com a Central.');
+    if (!b || typeof b.downloadAndInstall !== 'function') {
+      if (forcado) respostaSeco('Atualização', 'As atualizações chegam pela Google Play, automaticamente.');
       return;
     }
     const info = (window.HBX && window.HBX.info && window.HBX.info()) || {};
@@ -324,11 +335,21 @@
      aberto o dia inteiro. Publicava-se versão nova e o aparelho não olhava mais.
      Quem garante é o RELÓGIO; os dois eventos ficam como atalho. A trava de 30
      min lá dentro é que manda no custo, então o tique pode ser barato. */
-  setInterval(() => checkAppUpdate(), 600000);   // 10 min de tique, 30 min de trava
+  // Na loja quem atualiza é a Play: o tique só bateria no `return` do topo.
+  if (!naLoja()) setInterval(() => checkAppUpdate(), 600000);   // 10 min de tique, 30 min de trava
 
   /* A linha "Versão" dos Ajustes fala por si: ela diz o que está instalado e,
      quando há versão nova, ANUNCIA. É a porta manual — o pop-up é conveniência,
      esta linha é a garantia. */
+  /* `play` vem do BuildConfig.HBX_PLAY pela ponte nativa (`appInfo`). Lido na
+     hora, nunca no eval do módulo: `window.HBX.info` pode ainda não existir. */
+  /* Declaração, não `const`: o `setInterval` lá em cima chama isto ANTES desta
+     linha no arquivo, e `const` ficaria na zona morta temporal (ReferenceError
+     no boot). Função declarada é içada; arrow em `const`, não. */
+  function naLoja() {
+    return !!((window.HBX && window.HBX.info && window.HBX.info()) || {}).play;
+  }
+
   function linhaDaVersao() {
     const info = (window.HBX && window.HBX.info && window.HBX.info()) || {};
     const meu = Number(info.versionCode || 0);
@@ -336,9 +357,15 @@
     const nova = updateInfo && updateInfo.versionCode > meu;
     return {
       versao: nome,
-      versaoSub: nova
-        ? `${frasePronta()} Toque para instalar.`
-        : 'toque para procurar atualização',
+      // 🔴 NA LOJA O RÓTULO NÃO PODE PROMETER BUSCA (20/08/2026): com o
+      // atualizador deletado, `checkAppUpdate` volta no primeiro `if` e nada
+      // é procurado. Dizer 'toque para procurar atualização' era mentira na
+      // cara do motorista — e do revisor da Play, que abre os Ajustes.
+      versaoSub: naLoja()
+        ? 'atualizações pela Google Play'
+        : nova
+          ? `${frasePronta()} Toque para instalar.`
+          : 'toque para procurar atualização',
       versaoTag: nova ? 'Atualizar' : '',
     };
   }

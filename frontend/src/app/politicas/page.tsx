@@ -7,7 +7,7 @@ export const metadata: Metadata = {
 };
 
 const VIGENCIA =
-  "Vigência a partir de 16 de junho de 2026 · Atualizada em 11 de julho de 2026 · Versão 1.1";
+  "Vigência a partir de 16 de junho de 2026 · Atualizada em 20 de agosto de 2026 · Versão 1.2";
 
 export default function PoliticasPage() {
   return (
@@ -22,8 +22,7 @@ export default function PoliticasPage() {
           <p>
             A <strong>HBX System</strong> (&quot;HBX&quot;, &quot;nós&quot;) desenvolve e opera a
             plataforma de prospecção, vendas e atendimento HBX, acessível em{" "}
-            <strong>hbxsystem.com.br</strong>. CNPJ:{" "}
-            <strong>[a preencher após abertura]</strong>.
+            <strong>hbxsystem.com.br</strong>.
           </p>
           <p>
             Esta Política explica como tratamos dados pessoais de clientes, usuários e visitantes,
@@ -50,9 +49,13 @@ export default function PoliticasPage() {
             <li>
               <strong>Localização (módulo de entregas, no aplicativo):</strong> a posição precisa
               do aparelho é usada <strong>apenas em primeiro plano</strong>, enquanto você mantém
-              uma rota de entrega ativa (com notificação visível), para navegação e aviso de
-              chegada. Não coletamos localização em segundo plano, não guardamos histórico
-              contínuo de posição e <strong>não compartilhamos sua localização com terceiros</strong>.
+              uma rota de entrega ativa (com notificação visível), para navegação, aviso de
+              chegada e <strong>registro do trajeto daquela rota</strong>. Os pontos do trajeto são
+              enviados ao HBX e ficam guardados como o percurso da rota, visíveis para a
+              <strong>empresa em que você trabalha</strong> — é o que permite conferir a entrega e
+              fechar o dia. Não coletamos localização em segundo plano, não registramos sua
+              posição fora de uma rota ativa e <strong>não compartilhamos sua localização com
+              terceiros</strong>.
             </li>
             <li>
               <strong>Microfone (opcional, no aplicativo):</strong> usado apenas quando você
@@ -63,7 +66,16 @@ export default function PoliticasPage() {
               acessamos o microfone em segundo plano e negar o acesso não bloqueia nenhuma função
               essencial.
             </li>
-            <li><strong>Financeiros:</strong> histórico de recargas de crédito e status de pagamento — nunca o número do cartão.</li>
+              <li>
+              <strong>Fotos e documentos (opcional, no aplicativo):</strong> quando você
+              escolhe enviar uma foto ou um PDF — por exemplo, a folha de clientes para
+              cadastro em massa —, o arquivo é enviado à nossa equipe para digitação
+              manual no seu sistema. O aplicativo <strong>não tem permissão de câmera</strong>:
+              quem tira a foto é o aplicativo de câmera do seu próprio aparelho, e nada sai
+              do celular sem o seu toque. Não varremos sua galeria e não usamos essas
+              imagens para nenhuma outra finalidade.
+            </li>
+          <li><strong>Financeiros:</strong> histórico de recargas de crédito e status de pagamento — nunca o número do cartão.</li>
           </ul>
           <p>
             Não coletamos dados sensíveis (saúde, biometria, origem racial, convicção religiosa
@@ -77,6 +89,11 @@ export default function PoliticasPage() {
               <strong>Operar rotas de entrega</strong> (execução de contrato): localização em
               primeiro plano para navegação e aviso de chegada — funcionalidade do aplicativo,
               nunca para publicidade.
+            </li>
+            <li>
+              <strong>Cadastrar clientes a partir de foto</strong> (execução de contrato): a
+              imagem ou o PDF que você envia é lido pela nossa equipe para criar os cadastros
+              na sua conta.
             </li>
             <li><strong>Cobrar e cumprir a lei</strong> (obrigação legal): notas, controle fiscal, regulação.</li>
             <li><strong>Melhorar e proteger</strong> (legítimo interesse): prevenir fraudes e falhas, medir desempenho.</li>
@@ -110,8 +127,13 @@ export default function PoliticasPage() {
             <li>Dados de prospecção (Radar): enquanto durar o contrato.</li>
             <li>Clientes cadastrados por você: enquanto sua conta existir.</li>
             <li>
-              Localização do aparelho: processada durante a rota ativa; não armazenamos histórico
-              contínuo de posição.
+              Fotos e documentos enviados para cadastro: pelo tempo necessário para concluir o
+              cadastro solicitado, e depois descartados.
+            </li>
+            <li>
+              Localização do aparelho: capturada <strong>só durante a rota ativa</strong>. O trajeto
+              fica guardado junto com a rota, na conta da sua empresa, enquanto aquela rota
+              existir; é apagado quando a conta é apagada.
             </li>
           </ul>
 

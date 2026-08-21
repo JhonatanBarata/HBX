@@ -58,6 +58,18 @@ class RechargeCheckoutActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // 🔴 CINTO E SUSPENSÓRIO (20/08/2026): a ponte já recusa abrir esta tela
+        // no canal Play (NativeAppBridge.openRechargeCheckout), mas Activity é
+        // porta — e porta se tranca dos dois lados. Se um Intent chegar por
+        // qualquer outro caminho, ele morre aqui antes de montar a WebView.
+        // A Activity CONTINUA declarada no manifesto de propósito: ela é
+        // `exported="false"` e é compartilhada com o app de Vendas, que segue
+        // fora da Play e continua vendendo recarga normalmente.
+        if (BuildConfig.HBX_PLAY) {
+            finish()
+            return
+        }
+
         packKey = intent.getStringExtra(EXTRA_PACK_KEY)?.trim().orEmpty()
         if (!packKey.matches(PACK_KEY_PATTERN)) {
             finish()
@@ -114,6 +126,10 @@ class RechargeCheckoutActivity : AppCompatActivity() {
             setAcceptThirdPartyCookies(webView, true)
         }
         installCheckoutBridge()
+        // Android 16: edge-to-edge obrigatório. O formulário de cartão tem o botão
+        // de confirmar no rodapé — sem recuo ele nasce debaixo da barra de gestos.
+        // (Esta tela sai do binário da Play; o recuo é para o canal do site.)
+        webView.recuarDasBarrasDoSistema()
         setContentView(webView)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {

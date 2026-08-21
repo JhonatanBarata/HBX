@@ -82,6 +82,10 @@ class MobileActionActivity : AppCompatActivity() {
             setBackgroundColor(Color.parseColor(BG))
         }
         val scroll = ScrollView(this).apply { addView(root) }
+        // Android 16: edge-to-edge não tem mais opt-out. Sem isto, os botões
+        // "Ligar"/"Abrir WhatsApp" do rodapé desta tela ficam POR BAIXO da barra
+        // de gestos e o toque vai para o sistema. Ver InsetsDeSistema.kt.
+        scroll.recuarDasBarrasDoSistema()
         setContentView(scroll)
         when {
             resultElapsedSeconds != null -> showResultScreen(resultElapsedSeconds ?: 0)

@@ -257,9 +257,20 @@
 
   async function checkAppUpdate(forcado) {
     if (!forcado && Date.now() - updateCheckEm < 1800000) return;   // 30 min
+    // 🔴 O CORDÃO MORRE AQUI, ANTES DA REDE (20/08/2026).
+    // Em 20/08 o HBX Logística virou app só de Google Play, e os três verbos
+    // nativos de auto-update foram DELETADOS do Kotlin. Consequência: este
+    // `typeof` — que já existia para aparelho com APK antigo — passou a ser
+    // sempre falso, e o `return` acontece ANTES do `fetch` do version.json.
+    // Nenhuma requisição ao VPS por causa de update, nenhum portão "Atualizar
+    // agora", e o relógio de 10 min gira em falso sem custo nenhum.
+    //
+    // ⚠️ NÃO "consertar" isto devolvendo um stub no Kotlin. Um método presente
+    // devolvendo false faria o teste passar e reacenderia o portão sem instalar
+    // nada — que é pior que não ter portão.
     const b = bridgeCru();
-    if (!b || typeof b.downloadAndInstall !== 'function') {         // nativo antigo: sem auto-update
-      if (forcado) respostaSeco('Atualização', 'Esta versão do aplicativo não atualiza sozinha. Fale com a Central.');
+    if (!b || typeof b.downloadAndInstall !== 'function') {
+      if (forcado) respostaSeco('Atualização', 'As atualizações chegam pela Google Play, automaticamente.');
       return;
     }
     const info = (window.HBX && window.HBX.info && window.HBX.info()) || {};
@@ -324,11 +335,21 @@
      aberto o dia inteiro. Publicava-se versão nova e o aparelho não olhava mais.
      Quem garante é o RELÓGIO; os dois eventos ficam como atalho. A trava de 30
      min lá dentro é que manda no custo, então o tique pode ser barato. */
-  setInterval(() => checkAppUpdate(), 600000);   // 10 min de tique, 30 min de trava
+  // Na loja quem atualiza é a Play: o tique só bateria no `return` do topo.
+  if (!naLoja()) setInterval(() => checkAppUpdate(), 600000);   // 10 min de tique, 30 min de trava
 
   /* A linha "Versão" dos Ajustes fala por si: ela diz o que está instalado e,
      quando há versão nova, ANUNCIA. É a porta manual — o pop-up é conveniência,
      esta linha é a garantia. */
+  /* `play` vem do BuildConfig.HBX_PLAY pela ponte nativa (`appInfo`). Lido na
+     hora, nunca no eval do módulo: `window.HBX.info` pode ainda não existir. */
+  /* Declaração, não `const`: o `setInterval` lá em cima chama isto ANTES desta
+     linha no arquivo, e `const` ficaria na zona morta temporal (ReferenceError
+     no boot). Função declarada é içada; arrow em `const`, não. */
+  function naLoja() {
+    return !!((window.HBX && window.HBX.info && window.HBX.info()) || {}).play;
+  }
+
   function linhaDaVersao() {
     const info = (window.HBX && window.HBX.info && window.HBX.info()) || {};
     const meu = Number(info.versionCode || 0);
@@ -336,9 +357,15 @@
     const nova = updateInfo && updateInfo.versionCode > meu;
     return {
       versao: nome,
-      versaoSub: nova
-        ? `${frasePronta()} Toque para instalar.`
-        : 'toque para procurar atualização',
+      // 🔴 NA LOJA O RÓTULO NÃO PODE PROMETER BUSCA (20/08/2026): com o
+      // atualizador deletado, `checkAppUpdate` volta no primeiro `if` e nada
+      // é procurado. Dizer 'toque para procurar atualização' era mentira na
+      // cara do motorista — e do revisor da Play, que abre os Ajustes.
+      versaoSub: naLoja()
+        ? 'atualizações pela Google Play'
+        : nova
+          ? `${frasePronta()} Toque para instalar.`
+          : 'toque para procurar atualização',
       versaoTag: nova ? 'Atualizar' : '',
     };
   }
@@ -2455,8 +2482,8 @@
   function pilhaDoDesfechoDaParada(p) {
     if (!p) return null;
     if (p.feito) return ['Entregue', 'lime'];
-    if (String(p.status) === 'cancelada') return ['Nao entregue', 'mute'];
-    return ['Nao feita', 'mute'];
+    if (String(p.status) === 'cancelada') return ['Não entregue', 'mute'];
+    return ['Não feita', 'mute'];
   }
   /** so pro caso do cartao nao ter titulo (ex.: entrou pelo link direto) */
   function diaPorExtenso(iso) {
@@ -11876,7 +11903,19 @@
   /** os pacotes vêm no MESMO `/credits/me` do saldo — não há porta separada */
   let pacoteEscolhido = null;
   function encherCarteira(cred) {
-    const packs = Array.isArray(cred && cred.packs) ? cred.packs : [];
+    // 🔴 CANAL PLAY: SALDO SIM, VITRINE NÃO (20/08/2026).
+    // A política de Pagamentos do Google não proíbe só o botão de pagar — ela
+    // proíbe "levar o usuário a um meio de pagamento que não seja o do Google
+    // Play", e isso cobre preço, promoção e chamada pra ação dentro do app.
+    // Então, num binário de loja, os PACOTES somem e o CTA some; o que fica é
+    // saldo, vencimento e extrato — informação da conta, que é legítima e que o
+    // motorista precisa pra entender por que a rota não inicia.
+    // ⚠️ Não é preciso mexer no desenho: o mock já esconde o bloco inteiro
+    // "Escolha o pacote" (e a nota do Mercado Pago junto) quando `pacotes` vem
+    // vazio, e não desenha o botão do rodapé quando `cta` é ''. Uma linha aqui
+    // apaga a vitrine inteira sem deixar buraco na tela.
+    const daLoja = !!((window.HBX && window.HBX.info && window.HBX.info()) || {}).play;
+    const packs = daLoja ? [] : (Array.isArray(cred && cred.packs) ? cred.packs : []);
     const saldo = typeof cred.balance === 'number' ? cred.balance : null;
     if (!pacoteEscolhido) {
       const rec = packs.find((p) => p.recommended) || packs[0];
@@ -16712,10 +16751,45 @@
     return null;
   }
 
+  /* ── A FRESTA DAS RUAS (21/08/2026) ───────────────────────────────────────
+     🔴 O CANO FECHADO DEIXAVA A TELA DE DIRIGIR PELA METADE. Medido no g15 com
+     o binário da Play: rota da demonstração iniciada, e o terço de cima da cena
+     VAZIO — sem instrução de curva, sem próxima parada, sem ETA — e o mapa sem
+     a fita verde. A causa não é o OSRM: é que `__demoIntercepta` respondia por
+     TODA porta, e `/logistica/osrm/route` é de onde saem o traçado e as
+     manobras (`pedirRota`, § 60-prospector-nav). Recebendo `null`, ela lança
+     "Rota viária não encontrada", e a cena fica sem fita — sem fita não há
+     catraca, sem catraca não há manobra (§ 7d, 70-traco-camera).
+
+     E o alarme "O caminho veio sem desenho" NÃO acende neste caso: ele é do
+     ramo "respondeu SEM geometria", não do ramo "não respondeu". Por isso o
+     defeito era mudo, e só apareceu quando alguém olhou a tela.
+
+     ── POR QUE ESTAS DUAS PORTAS PODEM PASSAR, E SÓ ELAS ────────────────────
+     `/logistica/osrm/route` e `/logistica/osrm/table` são GEOMETRIA PURA
+     (`logistica-osrm.controller.ts`): recebem coordenadas, devolvem ruas. Não
+     leem nem escrevem registro de empresa, não criam nada e **não debitam
+     crédito** — o verbo que cobra é o `/logistica/rota/iniciar`, que continua
+     barrado aqui em cima. As paradas da demonstração são ancoradas no GPS de
+     verdade, então o traçado que volta é o do bairro real de quem abriu.
+
+     ⚠️ E A LEI DO CANO CONTINUA DE PÉ: a fresta é **GET**, e só para o par
+     exato do regex. Nenhum POST/PATCH/DELETE alcança a rede com a demonstração
+     no ar — que é a coisa que a trava existe para garantir. Porta nova de
+     escrita não entra aqui por engano: ela nem é GET.
+
+     ⚠️ Custo no servidor, que foi o medo que desenhou a trava: os freios já
+     existem e são do app real — 15 s de piso entre pedidos, só repede se andou
+     120 m, teto de 400/dia (`navGastar`), mais cache e rate-limit no próprio
+     service. Quem está em demonstração está parado olhando o app, não rodando
+     a cidade. ------------------------------------------------------------- */
+  const PORTAS_DE_RUA = /^\/logistica\/osrm\/(route|table)(\?|$)/;
+
   /* A porta que o núcleo consulta ANTES de ir à rede. `undefined` = "não sou eu,
      pode ir"; uma Promise = "eu respondo por esta". */
   window.__demoIntercepta = function (metodo, caminho, corpo) {
     if (!demoNoAr) return undefined;
+    if (metodo === 'GET' && PORTAS_DE_RUA.test(String(caminho || ''))) return undefined;
     let r = null;
     try { r = respostaDemo(metodo, caminho, corpo); } catch (_) { r = null; }
     return Promise.resolve(r);
@@ -17960,7 +18034,7 @@
     sair: () => {
       window.portao({
         tom: 'alerta', ico: 'logout', titulo: 'Sair do aplicativo?',
-        sub: 'Voce vai precisar parear o aparelho de novo.',
+        sub: 'Você vai precisar parear o aparelho de novo.',
         acoes: [['Ficar', ''], ['Sair', 'principal']], classe: 'duas',
       });
       const b = naCamada('.portao-wrap .principal');
@@ -17971,7 +18045,7 @@
       // O checkout e NATIVO (RechargeCheckoutActivity): o WebView nunca ve
       // dado de cartao. Aqui so se diz QUAL pacote.
       try { window.HBX.recharge(pacoteEscolhido); }
-      catch (_) { avisoErro(new Error('Nao consegui abrir a recarga agora.')); }
+      catch (_) { avisoErro(new Error('Não consegui abrir a recarga agora.')); }
     },
     /* 🔴 A PORTA MANUAL DA ATUALIZAÇÃO (09/08). Enquanto só existia o pop-up
        automático, perder o aviso uma vez era ficar preso na versão velha: sem

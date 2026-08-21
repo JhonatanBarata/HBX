@@ -323,7 +323,16 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("credits", "me"),
             listOf("financeiro", "payments-config"),
         ) -> true
-        method == "POST" && segments == listOf("financeiro", "credits", "recharge") -> true
+        // 🔴 A COBRANÇA NÃO SAI DO APARELHO NO CANAL PLAY (20/08/2026).
+        // Este POST é literalmente a cobrança no cartão. Enquanto ele estiver na
+        // lista branca existe um caminho de REDE de compra alcançável de dentro
+        // do binário — e um app de loja com isso dentro reprova em Pagamentos.
+        // ⚠️ Os GETs acima (`/credits/me`, `/financeiro/payments-config`) FICAM
+        // nos dois canais: são leitura de SALDO e de configuração, informação de
+        // conta, não oferta de compra. Sem eles a tela de créditos nasceria em
+        // "não consegui carregar", que é pior para o usuário e não ajuda em nada
+        // na política — beco sem saída também é motivo de reprovação.
+        method == "POST" && segments == listOf("financeiro", "credits", "recharge") -> !BuildConfig.HBX_PLAY
         else -> false
     }
     val logisticaEndpoint = when {
@@ -418,7 +427,12 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         // morria AQUI, dentro do aparelho. Endpoint novo = allowlist + rebuild.
         method == "GET" && segments == listOf("logistica", "prospector", "semana") -> true
         method == "POST" && segments in listOf(
-            listOf("financeiro", "credits", "recharge"),
+            // 🔴 `financeiro/credits/recharge` SAIU desta lista em 20/08/2026.
+            // Ele estava DUPLICADO aqui e no `systemEndpoint`, e a composição é
+            // `logisticaEndpoint || systemEndpoint` — então a cópia daqui
+            // reabriria o caminho de cobrança mesmo com o outro fechado, e o
+            // gate do canal Play viraria enfeite. Agora existe UM lugar só que
+            // decide, e ele é o `systemEndpoint` (gateado por HBX_PLAY).
             // Carimba o tutorial obrigatório como visto (par do GET acima).
             listOf("logistica", "tutorial", "visto"),
             listOf("logistica", "gerar-dia"),

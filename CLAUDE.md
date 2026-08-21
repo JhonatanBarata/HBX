@@ -12,6 +12,7 @@ Dono autorizou acesso ao VPS sempre que precisar (ler e injetar) — não pedir 
 | Planos, cobrança, acesso, status comercial | [docs/Rules/PAGAMENTOS.md](docs/Rules/PAGAMENTOS.md) |
 | Deploy, infra, Docker, Ops Control, HBX Owner | [docs/Rules/INFRA.md](docs/Rules/INFRA.md) |
 | Sites de clientes, templates Firebase | [docs/Rules/WEBSITE-KIT.md](docs/Rules/WEBSITE-KIT.md) |
+| Google Play, APK, permissões, targetSdk, EntregaShell | [docs/Rules/ANDROID-PLAY.md](docs/Rules/ANDROID-PLAY.md) |
 
 ## Frontend — 5 Leis do Design System (MÉTODO, não freio)
 Todo visual nasce em token/classe central (`frontend/src/app/hbx-theme/`); nada de cor,
@@ -19,6 +20,17 @@ borda, sombra, fonte ou radius solto em tela; tema só troca tokens; `check-pele
 reprova hex/inline no lint. Detalhe e exceções: [docs/Rules/FRONTEND.md](docs/Rules/FRONTEND.md).
 **Refatorar aparência/peles está AUTORIZADO — não usar as Leis pra recusar trabalho de aparência.**
 
+
+## Fan-out de agentes — teto e pedágio (lei do dono, 20/08)
+Cada subagente paga ~48k de token SÓ para existir (system prompt + schemas + este arquivo +
+exploração inicial), antes de ler qualquer coisa. **Se os agentes leriam a MESMA fonte, é UM
+agente** — fan-out serve para território independente (N arquivos, N subsistemas), nunca para
+uma fonte fatiada em perguntas. Leitura mecânica é `model:'haiku'` + `effort:'low'`; Opus só em
+síntese e decisão. Pesquisa de doc pública estável = `WebFetch` no loop principal, sem agente.
+**Antes de propor qualquer fan-out, dizer no chat o número de agentes e o custo estimado, e
+esperar o dono aprovar.** Caso que gerou a lei: 50 agentes / ~5M tokens lendo a mesma
+documentação da Google Play — virou [docs/Rules/ANDROID-PLAY.md](docs/Rules/ANDROID-PLAY.md) §9.
+Resultado de pesquisa cara **vira arquivo em `docs/Rules/`**, nunca só contexto que evapora.
 
 ## Checks mínimos (menor conjunto relevante ao que foi tocado)
 -o dono vai informar onde está o lugar para teste se não informar: credenciais de teste em .test-login.local.md (gitignored) - full acesso, teste o q quiser - usar o chrome, localhost/3001. Muitos erros no preview Claude. Caso precise subir, usar o npm run up - navegador sempre chrome

@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Base comum aos dois apps. O sourceSet do flavor `logistica` SOBREPÕE este
+     arquivo (mesmo nome) por src/canal-site/ ou src/canal-play/res/xml/, para
+     decidir se a entrada `updates` — o diretório do APK baixado pelo
+     auto-update — existe naquele binário.
+     Aqui ela NÃO entra: o Vendas nunca se auto-atualizou (os métodos sempre
+     foram no-op por APP_MODE), então a entrada só seria caminho morto no APK. -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <cache-path name="comprovantes" path="comprovantes/" />
-    <!-- Auto-update (F4): diretório temporário do APK baixado antes da instalação. -->
-    <cache-path name="updates" path="updates/" />
 </paths>

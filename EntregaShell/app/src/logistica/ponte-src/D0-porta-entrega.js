@@ -938,7 +938,7 @@
     sair: () => {
       window.portao({
         tom: 'alerta', ico: 'logout', titulo: 'Sair do aplicativo?',
-        sub: 'Voce vai precisar parear o aparelho de novo.',
+        sub: 'Você vai precisar parear o aparelho de novo.',
         acoes: [['Ficar', ''], ['Sair', 'principal']], classe: 'duas',
       });
       const b = naCamada('.portao-wrap .principal');
@@ -949,7 +949,7 @@
       // O checkout e NATIVO (RechargeCheckoutActivity): o WebView nunca ve
       // dado de cartao. Aqui so se diz QUAL pacote.
       try { window.HBX.recharge(pacoteEscolhido); }
-      catch (_) { avisoErro(new Error('Nao consegui abrir a recarga agora.')); }
+      catch (_) { avisoErro(new Error('Não consegui abrir a recarga agora.')); }
     },
     /* 🔴 A PORTA MANUAL DA ATUALIZAÇÃO (09/08). Enquanto só existia o pop-up
        automático, perder o aviso uma vez era ficar preso na versão velha: sem

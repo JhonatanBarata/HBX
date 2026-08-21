@@ -54,8 +54,27 @@ fun versionNameDoApp(flavor: String): String =
     versaoDoApp(flavor).getProperty("versionName")?.trim()?.takeIf { it.isNotEmpty() }
         ?: throw GradleException("versao-$flavor.properties sem `versionName=` legível.")
 
-val hbxLogisticaVersionCode = versionCodeDoApp("logistica", "hbxLogisticaVersionCode")
 val hbxVendasVersionCode = versionCodeDoApp("vendas", "hbxVendasVersionCode")
+
+// ---------------------------------------------------------------------------
+// O LOGISTICA E UM APP DE LOJA. SO ISSO. (20/08/2026 - ordem do dono)
+// ---------------------------------------------------------------------------
+// Ate hoje o HBX Logistica vivia de APK baixado de hbxsystem.com.br e se
+// atualizava sozinho. A partir daqui ele existe SO na Google Play -- e essa
+// decisao APAGA trabalho em vez de criar: o auto-update inteiro virou codigo
+// morto e foi DELETADO (o Vendas nunca se auto-atualizou -- "o de vendas vem
+// da loja" ja estava escrito no proprio codigo), a permissao
+// REQUEST_INSTALL_PACKAGES sumiu dos DOIS APKs, e nao sobrou divisao de canal
+// nenhuma pra manter: o canal E o flavor.
+//
+// 🔴 O PRECO, escrito aqui pra ninguem se surpreender depois: a casca inteira
+// do app (mock.js + ponte.js) viaja DENTRO do binario. Sem auto-update, todo
+// ajuste de tela passa a esperar a revisao da Play -- hoje isso levava minutos.
+// A saida legitima existe e a propria politica do Google a abre: JavaScript em
+// WebView e a EXCECAO EXPRESSA da regra de auto-atualizacao, entao servir a
+// casca do VPS devolve a correcao em minutos sem violar nada. Enquanto isso
+// nao existir, bug de campo custa uma revisao. Ver docs/Rules/ANDROID-PLAY.md.
+val hbxLogisticaVersionCode = versionCodeDoApp("logistica", "hbxLogisticaVersionCode")
 
 // ---------------------------------------------------------------------------
 // A FUSÃO — 07/08/2026: o app novo virou O app
@@ -128,12 +147,29 @@ requireVideoLoopback(videoStudioWebBaseUrl, "hbxVideoWebBaseUrl")
 
 android {
     namespace = "br.com.hbxsystem.entrega"
-    compileSdk = 35
+    // 36 = Android 16. A Play passa a EXIGIR isso em 31/08/2026, para app novo e
+    // para toda atualização (docs/Rules/ANDROID-PLAY.md §1). Correr para enviar
+    // com 35 antes do prazo compra 11 dias e nada mais: depois da data, qualquer
+    // atualização — inclusive dentro do teste fechado de 14 dias — já cobra o 36.
+    // A ferramenta (AGP 8.9.1 / Gradle 8.11.1) subiu numa leva ANTES desta,
+    // justamente para que qualquer quebra aqui tenha um suspeito só.
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "br.com.hbxsystem"
         minSdk = 26
-        targetSdk = 35
+        // 🔴 O QUE O 36 MUDA NESTE APP, e onde cada coisa foi tratada:
+        // · edge-to-edge deixa de ter opt-out → as telas nativas que não tratavam
+        //   inset passaram a tratar (Pairing, Opening, RechargeCheckout,
+        //   MobileAction); statusBarColor/navigationBarColor do tema pararam de
+        //   valer e viraram fundo de layout de verdade.
+        // · screenOrientation="portrait" é IGNORADO em tela >= 600dp → opt-out
+        //   temporário declarado no AndroidManifest (vale até a API 37).
+        // · cota de JobScheduler passa a valer para job rodando junto com
+        //   foreground service → atinge as duas outboxes durante a rota. Isso é
+        //   MEDIÇÃO no aparelho, não conserto de build: ver §6 do Rules.
+        // · predictive back e páginas de 16 KB: já estavam conformes, medidos.
+        targetSdk = 36
         versionCode = 9
         versionName = "2.0.1"
         buildConfigField("String", "API_BASE_URL", buildConfigString(productionApiBaseUrl))
@@ -147,6 +183,12 @@ android {
         // cortina antiga. Ligar por default faria um app SEM casca nova nascer
         // sem abertura nenhuma.
         buildConfigField("boolean", "HBX_V2", "false")
+        // HBX_PLAY = "este binário vai para a Google Play". Quem lê: o Kotlin
+        // (fecha a ponte de compra e a Activity de checkout) e o JS, por
+        // `window.HBX.info().play`. O default é FALSE e quem liga é o FLAVOR —
+        // hoje só o `logistica`. O Vendas continua fora da Play, e por isso
+        // continua vendendo recarga normalmente.
+        buildConfigField("boolean", "HBX_PLAY", "false")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", buildConfigString(googleWebClientId))
         manifestPlaceholders["hbxUsesCleartextTraffic"] = "false"
         manifestPlaceholders["hbxAppLabel"] = "HBX Vendas"
@@ -197,6 +239,14 @@ android {
             // arquivo que o publish lê pra montar o version-logistica.json, e o
             // mesmo lugar onde mora a história de cada subida de piso.
             versionName = versionNameDoApp("logistica")
+            // 🔴 ESTE APP É DA LOJA. É esta linha que apaga a vitrine de recarga
+            // (preço, pacotes e o botão que cobra no cartão) e fecha a ponte de
+            // compra no Kotlin. Ver docs/Rules/ANDROID-PLAY.md §3.2: a isenção
+            // que vale aqui é a de app `consumption-only` — quem paga, paga no
+            // site, e o app só ENTRA numa conta que já foi paga. O preço dela é
+            // literal: zero compra dentro do app e nenhum link que leve a pagar
+            // fora. Só o saldo e o extrato ficam, que é informação de conta.
+            buildConfigField("boolean", "HBX_PLAY", "true")
             // 🔴 APP_MODE CONTINUA "logistica". O Kotlin de main/ decide 40+
             // comportamentos comparando esta string com "logistica"
             // (NativeAppBridge, HbxMobileBridge, MainActivity, som, push). Um
@@ -310,15 +360,48 @@ android {
 // `-PhbxApiBaseUrl=http://localhost:3000 -PhbxWebBaseUrl=http://localhost:3001`
 // na linha de comando: some quando o comando acaba, não fica preso num arquivo.
 
-// Recarga é função geral do sistema: os dois APKs usam o mesmo checkout
-// isolado, sem duplicar os arquivos sensíveis do frontend.
+// ---------------------------------------------------------------------------
+// O CHECKOUT DO MERCADO PAGO — agora ENTRA por injeção, não por herança de pasta
+// ---------------------------------------------------------------------------
+// 🔴 ONDE ELE MORAVA E POR QUE ISSO ERA UM PROBLEMA (20/08/2026): a pasta ficava
+// em `src/logistica/assets/checkout`, ou seja, DENTRO do sourceSet do logística —
+// então o Gradle a empacotava no APK do logística por padrão, e a task abaixo só
+// COPIAVA a mesma pasta para o vendas. Provado no merge de release: o
+// `checkout/index.html` estava no bundle do logística.
+//
+// Esse arquivo carrega uma CSP liberando `https://sdk.mercadopago.com` e monta os
+// campos seguros de número/validade/CVV do cartão. Num binário da Play isso é
+// formulário de pagamento de gateway externo dentro do app — reprovação direta em
+// Pagamentos, mesmo que nenhum botão chame a tela: o revisor extrai o .aab e acha,
+// e o SDK remoto ainda é código carregado em runtime.
+//
+// Agora a pasta é NEUTRA (`src/checkout-mp/`, fora de qualquer sourceSet Android)
+// e cada alvo a recebe por injeção explícita. O canal `play` simplesmente não
+// injeta — e aí o .aab sai sem UM BYTE de checkout.
+// PROVA: `unzip -l app-logistica-release.aab | grep checkout` tem que vir VAZIO.
 val generatedVendasCheckoutAssets = layout.buildDirectory.dir("generated/vendasCheckoutAssets")
 val prepareVendasCheckoutAssets = tasks.register<Sync>("prepareVendasCheckoutAssets") {
     into(generatedVendasCheckoutAssets)
-    from("src/logistica/assets/checkout") { into("checkout") }
+    // ⚠️ O CAMINHO FICA LITERAL AQUI, e não numa `val`, de propósito: o portão
+    // `tests/apk-digital-por-flavor.test.mjs` LÊ este arquivo com um regex, à
+    // procura das cópias entre flavors, pra descobrir sozinho o que o Gradle
+    // leva de uma pasta pra outra. Guardar o caminho numa variável deixa o
+    // portão cego — e portão cego é pior que portão nenhum, porque fica verde.
+    // 🔴 E pelo mesmo motivo: NÃO escrever a chamada de cópia como exemplo em
+    // comentário neste arquivo. O regex não sabe o que é comentário, lê o
+    // exemplo como se fosse código e vai procurar uma pasta que não existe.
+    // (Aconteceu em 20/08/2026, escrevendo justamente este aviso.)
+    from("src/checkout-mp/assets/checkout") { into("checkout") }
 }
 
 android.sourceSets.getByName("vendas").assets.srcDir(generatedVendasCheckoutAssets)
+
+// O checkout do Mercado Pago NAO entra mais no APK do Logistica.
+// A pasta e neutra (src/checkout-mp/, fora de qualquer sourceSet Android) e so
+// o Vendas a injeta, pela task acima. O Logistica e app de loja: nao pode ter
+// formulario de cartao de gateway externo dentro do binario, nem que nenhum
+// botao chame a tela -- o revisor extrai o .aab e acha.
+// PROVA: unzip -l app-logistica-release.aab | grep checkout tem que vir VAZIO.
 tasks.configureEach {
     if (name.endsWith("VideoStudioGoogleServices")) enabled = false
     // 🔴 AQUI MORAVA O DESLIGA-PUSH DA BANCADA — não ressuscitar sem motivo.

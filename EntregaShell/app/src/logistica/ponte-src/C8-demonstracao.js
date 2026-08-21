@@ -354,10 +354,45 @@
     return null;
   }
 
+  /* ── A FRESTA DAS RUAS (21/08/2026) ───────────────────────────────────────
+     🔴 O CANO FECHADO DEIXAVA A TELA DE DIRIGIR PELA METADE. Medido no g15 com
+     o binário da Play: rota da demonstração iniciada, e o terço de cima da cena
+     VAZIO — sem instrução de curva, sem próxima parada, sem ETA — e o mapa sem
+     a fita verde. A causa não é o OSRM: é que `__demoIntercepta` respondia por
+     TODA porta, e `/logistica/osrm/route` é de onde saem o traçado e as
+     manobras (`pedirRota`, § 60-prospector-nav). Recebendo `null`, ela lança
+     "Rota viária não encontrada", e a cena fica sem fita — sem fita não há
+     catraca, sem catraca não há manobra (§ 7d, 70-traco-camera).
+
+     E o alarme "O caminho veio sem desenho" NÃO acende neste caso: ele é do
+     ramo "respondeu SEM geometria", não do ramo "não respondeu". Por isso o
+     defeito era mudo, e só apareceu quando alguém olhou a tela.
+
+     ── POR QUE ESTAS DUAS PORTAS PODEM PASSAR, E SÓ ELAS ────────────────────
+     `/logistica/osrm/route` e `/logistica/osrm/table` são GEOMETRIA PURA
+     (`logistica-osrm.controller.ts`): recebem coordenadas, devolvem ruas. Não
+     leem nem escrevem registro de empresa, não criam nada e **não debitam
+     crédito** — o verbo que cobra é o `/logistica/rota/iniciar`, que continua
+     barrado aqui em cima. As paradas da demonstração são ancoradas no GPS de
+     verdade, então o traçado que volta é o do bairro real de quem abriu.
+
+     ⚠️ E A LEI DO CANO CONTINUA DE PÉ: a fresta é **GET**, e só para o par
+     exato do regex. Nenhum POST/PATCH/DELETE alcança a rede com a demonstração
+     no ar — que é a coisa que a trava existe para garantir. Porta nova de
+     escrita não entra aqui por engano: ela nem é GET.
+
+     ⚠️ Custo no servidor, que foi o medo que desenhou a trava: os freios já
+     existem e são do app real — 15 s de piso entre pedidos, só repede se andou
+     120 m, teto de 400/dia (`navGastar`), mais cache e rate-limit no próprio
+     service. Quem está em demonstração está parado olhando o app, não rodando
+     a cidade. ------------------------------------------------------------- */
+  const PORTAS_DE_RUA = /^\/logistica\/osrm\/(route|table)(\?|$)/;
+
   /* A porta que o núcleo consulta ANTES de ir à rede. `undefined` = "não sou eu,
      pode ir"; uma Promise = "eu respondo por esta". */
   window.__demoIntercepta = function (metodo, caminho, corpo) {
     if (!demoNoAr) return undefined;
+    if (metodo === 'GET' && PORTAS_DE_RUA.test(String(caminho || ''))) return undefined;
     let r = null;
     try { r = respostaDemo(metodo, caminho, corpo); } catch (_) { r = null; }
     return Promise.resolve(r);

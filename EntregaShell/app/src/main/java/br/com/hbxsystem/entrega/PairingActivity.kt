@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.text.InputFilter
 import android.text.InputType
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -32,6 +33,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
@@ -54,6 +56,11 @@ class PairingActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_FORCE_PAIRING = "hbxForcePairing"
         const val EXTRA_PAIRING_MESSAGE = "hbxPairingMessage"
+
+        /** Etiqueta ÚNICA do login. `adb logcat -s HBXLogin` isola a porta de
+         *  entrada inteira — é o que faltava em 20/08 para o Sign-In falhar
+         *  falando em vez de falhar mudo. */
+        private const val ETIQUETA_LOGIN = "HBXLogin"
     }
 
     private class ApiException(val status: Int, message: String) : Exception(message)
@@ -152,13 +159,39 @@ class PairingActivity : AppCompatActivity() {
                 }
                 val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
                 submitGoogleIdToken(googleCredential.idToken)
-            } catch (_: GetCredentialCancellationException) {
+            } catch (cancelamento: GetCredentialCancellationException) {
+                /* 🔴 ESTE RAMO ERA MUDO — e a mudez custou 15 horas em 20/08.
+                   Com a SHA-1 errada registrada no cliente OAuth Android, o GMS
+                   não devolve erro de assinatura: ele CANCELA. A tela voltava ao
+                   pareamento sem uma palavra, sem uma linha de log, e a hipótese
+                   que sobrou foi "deve ser propagação, vamos esperar". Cancelar
+                   de verdade (o usuário fecha a folha) e ser barrado por registro
+                   errado chegam aqui pelo MESMO caminho — a única forma de
+                   separar os dois é o log. Nunca mais apagar este Log.w. */
                 setBusy(false)
-            } catch (_: GoogleIdTokenParsingException) {
+                Log.w(
+                    ETIQUETA_LOGIN,
+                    "Sign-In cancelado/barrado. Se o usuário não fechou a folha, " +
+                        "suspeite do cliente OAuth Android: pacote e SHA-1 do " +
+                        "certificado que assina ESTE binário têm que estar " +
+                        "registrados no mesmo projeto do Web client " +
+                        BuildConfig.GOOGLE_WEB_CLIENT_ID + ". Detalhe: " +
+                        cancelamento.type + " — " + cancelamento.errorMessage,
+                    cancelamento,
+                )
+            } catch (parsing: GoogleIdTokenParsingException) {
                 setBusy(false)
+                Log.w(ETIQUETA_LOGIN, "idToken ilegível", parsing)
                 showMessage("Não foi possível ler a conta Google. Tente novamente.")
             } catch (error: Throwable) {
                 setBusy(false)
+                /* `error.message` do Credential Manager é quase sempre nulo — quem
+                   carrega a causa é o `type`. Sem ele a tela dizia a frase genérica
+                   e o log não dizia nada. */
+                val detalhe = (error as? GetCredentialException)?.let {
+                    it.type + " — " + (it.errorMessage ?: "sem mensagem")
+                } ?: (error::class.java.simpleName + " — " + (error.message ?: "sem mensagem"))
+                Log.w(ETIQUETA_LOGIN, "Sign-In falhou: " + detalhe, error)
                 showMessage(error.message ?: "Não foi possível conectar com Google Play.")
             }
         }
