@@ -17276,6 +17276,16 @@
     const prod = primeiro.produto || {};
     const hojeVal = typeof item.valorHoje === 'number' ? item.valorHoje : null;
     const anterior = typeof c.debitoAtual === 'number' ? c.debitoAtual : null;
+    /* 🔴 ZERO NÃO É "SEM PREÇO" (21/08). Com o financeiro LIGADO e nenhum produto
+       precificado, esta folha imprimia `R$ 0,00` — e zero, na porta do cliente,
+       não parece defeito: parece a conta. O entregador cobra nada e o dia fecha
+       errado. O servidor agora distingue os dois casos e manda `semPreco`; o
+       campo só viaja quando é VERDADE, então ausência = há preço (o caso normal).
+       ⚠️ Não é o mesmo que o módulo DESLIGADO: lá `valorHoje` nem vem, a folha
+       inteira nasce sem dinheiro e isso está certo. Aqui a empresa PEDIU
+       dinheiro e o cadastro não respondeu — a tela tem que dizer isso. */
+    const semPreco = item.semPreco === true;
+    const conta = semPreco ? 'sem preço' : hojeVal != null ? dinheiro(hojeVal) : '';
     window.usarDados('venda', {
       n: String(n),
       titulo: `Parada ${n} • ${esc(c.nome)}`,
@@ -17286,13 +17296,16 @@
         const p = (it && it.produto) || {};
         return [`${esc(p.nome)} x${it.qtdPrevista}`, 'blue'];
       }),
-      contaItem: hojeVal != null ? dinheiro(hojeVal) : '',
-      contaChegada: hojeVal != null ? dinheiro(hojeVal) : '',
+      semPreco: semPreco ? 1 : 0,
+      contaItem: conta,
+      contaChegada: conta,
       // "Ficou marcado" só é verdade quando a forma escolhida é FIADO
       // — em dinheiro/pix/cartão nada fica marcado. Número que muda de
       // significado conforme o botão é número que mente.
-      lancamento: forma === 'fiado' && hojeVal != null ? dinheiro(hojeVal) : dinheiro(0),
-      recebido: forma && forma !== 'fiado' && hojeVal != null ? dinheiro(hojeVal) : dinheiro(0),
+      // Sem preço, TODA a coluna de dinheiro vira travessão: imprimir `R$ 0,00`
+      // em "Ficou marcado" e "Recebido hoje" é a mesma mentira, três vezes.
+      lancamento: semPreco ? '—' : forma === 'fiado' && hojeVal != null ? dinheiro(hojeVal) : dinheiro(0),
+      recebido: semPreco ? '—' : forma && forma !== 'fiado' && hojeVal != null ? dinheiro(hojeVal) : dinheiro(0),
       paraMarcado: anterior != null ? dinheiro(anterior + (forma === 'fiado' ? (hojeVal || 0) : 0)) : '',
       forma,
     });

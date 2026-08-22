@@ -3611,6 +3611,14 @@ button,input{font:inherit;color:inherit}
   --fog:#f7f9fc;
   --lime-bg-2:#e4f3d2;
   --trilho:#d5dded;
+  /* A FAMÍLIA ÂMBAR entrou no mesmo saco (21/08, 2ª rodada): `--amber` TINHA par
+     claro (#8a5200) mas o fundo e a linha dele NÃO — então o aviso âmbar pintava
+     tinta escura sobre fundo marrom-escuro, medindo 2,55:1. Com o par claro:
+     5,72:1. Achado ao escrever o aviso "Produto sem preço cadastrado", que é o
+     primeiro uso NOVO desses tokens desde a pele clara existir. */
+  --amber-bg:#fdf1dc;
+  --amber-bg-2:#f8e6c4;
+  --amber-line:#c98f2e;
   --puck-anel:rgba(18,87,200,.42);
   background:linear-gradient(180deg,var(--bg-2),var(--bg) 34%);
   color:var(--ink);

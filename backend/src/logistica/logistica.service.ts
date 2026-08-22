@@ -535,6 +535,22 @@ export class LogisticaService {
                 : Math.max(0, Number(r.valor) || 0),
             )
           : undefined;
+        /* 🔴 ZERO E "SEM PREÇO" NÃO SÃO A MESMA COISA (21/08/2026), e a folha da
+           venda tratava os dois como `R$ 0,00`.
+           MEDIDO no hbx_prod: a empresa 5 tem o financeiro LIGADO e 74 itens de
+           entrega com `valorUnit` zerado — ela já vive neste estado hoje. A 39
+           cairia nele no segundo em que ligasse o módulo (207 clientes, 94 itens,
+           nenhum preço). Vazio ao menos parece defeito; ZERO parece informação, e
+           informação errada na porta é o entregador cobrando nada.
+           `semPreco` é o sinal explícito: financeiro LIGADO e nenhuma fonte de
+           preço — nem `EntregaItem.valorUnit`, nem o `valor` escalar legado.
+           Não confundir com venda legitimamente gratuita: nela existe preço
+           cadastrado e a conta dá zero, e algum item traz `valorUnit` > 0. */
+        const semPreco = moduloFinanceiroAtivoConfig
+          ? r.itens.length > 0
+            ? !r.itens.some((it) => Number(it.valorUnit) > 0)
+            : !(Number(r.valor) > 0)
+          : undefined;
         // FIX (25/07) — o local só vale como fonte de lat/lng se tiver os DOIS
         // eixos válidos; senão a fonte inteira cai pro perfil (nunca mistura
         // local.lat com customerProfile.lng). Ver logistica-geo-fonte.util.ts.
@@ -586,6 +602,9 @@ export class LogisticaService {
         origem: r.origem ?? null,
         ...(billingAudience ? { valor: r.valor } : {}),
         ...(valorHoje !== undefined ? { valorHoje } : {}),
+        // Só viaja quando é VERDADE e o módulo está ligado: campo ausente = "há
+        // preço" (o caso normal), então app velho não muda de comportamento.
+        ...(semPreco ? { semPreco: true as const } : {}),
         scheduledAt: r.scheduledAt ? r.scheduledAt.toISOString() : null,
         deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
         arrivedAt: r.arrivedAt ? r.arrivedAt.toISOString() : null,
@@ -4111,6 +4130,8 @@ export interface RotaItem {
   // moduloFinanceiroAtivoConfig, não billingAudience): quanto cobrar na porta,
   // sem expor valorUnit por item nem o catálogo inteiro (isso é billingAudience-only).
   valorHoje?: number;
+  /** financeiro LIGADO e nenhum preço cadastrado — a tela avisa em vez de imprimir R$ 0,00 */
+  semPreco?: true;
   scheduledAt: string | null;
   arrivedAt: string | null;
   deliveredAt: string | null;

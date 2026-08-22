@@ -2285,7 +2285,14 @@ ${hdr({})}
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
         <span style="font-size:12.5px;color:var(--ink-2)">Conta do item</span>
-        <b style="font-size:18px;color:var(--lime);font-weight:500">${d.contaItem}</b></div>
+        ${/* 🔴 SEM PREÇO NÃO PINTA DE LIMA (21/08). O lima é a cor do dinheiro
+             nesta tela; usar ele pra escrever "sem preço" faz a ausência parecer
+             um valor. Âmbar é o mesmo tom que a observação da parada já usa pra
+             dizer "olhe isto", e é o que o `.aviso` do rodapé repete abaixo. */''}
+        <b style="font-size:${d.semPreco?'14px':'18px'};color:var(--${d.semPreco?'amber':'lime'});font-weight:500">${d.contaItem}</b></div>
+      ${d.semPreco?`<div style="margin-top:9px;padding:8px 10px;border-radius:10px;border:.7px solid var(--amber-line);background:var(--glass);font-size:12px;color:var(--ink-2)">
+        <b style="display:block;color:var(--amber);font-weight:500;margin-bottom:2px">Produto sem preço cadastrado</b>
+        Cadastre o preço no painel para cobrar aqui. A entrega pode ser registrada normalmente.</div>`:''}
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
       <div class="box" style="display:flex;align-items:center;justify-content:space-between;margin:0">
