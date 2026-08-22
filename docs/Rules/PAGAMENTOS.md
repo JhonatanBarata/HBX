@@ -101,8 +101,14 @@
   negativo (fail-closed): pedido de 50 com 30 de saldo serve 30 e para.
 - **Entrada:** concessão manual do master (`grantToCompanyAsMaster`) ou
   recarga self-service via MercadoPago (`CreditRechargeService`,
-  `POST /financeiro/credits/recharge`) — crédito só entra com pagamento
-  CONFIRMADO. Lote de boas-vindas (`grantWelcomeBatch`, `grantType:'promo'`,
+  `POST /financeiro/credits/recharge` = cartão, síncrono) — crédito só entra
+  com pagamento CONFIRMADO. **Pix (PR22082026, 22/08):** 2 fases —
+  `POST /financeiro/credits/recharge/pix` gera o QR (charge `pending/PIX`, zero
+  crédito) e o crédito entra em `settlePixCharge` (poll
+  `GET /financeiro/credits/recharge/pix/:paymentId` OU webhook, quem chegar
+  primeiro; idempotente por `usageKey mp:<paymentId>`, receita 1× pelo
+  `ledgerEntryId`). Mesmas guardas P0.4 e LEI DO VENDEDOR do cartão.
+  No binário da Play NENHUMA das duas rotas é alcançável (allowlist/HBX_PLAY). Lote de boas-vindas (`grantWelcomeBatch`, `grantType:'promo'`,
   nunca receita) no signup self-service.
 - **Débito:** choke único na entrega/baixa do lead
   (`LeadContactWriteService`/`recordCardImport`/`recordCardCommercialUseOnce`
