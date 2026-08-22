@@ -26,7 +26,55 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { apiFetch } from "@/lib/api";
 import { CheckoutPanel } from "@/components/hbx/checkout-panel";
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { useHbxShell } from "@/lib/hbx-shell";
+
+// PIX (PR22082026-CLIENTE-ME-ACHA) — dono de distribuidora paga Pix. 2 fases: POST gera o
+// QR (cobrança pendente no backend), o painel faz poll a cada 4 s até o MP aprovar (ou o
+// webhook chegar antes — quem chegar primeiro credita, idempotente). O QR vale 30 min.
+type PixCreateResponse =
+  | {
+      ok: true;
+      status: "pending" | "approved" | "cancelled";
+      paymentId: string;
+      packKey: string;
+      credits: number;
+      amount: number;
+      qrCode: string | null;
+      qrCodeBase64: string | null;
+      ticketUrl: string | null;
+      expiresAt: string | null;
+      mock: boolean;
+    }
+  | { ok: false; code: string; message: string };
+
+type PixStatusResponse = {
+  ok: true;
+  status: "pending" | "approved" | "cancelled";
+  paymentId: string;
+  credited: number;
+  balanceAfter: number | null;
+  expiresAt: string | null;
+};
+
+type PixState = {
+  paymentId: string;
+  qrCode: string | null;
+  qrCodeBase64: string | null;
+  ticketUrl: string | null;
+  expiresAt: string | null;
+  status: "pending" | "approved" | "cancelled";
+  credited: number;
+  mock: boolean;
+};
+
+const PIX_POLL_MS = 4000;
+
+function fmtHora(iso?: string | null) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
 
 type CreditLot = {
   id: string;
@@ -107,6 +155,106 @@ export function CreditsWalletSection() {
   }, []);
 
   useEffect(() => { carregar(); }, [carregar]);
+
+  // PIX — método escolhido, o QR vivo e o relógio do poll. `pix` zera quando a intenção
+  // (pagando) muda: QR é da intenção, não da tela.
+  const [metodo, setMetodo] = useState<"pix" | "cartao">("pix");
+  const [pix, setPix] = useState<PixState | null>(null);
+  const [pixBusy, setPixBusy] = useState(false);
+  const [pixErro, setPixErro] = useState<string | null>(null);
+  const [pixCopiado, setPixCopiado] = useState(false);
+  const metodoPill = useGlassPill<HTMLButtonElement>(pagando ? metodo : null, pagando?.idempotencyKey);
+
+  // Uma INTENÇÃO de recarga = 1 idempotencyKey. Abrir/trocar a intenção zera o QR (o QR é
+  // da intenção, não da tela) — feito AQUI, no gesto, e não num efeito (lint react-hooks).
+  function abrirIntencao(pack: CreditPackPublic) {
+    setRecarregarMsg(null);
+    setPix(null);
+    setPixErro(null);
+    setPixCopiado(false);
+    setPagando({ pack, idempotencyKey: crypto.randomUUID() });
+  }
+  function fecharIntencao() {
+    setPix(null);
+    setPixErro(null);
+    setPixCopiado(false);
+    setPagando(null);
+  }
+
+  async function gerarPix() {
+    if (!pagando || pixBusy) return;
+    setPixBusy(true);
+    setPixErro(null);
+    setPixCopiado(false);
+    try {
+      const res = await apiFetch<PixCreateResponse>("/financeiro/credits/recharge/pix", {
+        method: "POST",
+        body: JSON.stringify({ packKey: pagando.pack.key, idempotencyKey: pagando.idempotencyKey }),
+      });
+      if (!res?.ok) {
+        // QR expirado da MESMA intenção: a próxima tentativa nasce com intenção nova.
+        if (res && "code" in res && res.code === "CHARGE_FAILED" && /expirou/i.test(res.message || "")) {
+          setPagando({ pack: pagando.pack, idempotencyKey: crypto.randomUUID() });
+        }
+        throw new Error((res && "message" in res && res.message) || "Não consegui gerar o Pix agora.");
+      }
+      setPix({
+        paymentId: res.paymentId,
+        qrCode: res.qrCode,
+        qrCodeBase64: res.qrCodeBase64,
+        ticketUrl: res.ticketUrl,
+        expiresAt: res.expiresAt,
+        status: res.status,
+        credited: 0,
+        mock: res.mock,
+      });
+    } catch (err: unknown) {
+      setPixErro(err instanceof Error ? err.message : "Não consegui gerar o Pix agora.");
+    } finally {
+      setPixBusy(false);
+    }
+  }
+
+  async function copiarPix() {
+    if (!pix?.qrCode) return;
+    try {
+      await navigator.clipboard.writeText(pix.qrCode);
+      setPixCopiado(true);
+      window.setTimeout(() => setPixCopiado(false), 2500);
+    } catch {
+      setPixErro("Não consegui copiar automaticamente — selecione o código e copie.");
+    }
+  }
+
+  // Poll enquanto pendente. Para sozinho em aprovado/cancelado ou quando a intenção some.
+  const pixPaymentId = pix?.paymentId ?? null;
+  const pixPendente = pix?.status === "pending";
+  useEffect(() => {
+    if (!pixPaymentId || !pixPendente) return;
+    let vivo = true;
+    const tick = async () => {
+      try {
+        const res = await apiFetch<PixStatusResponse>(`/financeiro/credits/recharge/pix/${encodeURIComponent(pixPaymentId)}`);
+        if (!vivo || !res?.ok) return;
+        if (res.status !== "pending") {
+          setPix(prev => (prev ? { ...prev, status: res.status, credited: res.credited || 0 } : prev));
+          if (res.status === "approved") {
+            setRecarregarMsg(
+              res.credited > 0
+                ? `Pix confirmado — ${res.credited} créditos adicionados à carteira.`
+                : "Pix confirmado — créditos adicionados à carteira.",
+            );
+            carregar();
+          }
+        }
+      } catch {
+        // rede caiu neste tick: o próximo tenta de novo (o QR continua válido)
+      }
+    };
+    const id = window.setInterval(() => { void tick(); }, PIX_POLL_MS);
+    void tick();
+    return () => { vivo = false; window.clearInterval(id); };
+  }, [pixPaymentId, pixPendente, carregar]);
 
   const packs = useMemo(() => data?.packs || [], [data]);
   const lotesAtivos = useMemo(() => (data?.lots || []).filter(l => l.remaining > 0), [data]);
@@ -213,7 +361,7 @@ export function CreditsWalletSection() {
         <div className="panel-head">
           <h2>Recarregar</h2>
           {pagando && (
-            <button className="btn-ghost" onClick={() => setPagando(null)}>
+            <button className="btn-ghost" onClick={() => fecharIntencao()}>
               Voltar aos pacotes
             </button>
           )}
@@ -240,10 +388,7 @@ export function CreditsWalletSection() {
                       <button
                         className="btn-teal cw-pack__cta"
                         disabled={Boolean(p.paused)}
-                        onClick={() => {
-                          setRecarregarMsg(null);
-                          setPagando({ pack: p, idempotencyKey: crypto.randomUUID() });
-                        }}
+                        onClick={() => abrirIntencao(p)}
                       >
                         Recarregar
                       </button>
@@ -254,6 +399,88 @@ export function CreditsWalletSection() {
             </React.Fragment>
           )}
           {pagando && (
+            <div className="glass-pill-track cw-metodos" role="tablist" aria-label="Forma de pagamento">
+              <GlassPill rect={metodoPill.rect} landing={metodoPill.landing} onSettled={metodoPill.onSettled} />
+              {(["pix", "cartao"] as const).map(m => (
+                <button
+                  key={m}
+                  type="button"
+                  role="tab"
+                  aria-selected={metodo === m}
+                  ref={metodoPill.itemRef(m)}
+                  className={"glass-pill-item cw-metodo" + (metodo === m ? " active" : "")}
+                  onClick={() => setMetodo(m)}
+                >
+                  {m === "pix" ? "Pix" : "Cartão"}
+                </button>
+              ))}
+            </div>
+          )}
+          {pagando && metodo === "pix" && (
+            <div className="cw-pix">
+              <div className="cw-pix__head">
+                <span className="cw-pix__title">Recarga — {pagando.pack.title} ({pagando.pack.credits} créditos)</span>
+                <span className="cw-pix__total">{brl(pagando.pack.price)}</span>
+              </div>
+              {pixErro && <div className="reg-checkout__err">{pixErro}</div>}
+              {!pix && (
+                <div className="cw-pix__actions">
+                  <button className="btn-teal" type="button" disabled={pixBusy} onClick={() => void gerarPix()}>
+                    {pixBusy ? "Gerando QR Code…" : "Gerar QR Code Pix"}
+                  </button>
+                </div>
+              )}
+              {pix && pix.status === "pending" && (
+                <div className="cw-pix__body">
+                  <div className="cw-pix__qr">
+                    {pix.qrCodeBase64 ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={`data:image/png;base64,${pix.qrCodeBase64}`} alt="QR Code Pix" />
+                    ) : (
+                      <span className="sc-note">Use o código copia-e-cola ao lado.</span>
+                    )}
+                  </div>
+                  <div className="cw-pix__steps">
+                    <div><b>1.</b> Abra o app do seu banco e escolha pagar com Pix.</div>
+                    <div><b>2.</b> Leia o QR Code ou cole o código abaixo.</div>
+                    <div><b>3.</b> Pagou? Pode deixar esta tela aberta — os créditos entram sozinhos.</div>
+                    {pix.qrCode && (
+                      <div className="cw-pix__code">
+                        <textarea readOnly value={pix.qrCode} onFocus={e => e.currentTarget.select()} aria-label="Código Pix copia e cola" />
+                        <div className="cw-pix__actions">
+                          <button className="btn-ghost" type="button" onClick={() => void copiarPix()}>
+                            {pixCopiado ? "Copiado ✓" : "Copiar código"}
+                          </button>
+                          {pix.ticketUrl && (
+                            <a className="btn-ghost" href={pix.ticketUrl} target="_blank" rel="noreferrer">Abrir no Mercado Pago</a>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    <div className="cw-pix__status">
+                      <span className="cw-pix__dot" aria-hidden="true" />
+                      <span>Aguardando o pagamento{pix.expiresAt ? ` · válido até ${fmtHora(pix.expiresAt)}` : ""}{pix.mock ? " · (modo teste)" : ""}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {pix && pix.status === "approved" && (
+                <div className="cw-pix__status is-ok">Pix confirmado — créditos na carteira. Pode fechar esta etapa.</div>
+              )}
+              {pix && pix.status === "cancelled" && (
+                <React.Fragment>
+                  <div className="cw-pix__status is-bad">Este QR Code expirou ou foi cancelado. Nada foi cobrado.</div>
+                  <div className="cw-pix__actions">
+                    <button className="btn-teal" type="button" onClick={() => abrirIntencao(pagando.pack)}>
+                      Gerar outro QR Code
+                    </button>
+                  </div>
+                </React.Fragment>
+              )}
+              <p className="reg-checkout__safe">Pix e cartão são processados pelo Mercado Pago. A HBX não guarda dados bancários.</p>
+            </div>
+          )}
+          {pagando && metodo === "cartao" && (
             <CheckoutPanel
               title={`Recarga — ${pagando.pack.title} (${pagando.pack.credits} créditos)`}
               ctaLabel={`Pagar ${brl(pagando.pack.price)}`}
@@ -275,7 +502,7 @@ export function CreditsWalletSection() {
                 if (!res?.ok) throw new Error(res?.message || "Não foi possível concluir a recarga.");
               }}
               onSuccess={() => {
-                setPagando(null);
+                fecharIntencao();
                 setRecarregarMsg("Recarga concluída — créditos adicionados à carteira.");
                 carregar();
               }}

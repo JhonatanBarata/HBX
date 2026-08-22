@@ -25,8 +25,13 @@ Desde o `versionCode 1` mudaram: `PairingActivity.kt` (o log do Sign-In),
 `C8-demonstracao.js` (a fresta das ruas) e `mock.css` (os 4 tokens de contraste).
 Nada disso está no binário que a Play tem.
 
-1. **Suba o `versionCode`** em `EntregaShell/app/versao-logistica.properties`:
-   `versionCode=2`. Deixe `versionName=1.0.0`.
+1. **Suba o `versionCode`** em `EntregaShell/app/versao-logistica.properties`.
+   ⚠️ 22/08 (tarde): o arquivo está em **`versionCode=357` / `versionName=2.0.0`** e o
+   bundle 357 é o que leva o PR22082026-CLIENTE-ME-ACHA (Ajustes → **Ajuda** com o
+   WhatsApp da HBX e *"Quero que a HBX me ligue"*, aviso + portas de suporte na tela de
+   Créditos do canal Play, portão "Créditos insuficientes" com saída). O 356 (13:24) e o
+   353 podem já ter subido ao Console — **não reusar**; se o 357 também já tiver sido
+   consumido, suba o número de novo antes de gerar.
    ⚠️ Um número por upload, **sem exceção** — a Play queima o número mesmo se a
    release for descartada sem publicar.
 2. Gere o bundle assinado (`:app:bundleLogisticaRelease`).

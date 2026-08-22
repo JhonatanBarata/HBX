@@ -1,13 +1,28 @@
-import { Body, Controller, ForbiddenException, Headers, Logger, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Headers, Logger, Optional, Post, Query, Req } from '@nestjs/common';
 import { FinanceiroService } from './financeiro.service';
-import { evaluateMercadoPagoWebhookSignature } from '../payments/mercado-pago-webhook-signature';
+import { CreditRechargeService } from './credit-recharge.service';
+import { evaluateMercadoPagoWebhookSignature, extractWebhookDataId } from '../payments/mercado-pago-webhook-signature';
 
 @Controller('webhooks/mercadopago/financeiro')
 export class FinanceiroWebhookController {
   private readonly logger = new Logger(FinanceiroWebhookController.name);
   private warnedMissingSecret = false;
 
-  constructor(private readonly financeiroService: FinanceiroService) {}
+  constructor(
+    private readonly financeiroService: FinanceiroService,
+    // PIX DA RECARGA (PR22082026): assenta crédito ANTES do processamento genérico. @Optional
+    // pra não quebrar quem instancia o controller direto em teste.
+    @Optional() private readonly rechargeService?: CreditRechargeService,
+  ) {}
+
+  // Só notificações de PAGAMENTO interessam à recarga; assinatura/preapproval segue o
+  // caminho de sempre. Tolerante aos formatos que o MP manda (query `type`/`topic`, body).
+  private extractPaymentIdForRecharge(query: Record<string, any>, body: any): string {
+    const topic = String(query?.type || query?.topic || body?.type || body?.topic || body?.action || '').toLowerCase();
+    if (topic && !/payment/.test(topic)) return '';
+    const fromBody = body && typeof body === 'object' ? String((body.data && body.data.id) || body.id || '').trim() : '';
+    return String(extractWebhookDataId(query) || fromBody || '').trim();
+  }
 
   @Post()
   async handleWebhook(
@@ -32,6 +47,16 @@ export class FinanceiroWebhookController {
     }
 
     const companyId = Number(companyIdRaw || 0) || undefined;
+
+    // PIX DA RECARGA primeiro: se for pagamento de recarga pendente, o crédito entra AQUI.
+    // O processamento genérico abaixo continua rodando (atualiza a charge; não duplica
+    // receita porque a charge já sai com ledgerEntryId). Nunca lança (service engole).
+    let recharge: { handled: boolean; status?: string; reason?: string } | null = null;
+    if (this.rechargeService) {
+      const paymentId = this.extractPaymentIdForRecharge(query, body);
+      if (paymentId) recharge = await this.rechargeService.settleIfCreditRecharge(paymentId);
+    }
+
     const result = await this.financeiroService.processMercadoPagoWebhook({
       companyId,
       query,
@@ -41,6 +66,7 @@ export class FinanceiroWebhookController {
       ok: true,
       received: true,
       ...result,
+      ...(recharge && recharge.handled ? { creditRecharge: recharge } : {}),
     };
   }
 }

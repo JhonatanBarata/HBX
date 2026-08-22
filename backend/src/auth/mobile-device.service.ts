@@ -849,7 +849,8 @@ export class MobileDeviceService {
       if (!this.authService) {
         throw new Error('MobileDeviceService sem AuthService injetado (googlePairDevice).');
       }
-      await this.authService.ensureGoogleAccount({ sub: identity.googleId, email: identity.email });
+      // `origin:'app'` só muda a frase de abertura do e-mail de boas-vindas (PR22082026).
+      await this.authService.ensureGoogleAccount({ sub: identity.googleId, email: identity.email, origin: 'app' });
 
       device = await withoutTenantScope('mobile pairing: validar Google e vincular instalação', () =>
         this.prisma.$transaction(async (tx) => {

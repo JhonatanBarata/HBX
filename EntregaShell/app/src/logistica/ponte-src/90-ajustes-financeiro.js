@@ -250,6 +250,10 @@
     const atual = packs.find((p) => p.key === pacoteEscolhido) || null;
     window.usarDados('creditos', {
       ...fonteVoltou,
+      // 22/08 (PR22082026): no binário da loja a tela acende o aviso "quem recarrega é o
+      // administrador, pelo painel" + as portas de suporte (WhatsApp / me ligue) — é o
+      // que a política permite, e é a saída do beco "saldo 0, rota não inicia".
+      loja: daLoja ? 1 : 0,
       saldo: saldo != null ? String(saldo) : '',
       vence: creditoVencendo(cred),
       pacotes: packs.map((p) => [

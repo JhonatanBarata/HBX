@@ -3471,6 +3471,7 @@ button,input{font:inherit;color:inherit}
 /* AS TRÊS PORTAS. Cabem numa fileira só porque são três e o rótulo é uma
    palavra — em duas linhas viraria menu, e menu é escolha, não convite. */
 .cap-portas{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:13px}
+.cap-portas.duas{grid-template-columns:repeat(2,1fr);margin-top:8px}
 .cap-porta{display:grid;place-items:center;gap:6px;padding:12px 4px 10px;border-radius:13px;
   border:.8px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;font:inherit}
 .cap-porta i{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;
@@ -3585,40 +3586,6 @@ button,input{font:inherit;color:inherit}
      caindo na tela; véu claro é a luz de fora entrando, que é a leitura de
      quem dirige de dia. Mesma cena, lado oposto. */
   --veu:#eef2f8;
-  /* 🔴 OS QUATRO TOKENS QUE A PELE CLARA ESQUECEU (21/08/2026, MEDIDO no g15).
-     Todos nasceram no bloco escuro e nunca ganharam par claro — e como quem
-     escreve por cima deles (`--ink`, `--ink-2`, `--lime`) INVERTE na pele
-     clara, o resultado é tinta escura sobre fundo escuro:
-
-     · `--glass` (#0b1322) é o fundo do rodapé de DIRIGIR, do dock, dos
-       controles do mapa e do rótulo do pino — 13 peças. Com `--ink` claro por
-       cima media **1,04:1**: o "31 min restante · 12,6 km · 13:07 chegada" e os
-       rótulos Cancelar/Registrar/Finalizar simplesmente não existiam na tela.
-       Agora 17,94:1 (e 6,06:1 no `--ink-2`).
-     · `--fog` (#070d18) é a névoa do `.hdr.flutua`, o cabeçalho de vidro da
-       tela cheia: névoa escura sob logo escuro virava lama sobre o mapa claro.
-       É a MESMA lei que o `--veu` logo acima já cumpre — no escuro escurece, no
-       claro clareia. O `--fog` só tinha ficado de fora.
-     · `--lime-bg-2` (#17230e) é o disco do glifo — o "Trazendo a rota…" media
-       **3,11:1** entre o verde escuro do ícone e o verde quase preto do fundo.
-       O par novo é o mesmo já homologado em `.previa.entra .marca`: 4,52:1.
-     · `--trilho` (#182741) é o sulco da barra de progresso: risco azul-escuro
-       cravado num cartão branco.
-
-     ⚠️ Medido com o contraste real (WCAG), não no olho. Quem mexer refaz a
-     conta — a régua desta casa é o número. */
-  --glass:rgba(255,255,255,.94);
-  --fog:#f7f9fc;
-  --lime-bg-2:#e4f3d2;
-  --trilho:#d5dded;
-  /* A FAMÍLIA ÂMBAR entrou no mesmo saco (21/08, 2ª rodada): `--amber` TINHA par
-     claro (#8a5200) mas o fundo e a linha dele NÃO — então o aviso âmbar pintava
-     tinta escura sobre fundo marrom-escuro, medindo 2,55:1. Com o par claro:
-     5,72:1. Achado ao escrever o aviso "Produto sem preço cadastrado", que é o
-     primeiro uso NOVO desses tokens desde a pele clara existir. */
-  --amber-bg:#fdf1dc;
-  --amber-bg-2:#f8e6c4;
-  --amber-line:#c98f2e;
   --puck-anel:rgba(18,87,200,.42);
   background:linear-gradient(180deg,var(--bg-2),var(--bg) 34%);
   color:var(--ink);

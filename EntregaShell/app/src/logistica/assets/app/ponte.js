@@ -4434,10 +4434,15 @@
            Trava sem saída é BECO (lei de 14/08). */
         if (!temSaldo) {
           pousarNaRota();
+          /* 22/08 (PR22082026): TRAVA COM SAÍDA. No canal Play não existe recarga
+             dentro do app — a porta é FALAR COM A HBX (4º campo = data-acao
+             `suporte`, abre o WhatsApp). O texto diz quem recarrega, e é só
+             informação: sem preço, sem "compre", sem link. */
           return window.portao({
             tom: 'trava', ico: 'card', titulo: 'Créditos insuficientes',
-            sub: isFinite(saldo) ? `Debita ${num(debita)} · você tem ${num(saldo)}` : `Debita ${num(debita)}`,
-            acoes: [['Fechar', '']],
+            sub: (isFinite(saldo) ? `Debita ${num(debita)} · você tem ${num(saldo)}. ` : `Debita ${num(debita)}. `)
+              + 'Quem recarrega é o administrador da empresa, pelo painel HBX.',
+            acoes: [['Fechar', ''], ['Falar com a HBX', 'principal', undefined, 'suporte']], classe: 'duas',
           });
         }
         try {
@@ -4657,12 +4662,14 @@
          ele quem diz se cobre: quem decide se pode sair é o servidor. */
       if (!temSaldo) {
         fecharEsperaInicio();
+        // 22/08 (PR22082026): mesma trava-com-saída do véu de cima — ver o comentário lá.
         return window.portao({
           tom: 'trava', ico: 'card', titulo: 'Créditos insuficientes',
-          sub: isFinite(saldo)
-            ? `Debita ${num(debita)} · você tem ${num(saldo)}`
-            : `Debita ${num(debita)}`,
-          acoes: [['Fechar', '']],
+          sub: (isFinite(saldo)
+            ? `Debita ${num(debita)} · você tem ${num(saldo)}. `
+            : `Debita ${num(debita)}. `)
+            + 'Quem recarrega é o administrador da empresa, pelo painel HBX.',
+          acoes: [['Fechar', ''], ['Falar com a HBX', 'principal', undefined, 'suporte']], classe: 'duas',
         });
       }
       try {
@@ -11924,6 +11931,10 @@
     const atual = packs.find((p) => p.key === pacoteEscolhido) || null;
     window.usarDados('creditos', {
       ...fonteVoltou,
+      // 22/08 (PR22082026): no binário da loja a tela acende o aviso "quem recarrega é o
+      // administrador, pelo painel" + as portas de suporte (WhatsApp / me ligue) — é o
+      // que a política permite, e é a saída do beco "saldo 0, rota não inicia".
+      loja: daLoja ? 1 : 0,
       saldo: saldo != null ? String(saldo) : '',
       vence: creditoVencendo(cred),
       pacotes: packs.map((p) => [
@@ -17116,6 +17127,81 @@
      responder é justamente a que falta na hora que ela some. Ver a ação
      `suporte`, lá embaixo. */
   const SUPORTE_WHATSAPP = '5519997024884';
+
+  /* O número do suporte que VALE: o que o servidor publica em `/logistica/config`
+     (`suporteWhatsapp`, env ADMIN_SUPPORT_PHONE — a mesma fonte do e-mail de
+     boas-vindas e do "me ligue"), caindo na constante quando a config ainda não
+     chegou ou a rede sumiu. A constante continua sendo a linha de socorro offline;
+     a config é quem deixa o dono trocar o número sem publicar APK. */
+  function numeroDoSuporte() {
+    let fromConfig = '';
+    try { fromConfig = String((config && config.suporteWhatsapp) || '').replace(/\D/g, ''); } catch (_) { fromConfig = ''; }
+    return fromConfig.length >= 10 ? fromConfig : SUPORTE_WHATSAPP;
+  }
+
+  /* ── "QUERO QUE A HBX ME LIGUE" (22/08, PR22082026-CLIENTE-ME-ACHA) ─────────
+     O pedido de contato de dentro do app. Vira LEAD no /vendas da HBX + e-mail
+     pro suporte (POST /logistica/contato-hbx). É a porta que a política da
+     Play permite: pedido de contato, sem preço, sem compra, sem link.
+     O estado (assunto + telefone) vive AQUI, não no DOM do portão: o botão do
+     portão fecha a peça no mesmo toque (`data-fechar`), então ler o campo na
+     hora do envio seria ler um nó que já saiu da tela. */
+  const CONTATO_ASSUNTOS = [
+    ['creditos', 'Créditos e plano'],
+    ['fiscal', 'Nota fiscal'],
+    ['vendas', 'Vendas / clientes novos'],
+    ['app', 'Dúvida no app'],
+    ['outro', 'Outro'],
+  ];
+  let contatoAssunto = 'creditos';
+  let contatoTelefone = '';
+
+  function abrirPedidoDeContato() {
+    const chips = CONTATO_ASSUNTOS.map(([k, t]) =>
+      `<button class="chip${k === contatoAssunto ? ' on' : ''}" data-acao="contato-assunto" data-assunto="${k}">${t}</button>`).join('');
+    window.portao({
+      tom: 'info', ico: 'bell', titulo: 'Quero que a HBX me ligue',
+      sub: 'Diz o assunto e deixa um telefone. A HBX te chama — sem compromisso.',
+      corpo: `<div class="chips" data-papel="contato-assuntos">${chips}</div>
+        <div class="pt-campo"><input class="resto" type="tel" inputmode="tel" placeholder="Seu telefone com DDD" value="${esc(contatoTelefone)}" data-campo="contato-telefone"></div>`,
+      acoes: [['Agora não', ''], ['Enviar pedido', 'principal', undefined, 'contato-enviar']], classe: 'duas',
+    });
+  }
+
+  function escolherAssuntoContato(chave, alvo) {
+    const k = String(chave || '').trim();
+    if (!CONTATO_ASSUNTOS.some(([key]) => key === k)) return;
+    contatoAssunto = k;
+    try {
+      const caixa = alvo && alvo.closest ? alvo.closest('[data-papel="contato-assuntos"]') : null;
+      if (caixa) caixa.querySelectorAll('.chip').forEach((b) => b.classList.toggle('on', b.dataset.assunto === k));
+    } catch (_) { /* só visual */ }
+  }
+
+  async function enviarPedidoDeContato() {
+    const telefone = String(contatoTelefone || '').replace(/\D/g, '');
+    try {
+      await window.API.post('/logistica/contato-hbx', { assunto: contatoAssunto, telefone });
+      window.portao({
+        tom: 'ok', ico: 'check', titulo: 'Pedido enviado',
+        sub: 'A HBX vai falar com você pelo WhatsApp ou pelo telefone da sua conta.',
+        acoes: [['Fechar', '']],
+      });
+    } catch (e) {
+      window.portao({
+        tom: 'alerta', ico: 'alert', titulo: 'Não consegui enviar agora',
+        sub: 'Tenta de novo em instantes — ou fala direto com a gente no WhatsApp.',
+        acoes: [['Fechar', ''], ['WhatsApp', 'principal', undefined, 'suporte']], classe: 'duas',
+      });
+    }
+  }
+
+  // O telefone digitado no portão: guardado a cada tecla (ver nota acima).
+  document.addEventListener('input', (ev) => {
+    const el = ev.target;
+    if (el && el.matches && el.matches('[data-campo="contato-telefone"]')) contatoTelefone = String(el.value || '');
+  });
+
   let financeiroAtivo = true;
   let cobrancaSimples = false;
   let aberta = null;              // { id, n, item } — a parada com a folha aberta
@@ -18115,9 +18201,12 @@
       const texto = ['Olá, preciso de ajuda no HBX Logística.',
         empresa ? `Empresa: ${empresa}` : '',
         versao ? `App: ${versao}` : ''].filter(Boolean).join('\n');
-      try { window.HBX.whatsapp(SUPORTE_WHATSAPP, texto); }
+      try { window.HBX.whatsapp(numeroDoSuporte(), texto); }
       catch (_) { avisoErro(new Error('Não consegui abrir o WhatsApp agora.')); }
     },
+    // "QUERO QUE A HBX ME LIGUE" (22/08) — ver o bloco lá em cima.
+    'pedir-contato': abrirPedidoDeContato,
+    'contato-enviar': enviarPedidoDeContato,
     'enviar-recado': enviarRecado,
     // "Responder" não manda nada: ele leva o dedo pro campo. O texto é dele.
     'responder-recado': () => {
@@ -18195,6 +18284,8 @@
     // O chip da folha do prospector: o TIPO é o argumento do toque (§7b-bis).
     if (chave === 'prospector-tipo') return escolherTipoProspector(alvo.dataset.tipo);
     if (chave === 'pacote') return escolherPacote(alvo.dataset.pacote);
+    // O chip de assunto do "quero que a HBX me ligue" (22/08): argumento no botão.
+    if (chave === 'contato-assunto') return escolherAssuntoContato(alvo.dataset.assunto, alvo);
     if (chave === 'modo-rota') return escolherModo(alvo.dataset.modo);
     // As três da parada avulsa que carregam ARGUMENTO no próprio botão.
     if (chave === 'rapida-opcao') return rapidaEscolher(alvo.dataset.i);

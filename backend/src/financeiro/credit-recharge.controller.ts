@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -42,6 +42,26 @@ class RechargeCreditsDto {
   taxDocument?: string;
 }
 
+// PIX (PR22082026-CLIENTE-ME-ACHA) — 2 fases: POST gera o QR (cobrança pendente), GET
+// consulta/assenta. Mesma guarda do cartão (dono/master no service, LEI DO VENDEDOR).
+class PixRechargeCreditsDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(40)
+  packKey!: string;
+
+  @IsString()
+  @MinLength(8)
+  @MaxLength(80)
+  idempotencyKey!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  @Type(() => String)
+  taxDocument?: string;
+}
+
 @Controller('financeiro/credits')
 export class CreditRechargeController {
   constructor(private readonly rechargeService: CreditRechargeService) {}
@@ -56,5 +76,21 @@ export class CreditRechargeController {
       paymentMethodId: body.paymentMethodId ?? null,
       taxDocument: body.taxDocument ?? null,
     });
+  }
+
+  @Post('recharge/pix')
+  @UseGuards(JwtAuthGuard)
+  async rechargePix(@Req() req: any, @Body() body: PixRechargeCreditsDto) {
+    return this.rechargeService.createPixRecharge(req.user, {
+      packKey: body.packKey,
+      idempotencyKey: body.idempotencyKey,
+      taxDocument: body.taxDocument ?? null,
+    });
+  }
+
+  @Get('recharge/pix/:paymentId')
+  @UseGuards(JwtAuthGuard)
+  async rechargePixStatus(@Req() req: any, @Param('paymentId') paymentId: string) {
+    return this.rechargeService.getPixRechargeStatus(req.user, paymentId);
   }
 }

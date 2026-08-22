@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { isBillingOwnerActor, type ActorKindUserLike } from '../access/actor-kind';
+import { supportEmail, supportWhatsappDigits } from '../common/hbx-support-contact';
 import { CreditWalletService } from '../credits/credit-wallet.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { isCobrancaWhatsEnabled } from './logistica-cobranca.flags';
@@ -715,11 +716,13 @@ export function saudacaoPorHorario(now: Date): string {
    lista dele por foto. Mesmas envs que o financeiro já lê (`ADMIN_SUPPORT_*`):
    duas fontes pro mesmo "telefone da HBX" é como uma delas fica velha sem
    ninguém perceber. Só dígitos no telefone, porque quem consome é um `wa.me/`. */
+// PR22082026: a fonte virou `common/hbx-support-contact.ts` (e-mail de boas-vindas e o
+// "quero que a HBX me ligue" leem o MESMO número). Estes dois ficam como atalho local.
 function suporteWhatsappDigits(): string {
-  return String(process.env.ADMIN_SUPPORT_PHONE || '+5519997024884').replace(/\D/g, '');
+  return supportWhatsappDigits();
 }
 function suporteEmailAlvo(): string {
-  return String(process.env.ADMIN_SUPPORT_EMAIL || 'jbinformatica1100@gmail.com').trim();
+  return supportEmail();
 }
 
 function semAcento(s: string): string {

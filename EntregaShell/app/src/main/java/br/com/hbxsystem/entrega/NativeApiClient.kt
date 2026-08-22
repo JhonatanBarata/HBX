@@ -502,6 +502,12 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
                que esta allowlist já custou três vezes. Regra da casa: endpoint
                novo = ponte + allowlist + rebuild do APK, os TRÊS ou nada. */
             listOf("logistica", "cadastro-em-massa"),
+            /* 🔴 "QUERO QUE A HBX ME LIGUE" (22/08, PR22082026-CLIENTE-ME-ACHA) — o pedido
+               de contato de dentro do app (Ajustes → Ajuda, tela de Créditos no canal
+               Play, portão "Créditos insuficientes"). É suporte/pedido de contato, não
+               compra: permitido pela Play. Mesma armadilha de sempre — sem esta linha o
+               toque morre DENTRO do aparelho com o servidor 100% ok. */
+            listOf("logistica", "contato-hbx"),
         ) -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "entregas") && segments[3] in setOf("confirmar", "cancelar", "reabrir", "comprovantes", "chegando") -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "rota-modelos") && segments[3] == "gerar" -> true

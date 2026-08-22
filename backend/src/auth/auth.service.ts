@@ -58,6 +58,8 @@ import {
   seedTenantDefaultProductsTx,
   serializeProvisioningLedger,
 } from '../master-provisioning/tenant-provisioning.pipeline';
+// PR22082026-CLIENTE-ME-ACHA — o WhatsApp da HBX vai no e-mail de boas-vindas da conta.
+import { supportWhatsappPretty } from '../common/hbx-support-contact';
 
 // FIX-SEG (07/07) anti-enumeração/anti-timing no login: quando o usuário NÃO
 // existe, rodamos um bcrypt.compare descartável contra este hash constante (de
@@ -124,6 +126,37 @@ export class AuthService implements OnModuleInit {
   // (signupWithGoogle / signup). Best-effort puro: grantWelcomeBatch já engole qualquer erro
   // e respeita HBX_CREDITS_ENABLED — este wrapper só existe pra documentar o contrato no
   // ponto de chamada (nunca lança, nunca é `await`ado de forma bloqueante-crítica).
+  // PR22082026-CLIENTE-ME-ACHA — e-mail de boas-vindas da CONTA (template de sistema
+  // `account_welcome`, editável no Master). Best-effort puro: loga e segue. O link do
+  // painel e o WhatsApp da HBX vão aqui porque FORA do app pode tudo — dentro do binário
+  // da Play não pode nem URL nem preço (ver docs/Rules/ANDROID-PLAY.md §3.2).
+  private async sendAccountWelcomeEmail(input: { to: string; nome: string; empresa: string; origin?: 'app' | 'site' }) {
+    const to = String(input.to || '').trim();
+    if (!to) return;
+    try {
+      const template = await this.emailTemplates.getTemplateSafe('account_welcome');
+      const rendered = this.emailTemplates.renderTemplate(template, {
+        nome: input.nome || to,
+        empresa: input.empresa || '',
+        email: to,
+        linkAcesso: this.buildAppUrl(),
+        suportewhatsapp: supportWhatsappPretty(),
+        ano: new Date().getFullYear(),
+      });
+      const result: any = await this.mail.sendMail({
+        to,
+        subject: rendered.subject,
+        text: rendered.text,
+        html: rendered.html,
+      });
+      if (result && result.ok === false) {
+        this.logger.warn(`account_welcome_email_not_sent to=${to} origin=${input.origin || 'site'} reason=${String(result.reason || result.message || 'provider')}`);
+      }
+    } catch (error: any) {
+      this.logger.warn(`account_welcome_email_failed to=${to} origin=${input.origin || 'site'} error=${String(error?.message || error)}`);
+    }
+  }
+
   private grantWelcomeCreditsBatch(companyId: number | null | undefined) {
     const companyIdNum = Number(companyId || 0);
     if (!companyIdNum) return;
@@ -1591,7 +1624,7 @@ export class AuthService implements OnModuleInit {
   // fazia findFirst e sobrescrevia sem checar) — endurece o site pro mesmo
   // padrão do móvel; nenhum teste do site exercita esses ramos (auth.service.test.ts
   // permanece verde), e o caso feliz (1 conta por e-mail) é idêntico a antes.
-  async ensureGoogleAccount(payload: { sub: string; email: string; name?: string; companyName?: string }) {
+  async ensureGoogleAccount(payload: { sub: string; email: string; name?: string; companyName?: string; origin?: 'app' | 'site' }) {
     const googleId = String(payload.sub || '').trim();
     const email = String(payload.email || '').toLowerCase().trim();
     if (!googleId || !email) throw new BadRequestException('Google não retornou e-mail válido.');
@@ -1631,6 +1664,7 @@ export class AuthService implements OnModuleInit {
       name: payload.name || email,
       googleId,
       companyName: payload.companyName,
+      origin: payload.origin,
     });
     return created.user;
   }
@@ -1652,7 +1686,7 @@ export class AuthService implements OnModuleInit {
   // só o user pro pareamento móvel decidir o que fazer). signupWithGoogle segue
   // chamando isto e depois fazendo login, comportamento e assinatura intactos
   // (auth.service.test.ts chama signupWithGoogle direto e espera access_token).
-  private async createGoogleAccountTx(data: { email: string; name: string; googleId: string; companyName?: string }) {
+  private async createGoogleAccountTx(data: { email: string; name: string; googleId: string; companyName?: string; origin?: 'app' | 'site' }) {
     const { email, name, googleId } = data;
     const username = email;
     const normalizedCompanyName = String(data.companyName || '').trim();
@@ -1732,6 +1766,16 @@ export class AuthService implements OnModuleInit {
     // então o brinde de 50 créditos pode nascer aqui mesmo, mas via o caminho com DEDUP por
     // telefone/CPF (não concede 2x pra mesma identidade). platform_infra nunca nasce por aqui.
     await this.maybeGrantWelcomeAfterConfirm(created.company.id);
+
+    // PR22082026-CLIENTE-ME-ACHA — o jeito nº2 de o cliente achar a HBX: e-mail com o
+    // painel, como pagar e o WhatsApp. Best-effort, FORA da transação, nunca trava o
+    // cadastro (conta criada > e-mail entregue). Cobre o pareamento do APK e o Google do site.
+    void this.sendAccountWelcomeEmail({
+      to: email,
+      nome: name,
+      empresa: created.company.name,
+      origin: data.origin,
+    });
 
     return created;
   }

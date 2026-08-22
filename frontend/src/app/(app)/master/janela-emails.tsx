@@ -50,6 +50,7 @@ const KIND_LABEL: Record<string, string> = {
   normal: "Apresentação",
   password_reset: "Recuperação de senha",
   email_confirmation: "Confirmação de e-mail",
+  account_welcome: "Boas-vindas da conta",
   seller_welcome: "Boas-vindas do vendedor",
   seller_onboarding_request: "Onboarding do vendedor",
 };

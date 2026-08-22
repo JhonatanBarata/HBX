@@ -257,10 +257,15 @@
            Trava sem saída é BECO (lei de 14/08). */
         if (!temSaldo) {
           pousarNaRota();
+          /* 22/08 (PR22082026): TRAVA COM SAÍDA. No canal Play não existe recarga
+             dentro do app — a porta é FALAR COM A HBX (4º campo = data-acao
+             `suporte`, abre o WhatsApp). O texto diz quem recarrega, e é só
+             informação: sem preço, sem "compre", sem link. */
           return window.portao({
             tom: 'trava', ico: 'card', titulo: 'Créditos insuficientes',
-            sub: isFinite(saldo) ? `Debita ${num(debita)} · você tem ${num(saldo)}` : `Debita ${num(debita)}`,
-            acoes: [['Fechar', '']],
+            sub: (isFinite(saldo) ? `Debita ${num(debita)} · você tem ${num(saldo)}. ` : `Debita ${num(debita)}. `)
+              + 'Quem recarrega é o administrador da empresa, pelo painel HBX.',
+            acoes: [['Fechar', ''], ['Falar com a HBX', 'principal', undefined, 'suporte']], classe: 'duas',
           });
         }
         try {
@@ -480,12 +485,14 @@
          ele quem diz se cobre: quem decide se pode sair é o servidor. */
       if (!temSaldo) {
         fecharEsperaInicio();
+        // 22/08 (PR22082026): mesma trava-com-saída do véu de cima — ver o comentário lá.
         return window.portao({
           tom: 'trava', ico: 'card', titulo: 'Créditos insuficientes',
-          sub: isFinite(saldo)
-            ? `Debita ${num(debita)} · você tem ${num(saldo)}`
-            : `Debita ${num(debita)}`,
-          acoes: [['Fechar', '']],
+          sub: (isFinite(saldo)
+            ? `Debita ${num(debita)} · você tem ${num(saldo)}. `
+            : `Debita ${num(debita)}. `)
+            + 'Quem recarrega é o administrador da empresa, pelo painel HBX.',
+          acoes: [['Fechar', ''], ['Falar com a HBX', 'principal', undefined, 'suporte']], classe: 'duas',
         });
       }
       try {

@@ -190,6 +190,25 @@ dela e instala como qualquer app, com atualização automática.
   de crédito/utilidade. Software em nuvem vendido dentro do app **entra** no Play
   Billing.
 - ⚠️ Link-out (EUA/Reino Unido/EEE) **não cobre o Brasil**.
+- ✅ **O QUE PODE dentro do app, e foi construído em 22/08/2026
+  (`docs/PLANEJAMENTOS/PR22082026-CLIENTE-ME-ACHA.md`):** saldo/uso/extrato;
+  **texto informativo** (*"quem recarrega é o administrador da empresa, pelo painel
+  HBX"* — sem URL, sem preço, sem "compre"); **suporte** (botão que abre o WhatsApp da
+  HBX — Ajustes → Ajuda, tela de Créditos no canal Play, portão "Créditos
+  insuficientes") e **pedido de contato** (*"Quero que a HBX me ligue"* →
+  `POST /logistica/contato-hbx` → lead no `/vendas` da HBX + e-mail pro suporte).
+  Suporte e pedido de contato não são compra nem *steering*: a conversa comercial
+  acontece FORA do app (WhatsApp/e-mail/site), onde a política não manda.
+- ✅ **Fora do app pode tudo**: o e-mail de boas-vindas da conta (`account_welcome`,
+  disparado no cadastro Google — app e site) leva o link do painel, o WhatsApp e como
+  pagar; o painel web recarrega por **Pix ou cartão** (`/financeiro/credits/recharge/pix`);
+  a mensalidade segue por link de assinatura do MP mandado pelo vendedor até o botão
+  *Assinar* do painel (semana 3).
+- ⏭️ **Play Billing (vender DENTRO do app) = FASE 2, depois do app público.** Assinatura
+  paga 15% à Google; preço diferente no app é permitido (o app só não pode dizer que fora
+  é mais barato); a compra fica na conta Google de quem compra (loja só pro ADMIN) e o
+  recibo é do Google, não NF da HBX. Não antes do pedido de produção: é superfície de
+  política a mais na análise.
 - **É isento e FICA:** recebimento na porta (Dinheiro/Pix/Cartão/Marcar) — é
   anotação de pagamento de mercadoria física, sem gateway. Chip "N créditos hoje"
   e trava "Créditos insuficientes" também ficam (saldo/consumo, não oferta) — mas

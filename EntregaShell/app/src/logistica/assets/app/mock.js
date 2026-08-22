@@ -1165,6 +1165,10 @@ const DADOS={
      responde "qual é o mais barato", e validade é a pergunta que ninguém faz
      antes de o crédito vencer. */
   creditos:{
+    /* `loja` = este binário veio da Google Play (a ponte lê HBX.info().play). No
+       desenho é 0: o visualizador mostra a vitrine completa; 1 acende o aviso +
+       portas de suporte e a ponte esconde pacotes/CTA (PR22082026). */
+    loja:0,
     saldo:'240', vence:'60 vencem em 12/09',
     pacotes:[['100','97,00','',0,'starter','R$ 0,97 por crédito · vale 90 dias'],
              ['300','247,00','Mais vendido',1,'growth','R$ 0,82 por crédito · vale 90 dias'],
@@ -2285,14 +2289,7 @@ ${hdr({})}
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
         <span style="font-size:12.5px;color:var(--ink-2)">Conta do item</span>
-        ${/* 🔴 SEM PREÇO NÃO PINTA DE LIMA (21/08). O lima é a cor do dinheiro
-             nesta tela; usar ele pra escrever "sem preço" faz a ausência parecer
-             um valor. Âmbar é o mesmo tom que a observação da parada já usa pra
-             dizer "olhe isto", e é o que o `.aviso` do rodapé repete abaixo. */''}
-        <b style="font-size:${d.semPreco?'14px':'18px'};color:var(--${d.semPreco?'amber':'lime'});font-weight:500">${d.contaItem}</b></div>
-      ${d.semPreco?`<div style="margin-top:9px;padding:8px 10px;border-radius:10px;border:.7px solid var(--amber-line);background:var(--glass);font-size:12px;color:var(--ink-2)">
-        <b style="display:block;color:var(--amber);font-weight:500;margin-bottom:2px">Produto sem preço cadastrado</b>
-        Cadastre o preço no painel para cobrar aqui. A entrega pode ser registrada normalmente.</div>`:''}
+        <b style="font-size:18px;color:var(--lime);font-weight:500">${d.contaItem}</b></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
       <div class="box" style="display:flex;align-items:center;justify-content:space-between;margin:0">
@@ -3054,6 +3051,22 @@ T.creditos={nome:'Ajustes · Créditos',grupo:'Ajustes',render(){
     </div>`:''}
     <div class="banner pausa">${ic('alert',15)}
       <span>Crédito só é debitado quando a rota <b>inicia</b>. Conferir nunca debita.</span></div>
+    ${/* 🔴 CANAL PLAY (22/08, PR22082026-CLIENTE-ME-ACHA). No binário da loja a
+          vitrine some (política de pagamentos da Google) e a tela virava um BECO:
+          saldo zerado, rota que não inicia, e nenhuma palavra sobre o que fazer.
+          `c.loja` (a ponte publica `HBX.info().play`) acende o texto informativo —
+          que é permitido — e as DUAS portas de suporte: WhatsApp e "me ligue".
+          Sem preço, sem "compre", sem link pro site: é o modelo Netflix, vende fora
+          e consome dentro. Fora da loja (`loja` = 0) esta caixa não existe e a
+          vitrine de pacotes continua a mesma de sempre. */''}
+    ${c.loja?`<div class="banner pausa">${ic('lock',15)}
+      <span>Quem recarrega é o <b>administrador da empresa</b>, pelo painel HBX. Precisa de ajuda? Fale com a gente.</span></div>
+    <div class="cap-portas duas">
+      <button class="cap-porta destaque" data-acao="suporte">
+        <i>${ic('chat',18)}</i><strong>WhatsApp</strong></button>
+      <button class="cap-porta" data-acao="pedir-contato">
+        <i>${ic('bell',18)}</i><strong>Me ligue</strong></button>
+    </div>`:''}
     ${c.pacotes.length?`<div class="grupo">Escolha o pacote</div>
     <div class="pacotes">
       ${c.pacotes.map(x=>pac(x[0],x[1],x[2],x[3],x[4],x[5])).join('')}
@@ -4195,6 +4208,19 @@ ${hdr({semChat:1})}
     ${linha('route','Cadastrar rota offline')}
     ${linha('trash','Apagar mapa baixado')}
   </div>`:''}
+  ${/* 🔴 AJUDA (22/08, PR22082026-CLIENTE-ME-ACHA). A ordem 6 de 17/08 ("Suporte nele,
+        para admin e motoristas: clicou já abre meu whatsapp") tinha ficado pela
+        METADE: o gancho `suporte` existia na ponte e NENHUMA linha na tela o
+        chamava. Aqui ele ganha a linha — e a segunda porta, "quero que a HBX me
+        ligue", que vira lead no /vendas da HBX (POST /logistica/contato-hbx).
+        É pra TODOS os perfis, de propósito: motorista também precisa de socorro.
+        Política da Play: suporte e pedido de contato são permitidos; preço,
+        compra e link pro site não são — e nada disso aparece aqui. */''}
+  <div class="grupo">Ajuda</div>
+  <div class="cartao-lista">
+    ${linha('chat','Falar com a HBX','WhatsApp do suporte','','suporte')}
+    ${linha('bell','Quero que a HBX me ligue','créditos, plano, nota fiscal, vendas','','pedir-contato')}
+  </div>
   <div class="grupo">Aplicativo</div>
   <div class="cartao-lista">
     ${a.empresa?linha('users','Nome da empresa','',`<b>${a.empresa}</b>`):''}
@@ -5300,7 +5326,11 @@ const PORTOES={
     sub:'Sem crédito a rota não inicia. As entregas de hoje continuam guardadas.',
     corpo:`<div class="pt-nums"><div><b>0</b><small>créditos</small></div>
       <div><b>12</b><small>a debitar</small></div><div><b>14</b><small>paradas</small></div></div>`,
-    acoes:[['Fechar',''],['Recarregar','principal']]},
+    /* 22/08 (PR22082026): no canal Play não existe "Recarregar" dentro do app — a
+       saída do beco é FALAR COM A HBX (4º campo = data-acao `suporte`, o gancho que
+       abre o WhatsApp). A ponte monta o portão de verdade em 32-verbos com a mesma
+       forma; este é o do catálogo/tour. */
+    acoes:[['Fechar',''],['Falar com a HBX','principal',undefined,'suporte']]},
 
   update:{tom:'info',ico:'download',titulo:'Versão nova disponível',
     sub:'beta1.3.3 · 2,3 MB. Corrige o aviso de chegada e o fechamento de sábado.',

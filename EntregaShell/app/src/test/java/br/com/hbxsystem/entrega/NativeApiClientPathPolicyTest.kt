@@ -95,12 +95,17 @@ class NativeApiClientPathPolicyTest {
     fun recargaExposesOnlyItsExactOwnerCheckoutEndpoints() {
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/credits/me"))
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/financeiro/payments-config"))
-        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/financeiro/credits/recharge"))
+        // 20/08 — canal Play: a compra dentro do app SAIU do binário da loja (HBX_PLAY).
+        // A asserção segue o gate em vez de cravar `true`: no flavor logistica (HBX_PLAY)
+        // a rota de cobrança NÃO existe; no vendas (sideload) ela continua aberta.
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/financeiro/credits/recharge") == !BuildConfig.HBX_PLAY)
         assertFalse(isMobileEndpointAllowed("logistica", "GET", "/financeiro/credits/recharge"))
         assertFalse(isMobileEndpointAllowed("logistica", "POST", "/financeiro/payments-config"))
         assertTrue(isMobileEndpointAllowed("vendas", "GET", "/credits/me"))
         assertTrue(isMobileEndpointAllowed("vendas", "GET", "/financeiro/payments-config"))
-        assertTrue(isMobileEndpointAllowed("vendas", "POST", "/financeiro/credits/recharge"))
+        // O gate é do BINÁRIO (BuildConfig.HBX_PLAY), não do appMode: a suíte roda no variant
+        // logistica (HBX_PLAY=true), então aqui o "vendas" também lê o gate da Play.
+        assertTrue(isMobileEndpointAllowed("vendas", "POST", "/financeiro/credits/recharge") == !BuildConfig.HBX_PLAY)
     }
 
     /**
@@ -192,6 +197,10 @@ class NativeApiClientPathPolicyTest {
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/caderneta/finalizar"))
         assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/caderneta/finalizar"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/espelho/quadro"))
+        // PR22082026-CLIENTE-ME-ACHA — "Quero que a HBX me ligue": só POST, só logistica.
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/contato-hbx"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/contato-hbx"))
+        assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/contato-hbx"))
         // Espelho é só ESCRITA do aparelho: quem lê é o master, pela web.
         assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/espelho/quadro"))
         assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/espelho"))

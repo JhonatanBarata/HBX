@@ -4,7 +4,15 @@ import { mkdir, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 
-export type EmailTemplateKind = 'normal' | 'password_reset' | 'email_confirmation' | 'seller_welcome' | 'seller_onboarding_request';
+export type EmailTemplateKind =
+  | 'normal'
+  | 'password_reset'
+  | 'email_confirmation'
+  | 'seller_welcome'
+  | 'seller_onboarding_request'
+  // PR22082026-CLIENTE-ME-ACHA — boas-vindas da CONTA (nasce pelo app ou pelo Google no site):
+  // onde fica o painel, como pagar, como falar com a HBX. É o jeito nº2 de o cliente achar a HBX.
+  | 'account_welcome';
 
 export type EmailTemplate = {
   kind: EmailTemplateKind;
@@ -36,6 +44,8 @@ export type EmailTemplateVariables = {
   linkMobile?: string | null;
   tipoAcesso?: string | null;
   ano?: string | number | null;
+  // PR22082026 — WhatsApp da HBX (texto bonito), pro e-mail de boas-vindas da conta.
+  suportewhatsapp?: string | null;
   vendedor?: string | null;
   emailvendedor?: string | null;
   senhavendedor?: string | null;
@@ -78,7 +88,7 @@ export type EmailTemplateVariables = {
 const TEMPLATE_DIR = join(process.cwd(), 'storage', 'master-email');
 const TEMPLATE_PATH = join(TEMPLATE_DIR, 'templates.json');
 
-export const EMAIL_TEMPLATE_KINDS: EmailTemplateKind[] = ['normal', 'password_reset', 'email_confirmation', 'seller_onboarding_request', 'seller_welcome'];
+export const EMAIL_TEMPLATE_KINDS: EmailTemplateKind[] = ['normal', 'password_reset', 'email_confirmation', 'account_welcome', 'seller_onboarding_request', 'seller_welcome'];
 
 // PR13062026006: o /master e-mails passou a ter "+"/"-". Os 5 kinds acima são
 // de SISTEMA (ligados a fluxos reais: reset, confirmação, onboarding) — não
@@ -87,6 +97,7 @@ export const EMAIL_SYSTEM_TEMPLATE_LABELS: Record<EmailTemplateKind, string> = {
   normal: 'Apresentação',
   password_reset: 'Recuperação de senha',
   email_confirmation: 'Confirmação de e-mail',
+  account_welcome: 'Boas-vindas da conta',
   seller_welcome: 'Boas-vindas do vendedor',
   seller_onboarding_request: 'Onboarding do vendedor',
 };
@@ -144,6 +155,7 @@ export const EMAIL_TEMPLATE_VARIABLES: EmailTemplateVariableDefinition[] = [
   { key: 'tipoAcesso', token: '{tipoAcesso}', label: 'Tipo de acesso', group: 'sistema', description: 'Tipo de perfil criado no HBX.', kinds: ['seller_welcome'] },
   { key: 'saudacao', token: '{saudacao}', label: 'Saudação', group: 'sistema', description: 'Saudação pronta, como Bom dia, Boa tarde ou Boa noite.' },
   { key: 'ano', token: '{ano}', label: 'Ano', group: 'sistema', description: 'Ano atual.' },
+  { key: 'suportewhatsapp', token: '{suportewhatsapp}', label: 'WhatsApp da HBX', group: 'sistema', description: 'Número de WhatsApp do suporte da HBX (ADMIN_SUPPORT_PHONE), já formatado.', kinds: ['account_welcome'] },
 ];
 
 const EMAIL_TEMPLATE_VARIABLE_KEYS = EMAIL_TEMPLATE_VARIABLES.map((variable) => variable.key);
@@ -204,6 +216,30 @@ const DEFAULT_TEMPLATES: Record<EmailTemplateKind, EmailTemplate> = {
       '{{linkConfirmacao}}',
       '',
       'Se você não solicitou este cadastro, ignore esta mensagem.',
+      '',
+      'Atenciosamente,',
+      'Equipe HBX',
+    ].join('\n'),
+    html: null,
+    updatedAt: null,
+  },
+  account_welcome: {
+    kind: 'account_welcome',
+    subject: 'Bem-vindo ao HBX, {primeironome} — seu acesso e onde falar com a gente',
+    text: [
+      'Olá, {nome}.',
+      '',
+      'Sua conta HBX foi criada: {empresa}.',
+      '',
+      'O QUE FAZER AGORA',
+      '• No celular: o app HBX Logística já está pronto — cadastre seus clientes (ou mande uma foto da sua lista pelo próprio app, que a gente digita) e monte a rota do dia.',
+      '• No computador: seu painel é {linkAcesso} — entre com o MESMO Google do app. É lá que ficam plano, créditos, relatórios e pagamento (Pix ou cartão).',
+      '',
+      'FALAR COM A HBX',
+      '• WhatsApp: {suportewhatsapp}',
+      '• Ou responda este e-mail.',
+      '',
+      'Nos primeiros 14 dias a gente acompanha você de perto. Qualquer dúvida, chama — é pra isso que estamos aqui.',
       '',
       'Atenciosamente,',
       'Equipe HBX',
@@ -381,6 +417,7 @@ export class EmailTemplateService {
       linkMobile: String(variables.linkMobile || ''),
       tipoAcesso: String(variables.tipoAcesso || ''),
       ano: String(variables.ano || new Date().getFullYear()),
+      suportewhatsapp: String(variables.suportewhatsapp || ''),
       vendedor: String(variables.vendedor || variables.nome || 'vendedor'),
       emailvendedor: acesso,
       senhavendedor: senha,
