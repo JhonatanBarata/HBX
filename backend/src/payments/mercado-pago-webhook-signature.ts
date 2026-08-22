@@ -68,8 +68,20 @@ export function verifyMercadoPagoWebhookSignature(
   const manifest = segments.join('');
 
   const expected = crypto.createHmac('sha256', secret).update(manifest).digest('hex');
-  const valid = safeHexEqual(expected, v1);
-  return { configured: true, valid, reason: valid ? undefined : 'signature_mismatch' };
+  if (safeHexEqual(expected, v1)) return { configured: true, valid: true };
+
+  // 22/08 (medido em produção com o 1º Pix de recarga): a notificação IPN pra
+  // `notification_url` (`?topic=payment&id=…`, sem `data.id`) chegou assinada e NÃO bateu
+  // com o manifesto acima. O manifesto oficial é `id:<data.id>;request-id:…;ts:…;` — quando
+  // não há `data.id` na query, a hipótese é que o MP assine SEM o segmento `id:`. Tentar a
+  // variante custa um HMAC e continua exigindo o MESMO segredo: não afrouxa nada, só deixa
+  // de rejeitar uma assinatura legítima por diferença de manifesto.
+  if (dataId) {
+    const semId = [requestId ? `request-id:${requestId};` : '', `ts:${ts};`].join('');
+    const expectedSemId = crypto.createHmac('sha256', secret).update(semId).digest('hex');
+    if (safeHexEqual(expectedSemId, v1)) return { configured: true, valid: true, reason: 'matched_without_id_segment' };
+  }
+  return { configured: true, valid: false, reason: 'signature_mismatch' };
 }
 
 // Modo de aplicação da assinatura, controlado por MP_WEBHOOK_SIGNATURE_MODE:

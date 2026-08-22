@@ -36,6 +36,21 @@ export class FinanceiroWebhookController {
     // Assinatura MP com modo log/enforce (MP_WEBHOOK_SIGNATURE_MODE); ver mercado-pago-webhook-signature.
     const gate = evaluateMercadoPagoWebhookSignature({ signatureHeader: signature, requestId, query });
     if (!gate.allow) {
+      // PIX DA RECARGA (22/08, medido em produção): a notificação do MP pra `notification_url`
+      // chega no formato IPN (`?topic=payment&id=…`) e a assinatura NÃO bate com o manifesto
+      // padrão. Pra recarga isso não precisa ser fatal: o settle só age se existir cobrança
+      // PENDENTE nossa com esse mpPaymentId (1 SELECT) e RE-CONSULTA o pagamento no MP antes
+      // de creditar — a assinatura aqui é defesa contra abuso, não contra forja de status. O
+      // resto do webhook (assinatura/checkout/recovery) segue REJEITADO como sempre.
+      if (this.rechargeService) {
+        const paymentId = this.extractPaymentIdForRecharge(query, body);
+        if (paymentId) {
+          const r = await this.rechargeService.settleIfCreditRecharge(paymentId);
+          if (r.handled) {
+            this.logger.warn(`webhook MP financeiro com assinatura inválida (reason=${gate.reason}) — recarga Pix paymentId=${paymentId} reconsultada no MP: ${r.status || r.reason || '-'}`);
+          }
+        }
+      }
       this.logger.error(`webhook MP financeiro REJEITADO (mode=${gate.mode}, reason=${gate.reason}).`);
       throw new ForbiddenException('invalid webhook signature');
     }

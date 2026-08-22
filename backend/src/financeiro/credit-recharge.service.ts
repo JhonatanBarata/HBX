@@ -6,6 +6,8 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
   Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -116,9 +118,20 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const PIX_EXPIRES_MS = 30 * 60 * 1000;
 const CREDIT_RECHARGE_REFERENCE_PREFIX = 'hbx-credit-recharge-';
 
+/** Varredura dos Pix pendentes (ver sweepPendingPix). 0 desliga. */
+const PIX_SWEEP_MS = (() => {
+  const raw = Number(process.env.HBX_PIX_RECHARGE_SWEEP_MS);
+  if (Number.isFinite(raw) && raw >= 0) return Math.trunc(raw);
+  return 60_000;
+})();
+/** Pendente há mais que isto depois de vencer o QR = o MP não vai aprovar mais: cancela local. */
+const PIX_GRACE_AFTER_EXPIRY_MS = 10 * 60 * 1000;
+
 @Injectable()
-export class CreditRechargeService {
+export class CreditRechargeService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CreditRechargeService.name);
+  private sweepTimer: NodeJS.Timeout | null = null;
+  private sweeping = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -903,6 +916,91 @@ export class CreditRechargeService {
       }
     }
     return this.settlePixCharge(charge, provider);
+  }
+
+  // ── Fase 2 pela VARREDURA — a rede de segurança (22/08, medido em produção) ────
+  //
+  // Medido no 1º Pix real: o MP notificou a `notification_url` no formato IPN
+  // (`?topic=payment&id=…`) e o gate de assinatura em `enforce` REJEITOU (signature
+  // mismatch) — o webhook não é garantido. O poll do painel cobre quem está com a
+  // tela aberta; quem pagou e FECHOU a aba ficaria com a charge pendente e o dinheiro
+  // no MP, pra sempre. Então: a cada minuto, todo Pix de recarga ainda pendente é
+  // reconsultado no MP (fonte da verdade) e assentado pela MESMA rotina idempotente
+  // do poll/webhook. Pendente muito depois de vencer o QR = cancelado local.
+  // Custo: 1 GET no MP por charge pendente por minuto — charge pendente vive 30 min.
+  onModuleInit() {
+    if (!PIX_SWEEP_MS) {
+      this.logger.log('[pix] varredura de recargas pendentes DESLIGADA (HBX_PIX_RECHARGE_SWEEP_MS=0)');
+      return;
+    }
+    this.sweepTimer = setInterval(() => {
+      void this.sweepPendingPix().catch((e) =>
+        this.logger.warn(`[pix] varredura de recargas pendentes falhou: ${String((e as Error)?.message || e)}`),
+      );
+    }, PIX_SWEEP_MS);
+    // Não segura o processo vivo por causa do timer (testes/shutdown).
+    if (typeof (this.sweepTimer as any)?.unref === 'function') (this.sweepTimer as any).unref();
+    this.logger.log(`[pix] varredura de recargas pendentes LIGADA — tick ${PIX_SWEEP_MS}ms`);
+  }
+
+  onModuleDestroy() {
+    if (this.sweepTimer) clearInterval(this.sweepTimer);
+    this.sweepTimer = null;
+  }
+
+  /** Uma passada: reconsulta no MP cada recarga Pix pendente (não-mock) e assenta. */
+  async sweepPendingPix(now: Date = new Date()): Promise<{ olhadas: number; aprovadas: number; canceladas: number }> {
+    if (this.sweeping) return { olhadas: 0, aprovadas: 0, canceladas: 0 };
+    if (!isCreditsFeatureEnabled()) return { olhadas: 0, aprovadas: 0, canceladas: 0 };
+    this.sweeping = true;
+    const resumo = { olhadas: 0, aprovadas: 0, canceladas: 0 };
+    try {
+      const pendentes: any[] = await this.prisma.financeiroCharge.findMany({
+        where: {
+          status: 'pending',
+          paymentMethod: 'PIX',
+          externalReference: { startsWith: CREDIT_RECHARGE_REFERENCE_PREFIX },
+          // só o que ainda pode virar dinheiro: QR vive 30 min, dá folga generosa
+          createdAt: { gte: new Date(now.getTime() - 6 * 60 * 60 * 1000) },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 50,
+      });
+      for (const charge of pendentes) {
+        const payload = this.parseChargePayload(charge.providerPayload);
+        if (payload.mock || !charge.mpPaymentId) continue;
+        resumo.olhadas += 1;
+        try {
+          const accessToken = await this.resolveMpAccessToken(Number(charge.companyId));
+          if (!accessToken) continue;
+          const provider = await this.mercadoPagoClient.getPayment(accessToken, String(charge.mpPaymentId));
+          const settled = await this.settlePixCharge(charge, provider);
+          if (settled.status === 'approved') resumo.aprovadas += 1;
+          else if (settled.status === 'cancelled') resumo.canceladas += 1;
+          else {
+            // MP ainda diz pendente: venceu o QR há muito? então não vai mais aprovar.
+            const expiresAt = payload.expiresAt ? new Date(payload.expiresAt).getTime() : NaN;
+            if (Number.isFinite(expiresAt) && now.getTime() > expiresAt + PIX_GRACE_AFTER_EXPIRY_MS) {
+              await this.prisma.financeiroCharge.update({
+                where: { id: charge.id },
+                data: { status: 'cancelled', lifecycle: 'cancelled' },
+              });
+              resumo.canceladas += 1;
+            }
+          }
+        } catch (error: any) {
+          this.logger.warn(
+            `[pix] varredura: charge=${charge.id} paymentId=${charge.mpPaymentId} falhou: ${String(error?.message || error)}`,
+          );
+        }
+      }
+      if (resumo.olhadas) {
+        this.logger.log(`[pix] varredura: ${resumo.olhadas} pendente(s) · ${resumo.aprovadas} aprovada(s) · ${resumo.canceladas} cancelada(s)`);
+      }
+      return resumo;
+    } finally {
+      this.sweeping = false;
+    }
   }
 
   /**

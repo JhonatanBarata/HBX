@@ -284,3 +284,52 @@ test('gateway fora do ar na fase 1: devolve CHARGE_FAILED, sem charge e sem cré
   assert.equal(charges.length, 0);
   assert.equal(grants.length, 0);
 });
+
+// ── A VARREDURA (rede de segurança: pagou e fechou a aba; webhook rejeitado) ──
+
+function withFindMany(harness: ReturnType<typeof buildService>) {
+  // o fake de prisma da prova não tinha findMany; a varredura precisa dele.
+  const prisma = (harness.service as any).prisma;
+  prisma.financeiroCharge.findMany = async ({ where }: any) =>
+    harness.charges.filter((c) =>
+      c.status === where.status &&
+      c.paymentMethod === where.paymentMethod &&
+      String(c.externalReference || '').startsWith(where.externalReference.startsWith),
+    );
+  return harness;
+}
+
+test('varredura: Pix pendente que o MP já aprovou é creditado 1x sem poll nem webhook; 2ª varredura não dobra', async () => {
+  const h = withFindMany(buildService({ mpStatus: 'approved' }));
+  await h.service.createPixRecharge(DONO, INPUT);
+  h.charges[0].createdAt = new Date();
+  const r1 = await h.service.sweepPendingPix();
+  assert.deepEqual(r1, { olhadas: 1, aprovadas: 1, canceladas: 0 });
+  assert.equal(h.grants.length, 1);
+  assert.equal(h.ledgerEntries.length, 1);
+  assert.equal(h.charges[0].status, 'approved');
+  const r2 = await h.service.sweepPendingPix();
+  assert.deepEqual(r2, { olhadas: 0, aprovadas: 0, canceladas: 0 }, 'aprovada não é mais pendente: nem olha');
+  assert.equal(h.grants.length, 1);
+});
+
+test('varredura: MP ainda pendente e QR vencido há mais de 10 min → cancela local, sem crédito', async () => {
+  const h = withFindMany(buildService({ mpStatus: 'pending' }));
+  await h.service.createPixRecharge(DONO, INPUT);
+  h.charges[0].createdAt = new Date();
+  const payload = JSON.parse(h.charges[0].providerPayload);
+  const muitoDepois = new Date(new Date(payload.expiresAt).getTime() + 11 * 60 * 1000);
+  const r = await h.service.sweepPendingPix(muitoDepois);
+  assert.deepEqual(r, { olhadas: 1, aprovadas: 0, canceladas: 1 });
+  assert.equal(h.charges[0].status, 'cancelled');
+  assert.equal(h.grants.length, 0);
+});
+
+test('varredura: MP ainda pendente e QR dentro da validade → continua pendente (nada muda)', async () => {
+  const h = withFindMany(buildService({ mpStatus: 'pending' }));
+  await h.service.createPixRecharge(DONO, INPUT);
+  h.charges[0].createdAt = new Date();
+  const r = await h.service.sweepPendingPix();
+  assert.deepEqual(r, { olhadas: 1, aprovadas: 0, canceladas: 0 });
+  assert.equal(h.charges[0].status, 'pending');
+});
