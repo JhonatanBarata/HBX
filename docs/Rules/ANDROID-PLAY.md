@@ -179,6 +179,31 @@ dela e instala como qualquer app, com atualização automática.
   Play os métodos precisam **NÃO EXISTIR** — stub devolvendo `false` reacende o
   portão sem instalar nada.
 
+#### ✅ `PackageInstaller` NO DEX É DO GOOGLE, NÃO NOSSO (medido 23/08/2026)
+
+Varredura do `classes.dex` do `versionCode 358` dá **`PackageInstaller: 3`** — e
+isso **não** é resíduo do updater deletado. Antes de abrir investigação de novo:
+
+| Digital do updater HBX | Ocorrências |
+|---|---|
+| `REQUEST_INSTALL_PACKAGES`, `downloadAndInstall`, `AppAtualizadoReceiver`, `USER_ACTION_NOT_REQUIRED` | **0** |
+| `createSession`, `openSession`, `ACTION_SESSION` (o caminho OBRIGATÓRIO para instalar um APK) | **0** |
+
+As 3 ocorrências são referências de TIPO numa classe ofuscada (`LJ0/f`, sem
+`source_file`) cujo corpo, desmontado com `dexdump -d`, faz exatamente isto:
+`getPackageInstaller().getAllSessions()` → procura a sessão de
+**`com.google.android.gms`** → `getApplicationInfo`. É a biblioteca do próprio
+Google (Play services / `androidx.credentials`) perguntando *"o GMS está se
+atualizando agora?"* — o `SERVICE_UPDATING` do `GoogleApiAvailability`. **Leitura
+de estado, não instalação**, e sem a permissão nada instalaria de qualquer forma.
+
+Comandos que provam isso em 1 minuto (não refazer a mão):
+```bash
+unzip -p app-logistica-release.apk classes.dex > /tmp/c.dex
+for s in REQUEST_INSTALL_PACKAGES downloadAndInstall createSession openSession; do echo "$s: $(grep -a -c "$s" /tmp/c.dex)"; done
+"$ANDROID_HOME/build-tools/35.0.0/dexdump" -d /tmp/c.dex | awk '/^  Class descriptor/{c=$0} /getAllSessions/{print c; exit}'
+```
+
 ### 3.2 Recarga / compra dentro do app — RESOLVIDO em 20/08/2026
 - Crédito HBX é **bem digital consumido dentro do app** (rota debita ao iniciar,
   lead do prospector custa 1) → exigiria Play Billing e proíbe Mercado Pago.
