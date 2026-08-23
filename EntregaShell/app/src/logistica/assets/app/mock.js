@@ -1335,6 +1335,20 @@ const semFonte=(glifo,acao)=>`<div class="vazio">
   <strong>Não consegui carregar</strong>
   <span>Sem resposta do servidor agora.</span>
   <button class="ghost" data-acao="${acao}">${ic('refresh',15)} Tentar de novo</button></div>`;
+/* 🔴 O 4º ESTADO — "O SERVIDOR RESPONDEU, E A RESPOSTA É NADA" (23/08).
+   A escada tinha três degraus (esqueleto → sem fonte → conteúdo) e faltava o
+   quarto, que é o MAIS COMUM de todos no primeiro dia de uso: base vazia. Sem
+   ele, "conteúdo" com lista vazia desenhava um `.lista-card` sem filho —
+   MEDIDO no g15: Financeiro abria só com o título e o resto preto, Clientes
+   abria com a lista em branco. Para o público que este app persegue (40–60
+   anos, primeiro app de trabalho) tela em branco não é "está vazio", é
+   "quebrou" — e para o revisor da Play, que entra com conta nova e ZERO
+   clientes, é *Broken Functionality*, a recusa mais boba que existe.
+   Ícone + três palavras + (só quando existe verbo) UM botão. Sem parágrafo de
+   consolo: o que ensina aqui é o botão, não o texto. */
+const nada=(glifo,titulo,sub,botao)=>`<div class="vazio">
+  <span class="ico">${ic(glifo,24)}</span>
+  <strong>${titulo}</strong>${sub?`<span>${sub}</span>`:''}${botao||''}</div>`;
 /* 🔴 A MESMA ESCADA, COM AS BANDEIRAS NA MÃO. Uma tela pode ter DUAS fontes de
    rede independentes — a de Créditos tem: `/credits/me` traz saldo e pacotes,
    `/logistica/creditos/extrato` traz o movimento. Com um par único de bandeiras
@@ -2763,13 +2777,26 @@ ${hdr({voltar:'ajustes',semChat:1})}
     <button class="filt">${ic('sliders',18)}</button></div>
   ${comGente.length?`<div class="chips">
     ${comGente.map(n=>`<button class="chip${d.diaSel===n?' on':''}" data-acao="chip-dia" data-dia="${n}">${DIAS[n]}</button>`).join('')}</div>`:''}
-  ${miolo(d,'users','recarregar-clientes',7,`<div class="lista-card">
+  ${/* 🔴 LISTA VAZIA NÃO É CARTÃO VAZIO (23/08). `.lista-card` sem filho é um
+        retângulo invisível: no g15, com a conta nova, esta tela abria com a
+        busca, os chips e NADA — e quem chega aqui pela primeira vez é
+        exatamente quem ainda não tem cliente nenhum. Dois vazios diferentes, e
+        a diferença é o VERBO: base vazia oferece o cadastro (o dedo tem para
+        onde ir); filtro que não achou ninguém não oferece cadastrar — o cliente
+        pode existir na terça, e o que a pessoa precisa é soltar o filtro. */''}
+  ${miolo(d,'users','recarregar-clientes',7,d.lista.length?`<div class="lista-card">
     ${d.lista.map(l=>c(l[0],l[1],l[2],l[3],l[4],l[5],l[6],l[7])).join('')}
-  </div>`)}
+  </div>`:((String(d.busca||'').trim()||d.diaSel)
+    ?nada('users','Nenhum cliente nesse filtro','Apague a busca ou solte o dia.')
+    :nada('users','Nenhum cliente ainda','Cadastre na porta: o local fica certo.',
+      `<button class="ghost" data-ir="novocliente">${ic('plus',15)} Cadastrar cliente</button>`)))}
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('users',17)}</span><span><b>${d.total}</b><small>clientes</small></span></span>
     ${d.semEndereco?`<span class="c"><span style="color:var(--amber)">${ic('alert',17)}</span><span><b>${d.semEndereco}</b><small style="color:var(--amber)">sem endereço</small></span></span>`:''}
-    <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>${d.marcadoHoje}</b><small>marcado hoje</small></span></span>
+    ${/* Rótulo sem número é a mesma doença do separador órfão: no g15 esta
+          célula aparecia como "marcado hoje" sozinho, sem valor nenhum ao lado
+          (foto 13). Número e legenda nascem e somem JUNTOS. */''}
+    ${d.marcadoHoje?`<span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>${d.marcadoHoje}</b><small>marcado hoje</small></span></span>`:''}
   </div>
 </div>
 ${nav('ajustes')}`;}};
@@ -3049,8 +3076,22 @@ T.creditos={nome:'Ajustes · Créditos',grupo:'Ajustes',render(){
       <span><span class="n"><b>${c.saldo}</b><small>créditos</small></span>
         ${c.vence?`<span class="vence">${c.vence}</span>`:''}</span>
     </div>`:''}
-    <div class="banner pausa">${ic('alert',15)}
-      <span>Crédito só é debitado quando a rota <b>inicia</b>. Conferir nunca debita.</span></div>
+    ${/* 🔴 A FRASE QUE MORAVA AQUI MENTIA — e mentia sobre DINHEIRO (23/08).
+          Ela dizia "crédito só é debitado quando a rota INICIA; conferir nunca
+          debita". Isso deixou de ser verdade na ROTA v2 (10/08): quem paga o dia
+          é `garantirDiaPago`, chamado DENTRO de `POST /rota/planejar` — e quem
+          chama o planejar é o MONTAR (32-verbos-montar-iniciar.js). Montou,
+          pagou; e cancelar não estorna (mesma lei do "cancelar apaga mas não
+          devolve"). A frase nasceu certa em 06/08, o modelo mudou quatro dias
+          depois e ninguém a viu envelhecer — texto explicativo é PASSIVO, essa é
+          a lição que este PR paga.
+          A frase nova diz só o que NÃO muda com preço nem com nível: a cobrança
+          do dia é ÚNICA (idempotente por empresa+data) e remontar não cobra de
+          novo. Sem número: preço é editável no /master, e número chumbado na
+          casca é a próxima mentira já agendada. E o ícone deixa de ser o ⚠ — não
+          é perigo, é como a conta funciona. */''}
+    <div class="banner pausa">${ic('card',15)}
+      <span>O dia de rota é cobrado <b>uma vez só</b>. Remontar ou mudar a ordem no mesmo dia não cobra de novo.</span></div>
     ${/* 🔴 CANAL PLAY (22/08, PR22082026-CLIENTE-ME-ACHA). No binário da loja a
           vitrine some (política de pagamentos da Google) e a tela virava um BECO:
           saldo zerado, rota que não inicia, e nenhuma palavra sobre o que fazer.
@@ -3060,7 +3101,7 @@ T.creditos={nome:'Ajustes · Créditos',grupo:'Ajustes',render(){
           e consome dentro. Fora da loja (`loja` = 0) esta caixa não existe e a
           vitrine de pacotes continua a mesma de sempre. */''}
     ${c.loja?`<div class="banner pausa">${ic('lock',15)}
-      <span>Quem recarrega é o <b>administrador da empresa</b>, pelo painel HBX. Precisa de ajuda? Fale com a gente.</span></div>
+      <span>Quem recarrega é o <b>administrador da empresa</b>, pelo painel HBX.</span></div>
     <div class="cap-portas duas">
       <button class="cap-porta destaque" data-acao="suporte">
         <i>${ic('chat',18)}</i><strong>WhatsApp</strong></button>
@@ -3087,8 +3128,14 @@ T.creditos={nome:'Ajustes · Créditos',grupo:'Ajustes',render(){
       ${c.linhas.length?c.linhas.map(x=>l(x[0],x[1],x[2],x[3])).join('')
                        :`<div class="vazio"><b>${c.vazio||'Sem movimento ainda'}</b></div>`}
     </div>`)}
-    <div class="banner pausa">${ic('alert',15)}
-      <span>Migração entre rotas é <b>grátis</b>: a mesma entrega não debita duas vezes.</span></div>`}`,
+    ${/* ⚰️ "Migração entre rotas é grátis: a mesma entrega não debita duas vezes"
+          MORREU AQUI (23/08). Era fóssil de 06/08 (git 073257bd), do modelo que
+          cobrava por ENTREGA — modelo que a ROTA v2 aposentou em 10/08
+          (`logistica_essential_block`/`logistica_tracked_delivery` estão TRAVADAS
+          em `free`, ver OVERRIDE_LOCKED_ACTIONS). Hoje não existe débito por
+          entrega para migrar: existe DIA (nível CREDITO) e PASSE (planos). A
+          dúvida que ela respondia — "por que não debitou duas vezes?" — quem
+          responde agora é a frase única lá de cima, e responde certo. */''}`}`,
     c.cta?`<button class="act go full" style="justify-content:center" data-acao="recarregar">${ic('check',19)}<b>${c.cta}</b></button>`:'');
 }};
 
@@ -3100,23 +3147,47 @@ T.creditos={nome:'Ajustes · Créditos',grupo:'Ajustes',render(){
 T.financeiro={nome:'Ajustes · Financeiro',grupo:'Ajustes',render(){const f=DADOS.financeiro;
   // título + caixa nascem e somem JUNTOS: é o par indivisível desta tela.
   const secao=(titulo,corpo)=>corpo?`<div class="grupo">${titulo}</div>${corpo}`:'';
-  const dev=(a,nome,sub,val,cor)=>`<div class="item-linha"><span class="ava${cor?` ${cor}`:''}">${a}</span>
+  /* 🔴 O DADO DE DINHEIRO ABRE O EXTRATO — e esta tela estava MUDA (dono,
+     23/08: *"pq não estou conseguindo clicar nas transações?"*). A ordem 8
+     (17/08) foi cumprida SÓ NA PONTE: o `extratoFinanceiro` existe, o
+     delegador de `data-acao` já escuta `financeiro-extrato` e o `devedores`
+     já viaja com o ID no 6º campo. O que nunca nasceu foi o ATRIBUTO: cada
+     peça daqui era uma `div` sem verbo, então o dedo caía no vazio e NADA
+     acontecia — sem erro, sem aviso, sem nada pra depurar. Porta sem
+     maçaneta: o cômodo estava pronto do outro lado.
+     O `data-quem` é o argumento do toque: o ID do devedor (que o `dev` largava
+     fora — 5 parâmetros pra um array de 6) e o NOME da forma. */
+  const toque=(bloco,quem)=>` data-acao="financeiro-extrato" data-bloco="${bloco}"${quem?` data-quem="${quem}"`:''}`;
+  /* Sem ID (é o caso do mock, que desenha nome e valor sem a chave da pessoa)
+     o toque cai no bloco "aberto" — a lista inteira de quem deve. Abrir a
+     ficha errada seria pior que abrir a lista certa. */
+  const dev=(a,nome,sub,val,cor,id)=>`<div class="item-linha"${id?toque('devedor',id):toque('aberto')}><span class="ava${cor?` ${cor}`:''}">${a}</span>
         <span><strong>${nome}</strong>${sub?`<span>${sub}</span>`:''}</span>
         <b style="color:var(--amber);font-size:14px">${val}</b></div>`;
   // o número grande com a legenda embaixo: sem número não sobra legenda sozinha
   // ("pendência" sem valor é uma coluna vazia com nome).
-  const cel=(v,rot,cor)=>v?`<span class="c"><span><b${cor?` style="color:${cor}"`:''}>${v}</b><small>${rot}</small></span></span>`:'';
+  const cel=(v,rot,cor)=>v?`<span class="c"${toque('semana')}><span><b${cor?` style="color:${cor}"`:''}>${v}</b><small>${rot}</small></span></span>`:'';
   const semana=[cel(f.semanaRecebido,'recebido'),cel(f.semanaMarcado,'marcado'),
     cel(f.semanaPendencia,'pendência','var(--amber)')].join('');
-  const kpis=`${f.recebido?`<div class="kpi money"><span class="l">Recebido hoje</span><b class="v">${f.recebido}</b></div>`:''}${f.emAberto?`
-      <div class="kpi money"><span class="l">Em aberto</span><b class="v" style="color:var(--amber)">${f.emAberto}</b></div>`:''}`;
-  const formas=`${f.formas.map(x=>`<div class="form-c"><span style="color:${x[1]}">${ic(x[0],19)}</span><small>${x[2]}</small><b>${x[3]}</b></div>`).join('')}${f.marcou?`
-      <div class="form-c total"><small style="margin-top:0">Marcou</small><b>${f.marcou}</b></div>`:''}`;
+  const kpis=`${f.recebido?`<div class="kpi money"${toque('recebido')}><span class="l">Recebido hoje</span><b class="v">${f.recebido}</b></div>`:''}${f.emAberto?`
+      <div class="kpi money"${toque('aberto')}><span class="l">Em aberto</span><b class="v" style="color:var(--amber)">${f.emAberto}</b></div>`:''}`;
+  const formas=`${f.formas.map(x=>`<div class="form-c"${toque('forma',x[2])}><span style="color:${x[1]}">${ic(x[0],19)}</span><small>${x[2]}</small><b>${x[3]}</b></div>`).join('')}${f.marcou?`
+      <div class="form-c total"${toque('forma','Marcou')}><small style="margin-top:0">Marcou</small><b>${f.marcou}</b></div>`:''}`;
   /* A TELA INTEIRA É DADO, então ela inteira passa pelo `miolo`. Sem isto, a
      rede no chão pintaria a MESMA tela que "não entrou nada hoje" — e esses
      dois vazios são opostos (Lei nº1 desta frente). Com ele: esqueleto na
      primeira carga, aviso com "Tentar de novo" se a fonte não responder. */
-  return telaAjuste('Financeiro',miolo(f,'wallet','recarregar-financeiro',4,`
+  /* 🔴 CADA PEDAÇO SOME SOZINHO — E QUANDO TODOS SOMEM, SOBRA A TELA PRETA
+     (23/08, medido no g15 com conta nova: título "Financeiro" e mais nada, por
+     6 s, sem esqueleto e sem aviso, porque a fonte RESPONDEU: respondeu zero).
+     A soma de peças que somem certo é uma tela que some inteira — e aí quem
+     olha não tem como saber se o dia está limpo ou se o app quebrou. O 4º
+     estado (`nada`) responde a pergunta em três palavras. Sem botão: aqui não
+     há verbo nenhum a oferecer — dinheiro entra pela ROTA, não por esta tela. */
+  const semNada=!kpis&&!formas&&!f.devedores.length&&!semana;
+  return telaAjuste('Financeiro',miolo(f,'wallet','recarregar-financeiro',4,semNada
+    ?nada('cash','Nada recebido hoje','O que você receber na rota aparece aqui.')
+    :`
     ${kpis?`<div class="kpis" style="margin-top:2px">
       ${kpis}
     </div>`:''}
@@ -3124,7 +3195,7 @@ T.financeiro={nome:'Ajustes · Financeiro',grupo:'Ajustes',render(){const f=DADO
       ${formas}
     </div>`:'')}
     ${secao('Quem marcou',f.devedores.length?`<div class="cartao-lista" style="padding:0 11px">
-      ${f.devedores.map(x=>dev(x[0],x[1],x[2],x[3],x[4])).join('')}
+      ${f.devedores.map(x=>dev(x[0],x[1],x[2],x[3],x[4],x[5])).join('')}
     </div>`:'')}
     ${secao('Semana',semana?`<div class="sum" style="margin-top:0">
       ${semana}
@@ -3553,10 +3624,17 @@ T.rapida={nome:'Adicionar parada',grupo:'Rota',render(){
       <span><strong>${c.nome}</strong><span>${c.endereco}</span></span>
       <span class="rgt">${marca}</span></button>`;
   };
+  /* 🔴 "COM ESSE NOME" SEM NOME NENHUM (23/08). O vazio era um só, e dizia
+     "Nenhum cliente com esse nome" para quem NÃO TINHA DIGITADO NADA — foto 7
+     do g15, conta nova. Frase que fala de uma busca que não houve é a tela
+     inventando um fato; quem lê entende que procurou errado, quando na verdade
+     a base é que está vazia. Dois vazios, e o que muda é o VERBO: sem base,
+     cadastrar; sem resultado, procurar de outro jeito. */
   const lista=d.clientes.length?`<div class="lista-card">${d.clientes.map(linhaCliente).join('')}</div>`
-    :`<div class="vazio"><span class="ico">${ic('users',24)}</span>
-      <strong>Nenhum cliente com esse nome</strong>
-      <span>Se ele ainda não existe, use o Procurar: rua ou comércio.</span></div>`;
+    :(String(d.buscaCliente||'').trim()
+      ?nada('users','Nenhum cliente com esse nome','Se ele ainda não existe, use o Procurar: rua ou comércio.')
+      :nada('users','Nenhum cliente ainda','Use o Procurar por rua e comércio, ou cadastre um.',
+        `<button class="ghost" data-ir="novocliente">${ic('plus',15)} Cadastrar cliente</button>`));
   const listaMiolo=mioloDe(d.listaCarregando,d.listaSemFonte,'users','rapida-recarregar',6,lista);
 
   /* 🔴 UM CAMPO SÓ — E AGORA ELE PROCURA SOZINHO (F2, 12/08). Era um campo
@@ -3574,8 +3652,18 @@ T.rapida={nome:'Adicionar parada',grupo:'Rota',render(){
   const busca=`<div class="avb-busca-linha"><label class="search grande">${ic('search',18)}
     <input data-campo="rapida-busca" enterkeyhint="search" autocomplete="off"
       placeholder="Cliente, rua ou comércio…" value="${d.busca}"><span
-      class="avb-x" data-acao="busca-limpar">×</span></label>${mic}</div>
-  <div class="avb-dica">O mais <b>perto de você</b> vem primeiro · erro de digitação não atrapalha</div>`;
+      class="avb-x" data-acao="busca-limpar">×</span></label>${mic}</div>`;
+  /* ⚰️ A DICA DO MEIO SAIU (23/08). Esta tela dizia a MESMA coisa três vezes —
+     medido na foto 8 do g15: o placeholder ("Cliente, rua ou comércio…"), a
+     dica ("o mais perto de você vem primeiro · erro de digitação não
+     atrapalha") e o estado vazio logo abaixo ("Pra onde vai a parada? Nome do
+     cliente, rua com número, comércio, CEP ou link do Maps"). Três blocos de
+     texto empilhados na tela mais usada depois do mapa, para um público que o
+     dono descreve como quem "gosta de app em que o ícone explica".
+     Quem ficou foi o par que se explica sozinho: o campo (com o mic ao lado) e
+     o vazio com ícone. A dica era a única das três que ninguém precisava ler
+     para agir — e ordenação por distância e tolerância a erro de digitação são
+     coisas que a pessoa DESCOBRE no primeiro resultado, não no aviso. */
 
   const veuVoz=(!noCadastro&&d.vozOuvindo)?`<div class="avb-veu-voz vivo"><div>
     <div class="bola">${ic('mic',34)}</div><b>Ouvindo…</b>
@@ -5959,11 +6047,27 @@ const AULAS={
      lê: a lição de como comprar crédito simplesmente não estava no app. Agora a
      aula existe, e a ordem dela é a ordem da tela — saldo, pacote, botão, e só
      no fim pra onde o crédito foi. */
+  /* 🔴 A AULA SE PARTE PELO CANAL (23/08). No binário da Play a vitrine NÃO
+     EXISTE (`encherCarteira` esvazia `packs` quando `HBX.info().play`), então
+     os dois passos de COMPRA ensinavam peças que ninguém ia ver: eles caíam
+     sozinhos pelo "sumiu da tela", mas só depois de duas esperas — a lição
+     piscava e encurtava sem explicação. Pior: são as duas únicas frases do app
+     que falam em escolher pacote e pagar no cartão, e elas viajavam dentro do
+     binário que a Google analisa. Agora o canal decide: na loja entra o passo
+     das PORTAS DE SUPORTE, que é a saída real de quem ficou sem crédito lá.
+     O fato `loja` é publicado pela ponte junto dos outros (90-ajustes-financeiro). */
   creditos:[
     ['.saldo','Quanto você tem','Seu saldo, e o aviso quando algum crédito está perto de vencer.'],
-    ['.pacotes','Escolha o pacote','O preço por crédito diz qual sai mais barato. Toque no que você quer.'],
-    ['.tmx-dock','Recarregar','O botão do pé mostra o pacote escolhido e o valor. O pagamento é no cartão.'],
-    ['.extrato','Para onde o crédito foi','Cada entrega rastreada e cada bônus do mês aparece aqui.'],
+    {alvo:'.cap-portas',titulo:'Precisa de mais crédito',
+     texto:'Fale com a HBX por aqui. Quem recarrega é o administrador da empresa.',se:d=>!!d.loja},
+    {alvo:'.pacotes',titulo:'Escolha o pacote',
+     texto:'O preço por crédito diz qual sai mais barato. Toque no que você quer.',se:d=>!d.loja},
+    {alvo:'.tmx-dock',titulo:'Recarregar',
+     texto:'O botão do pé mostra o pacote escolhido e o valor. O pagamento é no cartão.',se:d=>!d.loja},
+    /* "Cada entrega rastreada" saiu junto: a Rastreada não debita mais nada
+       (travada em `free` desde a ROTA v2). O extrato mostra DÉBITO e BÔNUS —
+       que é o que ele sempre mostrou de verdade. */
+    ['.extrato','Para onde o crédito foi','Cada débito e cada bônus do mês aparece aqui.'],
   ],
 };
 /** O aparelho lembra o que já foi visto — a lâmpada acende só pra aula nova. */
@@ -6001,9 +6105,88 @@ function marcarAula(camada){
                `if` repetido em cada capítulo.
    ========================================================================== */
 const CAPITULOS={
-  /* Os três do OBRIGATÓRIO. Nenhum `fazer` mira dinheiro (Iniciar rota debita
-     crédito) nem dado de verdade (Salvar cliente cria conta): tutorial que
-     gasta ou cadastra é tutorial que o cliente paga pra ver. */
+  /* ══════════════════════════════════════════════════════════════════════════
+     A PRIMEIRA EXPERIÊNCIA — o ÚNICO capítulo do obrigatório (dono, 23/08).
+
+     🔴 O QUE ELE SUBSTITUI, E POR QUÊ. O obrigatório era uma FILA de três
+     capítulos (`montar` · `clientes` · `cadastro`) — 13 passos, três telas
+     diferentes, dois deles ensinando CADASTRO. O dono derrubou os três com as
+     fotos na mão:
+     · *"telas mudaram, e ficou sem sentido"* — os passos miravam a montagem de
+       antes do dock de 4 botões e da tela cheia; passo que não acha alvo cai
+       calado, e o que sobrava na tela era uma lição pela metade ("1 de 3" num
+       capítulo escrito com 5 passos, medido no g15);
+     · o motorista que abre o app pela PRIMEIRA vez não tem cliente, não tem
+       rota e não tem dia montado — ensiná-lo a arrastar cartão de parada é
+       ensinar sobre uma tela que ele ainda não pode ver.
+     A espinha da primeira vez é UMA e é a do dia dele:
+     **ROTA → INICIAR → SEGUIR → ENTREGAR → ENCERRAR.** Cadastro, Clientes,
+     Chat, Produtos e Ajustes NÃO entram aqui — eles continuam inteiros no
+     catálogo dos Ajustes, a um toque, pra quando a pergunta existir.
+
+     🔴 NENHUM PASSO É `fazer`, E ISSO É DECISÃO, NÃO PREGUIÇA. `fazer` espera o
+     dedo no botão de VERDADE, e nesta tela, nesta hora, todo botão de verdade
+     ou não faz nada (a aba Rota, já aberta) ou custa dinheiro (Iniciar rota
+     debita crédito — a lei que o capítulo `montar` já obedecia). Um `fazer` que
+     não muda a tela é o "travado" que o dono levou na cara; um `fazer` que
+     debita é tutorial que o cliente paga pra ver. Aqui todo passo é `mostrar`,
+     e agora `mostrar` TEM CARA PRÓPRIA (anel cinza tracejado, verde só no
+     "Próximo") — que é o item 2 da ordem de 23/08.
+
+     🔴 OS DOIS PASSOS SEM ALVO SÃO OS QUE SÓ EXISTEM NA RUA. "Próxima parada" e
+     "Entregue / Não entregue" moram em telas que não existem sem rota ativa:
+     apontar pra elas aqui seria o furo caindo no vazio (a doença que este lote
+     veio curar). Eles ganham `figura` — a MINIATURA da peça real, com os mesmos
+     tokens —, então o motorista reconhece o botão quando chegar lá.
+     ══════════════════════════════════════════════════════════════════════════ */
+  inicio:{titulo:'Primeiros passos',ico:'play',tela:'rota',fim:'Ir para minha rota',passos:[
+    /* `opcional:1` no 1º e no último: os dois vivem no cromo que a TELA CHEIA
+       leva embora (a barra de abas e o cabeçalho). Sem a marca, o console
+       gritaria "sumiu da tela" toda vez que alguém abrisse a lição com o dia
+       montado — e guarda que grita à toa é guarda que se aprende a ignorar. */
+    {alvo:'[data-nav="rota"]',opcional:1,
+     titulo:'Tudo começa em Rota',
+     texto:'Esta aba mostra as paradas e as entregas do seu dia. É onde você vai passar o dia inteiro.'},
+    /* O alvo é o botão GRANDE do rodapé, não um verbo específico: ele troca de
+       trabalho com o estado do dia (Montar rota → Iniciar rota → Direção), e é
+       exatamente isso que a frase ensina. Fila de seletores porque o rodapé tem
+       duas casas — `.tmx-dock` sem rota, `.gps-rodape` com rota montada. */
+    /* O alvo é o `.tmx-main` INTEIRO, não o `<button>` dentro dele: o rótulo
+       ("Montar rota", "Iniciar rota", "Direção") mora num `<small>` IRMÃO do
+       botão desde 16/08, e cercar só o botão deixava a palavra que a lição
+       nomeia do lado de fora, embaçada pelo véu. Holofote que corta a legenda
+       da peça é holofote apontando pra metade do assunto. */
+    {alvo:['.tmx-dock .tmx-main','.gps-rodape .tmx-main','.tmx-main'],
+     titulo:'Pronto para sair?',
+     texto:'O botão grande é sempre o próximo passo do dia: ele monta a sua rota e, com o dia pronto, vira Iniciar rota.'},
+    {alvo:'',
+     titulo:'O app mostra o caminho',
+     texto:'Com a rota iniciada você vê a manobra da vez e para qual parada está indo. Mexa no celular só parado, em lugar seguro.',
+     figura:`<div class="aula-fig"><i class="t">o que aparece na tela quando você sair</i>
+       <span class="l">${ic('nav',16)}<span><b>Em 200 m</b> vire à direita</span></span>
+       <span class="l">${ic('route',15)}<span>Parada <b>3 de 12</b> · Cliente 3</span></span>
+     </div>`},
+    {alvo:'',
+     titulo:'Terminou a parada?',
+     texto:'Chegando, o app pergunta o que aconteceu. Escolha uma das três e siga — quando for pedido, registre também o comprovante.',
+     figura:`<div class="aula-fig"><i class="t">as três respostas da chegada</i>
+       <span class="l go">${ic('check',16)}<b>Entregue e pagou</b></span>
+       <span class="l">${ic('note',15)}<b>Entregue, marcou</b></span>
+       <span class="l perigo">${ic('close',15)}<b>Não entregue</b></span>
+     </div>`},
+    /* O último passo aponta pra LÂMPADA — a porta que ele acabou de ganhar. Fim
+       de tutorial que não diz "e agora, se eu esquecer?" é fim que devolve o
+       cliente ao suporte. Aqui a resposta é um botão que está na tela, e o
+       texto nomeia o outro caminho (Ajustes › Tutorial) por escrito. */
+    {alvo:'[data-aula]',opcional:1,
+     titulo:'Pode pegar a estrada!',
+     texto:'Siga as paradas até encerrar o dia. Sem internet, o app guarda a rota no aparelho e sincroniza quando o sinal voltar. Esta lâmpada explica qualquer tela, e este tutorial fica guardado em Ajustes › Tutorial.'},
+  ]},
+  /* Os três que ERAM o obrigatório. Nenhum `fazer` mira dinheiro (Iniciar rota
+     debita crédito) nem dado de verdade (Salvar cliente cria conta): tutorial
+     que gasta ou cadastra é tutorial que o cliente paga pra ver.
+     Eles não morreram com a troca de 23/08 — desceram pro catálogo dos Ajustes,
+     inteiros. Copy aprovada não se joga fora porque mudou de porta. */
   montar:{titulo:'Montar e iniciar a rota',ico:'route',passos:[
     /* O alvo é uma FILA porque o botão de montar muda de casa com o estado da
        rota: no dia zerado ele é o botão grande do meio; com a rota já pronta é
@@ -6015,8 +6198,15 @@ const CAPITULOS={
      titulo:'O dia',texto:'Escolha o dia. Só aparece dia que tem cliente.'},
     {tela:'montagem',alvo:'.stop',
      titulo:'Cada cartão é uma parada',texto:'Segure no punho do lado pra arrastar e mudar a ordem.'},
+    /* 🔴 A FRASE NOMEIA O BOTÃO QUE O ANEL ESTÁ CERCANDO (dono, 23/08, com a
+       foto: *"pede para clicar em adicionar parada, mas vc tem q clicar em
+       entendi"*). Dizia `O "+"` enquanto o holofote cercava um botão escrito
+       "Adicionar parada" — o dedo procurava um "+" que não estava ali, e o anel
+       verde de então convidava a tocar num passo que só se anda no "Próximo".
+       A cor já foi resolvida no CSS (cinza tracejado = só olhe); aqui se
+       resolve a PALAVRA: a lição chama a peça pelo nome que está escrito nela. */
     {tela:'montagem',alvo:'[data-ir="rapida"]',
-     titulo:'Uma parada fora do dia',texto:'O "+" põe na rota um endereço que não estava agendado.'},
+     titulo:'Uma parada fora do dia',texto:'"Adicionar parada" põe na rota um endereço que não estava agendado pra hoje.'},
     {tela:'montagem',alvo:'.acts,.tmx-dock',
      titulo:'Salvar ou começar',texto:'"Salvar rota" guarda pra depois. "Iniciar rota" começa o dia — hoje é só olhar.'},
   ]},
@@ -6049,7 +6239,11 @@ const CAPITULOS={
   fechamento:{titulo:'Fechamento do dia',ico:'note',aula:'fechamento',tela:'fechamento',
     se:d=>!!d.financeiro},
   chat:{titulo:'Recados da Central',ico:'chat',aula:'chat',tela:'chat',se:d=>!!d.chat},
-  creditos:{titulo:'Créditos e recarga',ico:'card',aula:'creditos',tela:'creditos',se:d=>!!d.admin},
+  /* "Créditos e recarga" virou "Créditos" (23/08): metade do nome descrevia uma
+     tela que não existe no binário da loja, e o nome curto serve aos DOIS
+     canais. Nome de capítulo é promessa — promessa que só vale fora da Play é
+     promessa quebrada para quem está dentro dela. */
+  creditos:{titulo:'Créditos',ico:'card',aula:'creditos',tela:'creditos',se:d=>!!d.admin},
   /* 🔴 O CAPÍTULO QUE SE ADAPTA — a régua do "pular sozinho" do dono, inteira,
      sem um tour separado. Três estados, e quem decide é o `se` de cada passo:
      LIGADO ⇒ os 3 primeiros (o que são os prédios, o toque, o crédito);
@@ -6085,10 +6279,19 @@ const CAPITULOS={
      titulo:'Ligue aqui',texto:'Você liga e desliga quando quiser.'},
   ]},
 };
-/** A fila do obrigatório, na ordem em que o motorista precisa aprender. */
-const OBRIGATORIO=['montar','clientes','cadastro'];
-/** A ordem do catálogo de Ajustes › "Aprenda a usar". */
-const CATALOGO=['montar','avulsa','entregar','fechamento','chat','prospector','creditos'];
+/** A fila do obrigatório. 🔴 UM CAPÍTULO SÓ (dono, 23/08) — a primeira vez é
+ *  UMA sequência ("ROTA → INICIAR → SEGUIR → ENTREGAR → ENCERRAR"), não um
+ *  currículo. A fila continua sendo fila (o motor não mudou); ela só tem um
+ *  nome dentro, e é isso que faz a barra de progresso dizer a verdade: 5 de 5 é
+ *  o fim do tutorial, não o fim do primeiro terço dele. */
+const OBRIGATORIO=['inicio'];
+/** A ordem do catálogo de Ajustes › "Aprenda a usar".
+ *  🔴 `inicio` ABRE A LISTA porque é o que o cliente vem procurar quando lê
+ *  "você pode rever em Ajustes" — a promessa do fim do tutorial tem que ter um
+ *  destino com o mesmo nome. E `clientes`/`cadastro` entram aqui: eles saíram
+ *  do obrigatório em 23/08, não do app. Capítulo que sai da fila e não entra no
+ *  catálogo vira código morto com copy aprovada dentro. */
+const CATALOGO=['inicio','montar','clientes','cadastro','avulsa','entregar','fechamento','chat','prospector','creditos'];
 
 /* O aparelho lembra o capítulo VISTO e ONDE parou — retomar de onde parou é
    conveniência de leitura, então é do aparelho. O "obrigatório visto" NÃO mora
@@ -6189,6 +6392,20 @@ const TOUR={id:null,cap:null,passos:[],i:0,obrig:false,fila:0,
      do `tourRepintar` — que nasce de novo a cada quadro e nunca contaria nada. */
   tentativa:0,tentativaDe:-1};
 const tourRodando=()=>!!TOUR.cap;
+/* 🔴 O OBRIGATÓRIO É DE UM SENTIDO SÓ DENTRO DESTA SESSÃO (23/08 — MEDIDO no
+   playwright, com a ponte carregada). Sequência do defeito: o motorista toca
+   "Pular", o motor encerra, carimba e mostra o aviso "Tutorial guardado" — e
+   1,5 s depois o cartão de BOAS-VINDAS nasce por cima dele. Quem o trouxe de
+   volta foi a ponte: o `publicarTutorial` adia a publicação enquanto há tour na
+   tela e, quando o relógio dele volta, ele reabre a porta (`abrirObrigatorio`).
+   O freio de lá (`obrigatorioResolvido`) existe, mas é DA PONTE — qualquer
+   outro caminho que chame `TUTOR.obrigatorio()` passa por cima dele, e o motor
+   ficava sem defesa própria contra ser aberto duas vezes. Pra quem está com o
+   celular na mão isso é a pior leitura possível: o app respondeu "ok, guardei"
+   e voltou a perguntar a mesma coisa — ou seja, "Pular" não pula.
+   Uma sessão, uma oferta. Quem decide de novo é o próximo boot, lendo o
+   servidor — que é onde a verdade do "já viu" sempre morou. */
+let tutorObrigNoAr=false;
 
 function tourLimparRelogios(){
   clearTimeout(TOUR.dicaTimer); TOUR.dicaTimer=null;
@@ -6225,7 +6442,10 @@ function tourAbrirCapitulo(id,obrig,retomar){
  *  pelo fim. O total é a promessa que a barra faz; passo que não vai ser mostrado
  *  não entra na promessa. Sai da lista e a conta volta a ser honesta. */
 function tourPular(motivo,p){
-  console.warn('[HBX 2.0] tutor —',motivo,':',(p&&p.alvo)||'(sem alvo)','· capítulo',TOUR.id);
+  // `opcional` é o passo cuja ausência é LEGÍTIMA — a aba e o cabeçalho que a
+  // tela cheia leva embora. Ele cai igual; o que não sai é o alarme falso (a
+  // mesma régua que a lâmpada já usa em `abrirAula`).
+  if(!(p&&p.opcional)) console.warn('[HBX 2.0] tutor —',motivo,':',(p&&p.alvo)||'(sem alvo)','· capítulo',TOUR.id);
   if(TOUR.i<TOUR.passos.length) TOUR.passos.splice(TOUR.i,1); else TOUR.i++;
   TOUR.tentativa=0; TOUR.tentativaDe=-1;
   tourRepintar();
@@ -6276,7 +6496,14 @@ function tourSeguirObrigatorio(){
   }
   tourFecharObrigatorio();
 }
-/** O fecho do obrigatório: o portão de saída e o carimbo no servidor. */
+/** O fecho do obrigatório: o carimbo no servidor e a volta pra Rota.
+ *  🔴 O PORTÃO "PRONTO PRA RODAR" MORREU AQUI (23/08). Ele existia porque a
+ *  fila de três capítulos acabava no meio de um assunto (o cadastro) e alguém
+ *  precisava dizer "terminou, e dá pra rever". Com a primeira experiência sendo
+ *  UM capítulo que termina no próprio cartão "Pode pegar a estrada!" — botão
+ *  "Ir para minha rota", frase do Ajustes › Tutorial escrita dentro —, o portão
+ *  virava um SEGUNDO fim, dois toques pra encerrar a mesma coisa. Fim que se
+ *  repete ensina que o app não confia no que ele mesmo acabou de dizer. */
 function tourFecharObrigatorio(){
   TOUR.obrig=false; TOUR.fila=0; TOUR.volta=null;
   tutorGravar('obrig','0');
@@ -6286,8 +6513,31 @@ function tourFecharObrigatorio(){
      antes da rede, como toda porta desta casa). */
   try{ window.tutorialConcluido(); }catch(_){}
   if(atual!=='rota') ir('rota');
-  portao({tom:'ok',ico:'bulb',titulo:'Pronto pra rodar',
-    sub:'Quer rever? Ajustes › Aprenda a usar. A 💡 lá em cima ensina cada tela.',
+}
+/* ══════════════════════════════════════════════════════════════════════════
+   PULAR — a saída que o obrigatório NÃO TINHA (dono, 23/08: *"não consigo
+   pular o tutorial, se o cliente não quer ele não quer"*).
+
+   🔴 PULAR ≠ FECHAR. O × do avançado guarda a posição (`pos:<id>`) e o capítulo
+   volta de onde parou; aqui o cliente está dizendo "não quero", e respeitar
+   isso é CARIMBAR o visto no servidor (`tutorialConcluido`), senão o próximo
+   boot lê "nunca viu" e empurra tudo de novo — que é o cativeiro com outro
+   nome. Por isso ela reaproveita o `tourFecharObrigatorio`: pular e terminar
+   têm exatamente o mesmo desfecho no servidor, e um desfecho só é um bug a
+   menos no dia em que alguém mexer num deles.
+
+   🔴 E ELA AVISA ONDE O TUTORIAL FOI PARAR — a ordem literal do dono
+   (*"clicou em não só emite um aviso: tutorial vc consegue acionar novamente
+   em ajustes"*). Sem a frase, "Pular" lê como "apagar pra sempre", e o cliente
+   que pulou por pressa nunca mais procura. Portão e não `avisar()`: o aviso
+   passageiro some em 3,4 s e ele nasceria JUNTO com a troca de tela do
+   `ir('rota')` — informação que o cliente vai precisar depois não se entrega
+   num cartão que foge. */
+function tutorDispensar(){
+  tourEncerrar();                 // o desenho sai ANTES do `ir('rota')` de baixo
+  tourFecharObrigatorio();
+  portao({tom:'info',ico:'bulb',titulo:'Tutorial guardado',
+    sub:'Quando quiser ver, abra Ajustes › Tutorial. A 💡 lá em cima também explica cada tela.',
     acoes:[['Entendi','principal',true]]});
 }
 
@@ -6417,15 +6667,33 @@ function tourRepintar(){
 
   const ultimo=TOUR.i===TOUR.passos.length-1;
   const pct=Math.round(((TOUR.i+1)/TOUR.passos.length)*100);
-  if(!TOUR.obrig) cx.classList.add('com-x');
+  /* 🔴 TODA TELA TEM SAÍDA, INCLUSIVE A OBRIGATÓRIA (dono, 23/08). Antes o
+     `TOUR.obrig` desenhava o canto VAZIO — e o cliente que não quer o tutorial
+     ficava com o único caminho sendo tocar "Próximo" cinco vezes. Agora o canto
+     tem sempre dono: × no avançado (guarda a posição), "Pular" no obrigatório
+     (encerra e carimba — ver `tutorDispensar`).
+     A classe muda junto porque a largura muda: `com-x` reserva 30px pro glifo,
+     `com-pular` reserva 60 pra palavra. Título passando por baixo do botão é o
+     mesmo defeito que a barra de progresso já pagou em 17/08. */
+  cx.classList.add(TOUR.obrig?'com-pular':'com-x');
+  /* O rótulo do último passo é do CAPÍTULO — e SÓ no obrigatório. "Ir para
+     minha rota" é verdade na primeira experiência, que termina em `ir('rota')`;
+     o MESMO capítulo aberto pelo catálogo dos Ajustes volta pra ONDE FOI ABERTO
+     (`TOUR.volta`), ou seja, pros Ajustes — e ali o botão estaria prometendo um
+     destino que ele não leva. Botão que mente é botão morto com nome bonito;
+     fora do obrigatório vale o "Entendi" de sempre. */
+  const rotuloFim=(TOUR.obrig&&TOUR.cap&&TOUR.cap.fim)||'Entendi';
   cx.innerHTML=`<span class="aula-prog"><i style="width:${pct}%"></i></span>
-    ${TOUR.obrig?'':`<button class="fechar" data-aula-sair="1" data-escape="1" aria-label="Fechar">${ic('close',15)}</button>`}
+    ${TOUR.obrig
+      ? `<button class="pular" data-aula-pular="1" data-escape="1">Pular</button>`
+      : `<button class="fechar" data-aula-sair="1" data-escape="1" aria-label="Fechar">${ic('close',15)}</button>`}
     <b>${p.titulo}</b><span class="txt">${p.texto}</span>
+    ${p.figura||''}
     <div class="pe"><span class="conta">${TOUR.i+1} de ${TOUR.passos.length}</span>
       <span style="display:flex;gap:8px;align-items:center">
         ${tipo==='fazer'
           ? '<span class="dedo"><i></i>Toque no destaque</span>'
-          : `<button class="principal" data-aula-prox="1"${ultimo?' data-escape="1"':''}>${ultimo?'Entendi':'Próximo'}</button>`}
+          : `<button class="principal" data-aula-prox="1"${ultimo?' data-escape="1"':''}>${ultimo?rotuloFim:'Próximo'}</button>`}
       </span></div>`;
   medir();
   /* 🔴 A TELA AINDA ESTÁ ENTRANDO QUANDO O TOUR MEDE. A camada nasce com a
@@ -6434,12 +6702,19 @@ function tourRepintar(){
      entrada comum (~740 ms) e o furo transiciona sozinho até o lugar — quem
      olha vê o destaque assentar, nunca pular. */
   TOUR.remedir.push(setTimeout(medir,140),setTimeout(medir,520));
-  /* 2,2 s parado no `fazer` e o anel pulsa. Dica, não bronca — e 4 s era tempo
-     demais pra quem já está lendo "Toque no destaque" no rodapé: a frase chega
-     primeiro, o anel só confirma onde. */
-  if(tipo==='fazer') TOUR.dicaTimer=setTimeout(()=>furo.classList.add('dica'),2200);
+  /* O anel do `fazer` PULSA, e agora ele começa junto com a lição (900 ms, o
+     tempo de a camada terminar de entrar e o furo assentar no lugar — ver as
+     remedidas de 140/520 acima). Era 2,2 s de espera porque o pulso era a única
+     coisa que separava "toque aqui" de "só olhe": guardá-lo pro cliente que já
+     travou fazia sentido quando os DOIS anéis eram lima. Agora quem separa é a
+     COR (lima cheio × cinza tracejado), e o pulso deixou de ser bronca pra ser
+     o que ele sempre devia ter sido — a seta viva do único verde da tela. */
+  if(tipo==='fazer') TOUR.dicaTimer=setTimeout(()=>furo.classList.add('dica'),900);
 
   w.addEventListener('click',e=>{
+    // "Pular" só existe no obrigatório, e ele não guarda posição de propósito:
+    // quem pula está dizendo "não quero", não "depois eu volto" (§ tutorDispensar).
+    if(e.target.closest('[data-aula-pular]')) return tutorDispensar();
     if(e.target.closest('[data-aula-sair]')){
       const volta=TOUR.volta; TOUR.volta=null;
       tutorGravar('pos:'+TOUR.id,String(TOUR.i));   // retoma de onde parou
@@ -6511,17 +6786,34 @@ window.TUTOR={
      🔴 E NÃO DECIDE COM DADO QUE NÃO CHEGOU: enquanto `carregando`, ninguém é
      preso num tutorial; quem chama de novo depois do bootstrap é a ponte. */
   obrigatorio(){
-    if(tourRodando()) return;
+    if(tourRodando()||tutorObrigNoAr) return;
     const d=tutorDados();
     if(d.carregando||d.obrigatorioVisto) return;
+    tutorObrigNoAr=true;
     TOUR.volta=null;
     TOUR.fila=Math.max(0,Math.min(OBRIGATORIO.length-1,parseInt(tutorLer('obrig')||'0',10)||0));
     // Quem matou o app no meio RETOMA — o cartão de boas-vindas é da primeira
     // vez, e repeti-lo a cada volta seria cobrar o mesmo minuto duas vezes.
     if(TOUR.fila>0) return tourSeguirObrigatorio();
-    portao({tom:'info',ico:'bulb',titulo:'O app mudou',
-      sub:'Em 1 minuto eu te mostro o que importa.',
-      acoes:[['Vamos lá','principal']],semFechar:1,acaoPrincipal:'tutor-comecar'});
+    /* 🔴 "O APP MUDOU" NÃO É BOAS-VINDAS (dono, 23/08: *"primeiro log do
+       cliente, nem sentido faz"*). Quem lê esta tela está abrindo o HBX pela
+       PRIMEIRA vez — não existe "antes" pra ter mudado. A frase nasceu na
+       migração do app velho, onde ela era verdade; ficou pendurada quando o
+       mesmo portão virou a porta de entrada de todo cliente novo, e aí passou a
+       falar de um passado que o motorista não viveu.
+       O que ele quer saber aqui é uma coisa só: pra que serve isto e quanto
+       tempo custa. É o que a tela diz agora, com o ícone da ROTA no lugar da
+       lâmpada — lâmpada é o vocabulário da "dica de tela", e esta não é dica.
+
+       🔴 E A PRIMEIRA TELA É ONDE MORA O "NÃO" (a ordem do dono, literal:
+       *"com a opção de fechar na primeira tela"*). "Agora não" é ESCAPE
+       marcado, então ele leva junto o Voltar do Android (§ `handleBack` da
+       ponte) — sem isto o botão de voltar do aparelho batia num portão sem
+       saída, que é o cativeiro antes mesmo do primeiro passo. Ele não some com
+       o tutorial: cai no `tutor-dispensar`, que avisa onde ele ficou guardado. */
+    portao({tom:'info',ico:'route',titulo:'Sua rota na palma da mão',
+      sub:'Veja suas entregas, siga a rota e confirme cada parada pelo app. Em 1 minuto eu te mostro como.',
+      acoes:[['Agora não','',true,'tutor-dispensar'],['Começar','principal',false,'tutor-comecar']]});
   },
   /** Um capítulo avulso do catálogo — sempre fechável no X. */
   abrir(id){
@@ -6649,17 +6941,23 @@ document.addEventListener('click',e=>{
   }
   const fec=e.target.closest('[data-fechar]');
   if(fec){ fechar(fec.closest('.erro-wrap,.conf-wrap,.portao-wrap,.chegou-wrap,.chat-wrap')); }
-  /* O TUTOR TEM DUAS PORTAS E UM PREFIXO SÓ. `tutor-comecar` é o "Vamos lá" do
-     cartão de abertura; `tutor-<id>` é a linha do catálogo dos Ajustes. O
-     prefixo mantém o namespace longe do roteador de `data-acao` da ponte —
-     dois donos pro mesmo nome foi o defeito que a chave do tema já pagou.
+  /* O TUTOR TEM TRÊS PORTAS E UM PREFIXO SÓ. `tutor-comecar` é o "Começar" do
+     cartão de abertura; `tutor-dispensar` é o "Agora não" do MESMO cartão
+     (23/08); `tutor-<id>` é a linha do catálogo dos Ajustes. O prefixo mantém o
+     namespace longe do roteador de `data-acao` da ponte — dois donos pro mesmo
+     nome foi o defeito que a chave do tema já pagou.
      Vem DEPOIS do `data-fechar`: o portão fecha primeiro, e a espera cobre a
      saída dele (o tour senta abaixo do portão, então abrir por cima seria
-     abrir escondido). */
+     abrir escondido — e o AVISO do dispensar é outro portão, que nasceria
+     debaixo do que ainda está saindo). */
   const tu=e.target.closest('[data-acao^="tutor-"]');
   if(tu){
     const id=tu.dataset.acao.slice(6);
-    setTimeout(()=>{ id==='comecar'?tourSeguirObrigatorio():window.TUTOR.abrir(id); },230);
+    setTimeout(()=>{
+      if(id==='comecar') return tourSeguirObrigatorio();
+      if(id==='dispensar') return tutorDispensar();
+      window.TUTOR.abrir(id);
+    },230);
   }
 });
 pintar(false);

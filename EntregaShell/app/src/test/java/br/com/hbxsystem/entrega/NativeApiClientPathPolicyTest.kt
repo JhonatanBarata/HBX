@@ -228,6 +228,31 @@ class NativeApiClientPathPolicyTest {
         assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/tutorial/visto"))
     }
 
+    /**
+     * EXTRATO DO CLIENTE (23/08) — a tela do painel dentro do aparelho.
+     *
+     * As duas portas do `/financeiro-tenant` são as MESMAS do computador. A
+     * política aqui é por método e por forma do caminho: ler o extrato de UM
+     * cliente e baixar UMA cobrança, mais nada — a carteira inteira
+     * (`/financeiro-tenant/saldos`) continua sendo assunto do painel, e o app
+     * já tem o "Em aberto" pela porta do fechamento.
+     */
+    @Test
+    fun logisticaAllowsTheExtratoDoCliente() {
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/financeiro-tenant/clientes/cliente-1/extrato"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/financeiro-tenant/charges/charge-1/quitar"))
+        // Método trocado não passa (a política é por verbo, não por caminho).
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/financeiro-tenant/clientes/cliente-1/extrato"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/financeiro-tenant/charges/charge-1/quitar"))
+        // A carteira inteira e a raiz do módulo ficam fora do aparelho.
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/financeiro-tenant/saldos"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/financeiro-tenant/clientes/cliente-1"))
+        assertFalse(isMobileEndpointAllowed("logistica", "DELETE", "/financeiro-tenant/charges/charge-1"))
+        // E nada disso vaza pro app de vendas.
+        assertFalse(isMobileEndpointAllowed("vendas", "GET", "/financeiro-tenant/clientes/cliente-1/extrato"))
+        assertFalse(isMobileEndpointAllowed("vendas", "POST", "/financeiro-tenant/charges/charge-1/quitar"))
+    }
+
     @Test
     fun vendasCannotAccessNucleoOrLogistica() {
         assertTrue(isMobileEndpointAllowed("vendas", "GET", "/vendas/board"))

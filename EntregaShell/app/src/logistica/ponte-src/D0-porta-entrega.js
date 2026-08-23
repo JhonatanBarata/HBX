@@ -1220,6 +1220,17 @@
     if (chave === 'financeiro-extrato') {
       return void extratoFinanceiro(String(alvo.dataset.bloco || ''), String(alvo.dataset.quem || ''));
     }
+    /* 23/08 — OS QUATRO TOQUES DO EXTRATO DO CLIENTE (a tela do painel dentro
+       do portão, `91-extrato-cliente.js`). Todos carregam ARGUMENTO ou mexem no
+       estado da folha aberta, então moram aqui e não no mapa nome→função. */
+    if (chave === 'extrato-cobranca') {
+      return void alternarCobrancaDoExtrato(String(alvo.dataset.cobranca || ''));
+    }
+    if (chave === 'extrato-quitar') {
+      return void quitarDoExtrato(String(alvo.dataset.cobranca || ''));
+    }
+    if (chave === 'extrato-recarregar') return void recarregarExtratoCliente();
+    if (chave === 'extrato-fechar') return void fecharExtratoCliente();
     // ORDENS 7/10 — a tela do dia se recarrega pela mesma porta que a abriu.
     if (chave === 'historico-recarregar') {
       return void abrirDiaDoHistorico(String((DADOS.historicodia && DADOS.historicodia.data) || ''));

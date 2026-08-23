@@ -395,6 +395,21 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         method == "GET" && segments == listOf("logistica", "osrm", "table") -> true
         // HISTÓRICO DO CLIENTE (22/07) — GET /logistica/clientes/:id/historico.
         method == "GET" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "historico" -> true
+        /* 🔴 EXTRATO DO CLIENTE — A TELA DO PAINEL DENTRO DO APARELHO (23/08,
+           ordem do dono: *"eu quero essa tela no extrato, essas informações"*,
+           apontando https://hbxsystem.com.br/financeiro). É a MESMA porta que o
+           painel usa (`GET /financeiro-tenant/clientes/:id/extrato`): cobrança
+           por cobrança, com ciclo, forma prevista, o combinado do cliente, as
+           entregas somadas e o registro. Não inventei porta nova justamente pra
+           não nascer uma 2ª conta de dívida — quem manda continua sendo a mesma
+           tabela que o computador lê.
+           O servidor a guarda com @Admin (LEI DO VENDEDOR): motorista comum leva
+           403 e a ponte cai no resumo simples que já existia. Esta linha não
+           afrouxa autorização nenhuma — ela só deixa a chamada SAIR do aparelho.
+           Regra da casa: endpoint novo = ponte + allowlist + rebuild, os TRÊS. */
+        method == "GET" && segments.size == 4
+            && segments.take(2) == listOf("financeiro-tenant", "clientes")
+            && segments[3] == "extrato" -> true
         // 🔴 FECHAMENTO DO DIA (04/08) — medidor do dia + o caixa por forma (a
         // data vai na query, não no path). Sem esta linha o app barra a chamada
         // AQUI, dentro do aparelho, e a tela do dia nasceria zerada com o
@@ -521,6 +536,14 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         // sempre com o servidor 100% ok — a lição do "Ver tela".
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "recados") && segments[3] == "anexo" -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("nucleo", "clientes") && segments[3] in setOf("locais", "telefones") -> true
+        /* A BAIXA MANUAL do extrato novo (23/08): POST
+           /financeiro-tenant/charges/:id/quitar — o mesmo botão "Marcar como
+           pago" do painel. O servidor faz claim atômico (`pending`→paga) e
+           responde `alreadyPaid` quando já estava quitada: dois toques nunca
+           viram duas baixas. @Admin lá também. */
+        method == "POST" && segments.size == 4
+            && segments.take(2) == listOf("financeiro-tenant", "charges")
+            && segments[3] == "quitar" -> true
         method == "PATCH" && segments == listOf("logistica", "config") -> true
         method == "PATCH" && segments.size == 5
             && segments.take(3) == listOf("logistica", "agenda", "dias")

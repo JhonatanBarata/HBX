@@ -29,7 +29,7 @@ button,input{font:inherit;color:inherit}
 .app button:focus{outline:none}
 .app button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 
-/* ---------- cromo do documento ---------- */
+/* ---------- cromo do documento ---------- */
 
 /* ==========================================================================
    O CELULAR — 400x900 lógico, ampliado por zoom (padrão 1.7)
@@ -102,6 +102,12 @@ button,input{font:inherit;color:inherit}
   --danger-ico:#ff6b6b;
   --danger-btn:#8f2d2d;
   --barra-trilho:#1b2a45;
+  /* 🔴 O ANEL DO "SÓ OLHE" (23/08). Cinza-ardósia claro, medido em 4,9:1 contra
+     o app já escurecido pelo véu (.52) — ou seja, ele APONTA de verdade, sem
+     nunca ser confundido com o lima do "toque aqui". Token porque tem dois
+     modos de luz e um fiscal que mede: no claro ele escurece (ver o bloco do
+     `[data-luz="claro"]`), como todo par desta folha. */
+  --tour-neutro:#8ba0c2;
   /* abertura — F1 leva 5 (a 1ª tela também é da casca) */
   --splash-bg-1:#0a1020; --splash-bg-2:#070c18;
   --splash-marca:#9ede2a; --splash-marca-2:#9ede2a;
@@ -227,7 +233,7 @@ button,input{font:inherit;color:inherit}
    fábrica. Peso alto fica só no logotipo, que é marca, não texto. */
 .app b,.app strong{font-weight:500}
 .app h2{font-weight:400;letter-spacing:-.018em}
-.app .v,.app .eta b,.app .price,.app .form-c.total b{letter-spacing:-.02em}
+.app .v,.app .eta b,.app .price,.app .form-c.total b{letter-spacing:-.02em}
 
 /* ==========================================================================
    PADRÕES DE MOVIMENTO — as 7 leis. Nada nesta casca aparece do nada.
@@ -479,9 +485,37 @@ button,input{font:inherit;color:inherit}
 .splash-centro{position:relative;display:flex;flex-direction:column;align-items:center;
   animation:spBatida .62s var(--cv-mola) 2.66s both}
 @keyframes spBatida{0%{transform:scale(1)}38%{transform:scale(1.028)}100%{transform:scale(1)}}
+/* 🔴 O ANEL NASCE INVISÍVEL E MORRE NA EXPLOSÃO (dono, 23/08: *"um círculo
+   verde que fica parado esperando a hora de ele ampliar; tinha q ser uma
+   explosão e sumir"*). Eram DOIS defeitos, os dois do `fill`, e os dois
+   MEDIDOS (g15 e Chrome, com `getAnimations()`):
+
+   1. `both` pinta o quadro `from` DURANTE o atraso — e o `from` era um anel
+      ACESO (`opacity:.6`) em `scale(.3)`. Resultado: 1,85 s de círculo parado
+      na tela antes de começar a crescer. Círculo parado antes da hora não lê
+      como efeito: lê como peça de interface esperando alguma coisa. O `both`
+      fica (é ele que segura o `opacity:0` do fim), mas agora o quadro 0% é
+      INVISÍVEL — o fill não tem mais o que mostrar antes da hora. Trocar por
+      `forwards` seria pior: sem fill de entrada o anel apareceria no seu valor
+      de repouso, que é o anel INTEIRO (medido no Chrome: `op=1`).
+   2. NA PASSAGEM ELE RESSUSCITAVA INTEIRO. A regra da saída (logo abaixo)
+      trocava `spAnel` por `mvSai`, e o valor-base de um anel SEM animação é
+      `opacity:1` + `scale(1)`: o círculo voltava cheio, do tamanho natural, e
+      ficava plantado no meio da tela enquanto a primeira tela montava (medido:
+      0,8 s parado — o `mvSai` nem anda, porque nesse instante o thread está
+      ocupado montando o app). Por isso ele agora sai da lista e é apagado seco.
+
+   A curva é de ESTOURO: quase todo o crescimento nos primeiros quadros, o
+   traço afina (o `border-box` global segura a caixa, então `border-width` aqui
+   não mexe em layout) e o brilho apaga antes do fim — explosão, não balão. */
 .splash-anel{position:absolute;top:2px;left:50%;margin-left:-59px;width:118px;height:118px;border-radius:50%;
-  border:1px solid var(--splash-marca-2);pointer-events:none;animation:spAnel 1.05s ease-out 1.85s both}
-@keyframes spAnel{from{opacity:.6;transform:scale(.3)}to{opacity:0;transform:scale(2.4)}}
+  border:1px solid var(--splash-marca-2);pointer-events:none;
+  animation:spAnel .6s cubic-bezier(.05,.82,.22,1) 1.85s both}
+@keyframes spAnel{
+  0%{opacity:0;transform:scale(.2);border-width:2.5px;box-shadow:0 0 16px rgba(158,222,42,.6),inset 0 0 14px rgba(158,222,42,.45)}
+  8%{opacity:1}
+  55%{opacity:.42;border-width:1.4px}
+  100%{opacity:0;transform:scale(3);border-width:1px;box-shadow:0 0 0 rgba(158,222,42,0),inset 0 0 0 rgba(158,222,42,0)}}
 
 .splash-logo{position:relative;display:flex;flex-direction:column;align-items:center;line-height:1;will-change:transform}
 .splash-logo .w{position:relative;overflow:hidden;padding:3px 5px;font-size:46px;font-weight:600;letter-spacing:.6px}
@@ -537,10 +571,14 @@ button,input{font:inherit;color:inherit}
 .tela.sai.abertura .splash-logo{animation:mvLogoVoa .9s var(--cv-entra) both}
 @keyframes mvLogoVoa{to{transform:translate(var(--dx,0px),var(--dy,-380px)) scale(var(--esc,.55))}}
 .tela.sai.abertura .splash-barra,
-.tela.sai.abertura .splash-anel,
 .tela.sai.abertura .splash-rota,
 .tela.sai.abertura .splash-cometa,
 .tela.sai.abertura .splash-fundo{animation:mvSai .3s var(--cv-sai) both}
+/* 🔴 O ANEL NÃO ENTRA NESSA LISTA. Ele já explodiu e já sumiu lá em cima; pedir
+   `mvSai` aqui é pedir que ele VOLTE (o quadro inicial de quem não tem animação
+   é o anel inteiro) só pra apagar de novo — e foi isso que o dono viu parado no
+   meio da tela. Some seco, sem quadro nenhum. */
+.tela.sai.abertura .splash-anel{animation:none!important;opacity:0!important}
 
 /* ==========================================================================
    TELA CHEIA (GPS) — "Rota iniciada" não troca de tela: ela TOMA a tela.
@@ -2832,6 +2870,88 @@ button,input{font:inherit;color:inherit}
 .rowline b{color:var(--lime);font-size:13.5px;font-weight:500}
 .foot2{display:grid;grid-template-columns:1.1fr .9fr;gap:8px;margin-top:10px}
 
+/* ==========================================================================
+   EXTRATO DO CLIENTE — a folha do painel (hbxsystem.com.br/financeiro) dentro
+   do portão do celular (dono, 23/08: *"eu quero essa tela no extrato, essas
+   informações"*).
+
+   🔴 PEÇA NOVA SÓ ONDE O APP NÃO TINHA EQUIVALENTE: o anel da carteira, a barra
+   de origem, a linha de campo do registro e a lista de cobranças. Cabeçalho,
+   selo, caixa e título de seção reusam `.ava`/`.pill`/`.box`/`.grupo` — a folha
+   é do painel, a CARA continua sendo a do app, que é o que o motorista já sabe
+   ler. Tudo em token: nenhuma cor solta (5 Leis).
+
+   As três cores de ORIGEM são as MESMAS da quebra por forma da tela de trás
+   (lime/azul/roxo). Origem com cor própria em cada tela é o mesmo dado
+   parecendo dois.
+   ========================================================================== */
+.ext-cab{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;margin-bottom:10px}
+.ext-cab strong{display:block;font-size:14px;font-weight:500}
+.ext-cab small{display:block;font-size:10.5px;color:var(--ink-2);margin-top:1px}
+.ext-saldo{display:flex;align-items:center;gap:12px;margin:0}
+.ext-saldo-v{flex:1;min-width:0}
+.ext-saldo-v small{display:block;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2)}
+.ext-saldo-v b{display:block;font-size:23px;font-weight:500;color:var(--amber);margin-top:3px;line-height:1}
+.ext-saldo-v>span{display:block;font-size:11px;color:var(--ink-2);margin-top:4px}
+.ext-anel{position:relative;flex:0 0 64px;width:64px;height:64px;display:grid;place-items:center;text-align:center}
+.ext-anel svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.ext-anel circle{fill:none;stroke-width:4}
+.ext-anel .trilho{stroke:var(--line-2)}
+.ext-anel .valor{stroke:var(--amber);stroke-linecap:round}
+.ext-anel b{display:block;font-size:11.5px;font-weight:500;line-height:1.1}
+.ext-anel small{display:block;font-size:7.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-2)}
+.ext-minis{display:flex;gap:7px;margin-top:8px}
+.ext-minis>div{flex:1;min-width:0;background:var(--card);border:.7px solid var(--line);border-radius:11px;padding:7px 8px}
+.ext-minis small{display:block;font-size:9px;color:var(--ink-2)}
+.ext-minis strong{display:block;font-size:11px;font-weight:500;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ext-origem{margin-top:8px}
+.ext-origem header{display:flex;align-items:center;justify-content:space-between;font-size:12.5px}
+.ext-origem header strong{font-weight:500}
+.ext-origem header span{color:var(--ink-2)}
+.ext-barra{display:flex;height:7px;border-radius:99px;overflow:hidden;background:var(--line-2);margin-top:8px}
+.ext-barra span{height:100%}
+.ext-legenda{display:flex;flex-wrap:wrap;gap:9px;margin-top:7px;font-size:10.5px;color:var(--ink-2)}
+.ext-legenda i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
+.is-entrega{background:var(--lime)}
+.is-fatura{background:var(--blue-l)}
+.is-venda{background:var(--purple)}
+.is-outra{background:var(--ink-3)}
+.ext-conta{float:right;color:var(--ink-2);font-weight:400}
+.ext-cobs{display:flex;flex-direction:column;gap:7px}
+.ext-cob{background:var(--card);border:.7px solid var(--line);border-radius:12px;overflow:hidden}
+.ext-cob.aberta{border-color:var(--line-2)}
+.ext-cob-topo{display:grid;grid-template-columns:auto 1fr auto auto;gap:9px;align-items:center;width:100%;
+  padding:9px 10px;border:0;background:none;color:var(--ink);text-align:left;cursor:pointer}
+.ext-cob-ico{width:26px;height:26px;border-radius:9px;display:grid;place-items:center;color:var(--bg);opacity:.92}
+.ext-cob-copy{min-width:0}
+.ext-cob-copy strong{display:block;font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ext-cob-copy small{display:block;font-size:10px;color:var(--ink-2);margin-top:1px}
+.ext-cob-val{text-align:right}
+.ext-cob-val strong{display:block;font-size:12.5px;font-weight:500}
+.ext-st{display:block;font-size:9.5px;margin-top:1px}
+.ext-st.aberta{color:var(--amber)}
+.ext-st.paga{color:var(--lime)}
+.ext-st.mute{color:var(--ink-2)}
+.ext-seta{color:var(--ink-2);font-size:11px}
+.ext-det{padding:0 10px 10px;border-top:1px dashed var(--line-2)}
+.ext-det-t{font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2);margin:10px 0 3px}
+.ext-campo{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:5px 0;font-size:11.5px}
+.ext-campo+.ext-campo{border-top:1px dashed var(--line-2)}
+.ext-campo span:first-child{flex:0 0 44%;color:var(--ink-2)}
+.ext-campo span:last-child{flex:1;text-align:right;word-break:break-word}
+.ext-entrega{border:.7px solid var(--line);border-radius:10px;padding:6px 9px;margin-top:6px}
+.ext-entrega .ext-campo{padding:2px 0;border:0}
+.ext-entrega-sub{font-size:10.5px;color:var(--ink-2);margin-top:2px}
+/* O verde só chega no 2º toque: até armar, o botão é neutro (a mesma lei do
+   dock — verde é "pode ir", e baixar dinheiro por esbarrão não pode). */
+/* 🔴 `--lime-bg`, NÃO `--lime-bg-2`: só o primeiro tem par no tema CLARO (o
+   `-2` e o `--sel-bg` ficaram só no bloco escuro). Medido na foto: no claro o
+   botão armado nascia com fundo QUASE PRETO dentro do cartão branco. */
+.ext-pagar{display:flex;align-items:center;justify-content:center;gap:7px;width:100%;margin-top:11px;
+  padding:11px;border-radius:12px;border:.7px solid var(--line-2);background:var(--bg-2);
+  color:var(--ink);font-size:13px;cursor:pointer}
+.ext-pagar.armada{border-color:var(--lime);background:var(--lime-bg);color:var(--lime)}
+
 /* ---------- fechamento ---------- */
 .forms{display:flex;background:var(--card);border:.7px solid var(--line);border-radius:12px;overflow:hidden}
 .form-c{flex:1;padding:9px 4px;text-align:center;border-right:.7px solid var(--line)}
@@ -3062,6 +3182,15 @@ button,input{font:inherit;color:inherit}
 .item-linha{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
   padding:9px 0;border-bottom:.6px solid rgba(26,39,64,.95)}
 .item-linha:last-child{border-bottom:0}
+/* 🔴 DADO QUE ABRE EXTRATO PRECISA RESPONDER AO DEDO (23/08). O Financeiro
+   passou a abrir o extrato em cada número (`financeiro-extrato`) e essas peças
+   não são `<button>` — sem retorno de toque o motorista aperta e não sabe se
+   pegou, que é a MESMA sensação de "não clica" que ele reclamou. Em repouso
+   nada muda (o desenho da tela é o aprovado): só o afundar do toque. */
+.kpi[data-acao],.form-c[data-acao],.item-linha[data-acao],.sum .c[data-acao]{
+  cursor:pointer;-webkit-tap-highlight-color:transparent}
+.kpi[data-acao]:active,.form-c[data-acao]:active,.item-linha[data-acao]:active,.sum .c[data-acao]:active{
+  transform:scale(.985);filter:brightness(1.1)}
 .item-linha strong{display:block;font-size:13px;font-weight:500}
 .item-linha span{display:block;font-size:10.5px;color:var(--ink-2);margin-top:1px}
 .passo{display:flex;align-items:center;gap:8px}
@@ -3263,7 +3392,38 @@ button,input{font:inherit;color:inherit}
 .aula-furo{position:absolute;border-radius:12px;border:2px solid var(--lime);
   box-shadow:0 0 0 9999px rgba(4,9,18,.52),0 0 16px rgba(158,222,42,.5);
   transition:top .22s,left .22s,width .22s,height .22s;pointer-events:none}
-/* A LEI VELHA VIROU MODO. "A aula não aperta botão" continua valendo no passo
+/* 🔴 VERDE É "TOQUE", CINZA É "OLHE" — A GRAMÁTICA DE COR DO HOLOFOTE (dono,
+   23/08, com as duas fotos na mão: *"o destaque não fica claro o que é para
+   clicar e o q não é... deixar meio cinza o q não é para clicar, e o verde
+   destacado o q é"*).
+   O defeito era REAL e media-se numa foto só: o passo "Uma parada fora do dia"
+   é `mostrar` — quem anda a lição é o "Próximo" do balão —, mas o anel em volta
+   do botão "Adicionar parada" era o MESMO lima cheio do passo `fazer`. Duas
+   coisas verdes na tela, e a maior delas não fazia nada: o dedo ia no botão,
+   o toque morria no furo tampado, e a leitura era "o app travou".
+   Agora a cor É o contrato, e ela é exclusiva:
+   · `fazer`   ⇒ anel LIMA cheio + brilho + pulso — e o balão NÃO tem botão verde;
+   · `mostrar` ⇒ anel CINZA TRACEJADO, sem brilho — o único verde da tela é o
+     "Próximo" do balão, que é o que realmente anda a lição.
+   Tracejado e não só "outro tom": tracejado é vocabulário universal de
+   "referência, não controle", e sobrevive ao daltonismo, que a cor sozinha não
+   faz. Um verde por tela, e ele sempre aponta o dedo pro lugar certo. */
+.aula-wrap[data-tipo="mostrar"] .aula-furo{border-style:dashed;border-color:var(--tour-neutro);
+  box-shadow:0 0 0 9999px rgba(4,9,18,.52);background:rgba(4,9,18,.34)}
+/* 🔴 E O ALVO DO `mostrar` FICA "MEIO CINZA" — a segunda metade da ordem do
+   dono (23/08). O anel cinza resolvia a MOLDURA, mas o que estava dentro dela
+   continuava aceso: o passo "Uma parada fora do dia" cerca um botão que É lima
+   ("Adicionar parada"), então a tela ainda tinha dois verdes e o maior deles
+   não fazia nada. Aqui o próprio furo ganha um vidro de .34 por cima do alvo —
+   escurece o que não se toca sem mexer numa linha do app (nada de `filter` no
+   DOM alheio, que é o caminho de deixar a tela mentindo depois que a lição
+   sai). A conta é a do holofote: fora .52, dentro .34 — o alvo continua sendo
+   o ponto MAIS CLARO da tela (é ele que a frase explica) e ao mesmo tempo
+   visivelmente apagado em relação ao verde vivo do "Próximo", que é o único
+   lugar onde o dedo resolve alguma coisa.
+   No `fazer` não há vidro nenhum: lá o botão é pra tocar, e ele fica aceso.
+
+   A LEI VELHA VIROU MODO. "A aula não aperta botão" continua valendo no passo
    `mostrar`: ali o furo TAMPA o próprio buraco e nem o alvo responde. Só o
    `fazer` abre a passagem. */
 .aula-wrap[data-tipo="mostrar"] .aula-furo{pointer-events:auto}
@@ -3312,6 +3472,41 @@ button,input{font:inherit;color:inherit}
   border-radius:9px;border:.7px solid var(--line);background:var(--chip-bg);color:var(--ink-2);
   display:grid;place-items:center;cursor:pointer}
 .aula-cx.com-x b{padding-right:30px}
+/* 🔴 O "PULAR" DO OBRIGATÓRIO (dono, 23/08: *"não consigo pular o tutorial, se
+   o cliente não quer ele não quer"*). Ele NÃO é o X do avançado com outra cara:
+   o X guarda a posição e volta depois; este aqui ENCERRA a primeira experiência
+   pra sempre (carimba o "visto" no servidor) e avisa onde ela mora. Por isso é
+   PALAVRA e não glifo — "×" num tutorial obrigatório o cliente lê como "fecha e
+   volta daqui a pouco", e voltar é justamente o que ele não quer.
+   Discreto de propósito (tinta de legenda, sem fundo forte): a saída existe,
+   está sempre no mesmo canto e em toda tela — mas quem manda no cartão continua
+   sendo o "Próximo". E ele carrega `data-escape`, que é o que faz o Voltar do
+   Android finalmente responder aqui dentro (§ `handleBack` na ponte). */
+.aula-cx .pular{position:absolute;top:9px;right:8px;padding:5px 10px;
+  border-radius:9px;border:.7px solid var(--line);background:var(--chip-bg);color:var(--ink-2);
+  font-size:11.5px;line-height:1;cursor:pointer}
+.aula-cx.com-pular b{padding-right:60px}
+/* A FIGURINHA DO PASSO SEM ALVO. Passo que explica o que só existe NA RUA (a
+   próxima parada, os botões da chegada) não tem peça na tela pra apontar — e
+   parágrafo sozinho é o "só imagem explicativa" que ninguém lê. Aqui ele ganha
+   a MINIATURA do que vai encontrar lá fora, montada com os mesmos tokens dos
+   botões de verdade: quando o motorista chegar na parada, ele reconhece.
+   Nunca vira botão — sem gancho, sem `data-acao`, `pointer-events:none`. */
+.aula-fig{margin-top:10px;display:flex;flex-direction:column;gap:5px;pointer-events:none}
+/* 🔴 A LEGENDA É O QUE SEPARA "FIGURA" DE "BOTÃO" — e ela não é enfeite. Sem
+   ela a miniatura verde do "Entregue e pagou" era o SEGUNDO verde da tela, ao
+   lado do "Próximo", que é exatamente o defeito que este lote veio matar (dono,
+   23/08). Uma linha de legenda em tinta de rodapé diz, antes de o olho chegar
+   nas pílulas, que ali é RETRATO de outra tela e não controle desta. */
+.aula-fig .t{display:block;font-size:10.5px;font-style:normal;color:var(--ink-3);
+  letter-spacing:.02em;margin-bottom:1px}
+.aula-fig .l{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;
+  border:.7px solid var(--line);background:var(--bg-2);font-size:12px;color:var(--ink-2)}
+.aula-fig .l b{display:inline;font-size:12px;font-weight:500;color:var(--ink)}
+.aula-fig .l.go{border-color:var(--lime-line);background:var(--lime-bg);color:var(--lime)}
+.aula-fig .l.go b{color:var(--lime)}
+.aula-fig .l.perigo{border-color:var(--red-line);background:var(--red-bg);color:var(--red)}
+.aula-fig .l.perigo b{color:var(--red)}
 /* 🔴 O RODAPÉ DO PASSO `fazer` ERA UMA BANDA VAZIA (dono, 17/08). Ali não nasce
    "Próximo" — quem anda o passo é o dedo no botão de verdade — e sobrava a
    contagem sozinha à esquerda com metade do cartão em branco: o cliente lia
@@ -3782,7 +3977,9 @@ button,input{font:inherit;color:inherit}
 /* 🔴 E O X DO TOUR ENTRA NA MESMA LISTA — pela armadilha nº1 acima, palavra por
    palavra: ele também nasceu com `--chip-bg`, o token que o claro NÃO
    redefine. Peça nova do balão que não entrar aqui repete o 1,03:1. */
-[data-luz="claro"] .aula-cx .pe button,[data-luz="claro"] .aula-cx .fechar{background:#fff}
+[data-luz="claro"] .aula-cx .pe button,[data-luz="claro"] .aula-cx .fechar,
+[data-luz="claro"] .aula-cx .pular{background:#fff}
+[data-luz="claro"] .aula-fig .l{background:#f4f7fc}
 /* A sombra do balão era a de NOITE (`rgba(0,0,0,.5)`) — no claro ela vira uma
    mancha preta embaixo do cartão branco. Mesma sombra dos irmãos (`.aviso`). */
 [data-luz="claro"] .aula-cx{box-shadow:0 12px 30px rgba(15,23,38,.16)}
@@ -3848,6 +4045,13 @@ button,input{font:inherit;color:inherit}
    carrega continua sendo a borda. */
 [data-luz="claro"] .aula-furo{box-shadow:0 0 0 3px rgba(20,28,45,.22),0 0 0 9999px rgba(20,28,45,.42),0 0 14px rgba(63,122,0,.3);
   border-color:#264900}
+/* O anel do "só olhe", no claro: o mesmo raciocínio do bloco acima ao contrário
+   — o véu daqui é claro, então o cinza precisa ESCURECER pra continuar sendo
+   fronteira (4,6:1 contra o véu de `.42`). E ele perde o halo verde do irmão:
+   brilho é a marca do que se toca, e este não se toca. */
+[data-luz="claro"] .aula-wrap[data-tipo="mostrar"] .aula-furo{border-color:#4a5a76;
+  box-shadow:0 0 0 3px rgba(20,28,45,.14),0 0 0 9999px rgba(20,28,45,.42);
+  background:rgba(20,28,45,.26)}
 [data-luz="claro"] .sheet{background:linear-gradient(180deg,#fff,#fbfcfe 30%);border-color:var(--line)}
 
 /* 🔴 O SELO DO PORTÃO CONTINUAVA DE NOITE DENTRO DO CARTÃO BRANCO. O `.aviso`

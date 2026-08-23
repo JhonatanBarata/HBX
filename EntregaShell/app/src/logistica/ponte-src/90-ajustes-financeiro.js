@@ -389,8 +389,20 @@
        semana   → dia a dia, com o total da semana.
      Nada de conta nova: tudo sai do MESMO `caixa` que pintou a tela.
      ========================================================================== */
-  function extratoFinanceiro(bloco, quem) {
+  function extratoFinanceiro(bloco, quem, simples) {
     if (typeof window.portao !== 'function') return;
+    /* 🔴 O TOQUE NA PESSOA ABRE O EXTRATO DE VERDADE (23/08, ordem do dono com
+       a foto do painel: *"eu quero essa tela no extrato, essas informações"*).
+       O que morava aqui era uma LINHA — nome e saldo, o mesmo que o cartão de
+       trás já mostrava; agora a mesma porta do computador responde
+       (`91-extrato-cliente.js`), com cobrança por cobrança.
+       `simples` é a volta: quando o servidor diz 403 (motorista comum não vê
+       valor do tenant), o extrato completo devolve o toque PRA CÁ, e sem esta
+       chave os dois ficariam se chamando pra sempre. */
+    if (bloco === 'devedor' && quem && !simples) {
+      const nomes = nomesDosDevedores || new Map();
+      return abrirExtratoCliente(quem, nomes.get(String(quem)) || '');
+    }
     const c = caixaCrua;
     if (!c) {
       return window.portao({
@@ -712,6 +724,12 @@
          ninguém, e o próximo boot pergunta de novo. Só um "nunca visto" DITO
          pelo servidor vale 0. */
       obrigatorioVisto: tutorialVisto === false ? 0 : 1,
+      /* 🔴 O CANAL É FATO DO BINÁRIO, NÃO DA CONFIG (23/08) — por isso mora
+         FORA do `if (config)`: `BuildConfig.HBX_PLAY` já está no aparelho antes
+         de qualquer resposta de rede, e a aula de Créditos precisa dele para
+         não ensinar a vitrine que o binário da loja não tem. Mesma leitura de
+         `encherCarteira`, para não existirem duas réguas do mesmo fato. */
+      loja: ((window.HBX && window.HBX.info && window.HBX.info()) || {}).play ? 1 : 0,
     };
     if (config) {
       fatos.admin = ehAdmin() ? 1 : 0;
