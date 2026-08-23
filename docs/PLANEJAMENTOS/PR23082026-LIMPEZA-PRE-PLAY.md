@@ -111,16 +111,28 @@ preço. A frase diz o que **não** muda: cobra 1× por dia, remontar não cobra 
   avaliar "Espaço 1/2/3" → "Roteiro 1/2/3".
 - **Desktop**: reviver o cartão do plano e apagar os textos do modelo morto (§4).
 
-## 4. Dívida medida no desktop (não entra hoje — é painel, não app)
+## 4. ✅ A dívida do desktop — FEITA no mesmo dia (23/08, ordem "segue")
 
 `frontend/src/app/(app)/logistica/config/page.client.tsx`:
-- L456: o cartão do plano **nunca renderiza** — a condição é `plano.paradasInclusas > 0`, e o
+- O cartão do plano **nunca renderizava**: a condição era `plano.paradasInclusas > 0` e o
   `GET /logistica/plano` ([logistica-nivel-plano.service.ts](../../backend/src/logistica/logistica-nivel-plano.service.ts))
-  **não devolve mais** esse campo desde a ROTA v2 (devolve `nivel`, `titulo`, `precoMensal`,
-  `assentosInclusos`). Resultado: o dono não vê em que plano está.
-- L497–517: ainda vende *"Rota Essencial — cobra por parada"* e *"Rastreada — 2 créditos por
-  entrega concluída"* — as duas ações estão **travadas em `free`** no catálogo
-  (`OVERRIDE_LOCKED_ACTIONS`). O painel descreve uma cobrança que não existe mais.
+  deixou de mandar esse campo na ROTA v2. **Medido contra o servidor local** (empresa 39):
+  `{nivel:"ADVANCED", titulo:"Rota Advanced", precoMensal:199, assentosInclusos:2, logisticaAssentos:null}`.
+  O tipo do front foi reescrito para essa resposta (com `CREDITO`), a condição virou só
+  `plano &&`, e a frase passou a falar de **assento**, que é a régua nova. Assentos efetivos =
+  `logisticaAssentos ?? assentosInclusos` — a MESMA conta de `assertAssentoDoDia`.
+- Os dois botões de modo vendiam *"cobra por parada"* e *"2 créditos por entrega concluída"*;
+  as duas ações estão travadas em `free` (`OVERRIDE_LOCKED_ACTIONS`). O que eles escolhem é
+  **rastreamento** (`mode` → `trackingRequired` → `activateRoute`), e o texto agora diz isso.
+- Provado no `localhost:3001` com login real, nos dois níveis (troquei o nível no banco local e
+  restaurei em seguida). ⚠️ Continua valendo o aviso do `.test-login.local.md`: o ambiente com
+  dado de verdade é o VPS, depois do `npm run publish`.
+
+**Fica de dívida (não é minha, e está registrada):** o `npm run lint` do frontend reprova por
+8 violações R7 anteriores a este trabalho — `B1-historico-cliente.js` (desde 14/08) e
+`90-ajustes-financeiro.js` (desde 22/08), todas `style=` inline na ponte. O `npm run publish`
+não roda lint, então isso não bloqueia deploy; some quando o espaçamento dessas peças nascer
+no mock (a folha do app é gerada).
 
 ## 5. Verificação deste PR
 
