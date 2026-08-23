@@ -257,7 +257,11 @@
       : '<span class="sub">Sem cobranças para este cliente.</span>';
 
     const corpo = cabecalho + saldoBloco + minis + origemBloco
-      + `<div class="grupo" style="margin-top:11px">Cobranças<span class="ext-conta">${charges.length === 1 ? '1 item' : `${charges.length} itens`}</span></div>`
+      /* O `style="margin-top:11px"` que estava aqui era 1 px a menos que o
+         `margin:12px 2px 5px` que a própria `.grupo` já tem — diferença
+         invisível, e o preço dela era uma violação R7 no check-pele por causa
+         de nada. Regra da casa: espaçamento sai da classe. */
+      + `<div class="grupo">Cobranças<span class="ext-conta">${charges.length === 1 ? '1 item' : `${charges.length} itens`}</span></div>`
       + `<div class="ext-cobs">${cobrancas}</div>`;
 
     window.portao({

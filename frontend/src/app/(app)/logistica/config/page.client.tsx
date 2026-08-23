@@ -27,15 +27,26 @@ import { isTenantAdmin } from "@/lib/roles";
 
 type RouteMode = "ESSENTIAL" | "TRACKED";
 
-// PR28072026 HÍBRIDO (28/07) — o plano da empresa: mensalidade + franquia de
-// paradas DESTE mês. Admin-only no backend (carrega valor — LEI DO VENDEDOR).
+// 🔴 ESTE TIPO DESCREVIA UMA RESPOSTA QUE O SERVIDOR NÃO DÁ MAIS (23/08).
+// Ele nasceu no PR28072026 (mensalidade + franquia de paradas do mês) e a ROTA
+// v2 (10/08) matou a franquia: `statusDoNivel` passou a devolver nível, título,
+// preço e ASSENTOS. TypeScript não pega isso — o `apiFetch<PlanoRota>` é uma
+// promessa de tipo sobre JSON que chega em runtime —, então
+// `plano.paradasInclusas` virava `undefined`, a condição de render
+// (`paradasInclusas > 0`) dava false e o cartão do plano NUNCA aparecia.
+// Ninguém viu: o bloco simplesmente não existia na tela, sem erro no console.
+// Custo real: o dono da distribuidora não enxerga em que plano está nem quantos
+// motoristas ele inclui — e é ele quem paga a mensalidade.
+// Agora o tipo É a resposta medida (logistica-nivel-plano.service.ts:
+// `statusDoNivel`), CREDITO incluído: ele é o berço de toda empresa nova.
 type PlanoRota = {
-  nivel: "BASIC" | "ADVANCED" | "FULL";
+  nivel: "CREDITO" | "BASIC" | "ADVANCED" | "FULL";
   titulo: string;
   precoMensal: number;
-  paradasInclusas: number;
-  paradasUsadas: number;
-  paradasRestantes: number;
+  /** Assentos (motoristas simultâneos por dia) que o NÍVEL inclui. */
+  assentosInclusos: number;
+  /** Override por empresa; quando existe, manda sobre o do nível. */
+  logisticaAssentos: number | null;
 };
 
 /** "R$ 199/mês" — sem centavos quando é inteiro (preço redondo é o normal). */
@@ -66,7 +77,11 @@ type Config = {
   comprovanteCodigoObrigatorio: boolean;
   // PR27072026 F1 (ROTA 3 NÍVEIS) — nível do plano; ausente (config antiga) =
   // ADVANCED no consumo abaixo (mesmo grandfathering do backend).
-  logisticaNivel?: "BASIC" | "ADVANCED" | "FULL";
+  // CREDITO entrou na lista em 23/08: é o nível de toda empresa nova desde a
+  // ROTA v2 (10/08) e o backend já o devolve aqui (`storedNivel`). O tipo o
+  // omitia — e tipo que mente sobre o valor que chega é o mesmo defeito do
+  // PlanoRota lá em cima, só que silencioso.
+  logisticaNivel?: "CREDITO" | "BASIC" | "ADVANCED" | "FULL";
   // ITEM 9 (07/08) — CSV do que está DESLIGADO no app do motorista. "rota" nunca
   // entra (o backend filtra), por isso ela aparece aqui fixa e marcada.
   appModulosDesativados?: string | null;
@@ -308,8 +323,12 @@ export function LogisticaConfigClient() {
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
-  // PR28072026 HÍBRIDO — plano + franquia do mês. Best-effort: falhar aqui não
-  // pode derrubar a tela de regras (o bloco simplesmente não aparece).
+  // Nível + assentos da empresa (ROTA v2). Best-effort: falhar aqui não pode
+  // derrubar a tela de regras — o cartão simplesmente não aparece.
+  // ⚠️ E foi assim que o defeito de 28/07 viveu 6 semanas em silêncio: quando o
+  // "não aparece" é o comportamento de falha ESPERADO, o bloco sumido por outro
+  // motivo (aqui, campo que o servidor deixou de mandar) não acende alarme
+  // nenhum. Mexeu no formato desta resposta? Abra a tela e OLHE.
   const [plano, setPlano] = useState<PlanoRota | null>(null);
 
   useEffect(() => {
@@ -412,6 +431,12 @@ export function LogisticaConfigClient() {
   // só evita o admin escolher um modo que vai voltar com erro.
   const nivelFull = (cfg?.logisticaNivel ?? "ADVANCED") === "FULL";
 
+  /* Assentos EFETIVOS: o override da empresa manda sobre o do nível — é a
+     mesma conta de `assertAssentoDoDia` no backend
+     (`logisticaAssentos ?? assentosInclusos`). Duas réguas para o mesmo número
+     é o painel dizendo "2 motoristas" e a rota barrando o segundo. */
+  const assentosDoPlano = plano ? (plano.logisticaAssentos ?? plano.assentosInclusos) : 0;
+
   if (!admin) {
     return (
       <div className="work" style={{ flex: 1 }}>
@@ -449,25 +474,30 @@ export function LogisticaConfigClient() {
 
         {!loading && cfg && (
           <div className="log-cfg">
-            {/* ── PR28072026 HÍBRIDO — o plano e o que ele já cobriu no mês ──
-                É o gatilho de upgrade: o dono vê a franquia acabando ANTES de
-                começar a queimar crédito, e sabe exatamente o que acontece
-                depois. Zero textão: 1 número grande e 1 frase. */}
-            {plano && plano.paradasInclusas > 0 && (
+            {/* ── O PLANO DA EMPRESA — reescrito na ROTA v2 (23/08) ──────────
+                A régua deixou de ser FRANQUIA DE PARADAS e passou a ser
+                ASSENTO: quem tem plano roda rota ilimitada, e o que limita é
+                quantos motoristas saem no MESMO dia. Quem está no avulso paga
+                o dia. Uma frase por caso, o número na frente — e o cartão
+                aparece SEMPRE que o servidor responde, porque "em que plano eu
+                estou" é a primeira pergunta de quem paga a conta. */}
+            {plano && (
               <div className="log-cfg__block">
                 <div className="log-cfg__block-head">
                   <div className="log-cfg__heading-copy">
                     <strong className="log-cfg__block-title">
-                      {plano.titulo} · {fmtMoedaMes(plano.precoMensal)}
+                      {plano.titulo}
+                      {plano.precoMensal > 0 ? ` · ${fmtMoedaMes(plano.precoMensal)}` : ""}
                     </strong>
                     <span className="log-cfg__switch-hint">
-                      {plano.paradasUsadas} de {plano.paradasInclusas} paradas do plano usadas neste mês
-                      {plano.paradasRestantes > 0
-                        ? ` — restam ${plano.paradasRestantes}.`
-                        : " — a partir daqui cada parada consome crédito."}
+                      {plano.nivel === "CREDITO"
+                        ? `${assentosDoPlano} ${assentosDoPlano === 1 ? "motorista" : "motoristas"} por dia. `
+                          + "Cada dia com rota consome créditos — remontar o mesmo dia não cobra de novo."
+                        : `Rota ilimitada, com ${assentosDoPlano} ${assentosDoPlano === 1 ? "motorista" : "motoristas"} por dia. `
+                          + "Motorista além disso sai com o passe do dia, em créditos."}
                     </span>
                   </div>
-                  {plano.paradasRestantes === 0 && <span className="plano-selo">Franquia do mês esgotada</span>}
+                  {plano.nivel === "CREDITO" && <span className="plano-selo">Sem mensalidade</span>}
                 </div>
               </div>
             )}
@@ -500,8 +530,18 @@ export function LogisticaConfigClient() {
                     disabled={saving}
                     onClick={() => patchModoRota({ modoRotaPadrao: "ESSENTIAL" })}
                   >
+                    {/* 🔴 "Cobra por parada da rota" e "2 créditos por entrega
+                        concluída" saíram daqui (23/08): as duas ações estão
+                        TRAVADAS em `free` no catálogo desde a ROTA v2
+                        (OVERRIDE_LOCKED_ACTIONS) — o painel descrevia uma
+                        cobrança que o backend não faz mais, para o único
+                        público que decide plano. O que estes dois botões
+                        realmente escolhem, e sempre escolheram desde 10/08, é
+                        RASTREAMENTO: `mode` decide se a rota abre sessão de
+                        telemetria (`trackingRequired` → `activateRoute`). O
+                        copy agora diz isso. */}
                     <span className="log-cfg__mode-title">Rota Essencial</span>
-                    <span className="log-cfg__mode-copy">Cobra por parada da rota.</span>
+                    <span className="log-cfg__mode-copy">O padrão. Registra as entregas sem gravar o trajeto.</span>
                   </button>
                   <button
                     type="button"
@@ -513,7 +553,7 @@ export function LogisticaConfigClient() {
                     onClick={() => patchModoRota({ modoRotaPadrao: "TRACKED" })}
                   >
                     <span className="log-cfg__mode-title">Rota Rastreada</span>
-                    <span className="log-cfg__mode-copy">2 créditos por entrega concluída durante uma sessão válida de rastreamento.</span>
+                    <span className="log-cfg__mode-copy">Grava o trajeto do motorista por GPS enquanto a rota corre.</span>
                     {/* PR27072026 F1 — selo central (kit.css .plano-selo), ver-mas-não-usar. */}
                     {!nivelFull && <span className="plano-selo">Disponível no Full</span>}
                   </button>
