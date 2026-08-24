@@ -253,7 +253,9 @@ class PairingActivity : AppCompatActivity() {
         WebStorage.getInstance().deleteAllData()
         credentialStore.saveDeviceToken(deviceToken)
         HbxMobileBridge.onDevicePaired(this)
-        TrackingSessionStore(this).clearAuthBlocked()
+        // R9 (24/08): o bloqueio de 401 virou por rota — pareamento novo (token
+        // novo) apaga TODOS, porque todos perderam o motivo de existir.
+        TrackingSessionStore(this).clearAllAuthBlocks()
         if (BuildConfig.APP_MODE == "logistica") {
             TrackingSync.requestFlush(this)
         }

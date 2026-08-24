@@ -6,10 +6,10 @@
 // (token inválido/adulterado, entrega sumida e segredo não configurado
 // respondem o MESMO 404 — nunca dá pista de qual foi).
 //
-// Gate de nível (Basic/Advanced/Full) é decidido no BACKEND (campo `full` +
-// `live` ausente/presente na resposta) — este componente só RENDERIZA o que
-// chegou; nunca decide sozinho se mostra mapa/ETA. Fora do Full, `live` é
-// sempre null e a tela mostra só o estado estático (nunca erro feio).
+// 24/08 — o gate de nível MORREU (rastreamento é de todos; o campo `full` saiu
+// da resposta). Quem decide o que aparece continua sendo o BACKEND: `live`
+// presente = sessão de rota ativa (ETA/progresso); `live` null = só o estado
+// estático da entrega. Este componente RENDERIZA o que chegou, nunca decide.
 //
 // Mobile-first, leve: SEM libs de mapa (maplibre-gl já existe no projeto, mas
 // só no painel admin autenticado — aqui o pedido explícito era distância/ETA
@@ -38,7 +38,6 @@ interface PublicTrackingStatus {
   status: PublicDeliveryStatus;
   agendadaEm: string | null;
   entregueEm: string | null;
-  full: boolean;
   live: PublicTrackingLive | null;
 }
 
@@ -144,16 +143,17 @@ export function AcompanharEntregaClient({ token }: { token: string }) {
     void load(false);
   }, [load]);
 
-  // Polling só quando há algo "vivo" pra atualizar (nível Full + sessão TRACKED
-  // ativa) — página estática (fora do Full, ou entrega parada) não fica
-  // martelando o backend à toa.
+  // Polling só quando há algo "vivo" pra atualizar (sessão de rota ativa =
+  // `live` presente) — página estática (entrega parada/encerrada) não fica
+  // martelando o backend à toa. 24/08 — o gate de plano (`full`) morreu: link
+  // público sempre vivo quando há sessão.
   useEffect(() => {
-    if (!data?.full || !data.live) return;
+    if (!data?.live) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") void load(true);
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [data?.full, data?.live, load]);
+  }, [data?.live, load]);
 
   const stepIndex = data ? STEP_ORDER[data.status] : -1;
   const progresso = data?.live?.progresso ?? null;

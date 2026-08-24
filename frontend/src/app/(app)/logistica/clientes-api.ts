@@ -56,7 +56,7 @@ export interface ClienteListItem {
   pendencias?: PendenciaCliente[];
   diasEntrega?: number[]; // ISO 1=seg … 7=dom
   duplicataDe?: { id: string; nome: string } | null;
-  debitoAtual?: number; // só vem com moduloFinanceiroAtivo
+  debitoAtual?: number; // 24/08 — financeiro é incondicional; ausente = sem débito calculado
   formaPagamento?: FormaPagamento;
   diaFechamento?: number | null;
   entregasCount?: number;
@@ -238,8 +238,8 @@ export interface ClienteEntrega {
   scheduledAt: string | null;
   deliveredAt: string | null;
   status: string;
-  // M4: valor/valorUnit/cobrancaStatus vêm null quando o financeiro do tenant
-  // está OFF (o dinheiro some do histórico; data/itens/whatsapp continuam).
+  // 24/08 — o financeiro deixou de ser opcional (o toggle M4 morreu): null aqui
+  // agora é só entrega antiga registrada sem valor, não módulo desligado.
   valor: number | null;
   receiptMethod?: string | null;
   cobrancaStatus?: string | null;
@@ -400,8 +400,8 @@ export interface ExtratoResult {
   clienteId: string;
   nome: string | null;
   total: number;
-  // M4: financeiro do tenant OFF → saldos null + charges []; flag no retorno.
-  moduloFinanceiroAtivo: boolean;
+  // 24/08 — `moduloFinanceiroAtivo` SAIU do tipo: o financeiro é incondicional,
+  // então a flag M4 virou letra morta (sempre true) e ninguém a lia aqui.
   // saldoAberto JÁ soma pendências + mensal a fechar (aguardandoFechamento).
   saldoAberto: number | null;
   aguardandoFechamento: number | null;
@@ -427,10 +427,12 @@ export interface ScoreFiadoInsumos {
 }
 export interface ScoreFiadoResult {
   clienteId: string;
-  moduloFinanceiroAtivo: boolean;
-  // 0–100; null = sem base (historico_insuficiente) ou financeiro OFF.
+  // 24/08 — `moduloFinanceiroAtivo` saiu do tipo e `financeiro_off` saiu do
+  // union: financeiro é incondicional, então o único "sem score" que resta é
+  // histórico insuficiente.
+  // 0–100; null = sem base (historico_insuficiente).
   score: number | null;
-  motivo: "historico_insuficiente" | "financeiro_off" | null;
+  motivo: "historico_insuficiente" | null;
   insumos: ScoreFiadoInsumos | null;
 }
 

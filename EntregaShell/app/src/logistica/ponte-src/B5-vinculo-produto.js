@@ -52,12 +52,11 @@
        opção é enfeite. */
     const locais = (ficha && ficha.detalhe && Array.isArray(ficha.detalhe.locais) ? ficha.detalhe.locais : [])
       .map((l) => [String(l.id), esc(l.apelido || l.endereco || 'Endereço'), esc([l.bairro, l.cidade].filter(Boolean).join(' • '))]);
-    /* O preço por cliente é chave da EMPRESA (`precoPorClienteAtivo`) — mas um
-       vínculo que JÁ tem preço combinado mostra o campo de qualquer jeito:
-       esconder um número que está valendo é o dono nunca descobrir por que a
-       entrega sai por 22 quando o catálogo diz 11. */
-    const temPreco = String(v.rascunho.preco || '').trim() !== ''
-      || typeof it.precoAcordado === 'number';
+    /* ⚰️ 24/08 — a chave da EMPRESA (`precoPorClienteAtivo`) morreu no
+       contrato, e por ordem do dono o preço por cliente é FIXO: o campo
+       aparece SEMPRE, inclusive em vínculo novo (vazio = preço do catálogo;
+       0,00 é valor legítimo). Sem seam `precoPorCliente` — campo sem leitor
+       no desenho é armadilha, e o desenho agora renderiza incondicional. */
     window.usarDados('fichavinculo', {
       volta: 'ficha',
       novo: v.novo ? 1 : 0,
@@ -72,7 +71,6 @@
       ]),
       qtd: v.rascunho.qtd,
       preco: v.rascunho.preco,
-      precoPorCliente: (config && config.precoPorClienteAtivo) || temPreco ? 1 : 0,
       precoDica: 'Vazio = usa o preço do catálogo',
       locais,
       localId: String(v.localId || ''),

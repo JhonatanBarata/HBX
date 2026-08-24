@@ -160,7 +160,7 @@ function hdr(o={}){
   // LÂMPADA — a aula da tela que está aberta.
   /* 🔴 A VOLTA VEM MARCADA (`data-voltar`), NUNCA DEDUZIDA. O Voltar do Android
      procurava "o primeiro `data-ir` do cabeçalho" — e em TODA tela sem volta
-     (rota, chat, venda, ajustes, folha) o primeiro é o "+". Resultado medido:
+     (rota, chat, ajustes, folha) o primeiro é o "+". Resultado medido:
      na Rota, o Voltar do aparelho ABRIA "Cadastrar cliente". Voltar deduzido
      por posição anda pra frente na hora que alguém mexe na ordem dos ícones;
      marcado, só o botão de voltar responde. Quem tem volta e NÃO nasce aqui
@@ -765,8 +765,8 @@ const DADOS={
        seam que ninguém lê é ARMADILHA: parece a fonte do rótulo e não é, e foi
        exatamente por isso que a chave velha `fechar` já tinha sido apagada. */
   },
-  /* L4 — A PORTA. Os literais abaixo são os que estavam nos templates da folha
-     de chegada e da folha da venda, MOVIDOS pra cá. `itens` é [ícone, nome,
+  /* L4 — A PORTA. Os literais abaixo são os que estavam no template da folha
+     de chegada, MOVIDOS pra cá. `itens` é [ícone, nome,
      linha de baixo, quantidade]; `motivos` é a lista do "não entregue".
      🔴 O comprovante por FOTO saiu da folha na decisão do dono de 06/08 (0 uso
      na história do produto): chave que aparece e não controla nada é pior que
@@ -790,14 +790,8 @@ const DADOS={
       'Sem troco / não tinha o dinheiro','Estabelecimento fechado'],
     motivo:'Ninguém atendeu',
   },
-  venda:{
-    n:'3', titulo:'Parada 3 • Cliente 3',
-    endereco:'R. Sargento Silva Nunes, 72 • Moema', pill:'Chegou',
-    produto:'Produto 1',
-    tags:[['Produto 1 x1','blue'],['Vasilhame',''],['Chip dia','lime']],
-    contaItem:'R$ 21,00', contaChegada:'R$ 21,00', lancamento:'R$ 21,00',
-    recebido:'R$ 21,00', paraMarcado:'R$ 21,00', forma:'dinheiro',
-  },
+  /* ⚰️ O seam `venda` (folha simples) morreu em 24/08 junto com `T.venda`:
+     a bifurcação por config acabou e toda chegada abre a folha completa. */
   /* L5 — O FECHAMENTO DO DIA. Literais do template do fechamento, MOVIDOS.
      `selo` é o cartão do canto ("Tudo certo!"); as formas são o caixa do dia. */
   fechamento:{
@@ -986,11 +980,14 @@ const DADOS={
   },
   /* L6b — VÍNCULO CLIENTE x PRODUTO (12/08). NÃO é a ficha do produto: aqui se
      mexe no que ESTE cliente leva (quantidade, preço acordado, porta, ativo),
-     e o catálogo da empresa não muda um centavo. */
+     e o catálogo da empresa não muda um centavo.
+     24/08 — `precoPorCliente` morreu de vez (a chave da empresa saiu do
+     contrato e, por ordem do dono, o campo de preço é FIXO: aparece sempre,
+     vínculo novo incluso — vazio = preço do catálogo, 0,00 é legítimo). */
   fichavinculo:{
     volta:'ficha', novo:0, cliente:'Cliente 1',
     produto:'Produto 1', ico:'gallon', produtoId:'',
-    catalogo:[], qtd:'2', preco:'22,00', precoPorCliente:1,
+    catalogo:[], qtd:'2', preco:'22,00',
     precoDica:'Vazio = usa o preço do catálogo',
     locais:[], localId:'', ativo:1, podeRemover:1, salvando:0,
   },
@@ -1049,24 +1046,23 @@ const DADOS={
     empresa:'Sua Empresa', versao:'Versão beta1.3.2 (202)',
     versaoSub:'toque para procurar atualização', versaoTag:'',
   },
-  /* As 6 chaves de dinheiro do Avançado. `admin` NÃO é papel inventado na tela:
-     é o que o próprio `GET /logistica/config` responde — pra quem não é
-     responsável financeiro o bloco comercial vem AUSENTE, e é essa ausência que
-     o app lê (o mesmo `isAdmin()` do app que já roda).
+  /* As chaves de dinheiro do Avançado. `admin` é o que o próprio
+     `GET /logistica/config` responde — desde 24/08 como CAMPO explícito
+     (`admin: true`), não mais deduzido pela presença do bloco comercial.
      "Avisar chegada" mora AQUI desde 07/08 (ordem do dono: sai da raiz dos
      Ajustes, entra no Avançado). O "modo caderneta" morreu na mesma ordem — e
-     em 09/08 a palavra saiu do produto inteiro: é o FECHAMENTO DO DIA. */
+     em 09/08 a palavra saiu do produto inteiro: é o FECHAMENTO DO DIA.
+     ⚰️ 24/08 — `financeiro`/`cobrancaSimples`/`precoPorCliente` saíram do
+     seam: os campos morreram no contrato (financeiro sempre ligado). */
   avancado:{
-    admin:1, financeiro:1, cobrancaSimples:0, precoPorCliente:1,
+    admin:1,
     naHora:1, mensal:1, fiado:1,
     avisarChegadaDist:'500 m', avisarChegada:1,
-    /* 🔴 A CHAVE DO PROSPECTOR ATRAVESSOU O VIDRO (09/08). Ela só existia no
-       desktop, e o capítulo que ensina a ligar terminava em "vá pro
-       computador" — lição que acaba fora do app é lição que ninguém faz.
-       `prospectorDisponivel` é a empresa PODER ter (o campo existe na config);
-       `prospector` é estar ligada. São dois, e não um, pelo mesmo motivo do
-       `admin`: chave que a empresa não pode ter não vira linha na tela. */
-    prospector:0, prospectorDisponivel:1,
+    /* 🔴 A CHAVE DO PROSPECTOR ATRAVESSOU O VIDRO (09/08) e ABRIU (24/08):
+       `prospectorDisponivel` morreu no contrato — toda empresa pode ligar, e o
+       grupo existe pra todo admin. Sobrou UM fato: `prospector` é a empresa
+       estar ligada. Quem liga passa pelo portão "Ciente" (ponte). */
+    prospector:0,
     /* PROSPECTOR v2 (12/08) — o que a PESSOA escolheu pra ESTA semana. A linha
        dos Ajustes deixa de ser uma chave liga/desliga e passa a mostrar a
        ESCOLHA ("Prospector · Mercados"), porque é ela que manda de verdade:
@@ -1097,16 +1093,18 @@ const DADOS={
      apaga uma lição nem prende ninguém num tutorial.
      `obrigatorioVisto` é do USUÁRIO (vem do servidor), não do aparelho: por
      aparelho ele repetiria a cada reinstalação e sumiria no celular novo — a
-     mesma lição que o recado já custou. O resto é a empresa: `admin`,
-     `financeiro`, `chat` e os dois do prospector decidem quais capítulos
-     existem pra esta pessoa. */
+     mesma lição que o recado já custou. O resto é a empresa: `admin`, `chat`
+     e o prospector decidem quais capítulos existem pra esta pessoa.
+     ⚰️ 24/08 — `financeiro` saiu (sempre ligado: o capítulo do Fechamento
+     perdeu o `se:`) e `prospectorDisponivel` morreu (prospector aberto a toda
+     empresa). Entrou `prospectorCiente`: o carimbo jurídico do ATOR, publicado
+     pela ponte junto dos demais fatos. */
   tutorial:{
     carregando:0, obrigatorioVisto:0,
-    admin:1, financeiro:1, chat:1,
-    /* `prospectorVejo` = "esta pessoa enxerga os prédios" (admin sempre,
-       funcionário só com a chave da equipe). É a régua do servidor, traduzida
-       pela ponte; separada de `prospectorAtivo`, que é só "a empresa ligou". */
-    prospectorAtivo:0, prospectorDisponivel:1, prospectorVejo:0,
+    admin:1, chat:1,
+    /* `prospectorVejo` = "esta pessoa enxerga os prédios" — desde 24/08 é a
+       própria chave da empresa (a régua admin/equipe morreu no contrato). */
+    prospectorAtivo:0, prospectorVejo:0, prospectorCiente:0,
     /* A DEMONSTRAÇÃO (17/08). Dois fatos, e nenhum deles é decisão da tela:
        `demoDisponivel` só cai a 0 quando a ponte diz que NÃO dá pra ancorar os
        endereços (sem GPS não há bairro, e demonstração de outra cidade é pior
@@ -2280,62 +2278,11 @@ ${hdr({})}
 </div>
 ${nav('rota')}`;}};
 
-/* 4 — FOLHA DA VENDA ------------------------------------------------------ */
-T.venda={nome:'Folha da venda',grupo:'Rota',render(){const d=DADOS.venda;return `${status}
-${hdr({})}
-<div class="body flush" style="overflow:hidden">
-  ${mapa()}<div class="scrim"></div>
-  <div class="sheet">
-    <span class="handle"></span>
-    <div class="sheet-head"><div><h2>Folha da venda</h2></div>
-      <button class="round sm" data-voltar="1" data-ir="rota">${ic('close',16)}</button></div>
-    <div class="box" style="display:flex;align-items:center;gap:10px">
-      <span class="num lime" style="width:36px;height:36px">${d.n}</span>
-      <span style="flex:1"><span class="box-t">${d.titulo}</span>
-        <span class="box-s">${d.endereco}</span></span>
-      <span class="pill lime">${ic('check',14)}${d.pill}</span>
-    </div>
-    <div class="box">
-      <div style="display:flex;gap:11px;align-items:flex-start">
-        <span class="thumb">${ic('gallon',30)}</span>
-        <span style="flex:1"><span class="box-t">${d.produto}</span>
-          <span class="tags" style="margin-top:6px">${d.tags.map(t=>`<b class="tag${t[1]?' '+t[1]:''}">${t[0]}</b>`).join('')}</span></span>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
-        <span style="font-size:12.5px;color:var(--ink-2)">Conta do item</span>
-        <b style="font-size:18px;color:var(--lime);font-weight:500">${d.contaItem}</b></div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
-      <div class="box" style="display:flex;align-items:center;justify-content:space-between;margin:0">
-        <span><span class="box-s">Conta da chegada</span><b style="display:block;font-size:15px;color:var(--lime);margin-top:2px">${d.contaChegada}</b></span>
-        <span style="color:var(--lime)">${ic('check',19)}</span></div>
-      <div class="box" style="display:flex;align-items:center;justify-content:space-between;margin:0">
-        <span><span class="box-s">Ficou marcado</span><b style="display:block;font-size:15px;color:var(--lime);margin-top:2px">${d.lancamento}</b></span>
-        <span style="color:var(--blue-l)">${ic('note',19)}</span></div>
-    </div>
-    <div class="box">
-      <div class="box-t">Forma de pagamento</div>
-      <div class="pays">
-        <button class="pay${d.forma==='dinheiro'?' sel':''}" data-acao="forma" data-forma="dinheiro"><span style="color:var(--lime)">${ic('cash',21)}</span><b>Dinheiro</b>${d.forma==='dinheiro'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
-        <button class="pay blue${d.forma==='pix'?' sel':''}" data-acao="forma" data-forma="pix"><span style="color:var(--blue-l)">${ic('pix',21)}</span><b>Pix</b>${d.forma==='pix'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
-        <button class="pay${d.forma==='cartao'?' sel':''}" data-acao="forma" data-forma="cartao"><span style="color:var(--ink-2)">${ic('card',21)}</span><b>Cartão</b>${d.forma==='cartao'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
-        <button class="pay${d.forma==='fiado'?' sel':''}" data-acao="forma" data-forma="fiado"><span style="color:var(--ink-2)">${ic('note',21)}</span><b>Marcar</b>${d.forma==='fiado'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
-      </div>
-    </div>
-    <div class="box">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <span class="box-t">Resumo do recebimento</span>
-        <button class="ghost">${ic('edit',13)} Editar valores</button></div>
-      <div class="rowline"><span>Recebido hoje</span><b>${d.recebido}</b></div>
-      <div class="rowline"><span>Vai ficar marcado</span><b>${d.paraMarcado}</b></div>
-    </div>
-    <div class="foot2">
-      <button class="act go" style="justify-content:center" data-acao="confirmar-venda">${ic('check',19)}<b>Confirmar venda</b></button>
-      <button class="act" style="justify-content:center" data-ir="rota">${ic('enter',17)}<b>Voltar para rota</b></button>
-    </div>
-  </div>
-</div>
-${nav('rota')}`;}};
+/* ⚰️ 4 — FOLHA DA VENDA — morreu em 24/08. A folha simples era a irmã da
+   completa, escolhida por config (`!financeiroAtivo || cobrancaSimples`); os
+   dois campos morreram no contrato e TODA chegada abre a folha completa
+   (`T.folha`), que sempre teve o "Não entregue" e as quatro formas. O seam
+   `venda`, a ação `confirmar-venda` e a entrada na ORDEM saíram juntos. */
 
 /* 5 — O FECHAMENTO DO DIA -------------------------------------------------
    🔴 É O FECHAMENTO DO DIA, E SÓ (dono, 09/08: "a caderneta devia ser o
@@ -3202,26 +3149,23 @@ T.financeiro={nome:'Ajustes · Financeiro',grupo:'Ajustes',render(){const f=DADO
     </div>`:'')}`));
 }};
 
-/* 🔴 AS CHAVES DE DINHEIRO DO DONO MORAM AQUI — e as 6 que não tinham porta
-   saíram (07/08). O que havia nesta tela era desenho: `Aceitar cartão` e `Voz na
-   navegação` não existem em campo nenhum do servidor; `Conferência de rota`
-   (`rotaConferidaAtiva`) o app só LÊ — não está no UpdateLogisticaConfigDto, e o
-   ValidationPipe (forbidNonWhitelisted) devolve 400 pra quem tentar gravar;
-   `Rastreamento` saiu do celular por ordem do dono em 26/07 (só o painel do PC
-   grava, por `PATCH /logistica/config/modo-rota`). A "Zona de perigo" foi junto:
-   "Limpar dados do aparelho" não tem porta nativa nenhuma (só existe `logout()`
-   na ponte), e "Desvincular este aparelho" É o `logout()` — o mesmo que o "Sair"
-   dos Ajustes já faz, com o mesmo aviso de reparear. Dois nomes pro mesmo verbo
-   é a lei "mostra num lugar, edita num lugar" quebrada.
+/* 🔴 AS CHAVES DE DINHEIRO DO DONO MORAM AQUI — e o MESTRE MORREU (24/08).
+   A régua desta tela sempre foi uma só: chave sem porta no servidor não vira
+   chave (foi ela que derrubou as 6 de desenho em 07/08 — `Aceitar cartão`,
+   `Voz na navegação`, a "Zona de perigo"…). Em 24/08 a mesma régua derrubou o
+   grupo "Cobrança" inteiro: `moduloFinanceiroAtivo`, `cobrancaSimples` e
+   `precoPorClienteAtivo` saíram do contrato — o financeiro é SEMPRE ligado, a
+   folha da porta é sempre a completa, e o PATCH com qualquer um dos três agora
+   devolve 400 (forbidNonWhitelisted). Chave-mestra que não existe no servidor
+   é a mesma mentira que esta tela já matou uma vez.
 
-   No lugar entram as 6 que o dono cobrou e que EXISTEM no servidor, com os
-   MESMOS nomes do app que já roda (`financeiroModal` do app.js): "Marcar" é o
-   `aceitaFiado` — o "pagou não" dele. O mestre esconde os 5 de baixo quando
-   está desligado porque com o financeiro OFF nenhum deles muda coisa alguma
-   (`abrirParada` já resolve `simples = !financeiroAtivo || cobrancaSimples`).
-   Sem texto embaixo da chave: o nome carrega a consequência, e o grupo
-   "Formas de pagamento" é o que faz "Marcar" ser lido como forma, não como
-   verbo solto. */
+   O que fica são as formas de pagamento, com os MESMOS nomes do app que já
+   roda: "Marcar" é o `aceitaFiado` — o "pagou não" do dono. E elas ficam
+   SEMPRE visíveis (o wrapper `a.financeiro?` morreu com o mestre): sem
+   interruptor de módulo, esconder as três seria esconder a única decisão de
+   cobrança que sobrou. Sem texto embaixo da chave: o nome carrega a
+   consequência, e o grupo "Formas de pagamento" é o que faz "Marcar" ser lido
+   como forma, não como verbo solto. */
 T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){const a=DADOS.avancado;
   const ch=(ic0,t,on,acao)=>`<button class="linha-cfg" data-acao="${acao}"><span class="ico">${ic(ic0,16)}</span>
     <span><strong>${t}</strong></span><span class="chave ${on?'on':''}"><i></i></span></button>`;
@@ -3230,43 +3174,39 @@ T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){const a=DADOS.a
   const chVal=(ic0,t,val,on,acao)=>`<button class="linha-cfg" data-acao="${acao}"><span class="ico">${ic(ic0,16)}</span>
     <span><strong>${t}</strong></span>
     <span style="display:flex;align-items:center;gap:9px">${val?`<b style="font-size:12px;color:var(--ink-2)">${val}</b>`:''}<span class="chave ${on?'on':''}"><i></i></span></span></button>`;
+  /* O `5` do esqueleto é a contagem REAL da tela carregada (24/08): as 3
+     formas + Avisar chegada + a chave do prospector. Antes ele mentia pra
+     menos — o grupo "Cobrança" e o mestre morreram e a conta fechou. */
   return telaAjuste('Avançado',miolo(a,'gear','recarregar-ajustes',5,!a.admin?'':`
-    <div class="grupo" style="margin-top:2px">Cobrança</div>
-    <div class="cartao-lista">
-      ${ch('wallet','Financeiro ligado',a.financeiro,'chave-financeiro')}
-      ${a.financeiro?ch('note','Cobrança simples na chegada',a.cobrancaSimples,'chave-cobranca-simples'):''}
-      ${a.financeiro?ch('sales','Preço por cliente',a.precoPorCliente,'chave-preco-cliente'):''}
-    </div>
-    ${a.financeiro?`<div class="grupo">Formas de pagamento</div>
+    <div class="grupo" style="margin-top:2px">Formas de pagamento</div>
     <div class="cartao-lista">
       ${ch('cash','Na hora',a.naHora,'chave-na-hora')}
       ${ch('calendar','Mensal',a.mensal,'chave-mensal')}
       ${ch('note','Marcar',a.fiado,'chave-fiado')}
-    </div>`:''}
+    </div>
     <div class="grupo">Avisos</div>
     <div class="cartao-lista">
       ${chVal('gps','Avisar chegada',a.avisarChegadaDist,a.avisarChegada,'aviso-chegada')}
     </div>
-    ${/* 🔴 SÓ DESENHA SE A EMPRESA PODE (`prospectorDisponivel`). Chave que a
-          empresa não tem é botão que promete e devolve erro — e este devolveria
-          400 no `UpdateLogisticaConfigDto`, que o app traduz como "sua sessão
-          expirou". Grupo próprio porque não é cobrança nem aviso: é uma FONTE
-          DE CLIENTE. O nome carrega a consequência inteira, sem linha de
-          explicação embaixo — mesma régua das 6 de cima. */''}
+    ${/* 🔴 O GRUPO EXISTE PRA TODO ADMIN (24/08): `prospectorDisponivel`
+          morreu no contrato — o prospector é aberto a toda empresa, e quem
+          liga passa pelo portão "Ciente" (a responsabilidade é do ator, não
+          de uma chave-mestra da HBX). Grupo próprio porque não é cobrança nem
+          aviso: é uma FONTE DE CLIENTE. */''}
     ${/* 🔴 A CHAVE VIROU DUAS LINHAS (PROSPECTOR v2, 12/08), e a de baixo é a
           que manda. A chave de cima continua sendo a da EMPRESA (opt-in do
           admin, um campo, um PATCH). A de baixo é a da PESSOA: o que ELA quer
           caçar nesta semana. Sem escolha, o prospector fica mudo mesmo com a
           chave ligada — então a linha diz "Escolher" em vez de fingir que
           ligado basta. Ela só existe com a chave ligada, porque escolher tipo
-          numa empresa que não tem o recurso é decisão sem consequência. */''}
-    ${a.prospectorDisponivel?`<div class="grupo">Vender no caminho</div>
+          com o prospector desligado é decisão sem consequência. */''}
+    <div class="grupo">Vender no caminho</div>
     <div class="cartao-lista">
       ${ch('sales','Prospector — empresas no caminho',a.prospector,'chave-prospector')}
       ${a.prospector?`<button class="linha-cfg" data-acao="abrir-prospector-tipo"><span class="ico">${ic('sales',16)}</span>
         <span><strong>${a.prospectorTipo?`Procurando: ${a.prospectorTipo}`:'Escolher o que procurar'}</strong></span>
         <span style="color:var(--ink-3)">${ic('chev',15)}</span></button>`:''}
-    </div>`:''}`));
+    </div>`));
 }};
 
 /* 19b — PROSPECTOR: O QUE TE INTERESSA ESTA SEMANA (12/08) -----------------
@@ -3736,12 +3676,14 @@ T.fichavinculo={nome:'Produto do cliente',grupo:'Cadastro',render(){
       <span class="ava">${ic(p[2]||'box',16)}</span>
       <span><strong>${p[1]}</strong>${p[3]?`<span>${p[3]}</span>`:''}</span>
       <span class="rgt"><span class="go">${ic('chev',15)}</span></span></button>`).join('')}</div>`:'';
-  /* O preço por cliente só aparece quando a empresa liga a chave — OU quando
-     este vínculo JÁ tem um preço combinado (senão a tela esconderia um número
-     que está valendo, e o dono nunca saberia por que a entrega sai por 22). */
-  const preco=(f.precoPorCliente||String(f.preco||'').trim())?`<label class="campo"><label>Preço só pra este cliente</label>
+  /* ⚰️ 24/08 — a chave da empresa (`precoPorClienteAtivo`) morreu no
+     contrato e, por ordem do dono, o preço por cliente é FIXO: o campo
+     aparece SEMPRE, vínculo novo incluso (vazio = preço do catálogo; 0,00 é
+     valor legítimo). O seam `precoPorCliente` foi junto — condição de
+     exibição sem chave é só o campo existir. */
+  const preco=`<label class="campo"><label>Preço só pra este cliente</label>
       <input inputmode="decimal" placeholder="R$ 0,00" value="${f.preco}" data-campo="vinculo-preco">
-      ${f.precoDica?`<span class="dica" style="color:var(--ink-2)">${f.precoDica}</span>`:''}</label>`:'';
+      ${f.precoDica?`<span class="dica" style="color:var(--ink-2)">${f.precoDica}</span>`:''}</label>`;
   /* A porta só é pergunta pra quem tem mais de uma: com um endereço só, a
      resposta é óbvia e a fileira seria enfeite. */
   const porta=(f.locais||[]).length>1?`
@@ -4332,7 +4274,7 @@ ${nav('ajustes')}`;}};
    MONTAGEM
    ========================================================================== */
 const ORDEM=['entrada','saida','rota','rotalista','mapa','mapalista','gerenciador','montagem','conferencia',
-             'venda','folha','folhanao','rapida','salvas','fechamento','terminou','semana','clientes','novocliente','ficha','produtos',
+             'folha','folhanao','rapida','salvas','fechamento','terminou','semana','clientes','novocliente','ficha','produtos',
              'fichavinculo','fichaproduto','chat','ajustes','tutorial','semclientes','creditos','financeiro','avancado','sons','historico',
              'passeio','portoes'];
 const GRUPOS=['Sistema','Rota','Fechamento','Cadastro','Ajustes'];
@@ -5256,7 +5198,7 @@ function ir(k){
    e o que o admin desligou.
 
    🔴 SÓ ANDA ONDE EXISTE BARRA. O módulo da vez não é a `atual` (a tela
-   `venda` é do módulo "rota", a `ficha` é de "clientes"...): é o botão ACESO
+   `folha` é do módulo "rota", a `ficha` é de "clientes"...): é o botão ACESO
    da barra desta tela. E tela sem barra — a navegação em tela cheia, a
    abertura — não anda de jeito nenhum, que é o pedido do dono sobre o mapa
    dito de outro jeito: lá não existe barra pra arrastar.
@@ -6236,32 +6178,28 @@ const CAPITULOS={
      Copy nova não se inventa: a que está lá já foi lida e aprovada. */
   avulsa:{titulo:'Adicionar parada — o "+"',ico:'plus',aula:'rapida',tela:'rapida'},
   entregar:{titulo:'Entregar e receber',ico:'check',aula:'folha',tela:'folha'},
-  fechamento:{titulo:'Fechamento do dia',ico:'note',aula:'fechamento',tela:'fechamento',
-    se:d=>!!d.financeiro},
+  // 24/08 — o `se:` do Fechamento morreu com o interruptor do financeiro:
+  // o módulo é sempre ligado, o capítulo existe pra todo mundo.
+  fechamento:{titulo:'Fechamento do dia',ico:'note',aula:'fechamento',tela:'fechamento'},
   chat:{titulo:'Recados da Central',ico:'chat',aula:'chat',tela:'chat',se:d=>!!d.chat},
   /* "Créditos e recarga" virou "Créditos" (23/08): metade do nome descrevia uma
      tela que não existe no binário da loja, e o nome curto serve aos DOIS
      canais. Nome de capítulo é promessa — promessa que só vale fora da Play é
      promessa quebrada para quem está dentro dela. */
   creditos:{titulo:'Créditos',ico:'card',aula:'creditos',tela:'creditos',se:d=>!!d.admin},
-  /* 🔴 O CAPÍTULO QUE SE ADAPTA — a régua do "pular sozinho" do dono, inteira,
-     sem um tour separado. Três estados, e quem decide é o `se` de cada passo:
-     LIGADO ⇒ os 3 primeiros (o que são os prédios, o toque, o crédito);
-     DESLIGADO mas o dono PODE ligar ⇒ os 2 últimos, que terminam na chave de
-     verdade em Ajustes › Avançado;
-     desligado pra quem não é dono, ou empresa sem prospector ⇒ o `se` do
-     capítulo derruba tudo e ele NÃO EXISTE — nem linha vazia no catálogo.
-
-     🔴 QUEM ENSINA O PRÉDIO É `prospectorVejo`, NÃO `prospectorAtivo` (09/08).
-     "A empresa ligou" e "esta pessoa vê" são coisas diferentes: o prospector
-     tem QUATRO chaves, e a régua de quem enxerga é do servidor — admin sempre,
-     funcionário só com `prospectorEquipe`. Ensinar pelo `prospectorAtivo`
-     sozinho poria "toque no prédio aceso" na frente do motorista de uma empresa
-     com a chave da equipe desligada, que nunca verá prédio nenhum: o tutorial
-     FABRICANDO a pergunta besta que veio matar. A ponte já traduz a régua num
-     fato só; aqui é só obedecer. */
+  /* 🔴 O CAPÍTULO QUE SE ADAPTA — e que em 24/08 ficou com DOIS estados só:
+     LIGADO ⇒ os 3 primeiros (o que são os prédios, o toque, o crédito) — e
+     desde 24/08 `prospectorVejo` é a própria chave da empresa: a régua
+     admin/equipe (`prospectorEquipe`) morreu no contrato, prospector ligado é
+     prédio na tela de TODO mundo;
+     DESLIGADO ⇒ os 2 últimos — o convite, e (só pro admin) a chave de
+     verdade em Ajustes › Avançado. `prospectorDisponivel` morreu junto: toda
+     empresa pode ligar, então o capítulo existe pra todo mundo — aparece
+     ensinando o que é quando ainda não está ativo, e ensinando a usar quando
+     está. Quem liga passa pelo portão "Ciente" (a ponte cobra; o carimbo é
+     por ator, no servidor). */
   prospector:{titulo:'Prospector — vender no caminho',ico:'sales',
-    se:d=>!!(d.prospectorVejo||(d.admin&&d.prospectorDisponivel&&!d.prospectorAtivo)),passos:[
+    se:d=>!!(d.prospectorVejo||!d.prospectorAtivo),passos:[
     /* 🔴 O ALVO É O PRÉDIO (`.emp-obj`), NUNCA O `.emp`. O `.emp` é um PONTO —
        `width:0;height:0`, só a coordenada no mapa — e o desenho inteiro mora no
        filho. Medido: o furo saía um pontinho de 12 px no meio do mapa, e o
@@ -6275,7 +6213,10 @@ const CAPITULOS={
      titulo:'Custa 1 crédito',texto:'Só quando você pega o lead. Olhar é de graça.'},
     {alvo:'',se:d=>!d.prospectorAtivo,
      titulo:'Vender no caminho',texto:'O app pode te mostrar empresas a até 150 m da rota que você já faz.'},
-    {tela:'avancado',alvo:'[data-acao="chave-prospector"]',tipo:'fazer',se:d=>!d.prospectorAtivo,
+    /* o passo da CHAVE é só do admin (24/08): a chave mora atrás do portão
+       de admin do Avançado — apontar o furo pra um botão que a tela do
+       funcionário não desenha seria furo no vidro. */
+    {tela:'avancado',alvo:'[data-acao="chave-prospector"]',tipo:'fazer',se:d=>!!(d.admin&&!d.prospectorAtivo),
      titulo:'Ligue aqui',texto:'Você liga e desliga quando quiser.'},
   ]},
 };

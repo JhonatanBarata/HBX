@@ -12,7 +12,7 @@ import {
   type Coord,
   type RotaProspectorPayload,
 } from './logistica-rota.service';
-import { LogisticaConfigService, renderTemplateAviso, storedNivel } from './logistica-config.service';
+import { LogisticaConfigService, renderTemplateAviso } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaCobrancaAvisoService } from './logistica-cobranca-aviso.service';
 import { emitMasterEvent } from '../common/master-event';
@@ -43,6 +43,8 @@ import { formatEtaMinutos } from './logistica-tracking-public.util';
 import { lockLogisticaRouteTransaction } from './logistica-route-lock';
 // VASILHAME onda 2 (17/08) — a entrega confirmada move o casco sozinha.
 import { LogisticaVasilhameService } from './logistica-vasilhame.service';
+// 24/08/2026 — o portão de assentos também vale pra parada avulsa "minha rota".
+import { LogisticaRotaCobrancaService } from './logistica-rota-cobranca.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -113,6 +115,12 @@ export class LogisticaService {
     // saldo negativo moram DENTRO do serviço. @Optional() (ausente nos testes
     // legados = no-op). Sem ciclo: o vasilhame não injeta LogisticaService.
     @Optional() private readonly vasilhame?: LogisticaVasilhameService,
+    // 24/08/2026 — CONVIVÊNCIA: `paraMinhaRota` passa pelo MESMO portão de
+    // assentos dos outros call-sites (`assertAssentoDoDia`). @Optional() e por
+    // ÚLTIMO pelo padrão da casa (instanciação direta em teste sem o serviço
+    // segue válida — o portão simplesmente não roda, igual em
+    // LogisticaOperacaoService). Sem ciclo: a cobrança não injeta LogisticaService.
+    @Optional() private readonly rotaCobranca?: LogisticaRotaCobrancaService,
   ) {}
 
   /**
@@ -216,9 +224,8 @@ export class LogisticaService {
         deliveredAt: true,
         deliveredLat: true,
         deliveredLng: true,
-        // FECHAMENTO DO DIA (05/08) — COMO foi recebida. Lido sempre (a config do
-        // tenant só é carregada DEPOIS desta query); quem gateia a SAÍDA é o
-        // moduloFinanceiroAtivoConfig lá embaixo, igual ao debitoAtual.
+        // FECHAMENTO DO DIA (05/08) — COMO foi recebida. Sempre exposto desde
+        // 24/08/2026 (financeiro é sempre ligado).
         receiptMethod: true,
         ...(billingAudience ? { cobrancaStatus: true as const } : {}),
         notes: true,
@@ -278,11 +285,10 @@ export class LogisticaService {
             observacoes: true,
             // PR18072026 W1 (coordenador) — metodoPadrao (pix|dinheiro|null) NÃO é
             // valor/margem: é só o método fixo do cliente 'na_hora', que o botão
-            // [Pago] do app usa como receiptMethod. Sai do gate de billingAudience
+            // [Pago] do app usa como receiptMethod. Fora do gate de billingAudience
             // (senão o entregador comum sem cobrança cai sempre no fallback
-            // 'dinheiro' — bug reportado pelo W4); gate próprio é moduloFinanceiroAtivo
-            // (abaixo, na resposta). formaPagamento/limiteFiado CONTINUAM só p/
-            // billingAudience — não mexido.
+            // 'dinheiro' — bug reportado pelo W4). formaPagamento/limiteFiado
+            // CONTINUAM só p/ billingAudience — não mexido.
             metodoPadrao: true,
             ...(billingAudience
               ? {
@@ -319,18 +325,11 @@ export class LogisticaService {
       },
     });
 
-    // M4 — a regra dos chips depende do módulo financeiro do tenant (opt-in).
-    // OFF → NENHUM chip de pagamento, nunca (só qtd + Entregue). Best-effort: se a
-    // config não existir ainda, o default do schema (false) é o comportamento seguro.
-    // F1 — a MESMA leitura traz o Pix do tenant (chave/nome/cidade do BR Code).
-    let moduloFinanceiroAtivo = false;
-    // PR18072026 W1 (coordenador) — valor REAL da config, independente do ator.
-    // `moduloFinanceiroAtivo` acima preserva a semântica ORIGINAL (só true p/
-    // billingAudience — gate de pix/formaPagamento/saldoAberto/limiteFiado/valor/
-    // cobrancaStatus/valorUnit, todos dado comercial de verdade, intocados). Este
-    // aqui gateia SÓ os campos ADITIVOS seguros p/ o entregador comum (sem
-    // cobrança): metodoPadrao (chip [Pago]), debitoAtual e valorHoje.
-    let moduloFinanceiroAtivoConfig = false;
+    // 24/08/2026 — o FINANCEIRO É SEMPRE LIGADO (moduloFinanceiroAtivo morreu;
+    // 0,00 é valor legítimo): os antigos gates de "módulo off" sumiram — o que
+    // continua separando dado é o ATOR (billingAudience protege pix/valor/
+    // formaPagamento/saldoAberto/limiteFiado — LEI DO VENDEDOR intacta).
+    // F1 — a leitura da config traz o Pix do tenant (chave/nome/cidade do BR Code).
     let pix: RotaPix | null = null;
     // AVISO-CHEGANDO — o app só arma o 2º anel (~500m) quando avisoChegandoAtivo
     // é true (effectsEnabled global E o toggle da empresa) — evita POST inútil
@@ -350,12 +349,8 @@ export class LogisticaService {
       const cfg = await this.prisma.logisticaConfig.findUnique({
         where: { companyId },
         select: {
-          // PR18072026 W1 (coordenador) — moduloFinanceiroAtivo (o TOGGLE) sai do
-          // gate de billingAudience: é um booleano de feature, não dado comercial —
-          // precisa ser lido p/ QUALQUER ator pra gatear metodoPadrao/debitoAtual/
-          // valorHoje. pixChave/pixNome/pixCidade (dado sensível de verdade)
-          // CONTINUAM só p/ billingAudience — intocado.
-          moduloFinanceiroAtivo: true as const,
+          // pixChave/pixNome/pixCidade (dado sensível de verdade) CONTINUAM só
+          // p/ billingAudience — intocado.
           ...(billingAudience
             ? {
                 pixChave: true as const,
@@ -375,11 +370,9 @@ export class LogisticaService {
           velocidadeMediaKmH: true,
         },
       });
-      moduloFinanceiroAtivoConfig = cfg?.moduloFinanceiroAtivo ?? false;
-      moduloFinanceiroAtivo = billingAudience && moduloFinanceiroAtivoConfig;
-      // O QR só existe com o módulo ON e a chave configurada (regra do M4 preservada:
-      // financeiro OFF = nenhum pagamento aparece na entrega, nunca).
-      if (moduloFinanceiroAtivo && cfg?.pixChave) {
+      // O QR só existe com a chave configurada (e só pro billingAudience — o
+      // select acima nem trouxe pixChave pro entregador comum).
+      if (billingAudience && cfg?.pixChave) {
         pix = { chave: cfg.pixChave, nome: cfg.pixNome ?? null, cidade: cfg.pixCidade ?? null };
       }
       avisoChegandoAtivo = this.effectsEnabled && !!cfg?.avisoChegandoEnabled;
@@ -395,22 +388,17 @@ export class LogisticaService {
     }
 
     // F1 — saldo em aberto POR CLIENTE ("quanto me deve"), fonte única
-    // (saldoAbertoPorClientes). SÓ com o módulo financeiro ON — OFF significa que
-    // dinheiro não aparece (nem roda) em lugar nenhum da entrega. Best-effort:
-    // falha aqui NUNCA derruba a rota — o app só fica sem o badge.
-    // PR18072026 W1 (coordenador) — gate por moduloFinanceiroAtivoConfig (não mais
-    // preso a billingAudience): debitoAtual (aditivo, seguro) também precisa deste
-    // mapa pro entregador comum. saldoAberto (billing-only) segue lendo o MESMO mapa.
+    // (saldoAbertoPorClientes). Best-effort: falha aqui NUNCA derruba a rota —
+    // o app só fica sem o badge. debitoAtual (aditivo, seguro) também usa este
+    // mapa pro entregador comum; saldoAberto (billing-only) lê o MESMO mapa.
     let saldoPorCliente = new Map<string, { pendente: number; aguardando: number }>();
-    if (moduloFinanceiroAtivoConfig) {
-      try {
-        saldoPorCliente = await this.saldoAbertoPorClientes(
-          companyId,
-          Array.from(new Set(rows.map((r) => r.customerProfile.id))),
-        );
-      } catch (e: any) {
-        this.logger.warn(`[logistica] listRota saldoAberto company=${companyId} falhou: ${String(e?.message || e)}`);
-      }
+    try {
+      saldoPorCliente = await this.saldoAbertoPorClientes(
+        companyId,
+        Array.from(new Set(rows.map((r) => r.customerProfile.id))),
+      );
+    } catch (e: any) {
+      this.logger.warn(`[logistica] listRota saldoAberto company=${companyId} falhou: ${String(e?.message || e)}`);
     }
 
     /* 🔴 O ÚLTIMO REGISTRO DO CLIENTE (12/08, ordem do dono) — a data da última
@@ -431,20 +419,16 @@ export class LogisticaService {
       this.logger.warn(`[logistica] listRota ultimaEntrega company=${companyId} falhou: ${String(e?.message || e)}`);
     }
 
-    // PR27072026 F2 — PARADA AMARELA DE DEVEDOR: mesmo gate de moduloFinanceiroAtivoConfig
-    // acima (sem financeiro real não existe "devedor"). resolverDevedorNaRota já
-    // resolve NORMAL sozinho fora do Advanced+ — chamar sempre é seguro, só evitamos
-    // a query extra quando já sabemos que não há financeiro.
+    // PR27072026 F2 — PARADA AMARELA DE DEVEDOR. resolverDevedorNaRota resolve
+    // NORMAL sozinho quando o tenant configurou assim — chamar sempre é seguro.
     let devedorPorCliente = new Map<string, { devedor: boolean; modo: 'COBRANCA' | 'EXCLUIR' | 'NORMAL'; saldoAberto: number; motivo: string | null }>();
-    if (moduloFinanceiroAtivoConfig) {
-      try {
-        devedorPorCliente = await this.resolverDevedorNaRota(
-          companyId,
-          Array.from(new Set(rows.map((r) => r.customerProfile.id))),
-        );
-      } catch (e: any) {
-        this.logger.warn(`[logistica] listRota devedorNaRota company=${companyId} falhou: ${String(e?.message || e)}`);
-      }
+    try {
+      devedorPorCliente = await this.resolverDevedorNaRota(
+        companyId,
+        Array.from(new Set(rows.map((r) => r.customerProfile.id))),
+      );
+    } catch (e: any) {
+      this.logger.warn(`[logistica] listRota devedorNaRota company=${companyId} falhou: ${String(e?.message || e)}`);
     }
     // EXCLUIR: a entrega do devedor NÃO entra na montagem/leitura de hoje — filtro
     // só na SELEÇÃO (a ocorrência CONTINUA 'agendada', ninguém cancela nada aqui;
@@ -460,6 +444,20 @@ export class LogisticaService {
       const id = Number(row.entregador?.id);
       if (Number.isInteger(id) && id > 0) driverIds.add(id);
     }
+    // 🔴 24/08/2026 — CONVIVÊNCIA admin+motorista: de qual rota são os metadados?
+    //  - 1 motorista no dia: a dele (comportamento de sempre — cobre o motorista
+    //    escopado, cujas linhas já vêm filtradas, e o cockpit com um motorista só).
+    //  - 2+ motoristas E o ATOR é um deles (admin dirigindo a própria rota):
+    //    a rota DO ATOR. Antes o metadata ficava nulo (routeId:null/
+    //    trackingRequired:false) e a ponte do APK — que lê ESTE GET — rebaixava a
+    //    telemetria do admin-motorista calado no dia em que um 2º motorista saía.
+    //  - 2+ motoristas e o ator NÃO roda no dia (admin só gerindo): sem metadata,
+    //    como hoje — não há "a rota" única pra reportar num payload singular.
+    let metadataDriverId: number | null = driverIds.size === 1 ? [...driverIds][0] : null;
+    if (metadataDriverId == null && driverIds.size > 1) {
+      const atorId = Math.trunc(Number(actor?.id || 0));
+      if (atorId > 0 && driverIds.has(atorId)) metadataDriverId = atorId;
+    }
     let routeMetadata: OperationalRouteMetadata = {
       routeId: null as string | null,
       trackingRequired: false,
@@ -468,11 +466,11 @@ export class LogisticaService {
       trackingSessionId: null as string | null,
       trackingStatus: null as string | null,
     };
-    if (this.tracking && driverIds.size === 1) {
+    if (this.tracking && metadataDriverId != null) {
       try {
         routeMetadata = await this.tracking.getOperationalRouteMetadata(
           companyId,
-          [...driverIds][0],
+          metadataDriverId,
           canonicalRouteDate(dateInput),
           billingAudience,
         );
@@ -508,7 +506,7 @@ export class LogisticaService {
       ...operationalRouteMetadata,
       ...(billingAudience ? { routeMode: routeMode ?? null } : {}),
       effectsEnabled: this.effectsEnabled,
-      ...(billingAudience ? { moduloFinanceiroAtivo, pix } : {}),
+      ...(billingAudience ? { pix } : {}),
       avisoChegandoAtivo,
       avisoChegandoDistanciaM,
       comprovante,
@@ -525,32 +523,16 @@ export class LogisticaService {
         // canônica que gerarDia/materialize já grava (precoAcordado > catálogo >
         // precoPadrao, ver resolveValorUnit/resolveUnitValue); entrega legada sem
         // EntregaItem (ainda usa o campo escalar) cai no r.valor.
-        const valorHoje = moduloFinanceiroAtivoConfig
-          ? round2(
-              r.itens.length > 0
-                ? r.itens.reduce(
-                    (sum, it) => sum + Math.max(0, Number(it.qtdPrevista) || 0) * Math.max(0, Number(it.valorUnit) || 0),
-                    0,
-                  )
-                : Math.max(0, Number(r.valor) || 0),
-            )
-          : undefined;
-        /* 🔴 ZERO E "SEM PREÇO" NÃO SÃO A MESMA COISA (21/08/2026), e a folha da
-           venda tratava os dois como `R$ 0,00`.
-           MEDIDO no hbx_prod: a empresa 5 tem o financeiro LIGADO e 74 itens de
-           entrega com `valorUnit` zerado — ela já vive neste estado hoje. A 39
-           cairia nele no segundo em que ligasse o módulo (207 clientes, 94 itens,
-           nenhum preço). Vazio ao menos parece defeito; ZERO parece informação, e
-           informação errada na porta é o entregador cobrando nada.
-           `semPreco` é o sinal explícito: financeiro LIGADO e nenhuma fonte de
-           preço — nem `EntregaItem.valorUnit`, nem o `valor` escalar legado.
-           Não confundir com venda legitimamente gratuita: nela existe preço
-           cadastrado e a conta dá zero, e algum item traz `valorUnit` > 0. */
-        const semPreco = moduloFinanceiroAtivoConfig
-          ? r.itens.length > 0
-            ? !r.itens.some((it) => Number(it.valorUnit) > 0)
-            : !(Number(r.valor) > 0)
-          : undefined;
+        // ⚰️ 24/08/2026 — `semPreco` MORREU (decisão do dono): valor 0 é
+        // R$ 0,00 e ponto — a folha mostra o número, sem sinal especial.
+        const valorHoje = round2(
+          r.itens.length > 0
+            ? r.itens.reduce(
+                (sum, it) => sum + Math.max(0, Number(it.qtdPrevista) || 0) * Math.max(0, Number(it.valorUnit) || 0),
+                0,
+              )
+            : Math.max(0, Number(r.valor) || 0),
+        );
         // FIX (25/07) — o local só vale como fonte de lat/lng se tiver os DOIS
         // eixos válidos; senão a fonte inteira cai pro perfil (nunca mistura
         // local.lat com customerProfile.lng). Ver logistica-geo-fonte.util.ts.
@@ -589,10 +571,10 @@ export class LogisticaService {
         // PR27072026 F2 — PARADA AMARELA: só marca "só cobrar" no modo COBRANCA
         // (EXCLUIR nem chega aqui — já saiu em rowsVisiveis; NORMAL/BASIC/sem
         // financeiro devolvem devedor:false do resolverDevedorNaRota). Mesmo gate
-        // de moduloFinanceiroAtivoConfig do debitoAtual logo abaixo — o entregador
-        // comum PRECISA ver isto (é ele quem decide na porta, não só o billing owner).
+        // do debitoAtual logo abaixo — o entregador comum PRECISA ver isto (é
+        // ele quem decide na porta, não só o billing owner).
         const devedorInfo = devedorPorCliente.get(r.customerProfile.id);
-        const somenteCobranca = !!(moduloFinanceiroAtivoConfig && devedorInfo?.devedor && devedorInfo.modo === 'COBRANCA');
+        const somenteCobranca = !!(devedorInfo?.devedor && devedorInfo.modo === 'COBRANCA');
         return {
           id: r.id,
         status: r.status,
@@ -601,10 +583,7 @@ export class LogisticaService {
         // null como recorrente (mesmo default do bug que este pacote corrige).
         origem: r.origem ?? null,
         ...(billingAudience ? { valor: r.valor } : {}),
-        ...(valorHoje !== undefined ? { valorHoje } : {}),
-        // Só viaja quando é VERDADE e o módulo está ligado: campo ausente = "há
-        // preço" (o caso normal), então app velho não muda de comportamento.
-        ...(semPreco ? { semPreco: true as const } : {}),
+        valorHoje,
         scheduledAt: r.scheduledAt ? r.scheduledAt.toISOString() : null,
         deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
         arrivedAt: r.arrivedAt ? r.arrivedAt.toISOString() : null,
@@ -620,11 +599,10 @@ export class LogisticaService {
                 : 'pending',
         deliveredLat: r.deliveredLat ?? null,
         deliveredLng: r.deliveredLng ?? null,
-        // FECHAMENTO DO DIA (05/08) — 'dinheiro'|'pix'|'cartao'|'fiado'|null. Mesmo
-        // gate ADITIVO do metodoPadrao/debitoAtual (config do tenant, não papel
-        // do ator): é o que a lista do dia usa pra dizer quem PAGOU e quem ficou
-        // devendo, em vez de sete "Entregue" iguais.
-        ...(moduloFinanceiroAtivoConfig ? { receiptMethod: r.receiptMethod ?? null } : {}),
+        // FECHAMENTO DO DIA (05/08) — 'dinheiro'|'pix'|'cartao'|'fiado'|null: é o
+        // que a lista do dia usa pra dizer quem PAGOU e quem ficou devendo, em
+        // vez de sete "Entregue" iguais.
+        receiptMethod: r.receiptMethod ?? null,
         ...(billingAudience ? { cobrancaStatus: r.cobrancaStatus } : {}),
         // PR27072026 F2 — chip "Só cobrar" da parada amarela de devedor (ver
         // resolverDevedorNaRota). somenteCobranca sempre presente (boolean estável,
@@ -699,21 +677,16 @@ export class LogisticaService {
           observacoes: r.customerProfile.observacoes ?? null,
           // 12/08 — "Ult. Registro" do cartão: ISO ou null, nunca data chutada.
           ultimaEntregaAt: isoDaUltimaEntrega(ultimaEntregaPorClienteMap.get(r.customerProfile.id)),
-          // PR18072026 W1 (coordenador) — DUAS exposições ADITIVAS gateadas por
-          // moduloFinanceiroAtivoConfig (o valor REAL da config, independente do
-          // ator) — NÃO por billingAudience: o entregador comum (sem cobrança)
-          // precisa das duas pra folha de chegada modo simples (W4):
+          // PR18072026 W1 (coordenador) — DUAS exposições ADITIVAS pra TODO ator
+          // (não gateadas por billingAudience): o entregador comum (sem
+          // cobrança) precisa das duas pra folha de chegada modo simples (W4):
           //   metodoPadrao → receiptMethod do botão [Pago] (cliente 'na_hora').
           //   debitoAtual  → mesma fonte canônica de saldoAberto (saldoAbertoPorClientes),
           //                  só com o nome que o app espera.
           // Não mexe no bloco billingAudience abaixo (formaPagamento/saldoAberto/
           // limiteFiado seguem EXCLUSIVOS de dono/master).
-          ...(moduloFinanceiroAtivoConfig
-            ? {
-                metodoPadrao: r.customerProfile.metodoPadrao ?? null,
-                debitoAtual: somaSaldo(saldoPorCliente.get(r.customerProfile.id)),
-              }
-            : {}),
+          metodoPadrao: r.customerProfile.metodoPadrao ?? null,
+          debitoAtual: somaSaldo(saldoPorCliente.get(r.customerProfile.id)),
           ...(billingAudience
             ? {
                 formaPagamento: r.customerProfile.formaPagamento ?? 'aberto',
@@ -889,6 +862,22 @@ export class LogisticaService {
           where: { id: candidato, companyId, isActive: true, isSystemMaster: false },
           select: { id: true },
         });
+        // 🔴 24/08/2026 — CONVIVÊNCIA: a auto-atribuição passa pelo portão de
+        // assentos ANTES de gravar (mesmos parâmetros do `atribuirEntrega`,
+        // logistica-operacao.service.ts). Sem isto a 1ª avulsa "minha rota" de
+        // um usuário fora do teto o tornava OCUPANTE do dia (a régua de
+        // ocupantes conta entrega não-cancelada) — e dali em diante o teto
+        // estava morto pra ele: todos os outros gates o liberavam como "já
+        // ocupante". A data é a da PRÓPRIA entrega (mesma régua de lá).
+        if (driver?.id && this.rotaCobranca) {
+          await this.rotaCobranca.assertAssentoDoDia(
+            companyId,
+            driver.id,
+            canonicalRouteDate(undefined, scheduledAt),
+            // LEI DO VENDEDOR: só dono/master vê o botão de comprar o passe no 402.
+            isBillingOwnerActor(actor as any),
+          );
+        }
         entregadorId = driver?.id ?? null;
       }
     }
@@ -2724,33 +2713,9 @@ export class LogisticaService {
     });
     if (!cliente) return null;
 
-    // Regra M4 (a mesma do listRota/saldos/histórico): financeiro do tenant OFF =
-    // dinheiro não aparece em lugar NENHUM. FAIL-CLOSED por simetria com saldos:
-    // devolve a MESMA forma, mas sem valores (charges vazio, saldos null e o flag
-    // moduloFinanceiroAtivo:false). Best-effort: config ausente = default seguro (false).
-    let moduloFinanceiroAtivo = false;
-    try {
-      const cfg = await this.prisma.logisticaConfig.findUnique({
-        where: { companyId },
-        select: { moduloFinanceiroAtivo: true },
-      });
-      moduloFinanceiroAtivo = cfg?.moduloFinanceiroAtivo ?? false;
-    } catch (e: any) {
-      this.logger.warn(`[logistica] extrato loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
-    }
-
-    if (!moduloFinanceiroAtivo) {
-      return {
-        clienteId: cliente.id,
-        nome: String(cliente.name || '').trim() || null,
-        moduloFinanceiroAtivo: false,
-        total: 0,
-        saldoAberto: null,
-        aguardandoFechamento: null,
-        charges: [],
-      };
-    }
-
+    // 24/08/2026 — o gate "financeiro OFF = extrato vazio" MORREU: o módulo é
+    // sempre ligado (0,00 é valor legítimo) e o campo moduloFinanceiroAtivo saiu
+    // da resposta.
     const charges = await this.prisma.financeiroCharge.findMany({
       where: { companyId, customerProfileId: cliente.id },
       orderBy: [{ createdAt: 'desc' }],
@@ -2782,7 +2747,6 @@ export class LogisticaService {
     return {
       clienteId: cliente.id,
       nome: String(cliente.name || '').trim() || null,
-      moduloFinanceiroAtivo: true,
       total: charges.length,
       saldoAberto: somaSaldo(saldo),
       aguardandoFechamento: round2(saldo?.aguardando ?? 0),
@@ -2872,9 +2836,10 @@ export class LogisticaService {
    *
    * Cliente NÃO devedor sempre volta NORMAL, mesmo com o tenant configurado em
    * COBRANCA/EXCLUIR (a config é "o que fazer com quem deve", não afeta quem
-   * está em dia). Fail-safe (tudo NORMAL) quando: sem companyId/clientes, config
-   * ilegível, moduloFinanceiroAtivo OFF (sem financeiro real não existe "saldo"
-   * de verdade — M4) ou nível BASIC (gate de nível — a "escada" comercial).
+   * está em dia). Fail-safe (tudo NORMAL) quando: sem companyId/clientes ou
+   * config ilegível. 24/08/2026 — os gates de moduloFinanceiroAtivo (módulo
+   * morreu, financeiro é sempre ligado) e de nível BASIC (plano difere só por
+   * assentos) saíram.
    */
   async resolverDevedorNaRota(
     companyId: number,
@@ -2885,22 +2850,18 @@ export class LogisticaService {
     if (!companyId || ids.length === 0) return resultado;
     for (const id of ids) resultado.set(id, { devedor: false, modo: 'NORMAL', saldoAberto: 0, motivo: null });
 
-    let cfg: { moduloFinanceiroAtivo: boolean; devedorNaRota: unknown; logisticaNivel: unknown } | null = null;
+    let cfg: { devedorNaRota: unknown } | null = null;
     try {
       cfg = await this.prisma.logisticaConfig.findUnique({
         where: { companyId },
-        select: { moduloFinanceiroAtivo: true, devedorNaRota: true, logisticaNivel: true },
+        select: { devedorNaRota: true },
       });
     } catch (e: any) {
       this.logger.warn(`[logistica] resolverDevedorNaRota loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
       return resultado; // fail-safe: tudo NORMAL
     }
-    // M4 — sem financeiro real, "saldo em aberto" não existe (nada escreve nele).
-    if (!cfg?.moduloFinanceiroAtivo) return resultado;
-    // Gate de nível (F1/F2): BASIC nunca vê parada amarela nem exclusão.
-    if (storedNivel(cfg.logisticaNivel) === 'BASIC') return resultado;
 
-    const modoRaw = String(cfg.devedorNaRota || 'COBRANCA').trim().toUpperCase();
+    const modoRaw = String(cfg?.devedorNaRota || 'COBRANCA').trim().toUpperCase();
     const modoConfig: 'COBRANCA' | 'EXCLUIR' | 'NORMAL' =
       modoRaw === 'EXCLUIR' ? 'EXCLUIR' : modoRaw === 'NORMAL' ? 'NORMAL' : 'COBRANCA';
     if (modoConfig === 'NORMAL') return resultado; // tenant escolheu ignorar débito na rota
@@ -3106,21 +3067,8 @@ export class LogisticaService {
     });
     if (!cliente) return null;
 
-    // Regra M4 (a mesma do listRota/saldos): financeiro do tenant OFF = dinheiro
-    // não aparece em lugar NENHUM. O histórico "o que/quando/hora/msg" segue vivo,
-    // mas valor/valorUnit/cobrancaStatus são omitidos. Best-effort: config ausente
-    // = default seguro (false).
-    let moduloFinanceiroAtivo = false;
-    try {
-      const cfg = await this.prisma.logisticaConfig.findUnique({
-        where: { companyId },
-        select: { moduloFinanceiroAtivo: true },
-      });
-      moduloFinanceiroAtivo = cfg?.moduloFinanceiroAtivo ?? false;
-    } catch (e: any) {
-      this.logger.warn(`[logistica] histórico loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
-    }
-
+    // 24/08/2026 — o gate "financeiro OFF esconde valor" MORREU: financeiro é
+    // sempre ligado, os valores sempre viajam (0,00 é valor legítimo).
     const take = clampLimit(opts.limit, 30, 100);
     const cursor = String(opts.cursor || '').trim() || null;
 
@@ -3171,10 +3119,9 @@ export class LogisticaService {
         scheduledAt: r.scheduledAt ? r.scheduledAt.toISOString() : null,
         deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
         status: r.status,
-        // M4: financeiro OFF → dinheiro some (valor/cobrança null), resto fica.
-        valor: moduloFinanceiroAtivo ? r.valor : null,
+        valor: r.valor,
         receiptMethod: r.receiptMethod ?? null,
-        cobrancaStatus: moduloFinanceiroAtivo ? r.cobrancaStatus : null,
+        cobrancaStatus: r.cobrancaStatus,
         whatsappStatus: r.whatsappStatus ?? null,
         whatsappMotivo: r.whatsappMotivo ?? null,
         itens:
@@ -3182,7 +3129,7 @@ export class LogisticaService {
             ? r.itens.map((it) => ({
                 produtoNome: it.product?.name ?? null,
                 qtd: it.qtdEntregue ?? it.qtdPrevista,
-                valorUnit: moduloFinanceiroAtivo ? (it.valorUnit ?? 0) : null,
+                valorUnit: it.valorUnit ?? 0,
               }))
             : r.product
               ? [
@@ -3191,9 +3138,8 @@ export class LogisticaService {
                     // valorUnit derivado do valor/quantidade da própria entrega.
                     produtoNome: r.product.name,
                     qtd: r.quantidade,
-                    valorUnit: !moduloFinanceiroAtivo
-                      ? null
-                      : r.quantidade > 0
+                    valorUnit:
+                      r.quantidade > 0
                         ? round2((Number(r.valor) || 0) / r.quantidade)
                         : round2(Number(r.valor) || 0),
                   },
@@ -3423,9 +3369,8 @@ export class LogisticaService {
    * Histórico de UM cliente pro app do entregador. Company-scoped; cliente de outra
    * empresa → null (o controller vira 404). Ordem: mais novo primeiro.
    *
-   * GATE DE VALORES: com o módulo financeiro do tenant OFF, dinheiro não aparece em
-   * lugar nenhum da logística (regra M4) — os campos de valor voltam zerados, mas as
-   * linhas continuam (o "quando eu vim aqui" não é dado financeiro).
+   * 24/08/2026 — o gate de valores (módulo financeiro OFF) MORREU: financeiro é
+   * sempre ligado e os campos de valor sempre viajam (0,00 é valor legítimo).
    */
   async historicoCliente(
     companyId: number,
@@ -3438,19 +3383,6 @@ export class LogisticaService {
       select: { id: true },
     });
     if (!cliente) return null;
-
-    // Mesma leitura de config do historicoEntregasCliente (regra M4), com o mesmo
-    // default seguro quando a config não existe/falha.
-    let financeiroOn = false;
-    try {
-      const cfg = await this.prisma.logisticaConfig.findUnique({
-        where: { companyId },
-        select: { moduloFinanceiroAtivo: true },
-      });
-      financeiroOn = cfg?.moduloFinanceiroAtivo ?? false;
-    } catch (e: any) {
-      this.logger.warn(`[logistica] histórico-cliente loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
-    }
 
     const take = clampLimit(opts.limit, 30, 100);
     const cursor = String(opts.cursor || '').trim() || null;
@@ -3469,10 +3401,10 @@ export class LogisticaService {
         tipo: r.tipo,
         titulo: r.titulo,
         itensResumo: r.itensResumo,
-        valorAnterior: financeiroOn ? r.valorAnterior : 0,
-        valorEvento: financeiroOn ? r.valorEvento : 0,
-        valorTotal: financeiroOn ? r.valorTotal : 0,
-        receiptMethod: financeiroOn ? r.receiptMethod : null,
+        valorAnterior: r.valorAnterior,
+        valorEvento: r.valorEvento,
+        valorTotal: r.valorTotal,
+        receiptMethod: r.receiptMethod,
         motivo: r.motivo,
         entregaId: r.entregaId,
         createdAt: r.createdAt.toISOString(),
@@ -3570,9 +3502,8 @@ export class LogisticaService {
    * REUSA a fonte única saldoAbertoPorClientes (a mesma da rota e do extrato — as
    * três visões nunca divergem). Read-only, company-scoped.
    *
-   * GATE moduloFinanceiroAtivo FAIL-CLOSED: com o módulo financeiro do tenant OFF,
-   * dinheiro não aparece em lugar NENHUM da logística (regra do M4, a mesma que
-   * esconde saldo/pix no listRota) → devolve lista vazia sem nem consultar valores.
+   * 24/08/2026 — o gate moduloFinanceiroAtivo MORREU: financeiro é sempre
+   * ligado, a lista sempre é computada (e o flag saiu da resposta).
    *
    * Semântica dos campos (idêntica ao extratoCliente): saldoAberto = pendente +
    * aguardando (o TOTAL devido); aguardandoFechamento = só a parcela mensal ainda
@@ -3581,19 +3512,8 @@ export class LogisticaService {
   async saldosFinanceiro(companyId: number): Promise<SaldosFinanceiroResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
 
-    // Mesma leitura best-effort do listRota: config ausente = default seguro (false).
-    let moduloFinanceiroAtivo = false;
-    try {
-      const cfg = await this.prisma.logisticaConfig.findUnique({
-        where: { companyId },
-        select: { moduloFinanceiroAtivo: true },
-      });
-      moduloFinanceiroAtivo = cfg?.moduloFinanceiroAtivo ?? false;
-    } catch (e: any) {
-      this.logger.warn(`[logistica] saldos loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
-    }
-    if (!moduloFinanceiroAtivo) return { moduloFinanceiroAtivo: false, clientes: [] };
-
+    // 24/08/2026 — o gate "financeiro OFF = lista vazia" MORREU (módulo é
+    // sempre ligado) e o flag saiu da resposta.
     // Candidatos: quem TEM charge pending da logística OU entrega aguardando o
     // fechamento — evita varrer a carteira inteira de clientes da empresa.
     const [pendentes, aguardando] = await Promise.all([
@@ -3619,7 +3539,7 @@ export class LogisticaService {
         ...aguardando.map((a) => a.customerProfileId),
       ]),
     );
-    if (ids.length === 0) return { moduloFinanceiroAtivo: true, clientes: [] };
+    if (ids.length === 0) return { clientes: [] };
 
     // Fonte única do valor (a MESMA da rota/extrato) + só quem tem valor > 0.
     const saldos = await this.saldoAbertoPorClientes(companyId, ids);
@@ -3627,7 +3547,7 @@ export class LogisticaService {
       const s = saldos.get(id);
       return (s?.pendente ?? 0) > 0 || (s?.aguardando ?? 0) > 0;
     });
-    if (comSaldo.length === 0) return { moduloFinanceiroAtivo: true, clientes: [] };
+    if (comSaldo.length === 0) return { clientes: [] };
 
     const nomes = await this.prisma.customerProfile.findMany({
       where: { companyId, id: { in: comSaldo } },
@@ -3647,7 +3567,7 @@ export class LogisticaService {
       })
       .sort((a, b) => b.saldoAberto - a.saldoAberto);
 
-    return { moduloFinanceiroAtivo: true, clientes };
+    return { clientes };
   }
 
   // ── S4 SCORE-DE-FIADO (11/07) — pontualidade do cliente final ────────────────
@@ -3675,10 +3595,9 @@ export class LogisticaService {
    * fechada no fechar-mês entra, quando vencer/for paga). Charges canceladas/
    * estornadas ficam fora da conta (nem punem nem premiam).
    *
-   * GATE moduloFinanceiroAtivo FAIL-CLOSED (regra M4, a mesma do extrato):
-   * módulo financeiro do tenant OFF → devolve score null com motivo
-   * 'financeiro_off' SEM consultar charge nenhum (dinheiro não roda em lugar
-   * nenhum). LEI DO VENDEDOR: o endpoint é Admin-only (controller).
+   * 24/08/2026 — o gate moduloFinanceiroAtivo (motivo 'financeiro_off') MORREU:
+   * financeiro é sempre ligado. LEI DO VENDEDOR intacta: o endpoint segue
+   * Admin-only (controller).
    */
   async scoreFiadoCliente(companyId: number, clienteId: string): Promise<ScoreFiadoResult | null> {
     if (!companyId || !clienteId) return null;
@@ -3687,27 +3606,6 @@ export class LogisticaService {
       select: { id: true },
     });
     if (!cliente) return null;
-
-    // Mesma leitura best-effort do extrato: config ausente = default seguro (false).
-    let moduloFinanceiroAtivo = false;
-    try {
-      const cfg = await this.prisma.logisticaConfig.findUnique({
-        where: { companyId },
-        select: { moduloFinanceiroAtivo: true },
-      });
-      moduloFinanceiroAtivo = cfg?.moduloFinanceiroAtivo ?? false;
-    } catch (e: any) {
-      this.logger.warn(`[logistica] score loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
-    }
-    if (!moduloFinanceiroAtivo) {
-      return {
-        clienteId: cliente.id,
-        moduloFinanceiroAtivo: false,
-        score: null,
-        motivo: 'financeiro_off',
-        insumos: null,
-      };
-    }
 
     // Só charges da LOGÍSTICA deste cliente (a assinatura HBX não entra). Mesmo
     // teto do extrato (500 mais recentes) — custo limitado, sem varrer histórico
@@ -3757,7 +3655,6 @@ export class LogisticaService {
     if (fechadas < 3) {
       return {
         clienteId: cliente.id,
-        moduloFinanceiroAtivo: true,
         score: null,
         motivo: 'historico_insuficiente',
         insumos,
@@ -3766,7 +3663,7 @@ export class LogisticaService {
 
     const bruto = 100 + emDia * 2 - atrasoLeve * 5 - atrasoGrave * 15 - vencidasEmAberto * 20;
     const score = Math.max(0, Math.min(100, bruto));
-    return { clienteId: cliente.id, moduloFinanceiroAtivo: true, score, motivo: null, insumos };
+    return { clienteId: cliente.id, score, motivo: null, insumos };
   }
 }
 
@@ -4090,8 +3987,8 @@ export interface RotaCliente {
   // F1 — "quanto me deve" (charges pending da logística + mensal a fechar) e o
   // teto de fiado do cliente (null = sem limite). Base do badge da chegada.
   saldoAberto?: number;
-  // PR18072026 W1 (coordenador) — mesma fonte canônica de saldoAberto, gateada
-  // por moduloFinanceiroAtivoConfig (não billingAudience): visível ao entregador comum.
+  // PR18072026 W1 (coordenador) — mesma fonte canônica de saldoAberto, visível
+  // ao entregador comum (não billingAudience). Sempre presente desde 24/08/2026.
   debitoAtual?: number;
   limiteFiado?: number | null;
 }
@@ -4126,12 +4023,11 @@ export interface RotaItem {
   // comercial: sempre exposto (o app usa isto pra separar Avulsos/Recorrentes).
   origem: string | null;
   valor?: number;
-  // PR18072026 W1 (coordenador) — total SEGURO da entrega atual (gateado por
-  // moduloFinanceiroAtivoConfig, não billingAudience): quanto cobrar na porta,
-  // sem expor valorUnit por item nem o catálogo inteiro (isso é billingAudience-only).
+  // PR18072026 W1 (coordenador) — total SEGURO da entrega atual (todo ator, não
+  // billingAudience): quanto cobrar na porta, sem expor valorUnit por item nem o
+  // catálogo inteiro (isso é billingAudience-only). 24/08/2026 — `semPreco`
+  // morreu: valor 0 é R$ 0,00 e ponto.
   valorHoje?: number;
-  /** financeiro LIGADO e nenhum preço cadastrado — a tela avisa em vez de imprimir R$ 0,00 */
-  semPreco?: true;
   scheduledAt: string | null;
   arrivedAt: string | null;
   deliveredAt: string | null;
@@ -4167,8 +4063,8 @@ export interface RotaItem {
   itens: RotaEntregaItem[];
 }
 
-// F1 — Pix DIRETO do tenant (BR Code gerado no app, taxa zero). Só vem quando o
-// módulo financeiro está ON e a chave foi configurada em Ajustes.
+// F1 — Pix DIRETO do tenant (BR Code gerado no app, taxa zero). Só vem quando a
+// chave foi configurada em Ajustes (e pro billingAudience).
 export interface RotaPix {
   chave: string;
   nome: string | null;
@@ -4186,7 +4082,6 @@ export interface RotaResult {
   routeStatus: string | null;
   trackingSessionId: string | null;
   trackingStatus: string | null;
-  moduloFinanceiroAtivo?: boolean;
   pix?: RotaPix | null;
   // AVISO-CHEGANDO — o app só arma o anel de ~500m quando isto é true (evita POST
   // inútil com o recurso OFF). avisoChegandoDistanciaM é o raio configurado (m).
@@ -4348,12 +4243,11 @@ export interface ExtratoCharge {
 export interface ExtratoResult {
   clienteId: string;
   nome: string | null;
-  // M4: financeiro do tenant. OFF → sem valores (charges vazio, saldos null).
-  moduloFinanceiroAtivo: boolean;
   total: number;
   // F1 — o "quanto me deve" da ficha: pendências (charges 'pending' da logística)
   // + mensal ainda não faturado. saldoAberto já é a SOMA dos dois.
-  // M4: null quando o financeiro do tenant está OFF (dinheiro não aparece).
+  // 24/08/2026 — o flag moduloFinanceiroAtivo saiu (financeiro é sempre ligado);
+  // null nos saldos = falha best-effort de leitura, nunca "módulo off".
   saldoAberto: number | null;
   aguardandoFechamento: number | null;
   charges: ExtratoCharge[];
@@ -4395,7 +4289,7 @@ export interface FinanceiroClienteDTO {
 // W2 (contrato nº4) — histórico de entregas do cliente (extrato de ENTREGAS).
 export interface HistoricoEntregaItemLinha {
   produtoNome: string | null;
-  // M4: null quando o financeiro do tenant está OFF (dinheiro não aparece).
+  // 24/08/2026 — sempre presente (financeiro é sempre ligado; 0 é R$ 0,00).
   valorUnit: number | null;
   qtd: number;
 }
@@ -4405,7 +4299,6 @@ export interface HistoricoEntregaItem {
   scheduledAt: string | null;
   deliveredAt: string | null;
   status: string;
-  // M4: valor e cobrancaStatus são null com o financeiro do tenant OFF.
   valor: number | null;
   receiptMethod: string | null;
   cobrancaStatus: string | null;
@@ -4440,8 +4333,8 @@ export interface SaldosClienteRow {
   aguardandoFechamento: number;
 }
 
+// 24/08/2026 — o flag moduloFinanceiroAtivo saiu (financeiro é sempre ligado).
 export interface SaldosFinanceiroResult {
-  moduloFinanceiroAtivo: boolean;
   clientes: SaldosClienteRow[];
 }
 
@@ -4460,12 +4353,12 @@ export interface ScoreFiadoInsumos {
   vencidasEmAberto: number;
 }
 
+// 24/08/2026 — moduloFinanceiroAtivo e o motivo 'financeiro_off' saíram
+// (financeiro é sempre ligado).
 export interface ScoreFiadoResult {
   clienteId: string;
-  // M4: financeiro do tenant OFF → fail-closed (score null, insumos null).
-  moduloFinanceiroAtivo: boolean;
   // 0–100; null quando não dá pra afirmar nada (ver motivo).
   score: number | null;
-  motivo: 'historico_insuficiente' | 'financeiro_off' | null;
+  motivo: 'historico_insuficiente' | null;
   insumos: ScoreFiadoInsumos | null;
 }

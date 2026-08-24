@@ -471,9 +471,29 @@ com o app em segundo plano, e o ícone de localização fica ativo na barra.
   edge-to-edge do Android 15/16 **não a alcança**: era o meu maior receio do API 36
   e ele simplesmente não existe. Instrução de curva, rota, seta com rumo, velocidade,
   ETA e os quatro verbos (Cancelar/Registrar/Finalizar/Panorâmica) todos no lugar.
-- ⚠️ A notificação cai na seção **"Silenciosas"** e o ícone pequeno aparece como um
-  anel vazio. Não reprova nada, mas num vídeo de análise fica fraca — vale conferir
-  o ícone monocromático do canal `rota_status`.
+- ⚠️ A notificação cai na seção **"Silenciosas"** — é o esperado para
+  `IMPORTANCE_LOW` e não reprova nada.
+- ✅ **O ANEL VAZIO ERA DEFEITO, E FOI CORRIGIDO EM 24/08/2026.** O dono
+  fotografou: o ícone pequeno da notificação de rota não tinha desenho nenhum, só
+  um círculo. **`setSmallIcon` usa SÓ O CANAL ALFA** do drawable e pinta a
+  silhueta — e as cinco chamadas do app passavam `R.mipmap.ic_launcher`, um ícone
+  adaptativo cuja camada de fundo (`ic_launcher_background`) é
+  `<solid android:color="#0B1020">` cobrindo os 108×108 inteiros. Opaco de ponta a
+  ponta vira CHAPA em alfa: o foreground (disco, brilho, "HBX") não sobra nem como
+  sombra. Chapa recortada pela máscara redonda do adaptativo = círculo liso.
+  O `ic_launcher_monochrome` **não resolvia** (foi a primeira aposta, e foi
+  medida): a forma dele está certa, mas o desenho mora na zona segura do ícone
+  adaptativo — x/y de 27 a 81 num viewport de 108, os 50% do meio. A 24dp o
+  desenho todo cai pra 12dp e as letras pra 3,6dp: o anel sobrevive e o "HBX" vira
+  poeira. Mesmo anel, outro caminho.
+  Cura: **`drawable/ic_stat_hbx.xml`**, ativo dedicado de 24dp com só a PALAVRA
+  (as letras do monocromático, sem redesenho) e sem o anel — numa caixa de 24dp ou
+  cabe a moldura ou cabe o nome. A conta está no comentário do arquivo. As cinco
+  chamadas (`RotaService` ×2 + o ícone da ação, `HbxMobileBridge`, `MissaoAlarme`,
+  `PasseioAlarme`) passaram todas pra ele.
+  ⚠️ **Ícone de notificação nunca é o `ic_launcher`.** Notificação nova nasce com
+  `setSmallIcon(R.drawable.ic_stat_hbx)` — e nada de cor, gradiente ou fundo no
+  ativo: qualquer um deles vira alfa e o anel volta.
 
 #### ✅ Chegada, entrega e encerramento — provado 12:41–12:44
 

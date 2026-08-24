@@ -1,8 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { canonicalRouteDate, type LogisticaRouteMode } from './logistica-route-billing.util';
-import { storedNivel } from './logistica-config.service';
-import { isLogisticaTrackingEnabled } from './logistica-tracking.flags';
 import { LogisticaRotaCobrancaService } from './logistica-rota-cobranca.service';
 import { lockLogisticaRouteTransaction } from './logistica-route-lock';
 import { LogisticaTrackingService } from './logistica-tracking.service';
@@ -21,7 +19,6 @@ import { apagarNaoProcessadas, TIPOS_CANCELAMENTO_HUMANO } from './logistica-exp
 import { saoPauloDateKey } from './logistica-dia.util';
 import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
 import { ProspectorCorredorService } from './prospector-corredor.service';
-import { isProspectorEnabled } from './logistica-prospector.flags';
 import {
   rotuloDaCesta,
   clampRaioM,
@@ -29,11 +26,11 @@ import {
   RAIO_PADRAO_M,
   MAX_DIA_PADRAO,
 } from './prospector-corredor.sql';
-// PROSPECTOR v2 (12/08) — a 5ª chave: o TIPO que a PESSOA escolheu nesta semana.
+// PROSPECTOR v2 (12/08) — a chave da SEMANA: o TIPO que a PESSOA escolheu nela.
 import { LogisticaProspectorSemanaService } from './logistica-prospector-semana.service';
 import { cnaeEhDoTipo, type ProspectorTipo } from './logistica-prospector-tipos';
 import { ehEsquemaAusente } from './logistica-esquema-ausente.util';
-import { isAdminTierActor, isBillingOwnerActor, type ActorKindUserLike } from '../access/actor-kind';
+import { isBillingOwnerActor, type ActorKindUserLike } from '../access/actor-kind';
 import { isLogisticaAdmin } from './logistica-operacao.service';
 import { quemMontouODia, rotaDeOutroMotoristaError } from './logistica-quem-montou.util';
 // 12/08 — "Ult. Registro": MAX(deliveredAt) das entregas concluídas, régua única.
@@ -122,26 +119,22 @@ export class LogisticaRotaService {
 
   // ── PROSPECTOR CNPJ (PR07082026 F1-servidor) ─────────────────────────────────
   /**
-   * As 5 CHAVES do prospector, TODAS obrigatórias — qualquer uma fechada devolve
+   * As 3 CHAVES do prospector, TODAS obrigatórias — qualquer uma fechada devolve
    * zero prospecto SEM erro e sem efeito nenhum no iniciar-rota:
    *
-   *  1. `HBX_PROSPECTOR_ENABLED` (env global, default OFF) — a chave mestra.
-   *     É a PRIMEIRA de propósito: com ela fechada nem uma consulta sai, e o
-   *     deploy é 100% inerte (é este gate que torna seguro publicar antes de a
-   *     migration rodar em produção).
-   *  2. `LogisticaConfig.prospectorAtivo` — o admin da empresa opta por entrar.
-   *  3. ATOR: admin (master/dono/gerente) sempre; funcionário comum SÓ com
-   *     `prospectorEquipe` ligado. Mesma leitura do `passeioEquipe`
-   *     (logistica-passeio.service.ts) e FAIL-CLOSED: chamada sem ator
-   *     identificado é tratada como funcionário comum.
-   *  4. SEMANA DA PESSOA (12/08, PROSPECTOR v2) — a chave NOVA, e a que o dono
-   *     pediu: o prospector nasce DESLIGADO pra todo mundo e só acorda quando a
-   *     PESSOA aciona e escolhe o TIPO de empresa que interessa a ela NESTA
-   *     SEMANA (`LogisticaProspectorSemana`). Sem escolha = mesma semântica de
-   *     chave fechada: payload SEM a chave `prospector`, nem uma consulta ao
+   *  1. `LogisticaConfig.prospectorAtivo` — o admin da empresa opta por entrar.
+   *     24/08/2026 (decisão do dono): a env global `HBX_PROSPECTOR_ENABLED` e a
+   *     régua "funcionário só com `prospectorEquipe`" MORRERAM — o prospector é
+   *     de todos os usuários da empresa quando este toggle está on (o freio da
+   *     1ª vez virou o aviso "Ciente" por usuário, ver LogisticaConfigService).
+   *  2. SEMANA DA PESSOA (12/08, PROSPECTOR v2) — a chave que o dono pediu: o
+   *     prospector nasce DESLIGADO pra todo mundo e só acorda quando a PESSOA
+   *     aciona e escolhe o TIPO de empresa que interessa a ela NESTA SEMANA
+   *     (`LogisticaProspectorSemana`). Sem escolha = mesma semântica de chave
+   *     fechada: payload SEM a chave `prospector`, nem uma consulta ao
    *     corredor. Segunda-feira nova zera a escolha sozinha — quieto de novo,
    *     sem faxina (ver logistica-prospector-semana.service.ts).
-   *  5. PINO: a empresa precisa ter `CnpjGeo` no corredor. Sem pino na região o
+   *  3. PINO: a empresa precisa ter `CnpjGeo` no corredor. Sem pino na região o
    *     resultado é lista VAZIA — vazio honesto, não erro (`CnpjGeo` hoje é
    *     SP-only, item 6 das decisões em aberto do plano).
    *
@@ -158,7 +151,6 @@ export class LogisticaRotaService {
         where: { companyId },
         select: {
           prospectorAtivo: true,
-          prospectorEquipe: true,
           prospectorRaioM: true,
           prospectorMaxDia: true,
         },
@@ -166,7 +158,6 @@ export class LogisticaRotaService {
       if (!cfg) return null;
       return {
         ativo: !!cfg.prospectorAtivo,
-        equipe: !!cfg.prospectorEquipe,
         raioM: typeof cfg.prospectorRaioM === 'number' ? cfg.prospectorRaioM : null,
         maxDia: typeof cfg.prospectorMaxDia === 'number' ? cfg.prospectorMaxDia : null,
       };
@@ -195,22 +186,20 @@ export class LogisticaRotaService {
     actor?: AtorProspector,
   ): Promise<RotaProspectorPayload | null> {
     try {
-      // Chave 1 — env global. Antes de qualquer ida ao banco.
-      if (!this.prospector || !isProspectorEnabled()) return null;
-
-      // Chaves 2 e 3 — tenant e ator, na MESMA leitura de config (uma consulta).
+      // Chave 1 — o toggle da empresa (24/08/2026: env global e régua de equipe
+      // morreram — todo usuário da empresa entra quando o toggle está on).
+      if (!this.prospector) return null;
       const politica = await this.lerPoliticaProspector(companyId);
       if (!politica || !politica.ativo) return null;
-      if (!isAdminTierActor(actor) && !politica.equipe) return null;
 
-      // Chave 4 — A SEMANA DA PESSOA. Sem serviço injetado ou sem escolha viva, o
+      // Chave 2 — A SEMANA DA PESSOA. Sem serviço injetado ou sem escolha viva, o
       // prospector fica QUIETO: nem o corredor roda (é ele que varre a RFB), nem a
       // chave `prospector` nasce no payload. FAIL-CLOSED de propósito — "desligado
       // pra todos até a pessoa acionar" é a decisão, não um efeito colateral.
       const tipoDaSemana = (await this.prospectorSemana?.escolhaVigente(companyId, idDoAtor(actor))) ?? null;
       if (!tipoDaSemana) return null;
 
-      // Chave 5 — pino. As paradas DO DIA (as da rota que está iniciando); quem
+      // Chave 3 — pino. As paradas DO DIA (as da rota que está iniciando); quem
       // não tem coordenada não entra (o corredor também descarta, mas mandar só
       // o que é ponto de verdade deixa o log honesto sobre quantas paradas
       // realmente viraram corredor).
@@ -306,10 +295,10 @@ export class LogisticaRotaService {
    * dia. O `listRota` é hot-path de polling do app — mandar o corredor rodar
    * aqui seria varrer a RFB a cada refresh.
    *
-   * AS MESMAS 5 CHAVES do embarque, na mesma ordem (env → tenant → ator →
-   * SEMANA DA PESSOA → pino), porque desligar o prospector tem que apagar a tela
-   * também, não só parar de embarcar novos. A chave nº5 aqui é "tem linha
-   * gravada pro dia".
+   * AS MESMAS 3 CHAVES do embarque, na mesma ordem (tenant → SEMANA DA PESSOA →
+   * pino), porque desligar o prospector tem que apagar a tela também, não só
+   * parar de embarcar novos. A chave nº3 aqui é "tem linha gravada pro dia".
+   * (24/08/2026: env global e régua de equipe morreram — ver lerPoliticaProspector.)
    *
    * 🔴 E A COR TAMBÉM É RECOMPUTADA AQUI (12/08). `escolhida` não é snapshot: a
    * pessoa pode trocar de tipo na quarta-feira, e a rua tem que mudar de cor no
@@ -322,24 +311,20 @@ export class LogisticaRotaService {
     actor?: AtorProspector,
   ): Promise<RotaProspectorPayload | null> {
     try {
-      // Chave 1 — env global. Antes de qualquer ida ao banco.
-      if (!isProspectorEnabled()) return null;
-
-      // Chaves 2 e 3 — tenant e ator. Fail-closed igual ao embarque.
+      // Chave 1 — o toggle da empresa. Fail-closed igual ao embarque.
       const politica = await this.lerPoliticaProspector(companyId);
       if (!politica || !politica.ativo) return null;
-      if (!isAdminTierActor(actor) && !politica.equipe) return null;
 
-      // Chave 4 — a SEMANA DA PESSOA. Sem escolha, a tela APAGA: não basta parar
+      // Chave 2 — a SEMANA DA PESSOA. Sem escolha, a tela APAGA: não basta parar
       // de embarcar novos, o que já está no banco também some da vista (é a mesma
-      // lei que fez as 4 chaves valerem na releitura desde 08/08).
+      // lei que fez as chaves valerem na releitura desde 08/08).
       const tipoDaSemana = (await this.prospectorSemana?.escolhaVigente(companyId, idDoAtor(actor))) ?? null;
       if (!tipoDaSemana) return null;
 
       const raioM = clampRaioM(politica.raioM ?? RAIO_PADRAO_M);
       const maxDia = clampMaxDia(politica.maxDia ?? MAX_DIA_PADRAO);
 
-      // Chave 5 — o que foi embarcado NESTE dia. `lead` e `dispensado` ficam de
+      // Chave 3 — o que foi embarcado NESTE dia. `lead` e `dispensado` ficam de
       // fora: quem virou lead saiu do corredor pra sempre (mora no /vendas
       // agora) e quem foi dispensado está de castigo — os dois voltarem como
       // prédio apagado seria o app oferecendo de novo o que o motorista já
@@ -483,6 +468,12 @@ export class LogisticaRotaService {
     // nunca sobra metade da rota na ordem antiga e metade na nova.
     const expectedOwnerById = new Map(rows.map((row) => [row.id, row.entregadorId]));
     await this.prisma.$transaction(async (tx: any) => {
+      // 24/08/2026 — toda rota HTTP chega aqui com `entregadorId` = o ATOR
+      // (controller e admin-route escopam sempre), então o lock serializa por
+      // motorista de verdade: dois planejares do MESMO dono esperam um ao
+      // outro, e o do admin nunca mais disputa `plan:0` (que não serializava
+      // com o `plan:<id>` de quem estava na rua). O `|| 0` sobrevive só pra
+      // chamada direta legada/teste sem escopo.
       await lockLogisticaRouteTransaction(tx, companyId, `plan:${entregadorId || 0}:date:${routeDate}`);
       for (const p of plan.paradas) {
         const changed = await tx.entrega.updateMany({
@@ -547,12 +538,9 @@ export class LogisticaRotaService {
     entregadorId?: number,
     actorUserId?: number | null,
     includeCommercialMode = false,
-    // PROSPECTOR (07/08) — o ATOR, não só o id dele: a chave nº3 do prospector
-    // é "admin sempre, funcionário só com prospectorEquipe", e isso é PAPEL.
-    // Aditivo e por último: quem não passa ator cai no fail-closed (tratado
-    // como funcionário comum) e o resto do iniciar-rota é byte a byte o mesmo.
-    // 12/08 — o TIPO do ator ganhou o `id`: a chave nº4 (escolha da semana) é DA
-    // PESSOA, então o papel sozinho já não responde a pergunta inteira.
+    // PROSPECTOR — o ATOR. 24/08/2026: a régua por papel morreu (todo usuário
+    // da empresa vê); o que segue importando é o `id` — a escolha da semana
+    // (chave nº2) é DA PESSOA, não do papel.
     actor?: AtorProspector,
   ): Promise<PlanejarRotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
@@ -794,22 +782,13 @@ export class LogisticaRotaService {
   }
 
   /**
-   * ROTA v2 F3d — o modo (ESSENTIAL|TRACKED) da PRÓXIMA rota a nascer.
-   * Réplica enxuta de `effectiveRouteMode` (logistica-config.service.ts,
-   * privada lá) — os 4 gates de sempre: flag global + toggle do tenant +
-   * nível FULL + preferência salva. Qualquer buraco cai em ESSENTIAL.
+   * ROTA v2 F3d / 24/08/2026 — o modo da PRÓXIMA rota a nascer é SEMPRE
+   * 'TRACKED' (decisão do dono: não existe mais escolha de modo; os 4 gates —
+   * env global, trackingAtivo, nível FULL, modoRotaPadrao — morreram com as
+   * colunas). ESSENTIAL sobrevive só congelado em rota antiga (LogisticaRoute.mode).
    */
-  private async resolveRouteModeForCompany(companyId: number): Promise<LogisticaRouteMode> {
-    if (!isLogisticaTrackingEnabled()) return 'ESSENTIAL';
-    const cfg = await this.prisma.logisticaConfig
-      .findUnique({
-        where: { companyId },
-        select: { trackingAtivo: true, logisticaNivel: true, modoRotaPadrao: true },
-      })
-      .catch(() => null);
-    if (!cfg?.trackingAtivo) return 'ESSENTIAL';
-    if (storedNivel((cfg as any).logisticaNivel) !== 'FULL') return 'ESSENTIAL';
-    return String((cfg as any).modoRotaPadrao || '').trim().toUpperCase() === 'TRACKED' ? 'TRACKED' : 'ESSENTIAL';
+  private async resolveRouteModeForCompany(_companyId: number): Promise<LogisticaRouteMode> {
+    return 'TRACKED';
   }
 
   /**
@@ -3038,18 +3017,18 @@ function normalizeOrdemManual(value?: string[]): string[] | undefined {
 
 // ── PROSPECTOR CNPJ (PR07082026 F1-servidor) ──────────────────────────────────
 
-/** As 2 chaves de política + as 2 réguas, lidas numa consulta só. Interno. */
+/** A chave de política (toggle da empresa) + as 2 réguas, lidas numa consulta
+ *  só. Interno. 24/08/2026: `equipe` morreu — todo usuário da empresa entra. */
 type PoliticaProspector = {
   ativo: boolean;
-  equipe: boolean;
   raioM: number | null;
   maxDia: number | null;
 };
 
 /**
- * O ATOR do prospector: o papel (que decide a chave nº3) MAIS o id (que decide a
- * chave nº4, a escolha da semana). Era só `ActorKindUserLike`; o id entrou quando a
- * escolha passou a ser DA PESSOA. `req.user` e `LogisticaActor` já satisfazem os dois.
+ * O ATOR do prospector: hoje só o `id` decide algo (a escolha da semana é DA
+ * PESSOA). O papel deixou de gatear em 24/08/2026 (a régua "funcionário só com
+ * equipe" morreu), mas o shape fica — `req.user` e `LogisticaActor` satisfazem.
  */
 export type AtorProspector =
   | ({ id?: number | string | null } & NonNullable<ActorKindUserLike>)
@@ -3059,7 +3038,7 @@ export type AtorProspector =
 /**
  * O id de quem está dirigindo — ou 0, que FECHA a chave da semana.
  *
- * Fail-closed é a mesma régua da chave nº3 ("chamada sem ator é tratada como
+ * Fail-closed é a mesma régua de sempre ("chamada sem ator é tratada como
  * funcionário comum"): sem saber QUEM é, não há de quem ler a escolha, e a resposta
  * honesta é o prospector quieto.
  */
@@ -3161,7 +3140,7 @@ export interface RotaProspectorPayload {
   acendeNoDia: number;
   /** false = a tabela ProspectoRota ainda não existe (a lista vale só hoje). */
   persistido: boolean;
-  /** Slug do TIPO que a pessoa escolheu nesta semana (a chave nº4). Sempre presente:
+  /** Slug do TIPO que a pessoa escolheu nesta semana (a chave nº2). Sempre presente:
    *  sem escolha este payload inteiro não existe. */
   tipo: string;
   /** O mesmo tipo em português, pro app não ter que traduzir slug. */

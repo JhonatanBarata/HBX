@@ -735,7 +735,7 @@ export class NucleoCadastroService {
    *   duplicataDe   = par duplicado COMPANY-WIDE (não por página): nome normalizado
    *                   idêntico OU endereco+numero normalizados idênticos, só entre
    *                   clientes ativos — sem fuzzy, os DOIS lados apontam um pro outro;
-   *   debitoAtual   = SÓ quando LogisticaConfig.moduloFinanceiroAtivo (senão omitido);
+   *   debitoAtual   = sempre presente desde 24/08/2026 (financeiro é sempre ligado);
    *   entregasCount = entregas NÃO-canceladas do cliente.
    */
   private async loadClientesCardExtras(
@@ -758,15 +758,13 @@ export class NucleoCadastroService {
 
     // A query do ClienteProduto MORREU aqui (05/08): ela só existia pra ler dia
     // de produto. Uma ida a menos ao banco por página de clientes.
-    const [entregasAgg, config, dupUniverse, locaisAtivos, planosAgenda] = await Promise.all([
+    // 24/08/2026 — a leitura da config saiu do lote: o único uso era o gate
+    // moduloFinanceiroAtivo, que morreu (financeiro é sempre ligado).
+    const [entregasAgg, dupUniverse, locaisAtivos, planosAgenda] = await Promise.all([
       this.prisma.entrega.groupBy({
         by: ['customerProfileId'],
         where: { companyId, customerProfileId: { in: pageIds }, status: { not: 'cancelada' } },
         _count: { _all: true },
-      }),
-      this.prisma.logisticaConfig.findFirst({
-        where: { companyId },
-        select: { moduloFinanceiroAtivo: true },
       }),
       // Duplicidade é COMPANY-WIDE: o universo é TODO cliente ativo do tenant, não
       // só a página (senão o par que caiu em outra página passaria batido).
@@ -814,10 +812,7 @@ export class NucleoCadastroService {
       }
     }
 
-    const financeiroAtivo = Boolean(config?.moduloFinanceiroAtivo);
-    const debitoMap = financeiroAtivo
-      ? await this.debitoAbertoPorClientes(companyId, pageIds)
-      : new Map<string, number>();
+    const debitoMap = await this.debitoAbertoPorClientes(companyId, pageIds);
 
     // 🔴 O DIA É DO CLIENTE, PONTO (ordem do dono, 05/08: "o dia, ou os dias de
     // entrega do CLIENTE. não é o produto quem decide"). A fonte é ÚNICA:
@@ -905,8 +900,8 @@ export class NucleoCadastroService {
         // 12/08 — "Ult. Registro" do cartão da Montagem e da ficha. null = nunca
         // houve entrega concluída (a tela escreve "Pendente").
         ultimaEntregaAt: isoDaUltimaEntrega(ultimaEntregaMap.get(row.id)),
-        // debitoAtual OMITIDO quando o módulo financeiro está off (contrato W6).
-        ...(financeiroAtivo ? { debitoAtual: round2(debitoMap.get(row.id) ?? 0) } : {}),
+        // 24/08/2026 — debitoAtual sempre presente (financeiro é sempre ligado).
+        debitoAtual: round2(debitoMap.get(row.id) ?? 0),
       });
     }
     return result;
@@ -1036,19 +1031,14 @@ export class NucleoCadastroService {
     // sem principal → null e o whatsapp cai pro phone da conta).
     const principal = row.contatos?.find((c) => c.isPrincipal) ?? null;
 
-    /* 12/08 — os 3 aditivos da ficha (saldo, nº de entregas e último registro).
-       Em paralelo, e o SALDO só quando o módulo financeiro está ligado: com ele
-       desligado dinheiro não aparece em lugar nenhum do app, e uma consulta a
-       menos por ficha aberta. Nada disso derruba a ficha se falhar — mas também
-       não se engole erro em silêncio (a lei do CNEFE): o erro sobe, o controller
-       responde, e a ficha não mente um saldo zero que ninguém apurou. */
-    const financeiroCfg = await this.prisma.logisticaConfig.findFirst({
-      where: { companyId },
-      select: { moduloFinanceiroAtivo: true },
-    });
-    const financeiroAtivo = Boolean(financeiroCfg?.moduloFinanceiroAtivo);
+    /* 12/08 — os 3 aditivos da ficha (saldo, nº de entregas e último registro),
+       em paralelo. 24/08/2026 — o gate do módulo financeiro morreu (é sempre
+       ligado): o saldo sempre é consultado. Nada disso derruba a ficha se
+       falhar — mas também não se engole erro em silêncio (a lei do CNEFE): o
+       erro sobe, o controller responde, e a ficha não mente um saldo zero que
+       ninguém apurou. */
     const [debitoMap, ultimaMap, entregasCount] = await Promise.all([
-      financeiroAtivo ? this.debitoAbertoPorClientes(companyId, [row.id]) : Promise.resolve(new Map<string, number>()),
+      this.debitoAbertoPorClientes(companyId, [row.id]),
       ultimaEntregaPorCliente(this.prisma, companyId, [row.id]),
       this.prisma.entrega.count({ where: { companyId, customerProfileId: row.id, status: { not: 'cancelada' } } }),
     ]);
@@ -1123,7 +1113,7 @@ export class NucleoCadastroService {
          MESMO gate: módulo financeiro desligado ⇒ campo OMITIDO, não zero.
          `entregasCount`/`ultimaEntregaAt` vêm juntos pelo mesmo motivo: quem abre
          a ficha pela Montagem hoje já perde o "42 entregas" do cabeçalho. */
-      ...(financeiroAtivo ? { debitoAtual: round2(debito) } : {}),
+      debitoAtual: round2(debito),
       entregasCount,
       ultimaEntregaAt: isoDaUltimaEntrega(ultima),
     };
@@ -2846,7 +2836,7 @@ export interface ClienteCardExtras {
   diasEntrega: number[];
   /** o OUTRO lado do par duplicado (company-wide, só clientes ativos) ou null */
   duplicataDe: { id: string; nome: string } | null;
-  /** presente SÓ quando LogisticaConfig.moduloFinanceiroAtivo do tenant */
+  /** 24/08/2026 — sempre presente (financeiro é sempre ligado). */
   debitoAtual?: number;
   /** entregas NÃO-canceladas do cliente */
   entregasCount: number;
@@ -2961,7 +2951,7 @@ export interface ClienteDetail {
   telefones: ClienteTelefone[];
   // PR18072026 W1 — observação livre sobre o cliente.
   observacoes: string | null;
-  /** 12/08 — saldo em aberto. Presente SÓ com moduloFinanceiroAtivo (mesmo gate da lista). */
+  /** 12/08 — saldo em aberto. 24/08/2026 — sempre presente (financeiro sempre ligado). */
   debitoAtual?: number;
   /** 12/08 — entregas NÃO-canceladas do cliente (o "42 entregas" do cabeçalho da ficha). */
   entregasCount: number;

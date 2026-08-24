@@ -35,19 +35,34 @@ class TrackingSessionStore(context: Context) {
 
     fun isClosedLocally(routeId: String): Boolean = isEndPending(routeId) || isEnded(routeId)
 
+    // R9 (24/08) — `auth_blocked` era flag GLOBAL do aparelho: num celular
+    // compartilhado, o 401 da rota de UM usuário bloqueava a captura da rota do
+    // OUTRO. Virou por rota (`auth_blocked:$routeId`). A chave global antiga é
+    // simplesmente IGNORADA (ninguém a lê mais): pior caso da migração é um
+    // aparelho retentar e levar 401 de novo — inofensivo.
     fun isCaptureBlocked(routeId: String): Boolean =
-        prefs.getBoolean("auth_blocked", false) || prefs.getBoolean("terminal:$routeId", false)
+        prefs.getBoolean("auth_blocked:$routeId", false) || prefs.getBoolean("terminal:$routeId", false)
 
     fun isTerminal(routeId: String): Boolean = prefs.getBoolean("terminal:$routeId", false)
 
-    fun isAuthBlocked(): Boolean = prefs.getBoolean("auth_blocked", false)
+    fun isAuthBlocked(routeId: String): Boolean = prefs.getBoolean("auth_blocked:$routeId", false)
 
-    fun markAuthBlocked() {
-        prefs.edit().putBoolean("auth_blocked", true).commit()
+    fun markAuthBlocked(routeId: String) {
+        if (routeId.isBlank()) return
+        prefs.edit().putBoolean("auth_blocked:$routeId", true).commit()
     }
 
-    fun clearAuthBlocked() {
-        prefs.edit().remove("auth_blocked").commit()
+    fun clearAuthBlocked(routeId: String) {
+        prefs.edit().remove("auth_blocked:$routeId").commit()
+    }
+
+    /** Pareamento novo = token novo: todo bloqueio de 401 perde o motivo. Varre
+     *  o prefixo (a chave global antiga cai junto, de carona na migração). */
+    fun clearAllAuthBlocks() {
+        val editor = prefs.edit()
+        prefs.all.keys.filter { it == "auth_blocked" || it.startsWith("auth_blocked:") }
+            .forEach(editor::remove)
+        editor.commit()
     }
 
     fun markTerminal(routeId: String) {
@@ -62,6 +77,9 @@ class TrackingSessionStore(context: Context) {
         prefs.edit()
             .putBoolean("ended:$routeId", true)
             .remove("end_pending:$routeId")
+            // R9 (24/08): o bloqueio de 401 é por rota — rota encerrada leva o
+            // dela junto, senão a pref acumula chave morta a cada rota.
+            .remove("auth_blocked:$routeId")
             .remove("terminal:$routeId")
             .remove("session:$routeId")
             .remove("sequence:$routeId")

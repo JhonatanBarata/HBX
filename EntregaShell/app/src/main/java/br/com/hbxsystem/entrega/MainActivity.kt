@@ -885,26 +885,25 @@ class MainActivity : AppCompatActivity() {
             return
         }
         rotaPendente = route
-        val disclosure = route.mode == "TRACKED" && !trackingDisclosureAccepted()
+        // 24/08 — a disclosure é de TODO motorista na 1ª rota, não só do modo
+        // TRACKED: com o modo de rota fixo em TRACKED no servidor, o ramo de
+        // texto "não-rastreado" virou morto — e a Play exige a prominent
+        // disclosure ANTES do pedido de localização, pra todo mundo igual.
+        val disclosure = !trackingDisclosureAccepted()
         if (temLocalizacao() && temNotificacoes() && !disclosure) {
             ativarRotaPendente()
             return
         }
         if (solicitacaoSistemaEmAndamento || dialogoPermissao?.isShowing == true) return
-        val tracked = route.mode == "TRACKED"
         registrarEExibirDialogo(
             AlertDialog.Builder(this)
-                .setTitle(if (tracked) "Rastreamento da rota" else "Acompanhamento da rota")
+                .setTitle("Rastreamento da rota")
                 .setMessage(
-                    if (tracked) {
-                        "Durante a rota, o HBX envia sua localização ao VPS e a exibe ao administrador. " +
-                            "A notificação persistente fica visível e o envio para ao encerrar a rota."
-                    } else {
-                        "O HBX usa a localização somente durante a rota para avisar sua chegada."
-                    },
+                    "Durante a rota, o HBX envia sua localização ao VPS e a exibe ao administrador. " +
+                        "A notificação persistente fica visível e o envio para ao encerrar a rota.",
                 )
                 .setPositiveButton("Continuar") { _, _ ->
-                    if (tracked) markTrackingDisclosureAccepted()
+                    markTrackingDisclosureAccepted()
                     solicitarLocalizacaoOuNotificacao()
                 }
                 .setNegativeButton("Agora não") { _, _ -> mostrarAvisoPermissoesNegadas() }
@@ -938,21 +937,31 @@ class MainActivity : AppCompatActivity() {
         val route = rotaPendente ?: return
         if (!temLocalizacao() || !temNotificacoes()) return
         val routeId = route.routeId
+        /* 🔴 SESSÃO TERMINAL REBAIXA, NÃO ABORTA (24/08). Isto aqui dava
+           `return` e matava a ativação da rota INTEIRA — geofence e alarme de
+           chegada morriam por um problema que é só da telemetria. Agora a rota
+           ativa como ESSENTIAL (telemetria off, rota viva) e o aviso virou
+           informativo, sem barrar nada. */
+        var modo = route.mode
+        var sessao = route.trackingSessionId
         if (route.mode == "TRACKED" && routeId != null && TrackingSessionStore(this).isTerminal(routeId)) {
-            rotaPendente = null
+            modo = "ESSENTIAL"
+            sessao = null
             AlertDialog.Builder(this)
                 .setTitle("Rastreamento encerrado")
-                .setMessage("Atualize a rota para receber uma nova sessão autorizada pelo HBX.")
+                .setMessage(
+                    "A rota segue normal com os avisos de chegada. " +
+                        "Atualize a rota para receber uma nova sessão autorizada pelo HBX.",
+                )
                 .setPositiveButton("Entendi", null)
                 .show()
-            return
         }
         RotaState.setRota(
             novoRaioM = route.radiusM,
             novosAlvos = route.stops,
             novoRouteId = route.routeId,
-            novoMode = route.mode,
-            novaTrackingSessionId = route.trackingSessionId,
+            novoMode = modo,
+            novaTrackingSessionId = sessao,
         )
         RotaState.persistir(this)
         RotaService.sync(this)

@@ -293,9 +293,10 @@
        que a lista de Clientes já mostra pra ele. Mas `PATCH
        /logistica/clientes/:id/financeiro` é ADMIN-only no servidor: desenhar os
        campos pra quem vai levar 403 é o botão morto que esta ficha já matou uma
-       vez (o Excluir de 08/08). Duas chaves, portanto — e a de fora é a mesma
-       do resto do bloco: financeiro desligado, seção nenhuma. */
-    const financeiroLigado = !!(config && config.moduloFinanceiroAtivo);
+       vez (o Excluir de 08/08).
+       ⚰️ 24/08 — a chave de fora (`moduloFinanceiroAtivo`) morreu no contrato:
+       o financeiro é sempre ligado e a seção sempre existe. Sobrou a régua que
+       era a de dentro: quem EDITA é o admin. */
     const saldo = typeof d.debitoAtual === 'number' ? d.debitoAtual
       : (typeof it.debitoAtual === 'number' ? it.debitoAtual : null);
     window.usarDados('ficha', {
@@ -344,12 +345,12 @@
            ele o cartão fica inerte, com ele abre o VÍNCULO — nunca o catálogo. */
         return ['box', esc(p.nome), `${Number(v.qtdPadrao) || 0} por entrega${valor}${pausado}`, String(v.id || '')];
       }),
-      /* ---------- FINANCEIRO (12/08) ---------- */
-      financeiro: financeiroLigado ? 1 : 0,
-      financeiroEdita: financeiroLigado && ehAdmin() ? 1 : 0,
+      /* ---------- FINANCEIRO (12/08; sempre ligado desde 24/08) ---------- */
+      financeiro: 1,
+      financeiroEdita: ehAdmin() ? 1 : 0,
       // Lei do IF: saldo zero não é notícia na porta — some, como o resto.
-      saldo: financeiroLigado && saldo ? dinheiro(saldo) : '',
-      limiteLido: financeiroLigado && typeof d.limiteFiado === 'number' ? dinheiro(d.limiteFiado) : '',
+      saldo: saldo ? dinheiro(saldo) : '',
+      limiteLido: typeof d.limiteFiado === 'number' ? dinheiro(d.limiteFiado) : '',
       formas: formasDisponiveis(forma),
       forma,
       metodo: esc(fin.metodo),

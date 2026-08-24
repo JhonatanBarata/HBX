@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  🔴 O ÍCONE DA BARRA DE STATUS (24/08/2026 — foto do dono: a notificação
+  "Rota em andamento" aparecia como um ANEL VAZIO, sem desenho nenhum).
+
+  A CAUSA. `setSmallIcon` não desenha o ícone que você passa: o Android usa só o
+  CANAL ALFA dele e pinta a silhueta de branco. Todo mundo passava
+  `R.mipmap.ic_launcher` — que é um ÍCONE ADAPTATIVO, e a primeira camada dele
+  (`ic_launcher_background`) é um retângulo `<solid android:color="#0B1020">`
+  cobrindo os 108×108 inteiros. Opaco de ponta a ponta. Em alfa, isso é uma
+  CHAPA: o desenho do foreground (o disco, o brilho, o "HBX" branco) não sobra
+  nem como sombra, porque tudo ali já é 100% opaco e alfa não distingue cor.
+  Resultado: chapa branca cortada pela máscara redonda do adaptativo = um círculo
+  liso, sem nada dentro. É o "anel vazio" da foto. O ícone nunca teve chance —
+  ele estava sendo lido como RECORTE, não como desenho.
+
+  POR QUE O `ic_launcher_monochrome` TAMBÉM NÃO SERVIA (era a aposta óbvia, e eu
+  medi antes de gastar). A FORMA dele está certa — é alfa puro, sem gradiente.
+  O problema é a ESCALA: ele é um ícone adaptativo de 108, e todo o desenho mora
+  na zona segura central (x/y de 27 a 81 — os 50% do meio, porque o launcher
+  recorta as beiradas). Reduzido pra 24dp, o desenho inteiro ocupa 12dp e as
+  letras, que têm 16 de 108 de altura, caem pra 3,6dp. Ou seja: o anel sobrevive
+  e o "HBX" vira poeira. Chegaria no MESMO anel vazio por outro caminho.
+
+  O QUE ESTE ARQUIVO FAZ. Pega só a PALAVRA (as letras do monocromático, byte a
+  byte — mesma marca, sem redesenho) e joga fora o anel. Não é economia de
+  traço, é aritmética: o anel come 54 dos 108 de largura, e mantê-lo obrigaria a
+  letra a caber no que sobra — que é exatamente o defeito que estamos curando.
+  Numa caixa de 24dp, ou cabe a moldura ou cabe o nome. Cabe o nome.
+
+  A CONTA (as letras vivem em x 34..74, y 46..62 do viewport 108 do monocromático):
+    escala      22 / 40  = 0,55        → palavra de 22dp de largura, 1dp de folga
+    translação  1 - 34×0,55 = -17,7    → mesma conta nos dois eixos, o desenho é
+    (x e y)     7,6 - 46×0,55 = -17,7    centrado nos dois
+    resultado   x 1,0..23,0 · y 7,6..16,4 — 22 × 8,8dp
+    traço       3,6 × 0,55 = 1,98dp (o grupo escala a espessura junto)
+  8,8dp de altura parece pouco escrito assim, mas a régua do Material pra glifo
+  DEITADO é 20×16dp — nesta proporção (2,5:1) o keyline daria 8dp. Este está
+  acima dela, e num aparelho xxhdpi são 26px de letra com 6px de haste.
+
+  ⚠️ NÃO PONHA COR AQUI. Gradiente, tinta ou fundo viram alfa e o anel volta.
+  Branco chapado, e quem colore é o sistema (a tinta do canal / do tema).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <group
+        android:scaleX="0.55"
+        android:scaleY="0.55"
+        android:translateX="-17.7"
+        android:translateY="-17.7">
+        <!-- H -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M34,46 h3.6 v6.2 h3.8 v-6.2 h3.6 v16 h-3.6 v-6.2 h-3.8 v6.2 h-3.6 z" />
+        <!-- B: haste e as duas barrigas (as barrigas são TRAÇO, como no monocromático) -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M48.5,46 h3.6 v16 h-3.6 z" />
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="3.6"
+            android:pathData="M50.3,47.8 h4.5 a2.6,2.6 0 1 1 0,5.2 h-4.5" />
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="3.6"
+            android:pathData="M50.3,55.4 h4.8 a2.4,2.4 0 1 1 0,4.8 h-4.8" />
+        <!-- X -->
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M62.5,46 h3.7 l2.05,4.9 2.05,-4.9 h3.7 l-4.15,8 4.15,8 h-3.7 l-2.05,-4.9 -2.05,4.9 h-3.7 l4.15,-8 z" />
+    </group>
+</vector>

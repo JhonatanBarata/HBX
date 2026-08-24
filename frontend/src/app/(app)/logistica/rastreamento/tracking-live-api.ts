@@ -51,7 +51,8 @@ export type LogisticaNivel = "BASIC" | "ADVANCED" | "FULL";
 
 export interface TrackingLiveResponse {
   nivel?: LogisticaNivel;
-  full?: boolean;
+  // 24/08 — `full` MORREU da resposta: rastreamento é de todos (toda rota é
+  // TRACKED); o gate de plano saiu do backend e desta tela.
   routes: TrackingLiveRoute[];
 }
 

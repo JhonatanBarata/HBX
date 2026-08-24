@@ -12,7 +12,7 @@
 //   GET  /modules/master/companies                       → lista (vem do pai)
 //   GET  /modules/master/company/:id/detail              → detalhe completo
 //   PUT  /modules/master/company/:id/account-type        → toggle Crédito|Empresarial (S6)
-//   GET/PUT /logistica/master/company/:id/nivel           → nível Basic|Advanced|Full + preset de toggles (PR27072026 F1)
+//   GET/PUT /logistica/master/company/:id/nivel           → nível + assentos (24/08: a ficha só edita ASSENTOS; nivel viaja por exigência do DTO)
 //   POST /modules/master/company/:id/enterprise-contract → chavinha: tipo+módulos full+valor+teto num gesto (S8)
 //   PUT  /modules/master/company/:id  {moduleKey,enabled}→ módulo (TETO/masterEnabled — W1 PR10072026)
 //   PUT  /modules/master/company/:id/profile             → dados cadastrais
@@ -177,18 +177,14 @@ const WALLET_GRANT_TYPE_LABEL: Record<string, string> = {
 
 const WALLET_GRANT_VAZIO = { amount: "", grantType: "courtesy_internal" as "paid" | "courtesy_internal" | "promo", reason: "" };
 
-// PR27072026 F1 (ROTA 3 NÍVEIS) — a matriz do plano (docs/PLANEJAMENTOS/
-// PR27072026-ROTA-3-NIVEIS.md, seção "Os 3 níveis"), rótulo curto + 1 linha de
-// venda por nível — texto do próprio plano, zero invenção. Aplicar chama o PUT
-// que seta o preset de toggles no backend; isto aqui é só a vitrine do seletor.
-type LogisticaNivel = "BASIC" | "ADVANCED" | "FULL";
-const NIVEL_ORDEM: LogisticaNivel[] = ["BASIC", "ADVANCED", "FULL"];
-const NIVEL_LABEL: Record<LogisticaNivel, string> = { BASIC: "Basic", ADVANCED: "Advanced", FULL: "Full" };
-const NIVEL_DESCRICAO: Record<LogisticaNivel, string> = {
-  BASIC: "Anota o dia inteiro e te leva até a porta.",
-  ADVANCED: "O app cobra por você.",
-  FULL: "iFood da sua distribuidora.",
-};
+// 24/08 — última passada: o grid de cards Basic/Advanced/Full SAIU da ficha
+// (nível não abre/fecha mais recurso — o que importa é ASSENTO). O tipo fica
+// porque o PUT /logistica/master/company/:id/nivel ainda EXIGE `nivel` no DTO
+// (SetLogisticaNivelDto, conferido no backend em 24/08): o "Salvar assentos"
+// devolve o nível que LEU no GET, sem trocá-lo. CREDITO ("Rota Avulsa") entrou
+// no union pelo mesmo motivo — o GET o devolve, e mapeá-lo pra ADVANCED faria
+// o salvar de assentos TROCAR o nível da empresa em silêncio.
+type LogisticaNivel = "BASIC" | "ADVANCED" | "FULL" | "CREDITO";
 
 // Espelha as validações do backend (website.service.ts updateCompanyConfigByMaster
 // — NÃO editar o backend, só refletir aqui pra não deixar o Master submeter algo
@@ -258,9 +254,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [accountTypeBusy, setAccountTypeBusy] = useState(false);
   const [accountTypeMsg, setAccountTypeMsg] = useState<string | null>(null);
 
-  // PR27072026 F1 (ROTA 3 NÍVEIS) — nível do plano de logística (Basic/Advanced/
-  // Full). null = ainda não carregou (não decide grandfathering no front — quem
-  // resolve ausência/sujeira é o backend, aqui só espelha o que ele mandou).
+  // Nível da logística — 24/08: a ficha não ESCOLHE mais nível (grid morto);
+  // o estado existe só pro round-trip do PUT de assentos (o DTO exige `nivel`).
+  // null = ainda não carregou.
   const [nivel, setNivel] = useState<LogisticaNivel | null>(null);
   const [nivelBusy, setNivelBusy] = useState(false);
   const [nivelMsg, setNivelMsg] = useState<string | null>(null);
@@ -374,11 +370,16 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
       .then(res => setDelRefund(res?.refund || null))
       .catch(() => setDelRefund(null));
     // PR27072026 F1 — nível do plano (endereço próprio, fora do /detail). Erro
-    // de leitura cai em ADVANCED na tela (mesmo grandfathering do backend) —
-    // nunca mostra Basic por causa de uma falha de rede.
+    // de leitura cai em ADVANCED na tela (mesmo grandfathering do backend).
+    // 24/08 — CREDITO passa a ser preservado no round-trip: cair em ADVANCED
+    // aqui fazia o "Salvar assentos" trocar o nível da empresa em silêncio.
     apiFetch<{ nivel?: string; logisticaAssentos?: number | null }>(`/logistica/master/company/${id}/nivel`)
       .then(res => {
-        setNivel(res?.nivel === "BASIC" || res?.nivel === "FULL" ? res.nivel : "ADVANCED");
+        setNivel(
+          res?.nivel === "BASIC" || res?.nivel === "FULL" || res?.nivel === "CREDITO"
+            ? res.nivel
+            : "ADVANCED",
+        );
         // Presença da CHAVE (não do valor — null é "herda do nível") é o sinal de
         // que o backend já aceita o campo neste PUT.
         const suportado = res != null && typeof res === "object" && "logisticaAssentos" in res;
@@ -526,32 +527,11 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     }
   }
 
-  // PR27072026 F1 (ROTA 3 NÍVEIS) — aplica o nível: o backend grava
-  // logisticaNivel E o preset de toggles da matriz do plano NUM SÓ PUT. Preset
-  // é ATALHO, não algema (decisão do dono 27/07) — os toggles individuais
-  // (Financeiro, Cobrança por WhatsApp, Modo das rotas) seguem editáveis nas
-  // telas de sempre depois de aplicar.
-  async function salvarNivel(alvo: LogisticaNivel) {
-    if (nivelBusy || selId == null || alvo === nivel) return;
-    setNivelBusy(true);
-    setNivelMsg(null);
-    try {
-      await apiFetch(`/logistica/master/company/${selId}/nivel`, {
-        method: "PUT",
-        body: JSON.stringify({ nivel: alvo }),
-      });
-      setNivel(alvo);
-      setNivelMsg(`✓ Nível aplicado: ${NIVEL_LABEL[alvo]}.`);
-      await recarregarTudo();
-    } catch (err) {
-      setNivelMsg(err instanceof Error ? err.message : "Falha ao aplicar o nível.");
-    } finally {
-      setNivelBusy(false);
-    }
-  }
-
-  // ROTA v2 (10/08) — override de motoristas (assentos) desta empresa, no MESMO
-  // PUT do nível (`nivel` viaja junto porque o DTO o exige sempre). Vazio grava
+  // ROTA v2 (10/08) — override de motoristas (assentos) desta empresa.
+  // 24/08 — virou o ÚNICO salvar desta seção (salvarNivel morreu com o grid);
+  // `nivel` continua viajando no corpo porque o DTO do PUT o exige sempre
+  // (SetLogisticaNivelDto — conferido no backend em 24/08), e vai EXATAMENTE o
+  // que o GET devolveu: este botão nunca troca o nível de ninguém. Vazio grava
   // null = volta a herdar do nível. Só existe quando assentosSuportado (o GET
   // já trouxe a chave) — ver comentário no state acima.
   async function salvarAssentos() {
@@ -1414,26 +1394,19 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       </div>
                     </div>
 
-                    {/* PR27072026 F1 (ROTA 3 NÍVEIS) — seletor Basic/Advanced/Full. Aplicar
-                        seta o preset de toggles da matriz do plano num PUT só (atalho, não
-                        algema): o Financeiro, a Cobrança por WhatsApp e o Modo das rotas
-                        seguem editáveis um a um nas telas de sempre depois. className
-                        ="ctx-section"/"hint"/"ctx-msg"/"plano-nivel-*" (kit.css) — zero
-                        style visual inline novo (5 Leis). */}
+                    {/* 24/08 — última passada: o grid de cards Basic/Advanced/Full saiu
+                        (nível não abre/fecha mais recurso). O controle principal da
+                        seção é o Nº de MOTORISTAS por dia (assentos); o PUT continua
+                        mandando o `nivel` lido no GET porque o DTO o exige — ver
+                        salvarAssentos. className="ctx-section"/"hint"/"ctx-msg"
+                        (kit.css) — zero style visual inline novo (5 Leis). */}
                     <div className="ctx-section">
-                      <strong style={{ fontSize: "var(--fz-l2)" }}>Nível do plano de logística</strong>
+                      <strong style={{ fontSize: "var(--fz-l2)" }}>Motoristas da logística</strong>
+                      <span className="hint">
+                        Quantos motoristas saem no mesmo dia. Vazio = herda o incluso no nível
+                        (editável na janela Créditos, guia Rota).
+                      </span>
                       {nivelMsg && <div className={`ctx-msg ${nivelMsg.startsWith("✓") ? "ok" : "err"}`}>{nivelMsg}</div>}
-                      <div className="plano-nivel-grid">
-                        {NIVEL_ORDEM.map(n => (
-                          <button key={n} type="button"
-                            className={`plano-nivel-card${nivel === n ? " is-selected" : ""}`}
-                            disabled={nivelBusy || nivel == null}
-                            onClick={() => salvarNivel(n)}>
-                            <span className="t">{NIVEL_LABEL[n]}</span>
-                            <span className="d">{NIVEL_DESCRICAO[n]}</span>
-                          </button>
-                        ))}
-                      </div>
                       {/* ROTA v2 (10/08) — override de motoristas por empresa; some quando o
                           backend (rollout em paralelo) ainda não expõe `logisticaAssentos`
                           no GET do nível (degrade sem quebrar, ver state acima). */}

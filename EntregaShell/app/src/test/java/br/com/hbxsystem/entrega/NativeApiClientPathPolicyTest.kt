@@ -376,4 +376,29 @@ class NativeApiClientPathPolicyTest {
         assertFalse(isMobileEndpointAllowed("vendas", "GET", "/webscraping/radar/claim-runs"))
         assertFalse(isMobileEndpointAllowed("vendas", "POST", "/webscraping/radar/claim-runs"))
     }
+
+    /**
+     * O CIENTE DO PROSPECTOR (24/08) — pego NA BANCADA, no g15, e não em teste.
+     *
+     * O Prospector abriu pra todos e ganhou portão sem escape antes de ligar. A
+     * ponte já fazia `POST /logistica/prospector/ciente`, mas a linha da
+     * allowlist ficou pra trás: o portão abria, o "Ciente" morria DENTRO do
+     * aparelho ("Esta operação não pertence ao logistica"), o backend nunca via
+     * a chamada e o aviso voltava a cada toque — exatamente o defeito que o
+     * comentário do `when` já descreve quatro vezes.
+     *
+     * O par GET/POST da SEMANA entra junto: os dois são a mesma porta do
+     * Prospector, e quem apagar um sem o outro quebra a escolha do tipo.
+     */
+    @Test
+    fun prospectorTemCienteEsemanaNaAllowlist() {
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/prospector/ciente"))
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/prospector/semana"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/prospector/semana"))
+        // O ciente é do app do motorista; o Vendas não tem Prospector de rota.
+        assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/prospector/ciente"))
+        // Carimbo se GRAVA, não se lê: sem GET, e sem porta curinga no ramo.
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/prospector/ciente"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/prospector"))
+    }
 }

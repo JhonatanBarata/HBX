@@ -31,7 +31,10 @@ const ACTION_LABEL: Record<ErrorAction, string> = {
   login: "Entrar de novo",
   fix_input: "Entendi",
   contact_support: "Falar com o técnico",
-  upgrade_plan: "Ver planos",
+  // 24/08 — não existe mais vitrine de planos: o que sobrou de comercial são
+  // assentos, e assento se resolve conversando. O código `upgrade_plan` fica
+  // (o backend ainda pode mandá-lo), só o rótulo muda.
+  upgrade_plan: "Falar com a HBX",
   pay: "Regularizar",
   wait: "Tentar de novo",
   go_back: "Voltar",

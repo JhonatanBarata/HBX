@@ -57,9 +57,8 @@ export interface FechamentoResumo {
   // do GPS aparece — emenda 3 do dono: cliente avulso, sem dia, nunca trava o
   // GPS de ninguém. Campo ADITIVO: APK velho simplesmente ignora.
   base: FechamentoMedida;
-  // null quando o módulo financeiro do tenant está OFF — sem financeiro não
-  // existe "quanto entrou por forma"; número inventado em tela de dinheiro é
-  // mentira (o APK esconde o card quando vem null).
+  // 24/08/2026 — financeiro é sempre ligado: o card sempre vem (0,00 é valor
+  // legítimo). O tipo segue nullable só por forma histórica do contrato.
   fechamento: {
     totalCents: number;
     vendas: number;
@@ -68,8 +67,7 @@ export interface FechamentoResumo {
   // QUEM DEVE (05/08, ordem do dono: `{Devedor?} S/N? Caso sim: "Deve: {valor}"`)
   // — só quem tem saldo em aberto entra, em centavos, indexado pelo id do
   // cliente. Vem no resumo (e não no roster) porque a lista do dia mistura duas
-  // fontes (agenda do dia + entregas de hoje) e o "Deve" tem de valer pras
-  // duas. Vazio com financeiro OFF: sem cobrança não existe devedor.
+  // fontes (agenda do dia + entregas de hoje) e o "Deve" tem de valer pras duas.
   devedores: Record<string, number>;
   // A página pedida (`?dia=`; ausente = dia real do date) — 7 páginas, uma por
   // dia da semana. ADITIVO: APK velho nunca manda `dia` e ignora os campos novos.
@@ -104,7 +102,7 @@ export interface FechamentoPagina {
   // cada dia da semana aparece exatamente 1× na janela. Ordem = ordem de
   // registro (a sequência dele).
   vendas: FechamentoPaginaVenda[];
-  // Fechamento DA PÁGINA (mesma forma do fechamento do dia; null sem financeiro).
+  // Fechamento DA PÁGINA (mesma forma do fechamento do dia).
   fechamento: FechamentoResumo['fechamento'];
   // Ouro nº2 — clientes do dia que compravam nesta página e faltaram as últimas
   // 2 semanas (precisa de histórico: sem compra ANTIGA não há sumiço).
@@ -211,10 +209,6 @@ export class LogisticaFechamentoDiaService {
     private readonly agenda: LogisticaAgendaService = null as any,
   ) {}
 
-  private async configRow(companyId: number) {
-    return this.prisma.logisticaConfig.findUnique({ where: { companyId } });
-  }
-
   /** Medidor do dia + fechamento por forma — o contrato da tela de fechamento do APK. */
   async resumo(
     companyId: number,
@@ -223,7 +217,8 @@ export class LogisticaFechamentoDiaService {
   ): Promise<FechamentoResumo> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const dateKey = dateKeyValida(dateInput);
-    const cfg = await this.configRow(companyId);
+    // 24/08/2026 — a leitura da config saiu daqui: o único uso era o gate
+    // moduloFinanceiroAtivo, que morreu (financeiro é sempre ligado).
 
     // ── Medidores: clientes × quantos têm localização PROVADA no campo. Dois
     // recortes da MESMA conta (dia é do CLIENTE — LogisticaPlanoEntrega é a
@@ -239,28 +234,26 @@ export class LogisticaFechamentoDiaService {
     // ── Fechamento do dia: a conta que o dono faz de cabeça hoje (quanto entrou
     // em dinheiro/pix/cartão + quanto ficou fiado). Fonte = Entrega entregue no
     // dia civil SP; método imediato soma na forma, o resto é fiado do dia.
-    // Financeiro OFF → null (sem cobrança não há forma; o card nem aparece).
+    // 24/08/2026 — o gate "financeiro OFF" morreu: o módulo é sempre ligado.
     // "Deve: R$ X" da linha do dia. REUSA `saldosFinanceiro` — a mesma visão
     // "quem me deve" da web, que por sua vez lê a fonte única
     // `saldoAbertoPorClientes`. Escrever uma 2ª conta de dívida aqui seria a
     // receita pronta pro APK e o extrato discordarem. Best-effort: dívida é
     // enfeite da linha; falha dela nunca pode derrubar a tela do dia.
     let devedores: Record<string, number> = {};
-    if (cfg?.moduloFinanceiroAtivo) {
-      try {
-        const saldos = await this.logistica.saldosFinanceiro(companyId);
-        for (const row of saldos.clientes || []) {
-          const c = cents(row.saldoAberto);
-          if (c > 0) devedores[row.customerProfileId] = c;
-        }
-      } catch (e: any) {
-        this.logger.warn(`[fechamento] devedores company=${companyId} falhou: ${String(e?.message || e)}`);
-        devedores = {};
+    try {
+      const saldos = await this.logistica.saldosFinanceiro(companyId);
+      for (const row of saldos.clientes || []) {
+        const c = cents(row.saldoAberto);
+        if (c > 0) devedores[row.customerProfileId] = c;
       }
+    } catch (e: any) {
+      this.logger.warn(`[fechamento] devedores company=${companyId} falhou: ${String(e?.message || e)}`);
+      devedores = {};
     }
 
     let fechamento: FechamentoResumo['fechamento'] = null;
-    if (cfg?.moduloFinanceiroAtivo) {
+    {
       const inicio = saoPauloMidnight(dateKey);
       const fim = new Date(inicio.getTime() + 24 * 60 * 60 * 1000);
       const entregues = await this.prisma.entrega.findMany({
@@ -282,12 +275,7 @@ export class LogisticaFechamentoDiaService {
 
     // ── A página pedida (default = dia real do date).
     const paginaDia = diaSemanaValido(opts?.dia) ?? diaSemana;
-    const { pagina, historicoDias } = await this.montarPagina(
-      companyId,
-      dateKey,
-      paginaDia,
-      !!cfg?.moduloFinanceiroAtivo,
-    );
+    const { pagina, historicoDias } = await this.montarPagina(companyId, dateKey, paginaDia);
 
     // ── O aprendiz + o aviso do GPS. Fail-closed num bloco só: se a geração das
     // rotas salvas falhar, o convite NÃO sai (abriria uma lista vazia) e o
@@ -313,11 +301,12 @@ export class LogisticaFechamentoDiaService {
    * semana cabe 1× na janela) + fechamento por forma DA página + sumidos.
    * Venda sem etiqueta (legado) cai no dia real do deliveredAt.
    */
+  // 24/08/2026 — o parâmetro `financeiro` morreu: o módulo é sempre ligado e os
+  // valores sempre viajam (0,00 é valor legítimo).
   private async montarPagina(
     companyId: number,
     dateKey: string,
     paginaDia: number,
-    financeiro: boolean,
   ): Promise<{ pagina: FechamentoPagina; historicoDias: FechamentoHistoricoDia[] }> {
     const fim = saoPauloMidnight(somarDiasKey(dateKey, 1));
     const inicioJanela = saoPauloMidnight(somarDiasKey(dateKey, -6));
@@ -375,8 +364,7 @@ export class LogisticaFechamentoDiaService {
         productId: i.productId ?? null,
         nome: i.product?.name || '',
         qtd: Math.max(1, Number(i.qtdEntregue ?? i.qtdPrevista) || 1),
-        // Sem financeiro, número de dinheiro não viaja (mesma régua do fechamento).
-        valorUnit: financeiro && Number.isFinite(Number(i.valorUnit)) ? Number(i.valorUnit) : null,
+        valorUnit: Number.isFinite(Number(i.valorUnit)) ? Number(i.valorUnit) : null,
       }));
       // Merge do principal escalar (mesma regra do registrarHistorico): o 1º
       // produto da venda multi-produto não vira EntregaItem — entra na frente,
@@ -393,7 +381,7 @@ export class LogisticaFechamentoDiaService {
           nome: e.product.name || '',
           qtd,
           valorUnit:
-            financeiro && Number.isFinite(totalPrincipal) && totalPrincipal > 0
+            Number.isFinite(totalPrincipal) && totalPrincipal > 0
               ? Math.round((totalPrincipal / qtd) * 100) / 100
               : null,
         });
@@ -404,13 +392,13 @@ export class LogisticaFechamentoDiaService {
         localId: e.localId ?? null,
         nome: e.customerProfile?.name || 'Cliente',
         itens,
-        metodo: financeiro ? (e.receiptMethod ?? null) : null,
-        total: financeiro && Number.isFinite(Number(e.valor)) ? Number(e.valor) : null,
+        metodo: e.receiptMethod ?? null,
+        total: Number.isFinite(Number(e.valor)) ? Number(e.valor) : null,
       };
     });
 
     let fechamento: FechamentoResumo['fechamento'] = null;
-    if (financeiro) {
+    {
       const formas = { dinheiroCents: 0, pixCents: 0, cartaoCents: 0, fiadoCents: 0 };
       let totalCents = 0;
       for (const e of daPagina) {
@@ -485,7 +473,7 @@ export class LogisticaFechamentoDiaService {
         diaSemana: d,
         dateKey: dataDoDia(d),
         vendas: doDiaD.length,
-        totalCents: financeiro ? doDiaD.reduce((s, e) => s + cents(e.valor), 0) : null,
+        totalCents: doDiaD.reduce((s, e) => s + cents(e.valor), 0),
       });
     }
 
@@ -797,17 +785,15 @@ export class LogisticaFechamentoDiaService {
     actor?: LogisticaActor | null,
   ): Promise<FechamentoVendaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
-    const cfg = await this.configRow(companyId);
     const itens = Array.isArray(dto.itens) ? dto.itens : [];
     if (itens.length === 0) throw new BadRequestException('Escolha ao menos um produto.');
     const desfecho = String(dto.desfecho || '').trim();
     const metodo = String(dto.metodo || '').trim() || null;
-    // Método só é exigível quando existe FINANCEIRO pra registrá-lo. Com o módulo
-    // OFF a folha tem um botão só ("Entregue") e não manda método — exigir aqui
-    // travaria TODA venda do tenant sem financeiro.
-    if (desfecho === 'pagou' && !metodo && cfg.moduloFinanceiroAtivo) {
-      throw new BadRequestException('Escolha como recebeu: dinheiro, Pix ou cartão.');
-    }
+    // 24/08/2026 — o método deixou de ser OBRIGATÓRIO no "pagou": a pergunta
+    // "Como o cliente pagou?" virou opcional no app (financeiro é sempre ligado,
+    // mas travar a venda por falta do método barrava a porta). Sem método, o
+    // desfecho 'pagou' grava receiptMethod ausente — o fechamento trata como
+    // "outros/fiado do dia", nunca inventa forma.
     const key = String(dto.idempotencyKey || '').trim().slice(0, 80);
     if (!key) throw new BadRequestException('Chave de idempotência é obrigatória.');
 

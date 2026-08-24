@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -14,7 +13,6 @@ import type {
   LogisticaTrackingSessionEventDto,
   StartLogisticaTrackingSessionDto,
 } from './dto/logistica-tracking.dto';
-import { isLogisticaTrackingEnabled } from './logistica-tracking.flags';
 import { lockLogisticaRouteTransaction } from './logistica-route-lock';
 import { TRACKING_CONFLICT, conflitoRastreamento } from './logistica-tracking.conflitos';
 
@@ -133,8 +131,6 @@ export class LogisticaTrackingService {
       select: { id: true, entregadorId: true, startedAt: true },
     });
     if (!route) return null;
-    await this.assertTrackingWriteEnabled(companyId);
-
     const existing = await (this.prisma as any).logisticaTrackingSession.findFirst({
       where: { companyId, routeId: route.id },
     });
@@ -200,7 +196,6 @@ export class LogisticaTrackingService {
 
   async startSession(dto: StartLogisticaTrackingSessionDto) {
     const device = await this.authenticateTrackingDevice(dto);
-    await this.assertTrackingWriteEnabled(device.companyId);
     const route = await this.resolveActiveTrackedRoute(device, dto.routeId);
     let session = await (this.prisma as any).logisticaTrackingSession.findFirst({
       where: { companyId: device.companyId, routeId: route.id },
@@ -280,7 +275,6 @@ export class LogisticaTrackingService {
 
   async currentSession(dto: CurrentLogisticaTrackingSessionDto) {
     const device = await this.authenticateTrackingDevice(dto);
-    await this.assertTrackingWriteEnabled(device.companyId);
     const session = await (this.prisma as any).logisticaTrackingSession.findFirst({
       where: {
         companyId: device.companyId,
@@ -299,7 +293,6 @@ export class LogisticaTrackingService {
 
   async ingestPositions(sessionIdInput: string, dto: BatchLogisticaTrackingPointsDto) {
     const device = await this.authenticateTrackingDevice(dto);
-    await this.assertTrackingWriteEnabled(device.companyId);
     const session = await this.loadBoundSession(device, sessionIdInput, { allowEnded: true });
     const result = await this.ingestBoundPositions(device, session, dto.points, new Date());
     const authority = await this.getSessionAuthority(
@@ -554,7 +547,6 @@ export class LogisticaTrackingService {
 
   async recordEvent(sessionIdInput: string, dto: LogisticaTrackingSessionEventDto) {
     const device = await this.authenticateTrackingDevice(dto);
-    await this.assertTrackingWriteEnabled(device.companyId);
     const session = await this.loadBoundSession(device, sessionIdInput, { allowEnded: true });
     const clientEventId = String(dto.eventId || '').trim();
     const duplicate = await (this.prisma as any).logisticaTrackingEvent.findFirst({
@@ -809,13 +801,9 @@ export class LogisticaTrackingService {
   }
 
   async getLive(companyId: number) {
-    // PR27072026 F1 — rastreamento é EXCLUSIVO do nível Full (gate JÁ existe em
-    // logistica-config.service.ts; aqui só LÊ via getNivel, nunca reimplementa).
-    // Ausente/config antiga = ADVANCED, mesmo grandfathering do resto do app
-    // (ver storedNivel/serializeConfig). O front decide a UI (acinzentado com
-    // .plano-selo "Disponível no Full") — o backend nunca esconde rota ATIVA em
-    // andamento por causa de downgrade (grandfathering: operação em curso não
-    // para de ser vista pelo admin só porque o nível mudou no meio do dia).
+    // 24/08/2026 — o gate "rastreamento é do Full" MORREU (plano difere só por
+    // assentos) e o campo `full` saiu da resposta. `nivel` segue no payload só
+    // como informação de plano pro painel; não gateia nada.
     const nivel = this.config?.getNivel ? (await this.config.getNivel(companyId)).nivel : 'ADVANCED';
     const recentSince = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const routes = await (this.prisma as any).logisticaRoute.findMany({
@@ -855,7 +843,6 @@ export class LogisticaTrackingService {
     const now = Date.now();
     return {
       nivel,
-      full: nivel === 'FULL',
       routes: routes.map((route: any) => {
         const session = route.trackingSession;
         const statuses = route.stops.map((stop: any) => String(stop.delivery.status || ''));
@@ -1025,18 +1012,10 @@ export class LogisticaTrackingService {
     return device;
   }
 
-  private async assertTrackingWriteEnabled(companyId: number) {
-    if (!isLogisticaTrackingEnabled()) {
-      throw new ForbiddenException('O rastreamento de rotas está temporariamente indisponível.');
-    }
-    const config = await (this.prisma as any).logisticaConfig.findUnique({
-      where: { companyId },
-      select: { trackingAtivo: true },
-    });
-    if (!config?.trackingAtivo) {
-      throw new ForbiddenException('O rastreamento não está habilitado para esta empresa.');
-    }
-  }
+  // ⚰️ `assertTrackingWriteEnabled` MORREU em 24/08/2026: rastreio é hard-on
+  // (a env HBX_LOGISTICA_TRACKING_ENABLED e a coluna trackingAtivo saíram).
+  // Quem segura escrita fora de hora continua sendo o vínculo rota TRACKED
+  // ACTIVE + sessão do aparelho (resolveActiveTrackedRoute/loadBoundSession).
 
   private async resolveActiveTrackedRoute(device: AuthenticatedMobileDevice, routeIdInput?: string) {
     const routeId = String(routeIdInput || '').trim();

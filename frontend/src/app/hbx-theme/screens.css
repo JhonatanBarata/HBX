@@ -3025,31 +3025,8 @@ html, body { height: 100%; }
 .log-cfg__block-title { font-size: var(--fz-n3); font-weight: 800; color: var(--text-strong); }
 .log-cfg__heading-copy { display: grid; gap: 3px; }
 
-.log-cfg__mode-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.log-cfg__mode {
-  display: grid;
-  align-content: start;
-  gap: 6px;
-  min-height: 108px;
-  padding: 14px;
-  border: 1px solid var(--border-hairline);
-  border-radius: 12px;
-  background: var(--surface-recessed);
-  color: var(--text-body);
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
-}
-.log-cfg__mode:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--hbx-brand); }
-.log-cfg__mode:focus-visible { outline: 2px solid var(--ring-brand); outline-offset: 2px; }
-.log-cfg__mode.is-selected {
-  border-color: var(--hbx-brand);
-  background: color-mix(in srgb, var(--hbx-brand) 9%, var(--surface-recessed));
-}
-.log-cfg__mode:disabled { cursor: not-allowed; opacity: 0.56; }
-.log-cfg__mode-title { color: var(--text-strong); font-size: var(--fz-n3); font-weight: 800; }
-.log-cfg__mode-copy { color: var(--text-muted); font-size: var(--fz-l3); line-height: 1.45; }
+/* 24/08 — .log-cfg__mode* e .log-cfg__warning MORRERAM com o bloco "Modo das
+   novas rotas" (o modo Essencial acabou; toda rota é rastreada). */
 .log-cfg__availability {
   margin: 0;
   color: var(--text-muted);
@@ -3057,16 +3034,6 @@ html, body { height: 100%; }
   line-height: 1.45;
 }
 .log-cfg__availability.is-available { color: var(--hbx-brand-strong); }
-.log-cfg__warning {
-  margin: 0;
-  padding: 9px 11px;
-  border: 1px solid color-mix(in srgb, var(--hbx-warning) 40%, var(--border-hairline));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--hbx-warning) 8%, transparent);
-  color: var(--text-body);
-  font-size: var(--fz-m1);
-  line-height: 1.45;
-}
 
 .log-cfg__vars { display: flex; flex-wrap: wrap; gap: 6px; }
 .log-cfg__var { display: inline-flex; align-items: center; gap: 4px; }
@@ -3117,9 +3084,10 @@ html, body { height: 100%; }
 /* PR07082026-PROSPECTOR-CNPJ F4 — os 3 disparos automáticos LADO A LADO, no
    mesmo molde (padronizar = IGUALAR). O card não tem visual próprio: são as
    mesmas peças do bloco de aviso acima (cabeça + toggle + variáveis + textarea
-   + salvar) numa moldura igual à do .log-cfg__mode. O card indisponível NÃO é
-   apagado por opacity de propósito — dimmar o bloco inteiro derruba o contraste
-   do texto; quem diz "não dá" é o controle desabilitado + .log-cfg__availability. */
+   + salvar) numa moldura .surface-recessed com hairline (24/08: a referência
+   era o .log-cfg__mode, que morreu com o modo Essencial). O card indisponível
+   NÃO é apagado por opacity de propósito — dimmar o bloco inteiro derruba o
+   contraste; quem diz "não dá" é o controle desabilitado + .log-cfg__availability. */
 .log-cfg__msgs {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
@@ -3187,8 +3155,6 @@ html, body { height: 100%; }
 
 @media (max-width: 640px) {
   .log-cfg { padding-inline: 12px; }
-  .log-cfg__mode-grid { grid-template-columns: 1fr; }
-  .log-cfg__mode { min-height: 0; }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -3453,9 +3419,8 @@ html, body { height: 100%; }
 .log-live-status--no-signal { color: var(--hbx-danger); border-color: color-mix(in srgb, var(--hbx-danger) 32%, var(--border-hairline)); background: color-mix(in srgb, var(--hbx-danger) 7%, var(--surface-recessed)); }
 
 .log-live-map { position: relative; min-height: clamp(360px, 48vh, 520px); background: var(--surface-recessed); overflow: hidden; }
-.log-live-map--empty { display: grid; place-content: center; justify-items: center; gap: 5px; padding: 30px; text-align: center; }
-.log-live-map--empty strong { color: var(--text-strong); font-size: var(--fz-n3); }
-.log-live-map--empty span { max-width: 320px; color: var(--text-muted); font-size: var(--fz-m1); line-height: 1.45; }
+/* 24/08 — .log-live-map--empty e .log-live-gate MORRERAM com o portão do Full
+   (rastreamento é de todos; o gate visual saiu de /logistica/rastreamento). */
 .log-live-map__canvas,
 .log-live-map__gl { position: absolute; inset: 0; width: 100%; height: 100%; }
 .log-live-map__state {
@@ -3685,15 +3650,6 @@ html, body { height: 100%; }
 }
 .log-live-map__empty-note strong { color: var(--text-strong); font-size: var(--fz-l2); }
 .log-live-map__empty-note span { color: var(--text-muted); font-size: var(--hbx-font-min); }
-.log-live-map--empty {
-  min-height: 0;
-  background:
-    radial-gradient(circle at 50% 48%, color-mix(in srgb, var(--hbx-brand) 12%, transparent), transparent 24%),
-    linear-gradient(color-mix(in srgb, var(--border-hairline) 42%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--border-hairline) 42%, transparent) 1px, transparent 1px),
-    var(--surface-recessed);
-  background-size: auto, 42px 42px, 42px 42px, auto;
-}
 .log-live-map-hud {
   position: absolute;
   z-index: 4;
@@ -3832,16 +3788,6 @@ html, body { height: 100%; }
 }
 .log-live-alert strong { font-size: var(--fz-m1); }
 .log-live-alert span { font-size: var(--hbx-font-min); }
-.log-live-gate {
-  display: grid;
-  gap: 5px;
-  padding: 12px;
-  border: 1px solid var(--border-hairline);
-  border-radius: 13px;
-  background: var(--surface-recessed);
-}
-.log-live-gate strong { color: var(--text-strong); font-size: var(--fz-l2); }
-.log-live-gate span { color: var(--text-muted); font-size: var(--hbx-font-min); line-height: 1.45; }
 
 .log-live-loading,
 .log-live-kpis {
@@ -3890,16 +3836,8 @@ html, body { height: 100%; }
   font-weight: 650;
 }
 .log-live-routes__empty svg { color: var(--hbx-brand-strong); }
-/* PR29072026 — o PORQUÊ do vazio (rota do dia nasceu Essencial). Quebra a linha
-   do flex acima: o motivo é texto, não chip. */
-.log-live-routes__empty { flex-wrap: wrap; }
-.log-live-routes__empty-why {
-  flex: 1 0 100%;
-  color: var(--hbx-danger);
-  font-size: var(--hbx-font-min);
-  font-weight: 700;
-  line-height: 1.45;
-}
+/* 24/08 — .log-live-routes__empty-why MORREU: o aviso "rota de hoje é
+   Essencial" saiu junto com o modo (toda rota abre sessão). */
 .log-live-route {
   gap: 7px;
   padding: 9px;

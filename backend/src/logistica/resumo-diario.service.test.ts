@@ -313,7 +313,10 @@ test('S3 (extra): mensagem curta com R$ (financeiro ON) via senderType system', 
   });
 });
 
-test('S3 (extra): financeiro do tenant OFF → NENHUM R$ na mensagem (só contagens)', async () => {
+// 24/08/2026 — o gate moduloFinanceiroAtivo MORREU (financeiro é sempre
+// ligado): os valores SEMPRE entram na mensagem, mesmo numa linha antiga que
+// ainda tenha o false gravado no banco.
+test('S3 (extra): linha antiga com financeiro OFF gravado ainda manda os R$ (o gate morreu)', async () => {
   await comFlag('1', async () => {
     const db = buildDb({
       cfgs: [cfgOn({ moduloFinanceiroAtivo: false })],
@@ -328,7 +331,7 @@ test('S3 (extra): financeiro do tenant OFF → NENHUM R$ na mensagem (só contag
     const body: string = conv.calls[0].payload.body;
     assert.ok(body.includes('5 entregas na rota'), 'contagem de hoje presente');
     assert.ok(body.includes('4 entregues'), 'contagem de ontem presente');
-    assert.ok(!body.includes('R$'), 'financeiro OFF: nenhum valor na mensagem');
-    assert.ok(!body.includes('Em aberto'), 'financeiro OFF: sem bloco de dívida');
+    assert.ok(body.includes('R$'), 'os valores sempre entram (0,00 é valor legítimo)');
+    assert.ok(body.includes('Em aberto'), 'bloco de dívida presente quando há devedor');
   });
 });

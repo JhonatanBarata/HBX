@@ -93,7 +93,20 @@ function bancada(opts: { countMente?: boolean } = {}) {
     assertAssentoDoDia: async () => undefined,
     garantirPasseDoDia: async () => undefined,
   };
-  const rota = new LogisticaRotaService(prisma, cobranca, undefined);
+  // 24/08/2026 — TODA rota nasce TRACKED (hard-on): o iniciar exige o serviço
+  // de tracking pra abrir a sessão de GPS. Dublê mínimo, fiel ao contrato.
+  const tracking: any = {
+    ensureSessionForStartedRoute: async () => ({ id: 'sess-teste', status: 'ACTIVE' }),
+    discardUnboundSessionAfterRouteFailure: async () => undefined,
+    getOperationalRouteMetadata: async () => ({
+      routeId: 'route-1',
+      trackingRequired: true,
+      routeStatus: 'ACTIVE',
+      trackingSessionId: 'sess-teste',
+      trackingStatus: 'ACTIVE',
+    }),
+  };
+  const rota = new LogisticaRotaService(prisma, cobranca, tracking);
   (rota as any).logger = { log: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
   return { rota, routes, entregaUpdates };
 }
@@ -121,6 +134,9 @@ test('(controle) com o read-back de verdade a MESMA rota inicia normalmente — 
   const resultado = await rota.iniciarRota(41, { date: DIA, ordemManual: ['d1'] }, 7, 7);
 
   assert.equal(routes[0].status, 'ACTIVE');
+  // 24/08/2026 — TODA rota nasce TRACKED (não existe escolha de modo; a
+  // empresa 41 desta bancada nem tem LogisticaConfig lida pra isso).
+  assert.equal(routes[0].mode, 'TRACKED', 'rota nova nasce TRACKED, sem config nenhuma');
   assert.ok(routes[0].startedAt instanceof Date);
   assert.equal(resultado.paradas.length, 1);
 });

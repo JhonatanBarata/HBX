@@ -124,14 +124,24 @@ test('vender: sem modo nenhum na config, a venda acontece (a chave morta não ba
   assert.ok(calls.some((c) => c.startsWith('create:')), 'a entrega tem que nascer');
 });
 
-test("vender: 'pagou' sem método → recusa antes de criar qualquer coisa", async () => {
+// 24/08/2026 — o método deixou de ser obrigatório no 'pagou' (a pergunta "Como
+// o cliente pagou?" virou opcional no app): a venda passa sem método e o
+// receiptMethod fica ausente — o fechamento trata como "outros/fiado do dia".
+test("vender: 'pagou' sem método NÃO recusa mais — cria e confirma sem receiptMethod", async () => {
   const calls: string[] = [];
-  const svc = new LogisticaFechamentoDiaService(prismaMock() as any, logisticaMock(calls) as any);
-  await assert.rejects(
-    () => svc.vender(5, { ...DTO_BASE, metodo: undefined }),
-    /como recebeu/,
+  const svc = new LogisticaFechamentoDiaService(
+    prismaMock({
+      entrega: {
+        findFirst: async (args: any) =>
+          args?.where?.idempotencyKey ? null : { valor: 30, id: 'ent-1' },
+        findMany: async () => [],
+      },
+    }) as any,
+    logisticaMock(calls) as any,
   );
-  assert.equal(calls.length, 0);
+  const r = await svc.vender(5, { ...DTO_BASE, metodo: undefined });
+  assert.equal(r.entregaId, 'ent-1');
+  assert.ok(calls[0].startsWith('create:'), 'a venda foi criada normalmente');
 });
 
 test('vender: cria + confirma com o método imediato e a MESMA key (cartao passa inteiro)', async () => {
@@ -483,15 +493,22 @@ test("vender: financeiro OFF → 'pagou' SEM método passa (folha de 1 botão) e
   assert.equal(capturado[0], undefined);
 });
 
-test('resumo: financeiro OFF → fechamento null (número de dinheiro não se inventa)', async () => {
+// 24/08/2026 — o gate "financeiro OFF" morreu: o card do fechamento SEMPRE vem
+// (0,00 é valor legítimo) e a config nem é lida no resumo.
+test('resumo: fechamento sempre presente (sem gate de financeiro)', async () => {
   const svc = new LogisticaFechamentoDiaService(
     prismaMock({
-      logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: false }) },
+      logisticaConfig: {
+        findUnique: async () => {
+          throw new Error('o resumo não deve mais ler a config');
+        },
+      },
     }) as any,
     logisticaMock() as any,
   );
   const r = await svc.resumo(5, '2026-08-05');
-  assert.equal(r.fechamento, null);
+  assert.ok(r.fechamento, 'o card sempre vem');
+  assert.equal(r.fechamento!.totalCents, 0, 'dia sem venda = R$ 0,00, número honesto');
 });
 
 // ═══ AS 7 PÁGINAS DO FECHAMENTO (05/08) ══════════════════════════════════════

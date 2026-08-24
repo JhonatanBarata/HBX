@@ -4,10 +4,9 @@ import { isBillingOwnerActor, type ActorKindUserLike } from '../access/actor-kin
 import { supportEmail, supportWhatsappDigits } from '../common/hbx-support-contact';
 import { CreditWalletService } from '../credits/credit-wallet.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { UsersService } from '../users/users.service';
 import { isCobrancaWhatsEnabled } from './logistica-cobranca.flags';
 import { isPedidoPublicoEnabled } from './logistica-pedido.flags';
-import { isProspectorEnabled } from './logistica-prospector.flags';
-import { isLogisticaTrackingEnabled } from './logistica-tracking.flags';
 import { isResumoDiarioEnabled } from './resumo-diario.flags';
 
 /**
@@ -28,6 +27,11 @@ import { isResumoDiarioEnabled } from './resumo-diario.flags';
  * atrás de HBX_LOGISTICA_ENABLED (default OFF) + os 2 níveis de aviso (global e
  * por cliente) resolvidos aqui em `avisoHabilitado`.
  */
+// PROSPECTOR CIENTE (24/08/2026) — chave do carimbo por usuário em
+// User.onboardingStateJson. MESMO trilho do tutorial obrigatório
+// (EVENTO_TUTORIAL_OBRIGATORIO, logistica-tutorial.service.ts): zero migration.
+export const EVENTO_PROSPECTOR_CIENTE = 'logistica_prospector_ciente';
+
 @Injectable()
 export class LogisticaConfigService {
   private readonly logger = new Logger(LogisticaConfigService.name);
@@ -35,6 +39,7 @@ export class LogisticaConfigService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly wallet: CreditWalletService,
+    private readonly users: UsersService,
   ) {}
 
   // ── LER (cria default se não existir) ────────────────────────────────────────
@@ -47,7 +52,8 @@ export class LogisticaConfigService {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const cfg = await this.ensureRow(companyId);
     const creditosEsgotados = await this.computeCreditosEsgotados(companyId);
-    return serializeConfig(cfg, actor, creditosEsgotados);
+    const prospectorCiente = await this.computeProspectorCiente(actor);
+    return serializeConfig(cfg, actor, creditosEsgotados, prospectorCiente);
   }
 
   /**
@@ -73,23 +79,46 @@ export class LogisticaConfigService {
   }
 
   /**
-   * Fonte única do modo EFETIVO usado pela inicialização e pela cobrança.
-   * A preferência TRACKED fica dormente enquanto qualquer um dos dois gates
-   * (flag global + toggle do tenant) estiver desligado.
-   *
-   * ── 26/07 — LOGÍSTICA SIMPLES É O PADRÃO DE TODO MUNDO (ordem do dono) ──────
-   * Empresa nova nasce ESSENTIAL: o schema defaulta `modoRotaPadrao='ESSENTIAL'`
-   * e `trackingAtivo=false`, e `ensureRow` cria a linha SÓ com o companyId — não
-   * existe caminho de código que faça uma empresa nascer Rastreada. A Rastreada
-   * continua inteira no backend, dormente, e só liga por AÇÃO EXPLÍCITA DO
-   * ADMINISTRADOR NO PC (`/logistica/config` → "Modo das novas rotas", PATCH
-   * admin + billing owner). O celular não escolhe mais o modo — o modal do APK
-   * saiu em 26/07.
+   * PROSPECTOR CIENTE (24/08/2026, decisão do dono) — o prospector abriu pra
+   * TODO usuário (sem gate de Master/env/equipe), mas com um aviso "Ciente"
+   * obrigatório na primeira vez. O carimbo é POR USUÁRIO e NO SERVIDOR —
+   * espelho exato do tutorial obrigatório (logistica-tutorial.service.ts):
+   * reusa `User.onboardingStateJson` (stampOnboardingEvent/getOnboardingEvents,
+   * idempotente, tolerante a JSON quebrado) — ZERO MIGRATION de propósito.
+   * Fail-closed no erro (false = mostra o aviso de novo; repetir o aviso é
+   * chato, pular o aviso é quebrar a decisão do dono).
+   */
+  private async computeProspectorCiente(actor?: ActorKindUserLike): Promise<boolean> {
+    const userId = Number((actor as any)?.id);
+    if (!Number.isInteger(userId) || userId <= 0) return false;
+    try {
+      const user = await this.users.findById(userId);
+      const events = this.users.getOnboardingEvents(user as any);
+      return !!events[EVENTO_PROSPECTOR_CIENTE];
+    } catch (e: any) {
+      this.logger.warn(`[logistica] computeProspectorCiente user=${userId} falhou: ${String(e?.message || e)}`);
+      return false;
+    }
+  }
+
+  /** Carimba o "Ciente" do prospector pro ATOR. Idempotente (herda do stamp). */
+  async marcarProspectorCiente(userId: number): Promise<{ ok: true; prospectorCiente: true; cienteEm: string }> {
+    const id = Number(userId);
+    if (!Number.isInteger(id) || id <= 0) throw new BadRequestException('Usuário não identificado');
+    const { events } = await this.users.stampOnboardingEvent(id, EVENTO_PROSPECTOR_CIENTE);
+    return { ok: true, prospectorCiente: true, cienteEm: events[EVENTO_PROSPECTOR_CIENTE] };
+  }
+
+  /**
+   * 24/08/2026 (decisão do dono) — NÃO EXISTE MAIS ESCOLHA DE MODO: toda rota
+   * nasce TRACKED. A régua de 4 gates (env HBX_LOGISTICA_TRACKING_ENABLED +
+   * trackingAtivo + nível FULL + modoRotaPadrao) morreu junto com as colunas.
+   * O método fica (assinatura estável pra quem consulta o modo da PRÓXIMA rota);
+   * rota antiga ESSENTIAL congelada em LogisticaRoute.mode continua sendo lida.
    */
   async resolveRouteMode(companyId: number): Promise<LogisticaRouteMode> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
-    const cfg = await this.ensureRow(companyId);
-    return effectiveRouteMode(cfg);
+    return 'TRACKED';
   }
 
   /** Linha crua da config (cria o default se não existir) — base do getConfig e
@@ -169,34 +198,14 @@ export class LogisticaConfigService {
   ): Promise<LogisticaConfigDTO> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
 
-    // ── 26/07 — o MODO da rota não entra mais por aqui ────────────────────────
-    // Ele tem endpoint próprio (`updateRouteMode` / PATCH /logistica/config/
-    // modo-rota). Este guarda é cinto-e-suspensório: o ValidationPipe global
-    // (whitelist + forbidNonWhitelisted) já barra o payload do APK velho com
-    // 400, e quem chamar o serviço direto (script, outro módulo) bate aqui.
-    const forasteiro = input as Record<string, unknown>;
-    if (forasteiro.trackingAtivo !== undefined || forasteiro.modoRotaPadrao !== undefined) {
-      throw new ForbiddenException(
-        'O modo da rota só muda no painel do administrador, no computador.',
-      );
-    }
-    // PROSPECTOR (07/08, decisão nº8 do dono) — o DISPARO AUTOMÁTICO é cobrado
-    // como automação: quem liga é a HBX no /master, nunca o tenant. Mesmo
-    // cinto-e-suspensório do modo da rota acima — o ValidationPipe global já
-    // rejeita as chaves (elas não existem no UpdateLogisticaConfigDto), e quem
-    // chamar o serviço direto (script, outro módulo) bate aqui. A porta única é
-    // `setProspectorAutomacao`, atrás do MasterGuard.
-    if (
-      forasteiro.prospectorAutomacaoAtiva !== undefined ||
-      forasteiro.prospectorAutomacaoMaxDia !== undefined
-    ) {
-      throw new ForbiddenException('O disparo automático do prospector é liberado pela HBX.');
-    }
+    // 24/08/2026 — os guardas "forasteiro" (trackingAtivo/modoRotaPadrao e
+    // prospectorAutomacao*) morreram junto com os campos: as colunas saíram do
+    // schema e o ValidationPipe global (whitelist + forbidNonWhitelisted) segue
+    // devolvendo 400 pra qualquer payload que ainda os mande.
 
     const data: Record<string, unknown> = {};
     const changesCommercialConfig = [
       input.cobrancaNaEntrega,
-      input.moduloFinanceiroAtivo,
       input.moduloRecoveryAtivo,
       input.pixChave,
       input.pixNome,
@@ -211,27 +220,17 @@ export class LogisticaConfigService {
     if (changesCommercialConfig && !isBillingOwnerActor(actor)) {
       throw new ForbiddenException('Somente o responsável financeiro pode alterar esta configuração.');
     }
-    // PR27072026 F1 — teto do nível do plano: lido preguiçoso (só se algum dos
-    // campos gateados abaixo estiver no PATCH) e cacheado nesta chamada — no
-    // máximo 1 SELECT extra mesmo quando os dois campos vêm juntos. Master
-    // bypassa (isSystemMaster) em cada gate; só o tenant fica preso ao teto.
-    let nivelCache: LogisticaNivel | null = null;
-    const nivelDoTenant = async (): Promise<LogisticaNivel> => {
-      if (!nivelCache) {
-        const atual = await this.ensureRow(companyId);
-        nivelCache = storedNivel((atual as any).logisticaNivel);
-      }
-      return nivelCache;
-    };
+    // 24/08/2026 — o "teto do nível" (nivelDoTenant + gates BASIC/ADVANCED/FULL)
+    // morreu: plano difere SÓ por nº de assentos (decisão do dono). Nenhum campo
+    // deste PATCH consulta mais o nível.
     if (input.avisoWhatsEnabled !== undefined) data.avisoWhatsEnabled = !!input.avisoWhatsEnabled;
     if (input.templateAviso !== undefined) {
       const t = String(input.templateAviso ?? '').trim();
       data.templateAviso = t ? t.slice(0, 1000) : null;
     }
     if (input.raioChegadaM !== undefined) data.raioChegadaM = clampInt(input.raioChegadaM, 10, 5000, 60);
-    if (input.cobrancaSimples !== undefined) data.cobrancaSimples = !!input.cobrancaSimples;
-    // MODO PASSEIO (29/07) — liberação pra equipe. Operacional (mesmo padrão do
-    // cobrancaSimples): @Admin() do controller já basta, não exige billing owner.
+    // MODO PASSEIO (29/07) — liberação pra equipe. Operacional: @Admin() do
+    // controller já basta, não exige billing owner.
     if (input.passeioEquipe !== undefined) data.passeioEquipe = !!input.passeioEquipe;
     if (input.velocidadeMediaKmH !== undefined) data.velocidadeMediaKmH = clampInt(input.velocidadeMediaKmH, 1, 200, 25);
     if (input.tempoParadaMin !== undefined) data.tempoParadaMin = clampInt(input.tempoParadaMin, 0, 240, 5);
@@ -242,42 +241,24 @@ export class LogisticaConfigService {
     if (input.sentinelaParadoMin !== undefined) data.sentinelaParadoMin = clampInt(input.sentinelaParadoMin, 0, 240, 25);
     if (input.sentinelaAtrasoMin !== undefined) data.sentinelaAtrasoMin = clampInt(input.sentinelaAtrasoMin, 0, 240, 20);
     if (input.cobrancaNaEntrega !== undefined) data.cobrancaNaEntrega = !!input.cobrancaNaEntrega;
-    if (input.moduloFinanceiroAtivo !== undefined) {
-      /* 🔴 O GATE DE NÍVEL SAIU EM 21/08/2026, e tinha que sair no MESMO gesto
-         que o default novo — senão os dois juntos viram uma armadilha.
-         Antes: `if (ligar && !master && nivel === 'BASIC') throw`.
-         Com o financeiro nascendo LIGADO em todos os níveis (ver
-         `nivelPresetPatch` e o `@default(true)` do schema), um tenant BASIC
-         nasceria com ele on, desligaria uma vez e **não conseguiria mais
-         religar** — barrado por um gate que defende um teto que o próprio
-         nascimento já não respeita. Botão que desliga e não liga de volta é
-         pior que botão nenhum.
-         ⚠️ O QUE SE PERDE: o financeiro era o carro-chefe do Advanced na escada
-         de venda (PR27072026 F1). Decisão do dono, com esse custo na mesa. */
-      data.moduloFinanceiroAtivo = !!input.moduloFinanceiroAtivo;
-    }
+    // 24/08/2026 — `moduloFinanceiroAtivo` MORREU (coluna e campo): financeiro é
+    // SEMPRE ligado, R$ 0,00 é valor legítimo. O toggle era uma escolha que 12
+    // das 14 empresas nunca fizeram e que fazia a Folha da venda abrir vazia.
     // PR27072026 F2 — PARADA AMARELA DE DEVEDOR: modo do tratamento na rota de
     // hoje. OPERACIONAL (não exige billing owner — mesmo padrão do
-    // `cobrancaAutomatica` acima; @Admin() do controller já
-    // basta). GATE DE USO é só de NÍVEL (Advanced+): NORMAL (equivalente a
-    // "desligado") sempre passa, mesmo no BASIC — só COBRANCA/EXCLUIR exigem o
-    // nível. logistica.service.ts tem o cinto-e-suspensório na LEITURA (resolve
-    // NORMAL sozinho se o nível cair depois de gravado).
+    // `cobrancaAutomatica`; @Admin() do controller já basta). 24/08/2026: o gate
+    // de nível (Advanced+ pra COBRANCA/EXCLUIR) saiu — plano difere só por
+    // assentos; a normalização fica.
     if (input.devedorNaRota !== undefined) {
       const modo = normalizeDevedorNaRota(input.devedorNaRota);
       if (!modo) throw new BadRequestException('Modo de devedor na rota inválido — use COBRANCA, EXCLUIR ou NORMAL.');
-      if (modo !== 'NORMAL' && !actor?.isSystemMaster && (await nivelDoTenant()) === 'BASIC') {
-        throw new ForbiddenException('Cobrar ou excluir devedor da rota é do plano Advanced.');
-      }
       data.devedorNaRota = modo;
     }
-    // PR18072026 W-A — toggles operacionais (não exigem billing owner, mesmo
-    // padrão do cobrancaSimples): formas de pagamento aceitas + preço por
-    // cliente + cobrança automática (painel Avançado).
+    // PR18072026 W-A — toggles operacionais (não exigem billing owner): formas
+    // de pagamento aceitas + cobrança automática (painel Avançado).
     if (input.aceitaNaHora !== undefined) data.aceitaNaHora = !!input.aceitaNaHora;
     if (input.aceitaMensal !== undefined) data.aceitaMensal = !!input.aceitaMensal;
     if (input.aceitaFiado !== undefined) data.aceitaFiado = !!input.aceitaFiado;
-    if (input.precoPorClienteAtivo !== undefined) data.precoPorClienteAtivo = !!input.precoPorClienteAtivo;
     if (input.cobrancaAutomatica !== undefined) data.cobrancaAutomatica = !!input.cobrancaAutomatica;
     if (input.moduloRecoveryAtivo !== undefined) data.moduloRecoveryAtivo = !!input.moduloRecoveryAtivo;
     // TASK 4 — dias de trabalho da empresa: CSV de inteiros 1..7 (ISO, 1=segunda…
@@ -313,14 +294,8 @@ export class LogisticaConfigService {
     // S2 COBRANÇA-WHATS (11/07) — toggle POR TENANT (aviso de cobrança + lembrete
     // de vencimento no zap). Gravar é livre; EFEITO só existe com a flag global
     // HBX_COBRANCA_WHATS_ENABLED ligada (o serviço de aviso checa as duas).
-    if (input.cobrancaWhatsAtiva !== undefined) {
-      // PR27072026 F1 — mesmo teto acima: cobrança automática por WhatsApp
-      // ("Cobrança automática educada" na matriz) também é Advanced+.
-      if (input.cobrancaWhatsAtiva && !actor?.isSystemMaster && (await nivelDoTenant()) === 'BASIC') {
-        throw new ForbiddenException('Cobrança automática por WhatsApp é do plano Advanced.');
-      }
-      data.cobrancaWhatsAtiva = !!input.cobrancaWhatsAtiva;
-    }
+    // 24/08/2026: o gate de nível (Advanced+) saiu — plano difere só por assentos.
+    if (input.cobrancaWhatsAtiva !== undefined) data.cobrancaWhatsAtiva = !!input.cobrancaWhatsAtiva;
     // F4 PROSPECTOR (07/08) — "organize os 3 disparos": a cobrança ganhou o
     // texto cadastrado que o aviso de chegada já tinha. MESMO tratamento do
     // avisoChegandoTemplate (trim + slice 1000, vazio → null); null = a mensagem
@@ -333,7 +308,8 @@ export class LogisticaConfigService {
     // template + condição). OPERACIONAL: @Admin() do controller basta, não exige
     // billing owner (mesmo padrão de passeioEquipe) — quem escolhe
     // é o admin da operação, e o que gasta crédito (abrir lead) tem gate próprio
-    // no ato. Gravar é livre; EFEITO só existe com HBX_PROSPECTOR_ENABLED global.
+    // no ato. 24/08/2026: a env global HBX_PROSPECTOR_ENABLED morreu (hard-on) —
+    // este toggle da empresa é a única chave de produto que resta.
     if (input.prospectorAtivo !== undefined) data.prospectorAtivo = !!input.prospectorAtivo;
     if (input.prospectorTemplate !== undefined) {
       const t = String(input.prospectorTemplate ?? '').trim();
@@ -345,8 +321,9 @@ export class LogisticaConfigService {
     if (input.prospectorRaioM !== undefined) data.prospectorRaioM = clampInt(input.prospectorRaioM, 50, 500, 150);
     // Quantas acendem sozinhas no dia — o "3 a 5" do dono, com folga 1..8.
     if (input.prospectorMaxDia !== undefined) data.prospectorMaxDia = clampInt(input.prospectorMaxDia, 1, 8, 4);
-    // Liberação pra EQUIPE — mesma regra do passeioEquipe (operacional).
-    if (input.prospectorEquipe !== undefined) data.prospectorEquipe = !!input.prospectorEquipe;
+    // 24/08/2026 — `prospectorEquipe` MORREU: com o toggle da empresa ligado,
+    // TODO usuário vê o prospector (a régua "funcionário só com equipe" saiu;
+    // o que segura a primeira vez agora é o "Ciente" por usuário).
     // ITEM 9 DO DONO (07/08) — o admin desliga módulos do app do motorista PELO
     // DESKTOP. OPERACIONAL (não exige billing owner) e normalizado igual ao
     // diasTrabalho: split, filtra chave válida, dedupe, sort, vazio → null.
@@ -384,76 +361,14 @@ export class LogisticaConfigService {
     // MESMO shape do GET — recalcula o booleano pra não devolver um valor
     // desatualizado pro admin que acabou de editar a config.
     const creditosEsgotados = await this.computeCreditosEsgotados(companyId);
-    return serializeConfig(cfg, actor, creditosEsgotados);
+    const prospectorCiente = await this.computeProspectorCiente(actor);
+    return serializeConfig(cfg, actor, creditosEsgotados, prospectorCiente);
   }
 
-  // ── MODO DA ROTA (Simples × Rastreada) — PORTA ÚNICA, SÓ DO PC ──────────────
-  /**
-   * Grava a escolha comercial do modo das NOVAS rotas. Endpoint próprio
-   * (`PATCH /logistica/config/modo-rota`) por decisão de 26/07: enquanto os dois
-   * campos moravam no PATCH genérico da config, o APK VELHO já instalado em
-   * campo conseguia mandar a troca se quem estivesse logado fosse o dono da
-   * conta. Separar o endereço fecha a porta por CONTRATO — o payload antigo cai
-   * no ValidationPipe (400) e nenhum bundle do celular conhece esta rota. Não
-   * depende de User-Agent, que é string de cliente e se forja.
-   *
-   * Continua exigindo billing owner (a escolha mexe em quanto a empresa gasta:
-   * 2 créditos por entrega na Rastreada contra 1 por bloco de 5 na Simples).
-   */
-  async updateRouteMode(
-    companyId: number,
-    input: UpdateLogisticaRouteModeInput,
-    actor?: ActorKindUserLike,
-  ): Promise<LogisticaConfigDTO> {
-    if (!companyId) throw new BadRequestException('Empresa não identificada');
-    if (!isBillingOwnerActor(actor)) {
-      throw new ForbiddenException('Somente o responsável financeiro pode alterar esta configuração.');
-    }
-
-    const data: Record<string, unknown> = {};
-    if (input.trackingAtivo !== undefined) data.trackingAtivo = !!input.trackingAtivo;
-    if (input.modoRotaPadrao !== undefined) {
-      const mode = String(input.modoRotaPadrao || '').trim().toUpperCase();
-      if (mode !== 'ESSENTIAL' && mode !== 'TRACKED') {
-        throw new BadRequestException('Modo de rota inválido.');
-      }
-      data.modoRotaPadrao = mode;
-    }
-    if (!Object.keys(data).length) throw new BadRequestException('Nada para alterar.');
-    // 26/07 — DESARMA a preferência órfã. Antes disso `trackingAtivo=false` +
-    // `modoRotaPadrao='TRACKED'` era um estado LEGAL: a rota caía em ESSENTIAL
-    // (effectiveRouteMode), mas o TRACKED ficava armado no banco e voltava
-    // sozinho no dia em que alguém religasse o toggle — foi exatamente assim que
-    // as companies 5 e 48 ficaram TRACKED em produção. Desligar o rastreamento
-    // agora zera a preferência junto: pra voltar pra Rastreada o administrador
-    // (no PC) liga o toggle E escolhe a Rastreada de novo — 2 atos conscientes,
-    // nenhum deles no celular. NÃO apaga nada da Rastreada: rota já iniciada
-    // guarda o modo congelado na própria LogisticaRoute e continua sendo lida
-    // nos dois modos.
-    if (data.trackingAtivo === false) data.modoRotaPadrao = 'ESSENTIAL';
-
-    // PR27072026 F1 — GATE de uso, no valor FINAL (depois da desarma acima):
-    // Rastreado é exclusivo do plano Full. Checar aqui (não no `mode` bruto do
-    // input) importa pro PATCH "contraditório" (trackingAtivo:false +
-    // modoRotaPadrao:'TRACKED' no mesmo corpo) continuar resolvendo em
-    // ESSENTIAL sem erro — a desarma já neutralizou o pedido, não sobrou
-    // TRACKED pra recusar. O tenant NUNCA liga TRACKED por cima do teto do
-    // nível por este caminho (Master pode tudo — isSystemMaster bypassa).
-    if (data.modoRotaPadrao === 'TRACKED' && !actor?.isSystemMaster) {
-      const atual = await this.ensureRow(companyId);
-      if (storedNivel((atual as any).logisticaNivel) !== 'FULL') {
-        throw new ForbiddenException('Rastreamento é do plano Full.');
-      }
-    }
-
-    const cfg = await this.prisma.logisticaConfig.upsert({
-      where: { companyId },
-      update: data,
-      create: { companyId, ...data },
-    });
-    const creditosEsgotados = await this.computeCreditosEsgotados(companyId);
-    return serializeConfig(cfg, actor, creditosEsgotados);
-  }
+  // ⚰️ `updateRouteMode` (PATCH /logistica/config/modo-rota) MORREU em
+  // 24/08/2026: não existe mais escolha de modo — toda rota nasce TRACKED
+  // (decisão do dono). O endpoint saiu do controller junto; rota antiga
+  // ESSENTIAL congelada em LogisticaRoute.mode continua sendo lida normalmente.
 
   // ── PR27072026 F1 — NÍVEL DO PLANO (Basic/Advanced/Full), SÓ O MASTER ───────
   /** Nível gravado (grandfathering resolvido: ausente/sujo → ADVANCED). */
@@ -470,11 +385,10 @@ export class LogisticaConfigService {
   }
 
   /**
-   * Aplica o nível: grava `logisticaNivel` E o preset de toggles da matriz do
-   * plano (nivelPresetPatch) NUM SÓ upsert — "escolher já seta" (F1 item 1).
+   * Aplica o nível. 24/08/2026 — o preset de toggles comerciais
+   * (nivelPresetPatch) MORREU: plano difere SÓ por nº de assentos, então trocar
+   * o nível grava nível (+ assentos, quando enviados) e NADA mais.
    * Guard de acesso (MasterGuard) fica no controller; aqui só valida o valor.
-   * Preset é ATALHO, não algema: depois de aplicado, o Master segue ajustando
-   * toggle a toggle pelo updateConfig/updateRouteMode normais.
    *
    * ROTA v2 F2c (10/08) — `logisticaAssentosInput` é o override de assentos da
    * MESMA ficha (1 PUT, 1 tela: trocar nível e assentos juntos). `undefined` =
@@ -495,7 +409,7 @@ export class LogisticaConfigService {
     if (alvo !== 'BASIC' && alvo !== 'ADVANCED' && alvo !== 'FULL' && alvo !== 'CREDITO') {
       throw new BadRequestException('Nível inválido — use BASIC, ADVANCED, FULL ou CREDITO.');
     }
-    const data: Record<string, unknown> = { logisticaNivel: alvo, ...nivelPresetPatch(alvo as LogisticaNivel) };
+    const data: Record<string, unknown> = { logisticaNivel: alvo };
     if (logisticaAssentosInput !== undefined) {
       data.logisticaAssentos = clampInt(logisticaAssentosInput, 1, 999, 1);
     }
@@ -505,63 +419,14 @@ export class LogisticaConfigService {
       create: { companyId, ...data },
     });
     const creditosEsgotados = await this.computeCreditosEsgotados(companyId);
-    return serializeConfig(cfg, actor, creditosEsgotados);
+    const prospectorCiente = await this.computeProspectorCiente(actor);
+    return serializeConfig(cfg, actor, creditosEsgotados, prospectorCiente);
   }
 
-  // ── PROSPECTOR: DISPARO AUTOMÁTICO (decisão nº8), SÓ O MASTER ───────────────
-  /** Estado atual da automação do prospector (pro painel do Master). */
-  async getProspectorAutomacao(
-    companyId: number,
-  ): Promise<{ prospectorAutomacaoAtiva: boolean; prospectorAutomacaoMaxDia: number; prospectorDisponivel: boolean }> {
-    if (!companyId) throw new BadRequestException('Empresa não identificada');
-    const cfg = await this.ensureRow(companyId);
-    return {
-      prospectorAutomacaoAtiva: !!(cfg as any).prospectorAutomacaoAtiva,
-      prospectorAutomacaoMaxDia: prospectorAutomacaoMaxDiaOf(cfg),
-      prospectorDisponivel: isProspectorEnabled(),
-    };
-  }
-
-  /**
-   * Liga/desliga o disparo AUTOMÁTICO do prospector e o teto diário dele.
-   * Endereço PRÓPRIO, só Master (MasterGuard no controller — mesmo desenho do
-   * setNivel acima e pelo mesmo motivo: fechar a porta por CONTRATO). Decisão
-   * nº8 do dono: disparo automático é COBRADO como automação, então o tenant
-   * NUNCA liga sozinho — o PATCH genérico da config recusa estas 2 chaves.
-   *
-   * O guard de acesso é do controller; aqui fica o cinto-e-suspensório
-   * (isSystemMaster) pra quem chamar o serviço direto por outro caminho.
-   *
-   * Teto: 0..50/dia. 0 (default) = automação SEM cota — mesmo com a chave
-   * ligada, nada dispara sozinho. O teto do NÍVEL DE DISPARO da empresa
-   * continua mandando por cima disto ("nível é INTENÇÃO; freio é FÍSICA").
-   */
-  async setProspectorAutomacao(
-    companyId: number,
-    input: UpdateProspectorAutomacaoInput,
-    actor?: ActorKindUserLike,
-  ): Promise<LogisticaConfigDTO> {
-    if (!companyId) throw new BadRequestException('Empresa não identificada');
-    if (!actor?.isSystemMaster) {
-      throw new ForbiddenException('O disparo automático do prospector é liberado pela HBX.');
-    }
-    const data: Record<string, unknown> = {};
-    if (input.prospectorAutomacaoAtiva !== undefined) {
-      data.prospectorAutomacaoAtiva = !!input.prospectorAutomacaoAtiva;
-    }
-    if (input.prospectorAutomacaoMaxDia !== undefined) {
-      data.prospectorAutomacaoMaxDia = clampInt(input.prospectorAutomacaoMaxDia, 0, 50, 0);
-    }
-    if (!Object.keys(data).length) throw new BadRequestException('Nada para alterar.');
-
-    const cfg = await this.prisma.logisticaConfig.upsert({
-      where: { companyId },
-      update: data,
-      create: { companyId, ...data },
-    });
-    const creditosEsgotados = await this.computeCreditosEsgotados(companyId);
-    return serializeConfig(cfg, actor, creditosEsgotados);
-  }
+  // ⚰️ `getProspectorAutomacao`/`setProspectorAutomacao` (GET/PUT /logistica/
+  // master/company/:id/prospector-automacao) MORRERAM em 24/08/2026: o gate
+  // Master do disparo automático era uma porta sem nada atrás (zero consumidor)
+  // e as colunas prospectorAutomacaoAtiva/MaxDia saíram do schema junto.
 
   // ── TOGGLE "avisar entrega" POR CLIENTE ──────────────────────────────────────
   /**
@@ -809,12 +674,6 @@ function normalizeAppModulosDesativados(raw: unknown): string | null {
   return chaves.length > 0 ? chaves.join(',') : null;
 }
 
-/** Teto diário da automação do prospector gravado (linha antiga/suja → 0). */
-function prospectorAutomacaoMaxDiaOf(c: any): number {
-  const n = Math.trunc(Number(c?.prospectorAutomacaoMaxDia));
-  return Number.isFinite(n) && n > 0 ? Math.min(50, n) : 0;
-}
-
 // PR27072026 F2 — só os 3 valores da matriz do plano passam; qualquer outro (lixo,
 // vazio) é rejeitado no chamador (BadRequestException), nunca gravado silencioso.
 export type DevedorNaRotaModo = 'COBRANCA' | 'EXCLUIR' | 'NORMAL';
@@ -824,7 +683,12 @@ function normalizeDevedorNaRota(value: unknown): DevedorNaRotaModo | null {
   return null;
 }
 
-function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = false): LogisticaConfigDTO {
+function serializeConfig(
+  c: any,
+  actor?: ActorKindUserLike,
+  creditosEsgotados = false,
+  prospectorCiente = false,
+): LogisticaConfigDTO {
   const operational: LogisticaConfigDTO = {
     // S7 (PR22072026-APP-SOUNDS) — BOOLEANO, nunca o saldo: vai pra TODO ator
     // (inclusive motorista, que não é billing owner) porque é o único jeito de
@@ -847,22 +711,18 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     comprovanteFotoObrigatoria: !!c.comprovanteFotoObrigatoria,
     comprovanteAssinaturaObrigatoria: !!c.comprovanteAssinaturaObrigatoria,
     comprovanteCodigoObrigatorio: !!c.comprovanteCodigoObrigatorio,
-    cobrancaSimples: !!c.cobrancaSimples,
     // MODO PASSEIO (29/07) — OPERACIONAL (todo ator lê): o APK decide se mostra
     // a entrada do modo pro papel comum. É TOGGLE, nunca valor (LEI DO VENDEDOR).
     passeioEquipe: !!c.passeioEquipe,
-    // PR18072026 W-A — módulo Financeiro liga/desliga (3 níveis) + painel
-    // Avançado. moduloFinanceiroAtivo e os 5 toggles abaixo são OPERACIONAIS
-    // (lidos por QUALQUER ator): o app do entregador precisa saber o nível da
-    // folha de chegada e quais formas mostrar no editar cliente MESMO sem ser
-    // billing owner (motorista/vendedor não é dono nem gerente). É o TOGGLE
-    // (liga/desliga), não valor financeiro — LEI DO VENDEDOR segue protegendo
-    // saldo/valor, não este booleano.
-    moduloFinanceiroAtivo: !!c.moduloFinanceiroAtivo,
+    // 24/08/2026 — `moduloFinanceiroAtivo`/`cobrancaSimples`/`precoPorClienteAtivo`
+    // saíram do contrato: financeiro é sempre ligado (0,00 é valor legítimo).
+    // PR18072026 W-A — formas de pagamento aceitas: OPERACIONAIS (lidas por
+    // QUALQUER ator): o app do entregador precisa saber quais formas mostrar no
+    // editar cliente MESMO sem ser billing owner. É TOGGLE, não valor financeiro
+    // — LEI DO VENDEDOR segue protegendo saldo/valor, não estes booleanos.
     aceitaNaHora: c.aceitaNaHora === undefined ? true : !!c.aceitaNaHora,
     aceitaMensal: c.aceitaMensal === undefined ? true : !!c.aceitaMensal,
     aceitaFiado: c.aceitaFiado === undefined ? true : !!c.aceitaFiado,
-    precoPorClienteAtivo: c.precoPorClienteAtivo === undefined ? true : !!c.precoPorClienteAtivo,
     cobrancaAutomatica: !!c.cobrancaAutomatica,
     // ROTA-CONFERIDA — coluna real desde 26/07 (baseline do drift
     // VendasCardComplaint + migration logistica_flags_ligadas, ligada geral).
@@ -884,20 +744,18 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     devedorNaRota: normalizeDevedorNaRota(c.devedorNaRota) ?? 'COBRANCA',
     // PROSPECTOR CNPJ (07/08) — OPERACIONAIS (todo ator lê, inclusive motorista):
     // o APK precisa saber se mostra os pinos apagados, com que texto fala, em que
-    // raio acende e quantas vezes por dia — e o motorista comum só entra se
-    // `prospectorEquipe` estiver ligado (mesma leitura do passeioEquipe). São
-    // TOGGLES e RÉGUAS, nunca valor: a LEI DO VENDEDOR segue intacta.
+    // raio acende e quantas vezes por dia. São TOGGLES e RÉGUAS, nunca valor: a
+    // LEI DO VENDEDOR segue intacta. 24/08/2026 — `prospectorEquipe` e
+    // `prospectorDisponivel` (env global) morreram: com o toggle da empresa
+    // ligado, todo usuário vê; a 1ª vez é segurada pelo "Ciente" abaixo.
     prospectorAtivo: !!c.prospectorAtivo,
     prospectorTemplate: c.prospectorTemplate ?? null,
     prospectorRaioM: typeof c.prospectorRaioM === 'number' ? c.prospectorRaioM : 150,
     prospectorMaxDia: typeof c.prospectorMaxDia === 'number' ? c.prospectorMaxDia : 4,
-    prospectorEquipe: !!c.prospectorEquipe,
-    // Derivado da env global. OPERACIONAL de propósito (diferente do
-    // cobrancaWhatsDisponivel, que é do bloco financeiro): quem desenha a tela do
-    // prospector é o APK do motorista, e sem este booleano ele não tem como
-    // esconder a feature quando a HBX ainda não a ligou. É uma chave de produto
-    // global, sem nenhum dado do tenant dentro.
-    prospectorDisponivel: isProspectorEnabled(),
+    // PROSPECTOR CIENTE (24/08/2026) — carimbo DO ATOR (por usuário, no
+    // servidor — espelho do tutorial obrigatório): o app só mostra o aviso
+    // "Ciente" enquanto isto for false. Marca via POST /logistica/prospector/ciente.
+    prospectorCiente: !!prospectorCiente,
     // ITEM 9 (07/08) — o que o admin DESLIGOU no app, lido por todo ator: é o
     // próprio app do motorista que precisa do CSV pra sumir com a entrada do
     // menu. null = tudo ligado. "rota" nunca aparece aqui (lei dura).
@@ -937,22 +795,22 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     pedidoPublicoAtivo: !!c.pedidoPublicoAtivo,
     pedidoPublicoToken: c.pedidoPublicoToken ?? null,
     pedidoPublicoDisponivel: isPedidoPublicoEnabled(),
-    trackingAtivo: !!c.trackingAtivo,
-    trackingDisponivel: isLogisticaTrackingEnabled(),
-    // Preferência salva (não o modo efetivo): a UI continua mostrando TRACKED
-    // enquanto a flag global está OFF. Inicialização/cobrança usam resolveRouteMode.
-    modoRotaPadrao: storedRouteMode(c.modoRotaPadrao),
-    // PROSPECTOR — automação COBRADA (decisão nº8): a leitura fica no bloco de
-    // baixo (billing owner) porque é assunto de CONTA, não de operação. O
-    // motorista nem sabe que existe; quem grava é só o Master.
-    prospectorAutomacaoAtiva: !!c.prospectorAutomacaoAtiva,
-    prospectorAutomacaoMaxDia: prospectorAutomacaoMaxDiaOf(c),
+    // 24/08/2026 — o app deduz "sou admin" por PRESENÇA de campo do bloco
+    // billing-owner (hasOwnProperty(config,'modoRotaPadrao')). Com a escolha de
+    // modo morta, este é o sinal EXPLÍCITO novo — o app migra pra ele no 361.
+    admin: true,
+    // 🪦 compat APK 359 em campo (ehAdmin por presença); remover no 361. O modo
+    // é hard-on: toda rota nasce TRACKED, não existe mais preferência salva.
+    modoRotaPadrao: 'TRACKED' as const,
   };
 }
 
+// 24/08/2026 — ESSENTIAL sobrevive SÓ como valor congelado em
+// LogisticaRoute.mode (rota antiga); rota nova nasce sempre TRACKED.
 export type LogisticaRouteMode = 'ESSENTIAL' | 'TRACKED';
 
-function storedRouteMode(value: unknown): LogisticaRouteMode {
+/** Normaliza o `LogisticaRoute.mode` LEGADO do banco (valor sujo → ESSENTIAL). */
+export function storedRouteMode(value: unknown): LogisticaRouteMode {
   return String(value || '').trim().toUpperCase() === 'TRACKED' ? 'TRACKED' : 'ESSENTIAL';
 }
 
@@ -976,91 +834,13 @@ export function storedNivel(value: unknown): LogisticaNivel {
   return 'ADVANCED';
 }
 
-/**
- * A matriz do plano (docs/PLANEJAMENTOS/PR27072026-ROTA-3-NIVEIS.md) em
- * código: escolher um nível seta o conjunto de toggles que vende aquele plano,
- * NUM SÓ gesto. Preset é ATALHO, não algema (decisão do dono 27/07) — depois
- * de aplicado, o Master segue ajustando toggle a toggle pelo PATCH normal de
- * config; isto aqui só roda na hora de TROCAR o nível.
- *  - CREDITO: o mais conservador de todos — sem financeiro real, sem cobrança
- *    automática, sem tracking. É o nível "pague só o dia que rodar": nenhum
- *    módulo comercial pago por assinatura nasce ligado.
- *  - BASIC: financeiro real e cobrança automática OFF (registro de recebimento
- *    na entrega continua — não passa por moduloFinanceiroAtivo); tracking OFF.
- *  - ADVANCED: liga o financeiro real (o carro-chefe — "o app cobra por
- *    você"); tracking segue exclusivo do Full.
- *  - FULL: tudo ligado, incluindo o modo TRACKED por padrão de rota (F1 item 4).
- */
-function nivelPresetPatch(nivel: LogisticaNivel): Record<string, unknown> {
-  if (nivel === 'CREDITO') {
-    return {
-      // 21/08: LIGADO em todos os niveis — ver o comentario do schema.
-      moduloFinanceiroAtivo: true,
-      cobrancaWhatsAtiva: false,
-      cobrancaAutomatica: false,
-      trackingAtivo: false,
-      modoRotaPadrao: 'ESSENTIAL',
-    };
-  }
-  if (nivel === 'BASIC') {
-    return {
-      // 21/08: LIGADO em todos os niveis — ver o comentario do schema.
-      moduloFinanceiroAtivo: true,
-      cobrancaWhatsAtiva: false,
-      cobrancaAutomatica: false,
-      trackingAtivo: false,
-      modoRotaPadrao: 'ESSENTIAL',
-    };
-  }
-  if (nivel === 'FULL') {
-    return {
-      moduloFinanceiroAtivo: true,
-      cobrancaWhatsAtiva: true,
-      cobrancaAutomatica: true,
-      trackingAtivo: true,
-      modoRotaPadrao: 'TRACKED',
-    };
-  }
-  return {
-    moduloFinanceiroAtivo: true,
-    trackingAtivo: false,
-    modoRotaPadrao: 'ESSENTIAL',
-  };
-}
-
-/**
- * 4 gates, todos obrigatórios, e qualquer buraco cai em ESSENTIAL (Logística
- * Simples): flag global `HBX_LOGISTICA_TRACKING_ENABLED` + toggle do tenant
- * `trackingAtivo` + nível do plano `logisticaNivel==='FULL'` (PR27072026 F1) +
- * preferência salva `modoRotaPadrao='TRACKED'`. Empresa sem linha de config,
- * com linha nova ou com valor sujo no banco → ESSENTIAL. O gate de nível aqui
- * é o cinto-e-suspensório: a escrita já é barrada em updateConfig/
- * updateRouteMode (nível != FULL nunca grava TRACKED por aquele caminho) e o
- * preset acima já zera trackingAtivo fora do Full — isto cobre o buraco de um
- * valor histórico/sujo no banco sem nunca lançar erro no "iniciar rota".
- */
-function effectiveRouteMode(c: any): LogisticaRouteMode {
-  if (!isLogisticaTrackingEnabled() || !c?.trackingAtivo) return 'ESSENTIAL';
-  if (storedNivel(c?.logisticaNivel) !== 'FULL') return 'ESSENTIAL';
-  return storedRouteMode(c?.modoRotaPadrao);
-}
+// ⚰️ 24/08/2026 — `nivelPresetPatch` e `effectiveRouteMode` MORRERAM: plano
+// difere SÓ por nº de assentos (trocar o nível não escreve mais toggle
+// comercial nenhum) e toda rota nasce TRACKED (a régua de 4 gates saiu junto
+// com as colunas trackingAtivo/modoRotaPadrao). Os tipos
+// UpdateLogisticaRouteModeInput/UpdateProspectorAutomacaoInput saíram junto.
 
 // ── tipos ─────────────────────────────────────────────────────────────────────
-// 26/07 — `trackingAtivo`/`modoRotaPadrao` saíram deste input e viraram o
-// UpdateLogisticaRouteModeInput (endpoint próprio). Ver updateRouteMode.
-export interface UpdateLogisticaRouteModeInput {
-  trackingAtivo?: boolean;
-  modoRotaPadrao?: LogisticaRouteMode;
-}
-
-// PROSPECTOR (07/08) — os 2 campos da automação COBRADA. Fora do
-// UpdateLogisticaConfigInput de propósito: entram SÓ por setProspectorAutomacao
-// (MasterGuard), e o PATCH genérico os recusa com 403.
-export interface UpdateProspectorAutomacaoInput {
-  prospectorAutomacaoAtiva?: boolean;
-  prospectorAutomacaoMaxDia?: number;
-}
-
 export interface UpdateLogisticaConfigInput {
   avisoWhatsEnabled?: boolean;
   templateAviso?: string | null;
@@ -1071,7 +851,6 @@ export interface UpdateLogisticaConfigInput {
   sentinelaParadoMin?: number;
   sentinelaAtrasoMin?: number;
   cobrancaNaEntrega?: boolean;
-  moduloFinanceiroAtivo?: boolean;
   moduloRecoveryAtivo?: boolean;
   diasTrabalho?: string | null;
   pixChave?: string | null;
@@ -1085,12 +864,12 @@ export interface UpdateLogisticaConfigInput {
   // F4 (07/08) — texto cadastrado da cobrança (comercial, billing owner).
   cobrancaWhatsTemplate?: string | null;
   // PROSPECTOR CNPJ (07/08) — operacionais (não exigem billing owner, mesmo
-  // padrão de passeioEquipe). A AUTOMAÇÃO não mora aqui.
+  // padrão de passeioEquipe). 24/08/2026: `prospectorEquipe` morreu (todo
+  // usuário da empresa vê quando prospectorAtivo está on).
   prospectorAtivo?: boolean;
   prospectorTemplate?: string | null;
   prospectorRaioM?: number;
   prospectorMaxDia?: number;
-  prospectorEquipe?: boolean;
   // ITEM 9 (07/08) — CSV dos módulos do app desligados pelo desktop.
   appModulosDesativados?: string | null;
   // S3 RESUMO-DIÁRIO — toggle por tenant + hora local 0-23 (efeito só com a env).
@@ -1101,19 +880,16 @@ export interface UpdateLogisticaConfigInput {
   comprovanteFotoObrigatoria?: boolean;
   comprovanteAssinaturaObrigatoria?: boolean;
   comprovanteCodigoObrigatorio?: boolean;
-  // W1-BACKEND (18/07) — toggle "Cobrança simples na chegada" do app do entregador.
-  cobrancaSimples?: boolean;
   // MODO PASSEIO (29/07) — liberação do modo pra equipe (operacional).
   passeioEquipe?: boolean;
-  // PR18072026 W-A — módulo Financeiro (3 níveis) + painel Avançado. Todos
-  // operacionais: não exigem billing owner (mesmo padrão do cobrancaSimples).
+  // PR18072026 W-A — formas de pagamento aceitas + painel Avançado. Todos
+  // operacionais: não exigem billing owner.
   aceitaNaHora?: boolean;
   aceitaMensal?: boolean;
   aceitaFiado?: boolean;
-  precoPorClienteAtivo?: boolean;
   cobrancaAutomatica?: boolean;
-  // PR27072026 F2 — modo de tratamento do devedor na rota de hoje. Comercial
-  // (billing owner), gate de nível ADVANCED+ pra COBRANCA/EXCLUIR (ver updateConfig).
+  // PR27072026 F2 — modo de tratamento do devedor na rota de hoje (operacional;
+  // 24/08/2026: sem gate de nível — plano difere só por assentos).
   devedorNaRota?: DevedorNaRotaModo;
 }
 
@@ -1153,26 +929,25 @@ export interface LogisticaConfigDTO {
   pedidoPublicoAtivo?: boolean;
   pedidoPublicoToken?: string | null;
   pedidoPublicoDisponivel?: boolean;
-  trackingAtivo?: boolean;
-  trackingDisponivel?: boolean;
-  modoRotaPadrao?: LogisticaRouteMode;
+  // 24/08/2026 — sinal explícito "sou admin" (bloco billing owner). O APK 359
+  // deduz por presença de `modoRotaPadrao`; o 361 migra pra este campo.
+  admin?: true;
+  // 🪦 compat APK 359 em campo (ehAdmin por presença de campo); remover no 361.
+  // Sempre 'TRACKED' — não existe mais escolha de modo.
+  modoRotaPadrao?: 'TRACKED';
   comprovanteFotoObrigatoria: boolean;
   comprovanteAssinaturaObrigatoria: boolean;
   comprovanteCodigoObrigatorio: boolean;
-  // W1-BACKEND (18/07) — toggle "Cobrança simples na chegada" do app do entregador.
-  // Operacional (não financeiro): precisa estar visível pro motorista, não só billing owner.
-  cobrancaSimples: boolean;
   // MODO PASSEIO (29/07) — liberação pra equipe (operacional, todo ator lê).
   passeioEquipe: boolean;
-  // PR18072026 W-A — módulo Financeiro (3 níveis) + painel Avançado. Todos
-  // OPERACIONAIS (lidos por QUALQUER ator, mesmo padrão do cobrancaSimples):
-  // o app do entregador usa pra decidir o nível da folha de chegada e quais
-  // formas de pagamento mostrar no editar cliente.
-  moduloFinanceiroAtivo: boolean;
+  // PR18072026 W-A — formas de pagamento aceitas + painel Avançado. Todos
+  // OPERACIONAIS (lidos por QUALQUER ator): o app do entregador usa pra decidir
+  // quais formas de pagamento mostrar no editar cliente. 24/08/2026 —
+  // moduloFinanceiroAtivo/cobrancaSimples/precoPorClienteAtivo morreram
+  // (financeiro é sempre ligado; 0,00 é valor legítimo).
   aceitaNaHora: boolean;
   aceitaMensal: boolean;
   aceitaFiado: boolean;
-  precoPorClienteAtivo: boolean;
   cobrancaAutomatica: boolean;
   // ROTA-CONFERIDA — tela de conferência no APK. Coluna real desde 26/07
   // (migration logistica_flags_ligadas), ligada pra todas as empresas.
@@ -1185,18 +960,16 @@ export interface LogisticaConfigDTO {
   // ator lê, mesmo padrão do logisticaNivel acima); ver serializeConfig.
   devedorNaRota: DevedorNaRotaModo;
   // PROSPECTOR CNPJ (07/08) — OPERACIONAIS (todo ator lê; ver serializeConfig).
+  // 24/08/2026: prospectorEquipe/prospectorDisponivel/prospectorAutomacao*
+  // morreram; entrou o `prospectorCiente` (carimbo DO ATOR).
   prospectorAtivo: boolean;
   prospectorTemplate: string | null;
   prospectorRaioM: number;
   prospectorMaxDia: number;
-  prospectorEquipe: boolean;
-  prospectorDisponivel: boolean;
+  prospectorCiente: boolean;
   // ITEM 9 (07/08) — CSV dos módulos desligados; null = tudo ligado. Operacional.
   appModulosDesativados: string | null;
   // CADASTRO EM MASSA (17/08) — canal de suporte da tela de captura. Operacional.
   suporteWhatsapp: string;
   suporteEmail: string;
-  // PROSPECTOR — automação cobrada: SÓ billing owner lê, SÓ o Master grava.
-  prospectorAutomacaoAtiva?: boolean;
-  prospectorAutomacaoMaxDia?: number;
 }

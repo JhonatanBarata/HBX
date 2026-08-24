@@ -151,30 +151,15 @@ function buildPrisma(opts: {
   return { prisma, cargaRows };
 }
 
-function fakeConfig(nivel: 'BASIC' | 'ADVANCED' | 'FULL') {
-  return { getNivel: async () => ({ nivel }) } as any;
-}
-
 const ADMIN = { id: 1, companyId: 7, role: 'ADMIN', isSystemMaster: false };
-const MASTER = { id: 1, companyId: 7, role: 'ADMIN', isSystemMaster: true };
 
-// ── gate de nível (ADVANCED+) ────────────────────────────────────────────────
-
-test('BASIC: getCargaDia/declararCarga/conferirRetorno recusam com Forbidden', async () => {
-  const { prisma } = buildPrisma();
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('BASIC'));
-  await assert.rejects(() => svc.getCargaDia(7, undefined, ADMIN), /Advanced/);
-  await assert.rejects(
-    () => svc.declararCarga(7, { itens: [{ productId: 1, qtdCarregada: 10 }] }, ADMIN),
-    /Advanced/,
-  );
-  await assert.rejects(() => svc.conferirRetorno(7, { itens: [] }, ADMIN), /Advanced/);
-});
-
-test('Master passa por cima do teto do nível (BASIC liga se o Master mandar)', async () => {
+// ── 24/08/2026 — o gate de nível (ADVANCED+) MORREU ──────────────────────────
+// Plano difere só por assentos: TODO tenant usa o estoque de carga. Este teste
+// é o freio contra o gate voltar num refactor.
+test('qualquer nível usa o estoque de carga (o gate ADVANCED+ morreu)', async () => {
   const { prisma } = buildPrisma({ produtos: [{ id: 1 }] });
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('BASIC'));
-  const dto = await svc.getCargaDia(7, '2026-07-27', MASTER);
+  const svc = new LogisticaEstoqueService(prisma);
+  const dto = await svc.getCargaDia(7, '2026-07-27', ADMIN);
   assert.equal(dto.declarada, false);
 });
 
@@ -182,7 +167,7 @@ test('Master passa por cima do teto do nível (BASIC liga se o Master mandar)', 
 
 test('declarar: cria a carga ABERTA com os itens informados', async () => {
   const { prisma } = buildPrisma({ produtos: [{ id: 1, name: 'Galão 20L' }, { id: 2, name: 'Água com gás' }] });
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'));
+  const svc = new LogisticaEstoqueService(prisma);
   const dto = await svc.declararCarga(
     7,
     { dataISO: '2026-07-27', itens: [{ productId: 1, qtdCarregada: 50 }, { productId: 2, qtdCarregada: 20 }] },
@@ -199,7 +184,7 @@ test('declarar: cria a carga ABERTA com os itens informados', async () => {
 
 test('declarar: produto de outra empresa (fora do catálogo) é recusado', async () => {
   const { prisma } = buildPrisma({ produtos: [{ id: 1 }] }); // produto 99 não existe
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'));
+  const svc = new LogisticaEstoqueService(prisma);
   await assert.rejects(
     () => svc.declararCarga(7, { itens: [{ productId: 99, qtdCarregada: 10 }] }, ADMIN),
     /não encontrado/,
@@ -208,7 +193,7 @@ test('declarar: produto de outra empresa (fora do catálogo) é recusado', async
 
 test('redeclarar enquanto ABERTA SUBSTITUI a lista de itens (corrigiu quantidade errada)', async () => {
   const { prisma } = buildPrisma({ produtos: [{ id: 1 }, { id: 2 }] });
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'));
+  const svc = new LogisticaEstoqueService(prisma);
   await svc.declararCarga(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdCarregada: 10 }] }, ADMIN);
   const dto = await svc.declararCarga(
     7,
@@ -222,7 +207,7 @@ test('redeclarar enquanto ABERTA SUBSTITUI a lista de itens (corrigiu quantidade
 
 test('redeclarar depois de CONFERIDA é recusado (carga fechada é imutável)', async () => {
   const { prisma, cargaRows } = buildPrisma({ produtos: [{ id: 1 }] });
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'));
+  const svc = new LogisticaEstoqueService(prisma);
   await svc.declararCarga(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdCarregada: 10 }] }, ADMIN);
   cargaRows[0].status = 'CONFERIDA'; // simula fechamento
   await assert.rejects(
@@ -243,7 +228,7 @@ test('getCargaDia (ABERTA): vendido soma EntregaItem.qtdEntregue (fallback qtdPr
       { productId: 1, quantidade: 4, itens: [] },
     ],
   });
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'));
+  const svc = new LogisticaEstoqueService(prisma);
   await svc.declararCarga(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdCarregada: 20 }] }, ADMIN);
   const dto = await svc.getCargaDia(7, '2026-07-27', ADMIN);
   assert.equal(dto.itens[0].qtdVendida, 9, '3 + 2 (fallback) + 4 (legado) = 9');
@@ -252,7 +237,7 @@ test('getCargaDia (ABERTA): vendido soma EntregaItem.qtdEntregue (fallback qtdPr
 
 test('getCargaDia sem declaração no dia: declarada=false, itens vazio', async () => {
   const { prisma } = buildPrisma();
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'));
+  const svc = new LogisticaEstoqueService(prisma);
   const dto = await svc.getCargaDia(7, '2026-07-27', ADMIN);
   assert.equal(dto.declarada, false);
   assert.equal(dto.status, null);
@@ -266,7 +251,7 @@ test('conferir: bateu quando retorno == carregado - vendido', async () => {
     produtos: [{ id: 1 }],
     entregas: [{ productId: null, quantidade: 0, itens: [{ productId: 1, qtdEntregue: 12, qtdPrevista: 12 }] }],
   });
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'));
+  const svc = new LogisticaEstoqueService(prisma);
   await svc.declararCarga(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdCarregada: 20 }] }, ADMIN);
   // esperado = 20 - 12 = 8
   const dto = await svc.conferirRetorno(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdRetorno: 8 }] }, ADMIN);
@@ -277,7 +262,7 @@ test('conferir: bateu quando retorno == carregado - vendido', async () => {
 
 test('conferir: sobrou quando retorno > esperado (voltou mais que devia)', async () => {
   const { prisma } = buildPrisma({ produtos: [{ id: 1 }] }); // 0 vendido hoje
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'));
+  const svc = new LogisticaEstoqueService(prisma);
   await svc.declararCarga(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdCarregada: 10 }] }, ADMIN);
   // esperado = 10 - 0 = 10; retorno 12 > 10
   const dto = await svc.conferirRetorno(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdRetorno: 12 }] }, ADMIN);
@@ -286,7 +271,7 @@ test('conferir: sobrou quando retorno > esperado (voltou mais que devia)', async
 
 test('conferir: faltou quando retorno < esperado (furo de estoque)', async () => {
   const { prisma } = buildPrisma({ produtos: [{ id: 1 }] });
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'));
+  const svc = new LogisticaEstoqueService(prisma);
   await svc.declararCarga(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdCarregada: 10 }] }, ADMIN);
   // esperado = 10 - 0 = 10; retorno 6 < 10
   const dto = await svc.conferirRetorno(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdRetorno: 6 }] }, ADMIN);
@@ -295,7 +280,7 @@ test('conferir: faltou quando retorno < esperado (furo de estoque)', async () =>
 
 test('conferir: falta informar retorno de 1 produto declarado → 400 nomeando o que falta', async () => {
   const { prisma } = buildPrisma({ produtos: [{ id: 1, name: 'Galão 20L' }, { id: 2, name: 'Água com gás' }] });
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'));
+  const svc = new LogisticaEstoqueService(prisma);
   await svc.declararCarga(
     7,
     { dataISO: '2026-07-27', itens: [{ productId: 1, qtdCarregada: 10 }, { productId: 2, qtdCarregada: 5 }] },
@@ -309,7 +294,7 @@ test('conferir: falta informar retorno de 1 produto declarado → 400 nomeando o
 
 test('conferir sem carga declarada no dia → 400', async () => {
   const { prisma } = buildPrisma();
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'));
+  const svc = new LogisticaEstoqueService(prisma);
   await assert.rejects(
     () => svc.conferirRetorno(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdRetorno: 1 }] }, ADMIN),
     /Nenhuma carga declarada/,
@@ -318,7 +303,7 @@ test('conferir sem carga declarada no dia → 400', async () => {
 
 test('conferir 2× no mesmo dia é recusado (imutável depois de fechada)', async () => {
   const { prisma } = buildPrisma({ produtos: [{ id: 1 }] });
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'));
+  const svc = new LogisticaEstoqueService(prisma);
   await svc.declararCarga(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdCarregada: 10 }] }, ADMIN);
   await svc.conferirRetorno(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdRetorno: 10 }] }, ADMIN);
   await assert.rejects(
@@ -332,7 +317,7 @@ test('getCargaDia (CONFERIDA): devolve o snapshot congelado, não recalcula vend
     produtos: [{ id: 1 }],
     entregas: [{ productId: null, quantidade: 0, itens: [{ productId: 1, qtdEntregue: 3, qtdPrevista: 3 }] }],
   });
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'));
+  const svc = new LogisticaEstoqueService(prisma);
   await svc.declararCarga(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdCarregada: 10 }] }, ADMIN);
   await svc.conferirRetorno(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdRetorno: 7 }] }, ADMIN);
   const dto = await svc.getCargaDia(7, '2026-07-27', ADMIN);
@@ -367,7 +352,7 @@ test('B4 iniciar: cria gaveta ROTA com vendido+previsto e reserva; fora-de-rota 
   ];
   const { prisma, cargaRows } = buildPrisma({ produtos: [{ id: 1 }, { id: 2 }], entregas });
   const fiscal = fiscalRecorder();
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('BASIC'), fiscal.svc);
+  const svc = new LogisticaEstoqueService(prisma, fiscal.svc);
 
   const r = await svc.reconciliarReservaRota(7, '2026-07-27');
   assert.equal(r.fonte, 'ROTA', 'sem gate de nível: BASIC também reserva pela rota');
@@ -395,7 +380,7 @@ test('B4 quem declarou manda: gaveta MANUAL não é tocada pela rota', async () 
   ];
   const { prisma, cargaRows } = buildPrisma({ produtos: [{ id: 1 }], entregas });
   const fiscal = fiscalRecorder();
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'), fiscal.svc);
+  const svc = new LogisticaEstoqueService(prisma, fiscal.svc);
 
   // operador contou na mão: 50 (levou galão extra pra venda avulsa)
   await svc.declararCarga(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdCarregada: 50 }] }, ADMIN);
@@ -414,7 +399,7 @@ test('B4 encerrar devolve: previsto zerou → gaveta ROTA some e a reserva é li
   ];
   const { prisma, cargaRows } = buildPrisma({ produtos: [{ id: 1 }], entregas });
   const fiscal = fiscalRecorder();
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'), fiscal.svc);
+  const svc = new LogisticaEstoqueService(prisma, fiscal.svc);
 
   await svc.reconciliarReservaRota(7, '2026-07-27'); // iniciar: reserva 5
   // encerrarRota devolveu a parada pra pendência (sinais de rota zerados)
@@ -433,7 +418,7 @@ test('B4 takeover: redeclarar na tela em cima da gaveta ROTA vira MANUAL (e a ro
   ];
   const { prisma, cargaRows } = buildPrisma({ produtos: [{ id: 1 }], entregas });
   const fiscal = fiscalRecorder();
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'), fiscal.svc);
+  const svc = new LogisticaEstoqueService(prisma, fiscal.svc);
 
   await svc.reconciliarReservaRota(7, '2026-07-27');
   assert.equal(cargaRows[0].origem, 'ROTA');
@@ -451,7 +436,7 @@ test('B4 gates: estoque desligado é no-op; CONFERIDA é imutável', async () =>
     { status: 'em_rota', rotaOrdem: 0, etaAt: null, startedAt: null, productId: 1, quantidade: 5, itens: [] },
   ] });
   const fiscalOff = fiscalRecorder();
-  const svcOff = new LogisticaEstoqueService(off.prisma, fakeConfig('ADVANCED'), fiscalOff.svc);
+  const svcOff = new LogisticaEstoqueService(off.prisma, fiscalOff.svc);
   const rOff = await svcOff.reconciliarReservaRota(7, '2026-07-27');
   assert.equal(rOff.fonte, null);
   assert.equal(off.cargaRows.length, 0);
@@ -463,7 +448,7 @@ test('B4 gates: estoque desligado é no-op; CONFERIDA é imutável', async () =>
   ];
   const { prisma, cargaRows } = buildPrisma({ produtos: [{ id: 1 }], entregas });
   const fiscal = fiscalRecorder();
-  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'), fiscal.svc);
+  const svc = new LogisticaEstoqueService(prisma, fiscal.svc);
   await svc.reconciliarReservaRota(7, '2026-07-27');
   cargaRows[0].status = 'CONFERIDA';
   const chamadas = fiscal.calls.length;

@@ -100,7 +100,9 @@ object PasseioAlarme {
         }
         manager.createNotificationChannel(channel)
         val notif = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            // Small icon é máscara de alfa — o `ic_launcher` virava borrão.
+            // Ver a conta em `ic_stat_hbx.xml`.
+            .setSmallIcon(R.drawable.ic_stat_hbx)
             .setContentTitle(titulo)
             .setContentText(texto)
             .setPriority(NotificationCompat.PRIORITY_HIGH)

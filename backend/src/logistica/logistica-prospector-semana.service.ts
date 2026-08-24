@@ -54,7 +54,7 @@ export class LogisticaProspectorSemanaService {
     const company = this.inteiroPositivo(companyId);
     const user = this.inteiroPositivo(userId);
     // Sem ator identificado não há de quem ler a escolha: FAIL-CLOSED, sem ida ao
-    // banco. É a mesma régua da chave nº3 (chamada sem ator = funcionário comum).
+    // banco. Mesma régua fail-closed de sempre (chamada sem ator = ninguém).
     if (!company || !user) return null;
 
     const semana = semanaIsoVigente();

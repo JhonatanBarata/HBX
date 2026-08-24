@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { LogisticaConfigService } from './logistica-config.service';
 import {
   computePublicDeliveryStatus,
   computeRouteProgress,
@@ -16,11 +15,10 @@ import {
  * F3 FULL-POLIDO (27/07, PR27072026-ROTA-3-NIVEIS) — "acompanhe sua entrega"
  * (cliente final, SEM login) + o utilitário administrativo de gerar o link.
  *
- * O gate de nível (Basic/Advanced/Full) é LIDO do LogisticaConfigService já
- * existente (F1, `getNivel`) — NUNCA reimplementado aqui (regra do plano-mestre
- * PR27072026-ROTA-3-NIVEIS, seção F3). Fora do Full, a leitura inteira segue
- * funcionando (nome da empresa + status agendada/entregue/cancelada) — só o
- * bloco `live` (posição/ETA) fica null. NUNCA erro feio por falta de plano.
+ * 24/08/2026 — o gate de nível (Basic/Advanced/Full) MORREU: plano difere só
+ * por assentos. O bloco `live` (posição/ETA) depende apenas do estado real —
+ * rota TRACKED ACTIVE + sessão ACTIVE; fora disso fica null (leitura estática
+ * de nome/status segue sempre funcionando). NUNCA erro feio.
  */
 
 export interface PublicTrackingLive {
@@ -38,7 +36,8 @@ export interface PublicTrackingStatus {
   // qualquer fuso). Evita a classe de bug "verde no fuso de quem escreveu".
   agendadaEm: string | null;
   entregueEm: string | null;
-  full: boolean;
+  // 24/08/2026 — `full` MORREU: plano difere só por assentos, e o "ao vivo"
+  // depende só do estado real da rota/sessão (não mais do nível).
   live: PublicTrackingLive | null;
 }
 
@@ -55,10 +54,7 @@ export interface ShareLinkWithCliente extends ShareLink {
 
 @Injectable()
 export class LogisticaTrackingPublicService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly config: LogisticaConfigService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
    * PÚBLICO (sem JWT) — resolve o token opaco (assinado, ver
@@ -99,9 +95,6 @@ export class LogisticaTrackingPublicService {
     });
     if (!entrega) return null;
 
-    const { nivel } = await this.config.getNivel(entrega.companyId);
-    const full = nivel === 'FULL';
-
     const route = entrega.logisticaRouteStop?.route ?? null;
     const routeActive = route?.status === 'ACTIVE';
     const status = computePublicDeliveryStatus({
@@ -110,11 +103,12 @@ export class LogisticaTrackingPublicService {
       routeActive,
     });
 
-    // Ao vivo (ETA/progresso) só quando full + rota TRACKED ACTIVE + sessão
-    // ACTIVE — os MESMOS 3 gates de captureAllowed do mobile (getSessionAuthority),
-    // aqui aplicados à leitura pública. Fora disso, `live` é null (estático).
+    // Ao vivo (ETA/progresso) só quando rota TRACKED ACTIVE + sessão ACTIVE —
+    // os MESMOS gates de captureAllowed do mobile (getSessionAuthority), aqui
+    // aplicados à leitura pública. (24/08/2026: o gate de nível Full morreu.)
+    // Fora disso, `live` é null (estático).
     let live: PublicTrackingLive | null = null;
-    if (full && route?.mode === 'TRACKED' && route.status === 'ACTIVE' && route.trackingSession?.status === 'ACTIVE') {
+    if (route?.mode === 'TRACKED' && route.status === 'ACTIVE' && route.trackingSession?.status === 'ACTIVE') {
       const stopStatuses = (route.stops ?? []).map((s: any) => String(s.delivery?.status || ''));
       const lastPointAt: Date | null = route.trackingSession.lastPointAt ?? null;
       live = {
@@ -131,7 +125,6 @@ export class LogisticaTrackingPublicService {
       status,
       agendadaEm: entrega.scheduledAt ? entrega.scheduledAt.toISOString() : null,
       entregueEm: entrega.deliveredAt ? entrega.deliveredAt.toISOString() : null,
-      full,
       live,
     };
   }

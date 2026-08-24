@@ -1146,41 +1146,35 @@ test('R2 extrato: lista os charges linkados ao cliente (company-scoped)', async 
 
   assert.ok(res, 'extrato retorna resultado');
   assert.equal(res?.clienteId, 'conta-1');
-  assert.equal(res?.moduloFinanceiroAtivo, true);
   assert.equal(res?.total, 2);
   assert.equal(res?.charges.length, 2);
   assert.equal(res?.charges[0].id, 'c1');
   assert.equal(res?.charges[1].entregaId, 'e9');
 });
 
-// ── R2 (e2) — M4: financeiro OFF → FAIL-CLOSED (sem valores, forma mantida) ───
-test('R2 extrato: moduloFinanceiroAtivo OFF → charges vazio + saldos null (dinheiro não aparece)', async () => {
-  let chargesConsultados = false;
+// ── 24/08/2026 — o gate moduloFinanceiroAtivo do extrato MORREU ──────────────
+test('R2 extrato: computado direto, SEM consultar a config do tenant (o gate morreu)', async () => {
+  let configConsultada = false;
   const prisma = {
     customerProfile: {
       findFirst: async () => ({ id: 'conta-1', name: 'Cliente X' }),
     },
-    logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: false }) },
-    financeiroCharge: {
-      findMany: async () => {
-        chargesConsultados = true;
-        return [];
+    logisticaConfig: {
+      findUnique: async () => {
+        configConsultada = true;
+        return {};
       },
     },
+    financeiroCharge: { findMany: async () => [] },
   } as any;
 
   const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
   const res = await service.extratoCliente(1, 'conta-1');
 
-  assert.ok(res, 'extrato retorna resultado (forma mantida)');
-  assert.equal(res?.clienteId, 'conta-1', 'identidade do cliente permanece');
-  assert.equal(res?.nome, 'Cliente X', 'nome permanece (não é valor)');
-  assert.equal(res?.moduloFinanceiroAtivo, false);
-  assert.equal(res?.total, 0);
-  assert.deepEqual(res?.charges, [], 'nenhuma cobrança com valor vaza');
-  assert.equal(res?.saldoAberto, null, 'saldoAberto omitido (null)');
-  assert.equal(res?.aguardandoFechamento, null, 'aguardandoFechamento omitido (null)');
-  assert.equal(chargesConsultados, false, 'FAIL-CLOSED: nem consulta os charges com OFF');
+  assert.ok(res, 'extrato retorna resultado');
+  assert.equal(res?.nome, 'Cliente X');
+  assert.equal(configConsultada, false, 'a config nem é lida — financeiro é sempre ligado');
+  assert.equal(Object.prototype.hasOwnProperty.call(res, 'moduloFinanceiroAtivo'), false, 'o flag saiu do contrato');
 });
 
 test('R2 extrato: cliente de outra empresa → null (company-scoped)', async () => {
@@ -2034,32 +2028,16 @@ test('W2 quitar não-quitável: charge cancelled → devolve o estado atual sem 
   assert.equal(updates.length, 0, 'cancelled não vira pago');
 });
 
-// ── W2 saldos — gate fail-closed + fonte única ────────────────────────────────
-test('W2 saldos: moduloFinanceiroAtivo OFF → FAIL-CLOSED (lista vazia, zero consulta de valores)', async () => {
-  let consultouValores = false;
+// ── W2 saldos — fonte única (24/08/2026: o gate moduloFinanceiroAtivo morreu) ─
+test('W2 saldos: lista só quem deve (>0), com nome, pela fonte única — SEM ler a config', async () => {
+  let configConsultada = false;
   const prisma = {
-    logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: false }) },
-    financeiroCharge: {
-      findMany: async () => { consultouValores = true; return []; },
-      groupBy: async () => { consultouValores = true; return []; },
+    logisticaConfig: {
+      findUnique: async () => {
+        configConsultada = true;
+        return {};
+      },
     },
-    entrega: {
-      findMany: async () => { consultouValores = true; return []; },
-      groupBy: async () => { consultouValores = true; return []; },
-    },
-  } as any;
-
-  const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
-  const res = await service.saldosFinanceiro(1);
-
-  assert.equal(res.moduloFinanceiroAtivo, false);
-  assert.deepEqual(res.clientes, [], 'OFF → nenhum cliente listado');
-  assert.equal(consultouValores, false, 'OFF → nem consulta charges/entregas (fail-closed de verdade)');
-});
-
-test('W2 saldos: módulo ON → lista só quem deve (>0), com nome, pela fonte única', async () => {
-  const prisma = {
-    logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: true }) },
     financeiroCharge: {
       // candidatos com charge pending da logística
       findMany: async () => [{ customerProfileId: 'conta-1' }],
@@ -2082,7 +2060,8 @@ test('W2 saldos: módulo ON → lista só quem deve (>0), com nome, pela fonte �
   const service = new LogisticaService(prisma, {} as any, {} as any, {} as any);
   const res = await service.saldosFinanceiro(1);
 
-  assert.equal(res.moduloFinanceiroAtivo, true);
+  assert.equal(configConsultada, false, 'financeiro é sempre ligado — a config nem é lida');
+  assert.equal(Object.prototype.hasOwnProperty.call(res, 'moduloFinanceiroAtivo'), false, 'o flag saiu do contrato');
   assert.equal(res.clientes.length, 2);
   // ordenado por saldoAberto desc: conta-1 (42.5) antes de conta-2 (30).
   assert.equal(res.clientes[0].customerProfileId, 'conta-1');
@@ -2224,7 +2203,10 @@ test('W2 histórico: limit é clampado (0/negativo → default 30; acima de 100 
 });
 
 // ── W2 histórico — gate M4: financeiro OFF esconde o dinheiro (mas não o resto) ──
-test('W2 histórico: moduloFinanceiroAtivo OFF → valor/valorUnit/cobrancaStatus null; data/itens/whatsapp ficam', async () => {
+// 24/08/2026 — o gate moduloFinanceiroAtivo do histórico MORREU: os valores
+// sempre viajam (0,00 é valor legítimo) e a config nem é consultada.
+test('W2 histórico: valores sempre presentes, SEM consultar a config (o gate morreu)', async () => {
+  let configConsultada = false;
   const rows = [
     {
       id: 'e1', status: 'entregue', quantidade: 2, valor: 20,
@@ -2238,7 +2220,12 @@ test('W2 histórico: moduloFinanceiroAtivo OFF → valor/valorUnit/cobrancaStatu
     },
   ];
   const prisma = {
-    logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: false }) },
+    logisticaConfig: {
+      findUnique: async () => {
+        configConsultada = true;
+        return {};
+      },
+    },
     customerProfile: { findFirst: async () => ({ id: 'conta-1', name: 'Dona Maria' }) },
     entrega: { findMany: async () => rows },
   } as any;
@@ -2247,11 +2234,10 @@ test('W2 histórico: moduloFinanceiroAtivo OFF → valor/valorUnit/cobrancaStatu
   const res = await service.historicoEntregasCliente(1, 'conta-1', {});
   const it = res?.items[0];
 
-  // Dinheiro some (regra M4).
-  assert.equal(it?.valor, null, 'valor null com financeiro OFF');
-  assert.equal(it?.cobrancaStatus, null, 'cobrancaStatus null com financeiro OFF');
-  assert.equal(it?.itens[0].valorUnit, null, 'valorUnit null com financeiro OFF');
-  // O resto do histórico ("o que/quando/hora/msg") continua vivo.
+  assert.equal(configConsultada, false, 'financeiro é sempre ligado — a config nem é lida');
+  assert.equal(it?.valor, 20);
+  assert.equal(it?.cobrancaStatus, 'lancada');
+  assert.equal(it?.itens[0].valorUnit, 10);
   assert.equal(it?.status, 'entregue');
   assert.ok(it?.deliveredAt, 'data/hora da entrega preservada');
   assert.equal(it?.itens[0].produtoNome, 'Galão 20L', 'nome do produto preservado');
@@ -2278,7 +2264,9 @@ test('resolveDayRange: "YYYY-MM-DD" válido resolve pro próprio dia (fuso local
   assert.equal(resolveDayRange('2026-07-11').dayISO, '2026-07-11');
 });
 
-function buildRotaPrivacyMock(moduloFinanceiroAtivo: boolean) {
+// 24/08/2026 — o parâmetro `moduloFinanceiroAtivo` morreu junto com o toggle:
+// financeiro é sempre ligado, o mock não simula mais "OFF".
+function buildRotaPrivacyMock() {
   const queries: {
     entrega?: any;
     config?: any;
@@ -2363,11 +2351,13 @@ function buildRotaPrivacyMock(moduloFinanceiroAtivo: boolean) {
     },
     logisticaConfig: {
       findUnique: async (args: any) => {
-        queries.config = args;
+        // 24/08 — o listRota agora faz 2 leituras de config (a principal e a do
+        // resolverDevedorNaRota, que roda sempre): o teste inspeciona a PRIMEIRA
+        // (é a que decide o que entra no payload).
+        queries.config = queries.config ?? args;
         // O mock devolve os campos mesmo quando não selecionados para provar que a
         // serialização continua fail-closed diante de um adapter permissivo.
         return {
-          moduloFinanceiroAtivo,
           pixChave: 'chave-pix-secreta',
           pixNome: 'Empresa',
           pixCidade: 'SAO PAULO',
@@ -2430,7 +2420,7 @@ test('listRota: vendedor, motorista e gerente não recebem nem consultam dados c
   ];
 
   for (const { nome, actor } of atores) {
-    const { service, queries } = buildRotaPrivacyMock(true);
+    const { service, queries } = buildRotaPrivacyMock();
     const result = await service.listRota(7, '2026-07-13', actor);
 
     assertNoCommercialRouteKeys(result, nome);
@@ -2442,10 +2432,9 @@ test('listRota: vendedor, motorista e gerente não recebem nem consultam dados c
     assert.equal(result.trackingRequired, true, `${nome}: sinal operacional deve permanecer disponível`);
     assert.deepEqual(queries.trackingIncludeCommercialMode, [false]);
 
-    // PR18072026 W1 (coordenador) — as TRÊS exposições aditivas (metodoPadrao/
-    // debitoAtual/valorHoje) são gateadas por moduloFinanceiroAtivoConfig (o
-    // valor REAL da config), NÃO por billingAudience — o entregador comum (sem
-    // cobrança) recebe as três mesmo sendo vendedor/motorista/gerente.
+    // PR18072026 W1 (coordenador) / 24/08/2026 — as TRÊS exposições aditivas
+    // (metodoPadrao/debitoAtual/valorHoje) são de TODO ator, sempre (o gate
+    // moduloFinanceiroAtivoConfig morreu junto com o toggle).
     assert.equal(result.items[0].cliente.metodoPadrao, 'pix', `${nome}: metodoPadrao deve ser exposto (botão [Pago])`);
     assert.equal(result.items[0].cliente.debitoAtual, 0, `${nome}: debitoAtual deve ser exposto (mesma fonte canônica de saldoAberto)`);
     assert.equal(result.items[0].valorHoje, 42, `${nome}: valorHoje deve ser exposto (2×21 dos itens da entrega atual)`);
@@ -2471,7 +2460,8 @@ test('listRota: vendedor, motorista e gerente não recebem nem consultam dados c
     assert.equal('valorUnit' in entregaSelect.itens.select, true, `${nome}: valorUnit É selecionado (uso interno p/ valorHoje)`);
 
     const configSelect = queries.config.select;
-    assert.equal('moduloFinanceiroAtivo' in configSelect, true, `${nome}: moduloFinanceiroAtivo (o TOGGLE) É lido p/ QUALQUER ator`);
+    // 24/08/2026 — o toggle morreu: a coluna nem é selecionada mais.
+    assert.equal('moduloFinanceiroAtivo' in configSelect, false, `${nome}: moduloFinanceiroAtivo morreu (nem no select)`);
     assert.equal('pixChave' in configSelect, false, `${nome}: pixChave (dado sensível de verdade) continua ausente`);
     assert.equal('pixNome' in configSelect, false);
     assert.equal('pixCidade' in configSelect, false);
@@ -2479,7 +2469,7 @@ test('listRota: vendedor, motorista e gerente não recebem nem consultam dados c
 });
 
 test('listRota: serializa os cinco estados persistentes dos pinos', async () => {
-  const { service, queries, row } = buildRotaPrivacyMock(true);
+  const { service, queries, row } = buildRotaPrivacyMock();
   const actor = { id: 42, companyId: 7, role: 'USER', canViewBilling: false };
   const casos = [
     { status: 'agendada', arrivedAt: null, esperado: 'pending' },
@@ -2499,7 +2489,7 @@ test('listRota: serializa os cinco estados persistentes dos pinos', async () => 
 });
 
 test('listRota: dono mantém a visão comercial necessária à administração', async () => {
-  const { service, queries } = buildRotaPrivacyMock(false);
+  const { service, queries } = buildRotaPrivacyMock();
   const result = await service.listRota(7, '2026-07-13', {
     id: 1,
     companyId: 7,
@@ -2508,49 +2498,27 @@ test('listRota: dono mantém a visão comercial necessária à administração',
   });
   const item = result.items[0];
 
-  assert.equal(result.moduloFinanceiroAtivo, false);
+  // 24/08/2026 — moduloFinanceiroAtivo saiu do payload (financeiro sempre ligado).
+  assert.equal(Object.prototype.hasOwnProperty.call(result, 'moduloFinanceiroAtivo'), false);
   assert.equal(result.trackingRequired, true);
   assert.equal(result.routeMode, 'TRACKED');
   assert.deepEqual(queries.trackingIncludeCommercialMode, [true]);
-  assert.equal(result.pix, null);
+  assert.ok(result.pix, 'pix vem pro billingAudience quando a chave existe');
   assert.equal(item.valor, 42);
   assert.equal(item.cobrancaStatus, 'pendente');
   assert.equal(item.cliente.formaPagamento, 'aberto');
   assert.equal(item.cliente.metodoPadrao, 'pix', 'billingAudience continua vendo metodoPadrao pelo bloco ORIGINAL');
   assert.equal(item.cliente.saldoAberto, 0);
-  // PR18072026 W1 (coordenador) — este teste usa buildRotaPrivacyMock(false):
-  // moduloFinanceiroAtivoConfig (o TOGGLE real da empresa) é FALSE aqui. As TRÊS
-  // exposições aditivas (metodoPadrao-standalone/debitoAtual/valorHoje) ficam
-  // AUSENTES (undefined) — "OFF = dinheiro não aparece em lugar nenhum", mesmo
-  // pro dono. metodoPadrao='pix' acima vem do bloco billingAudience ORIGINAL,
-  // que não depende do toggle (nunca dependeu — comportamento intocado).
-  assert.equal(item.cliente.debitoAtual, undefined, 'moduloFinanceiroAtivoConfig OFF → debitoAtual nem aparece');
-  assert.equal(item.valorHoje, undefined, 'moduloFinanceiroAtivoConfig OFF → valorHoje nem aparece');
+  // 24/08/2026 — as TRÊS exposições aditivas (metodoPadrao/debitoAtual/valorHoje)
+  // são SEMPRE presentes (o gate do toggle morreu; 0,00 é valor legítimo).
+  assert.equal(item.cliente.debitoAtual, 0);
+  assert.equal(item.valorHoje, 42);
   assert.equal(item.cliente.limiteFiado, 100);
   assert.equal(item.cliente.observacoes, 'Deixa na portaria, cachorro bravo.');
   assert.equal(item.origem, 'recorrente', 'origem visível também pro dono (billingAudience)');
   assert.equal(item.itens[0].valorUnit, 21);
   assert.equal('valor' in queries.entrega.select, true);
   assert.equal('pixChave' in queries.config.select, true);
-});
-
-// PR18072026 W1 (coordenador) — com o toggle LIGADO, o dono (billingAudience)
-// também recebe as 3 exposições aditivas — mesmo valor que o entregador comum
-// veria, via o gate NOVO (moduloFinanceiroAtivoConfig), redundante com o bloco
-// billingAudience ORIGINAL só quando os dois batem (o que é o caso do dono).
-test('listRota: dono com o módulo financeiro LIGADO também vê as 3 exposições aditivas', async () => {
-  const { service } = buildRotaPrivacyMock(true);
-  const result = await service.listRota(7, '2026-07-13', {
-    id: 1,
-    companyId: 7,
-    role: 'ADMIN',
-    canViewBilling: true,
-  });
-  const item = result.items[0];
-
-  assert.equal(item.cliente.metodoPadrao, 'pix');
-  assert.equal(item.cliente.debitoAtual, 0);
-  assert.equal(item.valorHoje, 42);
 });
 
 // PR18072026 W1 — cliente.debitoAtual reusa a MESMA fonte canônica de

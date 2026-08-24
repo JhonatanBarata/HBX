@@ -1,14 +1,19 @@
 // PROSPECTOR CNPJ + MÓDULOS DO APP (PR07082026-PROSPECTOR-CNPJ, 07/08).
 //
+// 24/08/2026 (decisão do dono) — PROSPECTOR ABERTO A TODOS: morreram a env
+// global HBX_PROSPECTOR_ENABLED, o `prospectorEquipe`, o `prospectorDisponivel`
+// e a automação cobrada (prospectorAutomacao* + endpoints Master). O contrato
+// novo: `prospectorAtivo` (toggle da empresa) + réguas template/raio/maxDia +
+// `prospectorCiente` (carimbo POR USUÁRIO, espelho do tutorial obrigatório).
+//
 // O que este arquivo prova, e por que cada prova existe:
 //  1) CLAMP do raio (50..500) e do teto/dia (1..8) — régua fora da faixa nunca
 //     chega no banco (o mesmo desenho do avisoChegandoDistanciaM).
 //  2) 🔴 "rota" NUNCA entra em appModulosDesativados — LEI DURA: app de entrega
 //     sem rota não é app. E chave inválida é DESCARTADA em silêncio (allowlist).
-//  3) A automação COBRADA (decisão nº8 do dono) não entra pelo PATCH do tenant
-//     e o serviço do Master recusa ator que não é Master.
-//  4) O MOTORISTA LÊ prospectorAtivo/appModulosDesativados — sem isso o app não
+//  3) O MOTORISTA LÊ prospectorAtivo/appModulosDesativados — sem isso o app não
 //     tem como decidir o que mostrar (é o motivo de serem operacionais).
+//  4) CIENTE: carimbo por usuário, idempotente, devolvido no GET /config do ator.
 //
 // Molde: logistica-config-devedor-na-rota.test.ts (prisma fake em memória,
 // node:test) — arquivo isolado de propósito, sem tocar nos testes vizinhos.
@@ -16,11 +21,10 @@ import 'reflect-metadata';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { LogisticaConfigService } from './logistica-config.service';
+import { EVENTO_PROSPECTOR_CIENTE, LogisticaConfigService } from './logistica-config.service';
 
 const GERENTE = { role: 'ADMIN', isSystemMaster: false, canViewBilling: false };
 const OWNER = { role: 'ADMIN', isSystemMaster: false, canViewBilling: true };
-const MASTER = { role: 'ADMIN', isSystemMaster: true, canViewBilling: true };
 const MOTORISTA = { role: 'USER', isSystemMaster: false, canViewBilling: false };
 
 function row(overrides: Record<string, unknown> = {}) {
@@ -32,7 +36,6 @@ function row(overrides: Record<string, unknown> = {}) {
     velocidadeMediaKmH: 25,
     tempoParadaMin: 5,
     cobrancaNaEntrega: false,
-    moduloFinanceiroAtivo: false,
     moduloRecoveryAtivo: false,
     diasTrabalho: null,
     pixChave: null,
@@ -51,19 +54,40 @@ function row(overrides: Record<string, unknown> = {}) {
     comprovanteFotoObrigatoria: false,
     comprovanteAssinaturaObrigatoria: false,
     comprovanteCodigoObrigatorio: false,
-    trackingAtivo: false,
-    modoRotaPadrao: 'ESSENTIAL',
     logisticaNivel: 'ADVANCED',
     devedorNaRota: 'COBRANCA',
     prospectorAtivo: false,
     prospectorTemplate: null,
     prospectorRaioM: 150,
     prospectorMaxDia: 4,
-    prospectorEquipe: false,
-    prospectorAutomacaoAtiva: false,
-    prospectorAutomacaoMaxDia: 0,
     appModulosDesativados: null,
     ...overrides,
+  };
+}
+
+/** UsersService fake com o MESMO contrato do carimbo de onboarding (em memória). */
+function fakeUsers() {
+  const porUsuario = new Map<number, Record<string, string>>();
+  return {
+    findById: async (id: number) => ({
+      id,
+      onboardingStateJson: JSON.stringify({ events: porUsuario.get(id) ?? {} }),
+    }),
+    getOnboardingEvents: (user: any) => {
+      try {
+        const parsed = JSON.parse(String(user?.onboardingStateJson || '{}'));
+        return parsed?.events && typeof parsed.events === 'object' ? parsed.events : {};
+      } catch {
+        return {};
+      }
+    },
+    stampOnboardingEvent: async (userId: number, event: string, at: Date = new Date()) => {
+      const events = { ...(porUsuario.get(userId) ?? {}) };
+      if (events[event]) return { firstTime: false, events };
+      events[event] = at.toISOString();
+      porUsuario.set(userId, events);
+      return { firstTime: true, events };
+    },
   };
 }
 
@@ -82,7 +106,8 @@ function setup(initial = row()) {
     },
   };
   const wallet: any = { getBalance: async () => 100 };
-  return { service: new LogisticaConfigService(prisma, wallet), upsertCalls };
+  const users = fakeUsers();
+  return { service: new LogisticaConfigService(prisma, wallet, users as any), upsertCalls, users };
 }
 
 /** O que REALMENTE foi mandado pro banco na última gravação. */
@@ -222,68 +247,11 @@ test('as 5 chaves válidas passam todas juntas', async () => {
   assert.equal(gravado(upsertCalls).appModulosDesativados, 'ajustes,chat,clientes,fechamento,produtos');
 });
 
-// ── AUTOMAÇÃO COBRADA: só o Master grava (decisão nº8) ───────────────────────
-test('ator não-Master NÃO grava prospectorAutomacaoAtiva pelo PATCH do tenant (403, nada no banco)', async () => {
-  for (const ator of [OWNER, GERENTE, MOTORISTA]) {
-    const { service, upsertCalls } = setup();
-    await assert.rejects(
-      () => service.updateConfig(7, { prospectorAutomacaoAtiva: true } as any, ator),
-      /liberado pela HBX/,
-      `ator ${ator.role}/${ator.canViewBilling} não deveria ligar a automação`,
-    );
-    assert.equal(upsertCalls.length, 0, 'nada pode ser gravado quando o caminho é recusado');
-  }
-});
-
-test('nem o MASTER liga a automação pelo PATCH genérico — a porta é o endereço próprio', async () => {
-  const { service, upsertCalls } = setup();
-  await assert.rejects(
-    () => service.updateConfig(7, { prospectorAutomacaoMaxDia: 10 } as any, MASTER),
-    /liberado pela HBX/,
-  );
-  assert.equal(upsertCalls.length, 0);
-});
-
-test('setProspectorAutomacao recusa ator que não é Master (cinto-e-suspensório do MasterGuard)', async () => {
-  for (const ator of [OWNER, GERENTE, MOTORISTA]) {
-    const { service, upsertCalls } = setup();
-    await assert.rejects(
-      () => service.setProspectorAutomacao(7, { prospectorAutomacaoAtiva: true }, ator),
-      /liberado pela HBX/,
-    );
-    assert.equal(upsertCalls.length, 0);
-  }
-});
-
-test('Master liga a automação pelo endereço próprio, com clamp do teto (0..50)', async () => {
-  const { service, upsertCalls } = setup();
-  const cfg = await service.setProspectorAutomacao(
-    7,
-    { prospectorAutomacaoAtiva: true, prospectorAutomacaoMaxDia: 999 },
-    MASTER,
-  );
-  assert.equal(gravado(upsertCalls).prospectorAutomacaoAtiva, true);
-  assert.equal(gravado(upsertCalls).prospectorAutomacaoMaxDia, 50);
-  assert.equal(cfg.prospectorAutomacaoAtiva, true);
-  assert.equal(cfg.prospectorAutomacaoMaxDia, 50);
-
-  const neg = setup();
-  await neg.service.setProspectorAutomacao(7, { prospectorAutomacaoMaxDia: -1 }, MASTER);
-  assert.equal(gravado(neg.upsertCalls).prospectorAutomacaoMaxDia, 0);
-});
-
-test('setProspectorAutomacao sem nada pra mudar devolve 400 (não grava upsert vazio)', async () => {
-  const { service, upsertCalls } = setup();
-  await assert.rejects(() => service.setProspectorAutomacao(7, {}, MASTER), /Nada para alterar/);
-  assert.equal(upsertCalls.length, 0);
-});
-
 // ── LEITURA: quem vê o quê ───────────────────────────────────────────────────
 test('MOTORISTA lê prospectorAtivo e appModulosDesativados no serialize (é o que o app usa)', async () => {
   const { service } = setup(
     row({
       prospectorAtivo: true,
-      prospectorEquipe: true,
       prospectorTemplate: 'Oi {empresa}, tudo bem?',
       prospectorRaioM: 200,
       prospectorMaxDia: 5,
@@ -292,23 +260,16 @@ test('MOTORISTA lê prospectorAtivo e appModulosDesativados no serialize (é o q
   );
   const cfg = await service.getConfig(7, MOTORISTA);
   assert.equal(cfg.prospectorAtivo, true);
-  assert.equal(cfg.prospectorEquipe, true);
   assert.equal(cfg.prospectorTemplate, 'Oi {empresa}, tudo bem?');
   assert.equal(cfg.prospectorRaioM, 200);
   assert.equal(cfg.prospectorMaxDia, 5);
   assert.equal(cfg.appModulosDesativados, 'chat,produtos');
-  assert.equal(typeof cfg.prospectorDisponivel, 'boolean');
-});
-
-test('MOTORISTA/GERENTE não veem a automação cobrada; billing owner vê', async () => {
-  const { service } = setup(row({ prospectorAutomacaoAtiva: true, prospectorAutomacaoMaxDia: 12 }));
-  const motorista = await service.getConfig(7, MOTORISTA);
-  const gerente = await service.getConfig(7, GERENTE);
-  const dono = await service.getConfig(7, OWNER);
-  assert.equal(motorista.prospectorAutomacaoAtiva, undefined);
-  assert.equal(gerente.prospectorAutomacaoAtiva, undefined);
-  assert.equal(dono.prospectorAutomacaoAtiva, true);
-  assert.equal(dono.prospectorAutomacaoMaxDia, 12);
+  // 24/08/2026 — os gates mortos NÃO voltam no serialize.
+  for (const morto of ['prospectorEquipe', 'prospectorDisponivel', 'prospectorAutomacaoAtiva', 'prospectorAutomacaoMaxDia']) {
+    assert.equal(Object.prototype.hasOwnProperty.call(cfg, morto), false, `${morto} deve estar morto`);
+  }
+  // ... e o Ciente é parte do contrato operacional (todo ator lê o SEU).
+  assert.equal(typeof cfg.prospectorCiente, 'boolean');
 });
 
 test('linha antiga (pré-migration, sem os campos) lê os defaults e não quebra', async () => {
@@ -318,9 +279,6 @@ test('linha antiga (pré-migration, sem os campos) lê os defaults e não quebra
     'prospectorTemplate',
     'prospectorRaioM',
     'prospectorMaxDia',
-    'prospectorEquipe',
-    'prospectorAutomacaoAtiva',
-    'prospectorAutomacaoMaxDia',
     'appModulosDesativados',
     'cobrancaWhatsTemplate',
   ]) delete (antiga as any)[k];
@@ -330,10 +288,7 @@ test('linha antiga (pré-migration, sem os campos) lê os defaults e não quebra
   assert.equal(cfg.prospectorTemplate, null);
   assert.equal(cfg.prospectorRaioM, 150);
   assert.equal(cfg.prospectorMaxDia, 4);
-  assert.equal(cfg.prospectorEquipe, false);
   assert.equal(cfg.appModulosDesativados, null);
-  assert.equal(cfg.prospectorAutomacaoAtiva, false);
-  assert.equal(cfg.prospectorAutomacaoMaxDia, 0);
   assert.equal(cfg.cobrancaWhatsTemplate, null);
 });
 
@@ -342,11 +297,10 @@ test('GERENTE (Admin sem cobrança) grava os campos operacionais do prospector s
   const { service, upsertCalls } = setup();
   const cfg = await service.updateConfig(
     7,
-    { prospectorAtivo: true, prospectorEquipe: true, prospectorTemplate: '  Olá {empresa}  ' },
+    { prospectorAtivo: true, prospectorTemplate: '  Olá {empresa}  ' },
     GERENTE,
   );
   assert.equal(cfg.prospectorAtivo, true);
-  assert.equal(cfg.prospectorEquipe, true);
   // trim aplicado, igual ao avisoChegandoTemplate.
   assert.equal(gravado(upsertCalls).prospectorTemplate, 'Olá {empresa}');
 });
@@ -393,23 +347,42 @@ test('cobrancaWhatsTemplate só aparece pro billing owner no serialize', async (
   assert.equal(dono.cobrancaWhatsTemplate, 'Oi {cliente}');
 });
 
-// ── GATE GLOBAL POR ENV ──────────────────────────────────────────────────────
-test('prospectorDisponivel segue HBX_PROSPECTOR_ENABLED (default OFF)', async () => {
-  const antes = process.env.HBX_PROSPECTOR_ENABLED;
-  try {
-    delete process.env.HBX_PROSPECTOR_ENABLED;
-    const off = setup();
-    assert.equal((await off.service.getConfig(7, MOTORISTA)).prospectorDisponivel, false);
+// ── CIENTE (24/08/2026) — carimbo POR USUÁRIO, idempotente ───────────────────
+test('prospectorCiente nasce false, vira true depois do carimbo, e é DO USUÁRIO (não da empresa)', async () => {
+  const { service } = setup();
+  const motorista51 = { ...MOTORISTA, id: 51 };
+  const motorista52 = { ...MOTORISTA, id: 52 };
 
-    process.env.HBX_PROSPECTOR_ENABLED = 'true';
-    const on = setup();
-    assert.equal((await on.service.getConfig(7, MOTORISTA)).prospectorDisponivel, true);
+  assert.equal((await service.getConfig(7, motorista51)).prospectorCiente, false);
 
-    process.env.HBX_PROSPECTOR_ENABLED = 'talvez';
-    const lixo = setup();
-    assert.equal((await lixo.service.getConfig(7, MOTORISTA)).prospectorDisponivel, false);
-  } finally {
-    if (antes === undefined) delete process.env.HBX_PROSPECTOR_ENABLED;
-    else process.env.HBX_PROSPECTOR_ENABLED = antes;
-  }
+  const res = await service.marcarProspectorCiente(51);
+  assert.equal(res.ok, true);
+  assert.equal(res.prospectorCiente, true);
+  assert.ok(res.cienteEm, 'o carimbo devolve o instante gravado');
+
+  // O 51 agora lê true; o 52 (mesma empresa) continua false — carimbo é da PESSOA.
+  assert.equal((await service.getConfig(7, motorista51)).prospectorCiente, true);
+  assert.equal((await service.getConfig(7, motorista52)).prospectorCiente, false);
+});
+
+test('marcarProspectorCiente é idempotente: repetir devolve o MESMO carimbo (o primeiro fica)', async () => {
+  const { service, users } = setup();
+  const primeira = await service.marcarProspectorCiente(51);
+  const segunda = await service.marcarProspectorCiente(51);
+  assert.equal(segunda.prospectorCiente, true);
+  assert.equal(segunda.cienteEm, primeira.cienteEm, 'o primeiro carimbo nunca é sobrescrito');
+  const events = users.getOnboardingEvents(await users.findById(51));
+  assert.equal(events[EVENTO_PROSPECTOR_CIENTE], primeira.cienteEm);
+});
+
+test('marcarProspectorCiente sem usuário identificado devolve 400', async () => {
+  const { service } = setup();
+  await assert.rejects(() => service.marcarProspectorCiente(0), /Usuário não identificado/);
+  await assert.rejects(() => service.marcarProspectorCiente(NaN as any), /Usuário não identificado/);
+});
+
+test('ator SEM id (token velho) lê prospectorCiente=false sem quebrar o GET', async () => {
+  const { service } = setup();
+  const cfg = await service.getConfig(7, MOTORISTA);
+  assert.equal(cfg.prospectorCiente, false);
 });

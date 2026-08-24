@@ -347,15 +347,11 @@ test('getCliente: SEM contato principal → whatsapp cai pro phone da conta (leg
         contatos: [], locais: [],
       }),
     },
-    // 12/08 — aqui o módulo financeiro está DESLIGADO: o `debitoAtual` tem que
-    // ficar AUSENTE (mesmo contrato da lista, W6), e nenhuma consulta de saldo
-    // roda. `ultimaEntregaAt` continua vindo: é operação, não dinheiro.
-    logisticaConfig: { findFirst: async () => ({ moduloFinanceiroAtivo: false }) },
-    financeiroCharge: {
-      groupBy: async () => {
-        throw new Error('saldo NÃO deve ser consultado com o financeiro desligado');
-      },
-    },
+    // 24/08/2026 — o gate do módulo financeiro MORREU: o saldo é SEMPRE
+    // consultado e `debitoAtual` sempre viaja (0 quando não há dívida).
+    // `ultimaEntregaAt` continua vindo: é operação, não dinheiro.
+    logisticaConfig: { findFirst: async () => ({}) },
+    financeiroCharge: { groupBy: async () => [] },
     entrega: { groupBy: async () => [], count: async () => 0 },
   };
   const res = await new NucleoCadastroService(prisma).getCliente(7, 'c1');
@@ -363,7 +359,7 @@ test('getCliente: SEM contato principal → whatsapp cai pro phone da conta (leg
   assert.equal(res?.contatoPrincipalId, null);
   assert.deepEqual(res?.telefones, []);
   assert.deepEqual(res?.locais, []);
-  assert.equal('debitoAtual' in (res as any), false, 'sem módulo financeiro o saldo é OMITIDO');
+  assert.equal((res as any)?.debitoAtual, 0, 'saldo sempre presente (0 sem dívida)');
   assert.equal(res?.ultimaEntregaAt, null, 'cliente sem entrega concluída → null, nunca uma data chutada');
   assert.equal(res?.entregasCount, 0);
 });

@@ -128,7 +128,20 @@ function bancada(cenario: Cenario = {}) {
     garantirPasseDoDia: async () => undefined,
   };
 
-  const rota = new LogisticaRotaService(prisma, cobranca, undefined);
+  // 24/08/2026 — TODA rota nasce TRACKED (hard-on): o iniciar exige o serviço
+  // de tracking pra abrir a sessão de GPS. Dublê mínimo, fiel ao contrato.
+  const tracking: any = {
+    ensureSessionForStartedRoute: async () => ({ id: 'sess-teste', status: 'ACTIVE' }),
+    discardUnboundSessionAfterRouteFailure: async () => undefined,
+    getOperationalRouteMetadata: async () => ({
+      routeId: 'route-1',
+      trackingRequired: true,
+      routeStatus: 'ACTIVE',
+      trackingSessionId: 'sess-teste',
+      trackingStatus: 'ACTIVE',
+    }),
+  };
+  const rota = new LogisticaRotaService(prisma, cobranca, tracking);
   (rota as any).logger = { log: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
 
   return { rota, gravados, agregados, statusGravado, ids: cru.map((p) => p.id) };

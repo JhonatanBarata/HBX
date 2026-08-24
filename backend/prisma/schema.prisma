@@ -1448,7 +1448,9 @@ model LogisticaRoute {
   entregador               User                            @relation("LogisticaRouteDriver", fields: [entregadorId, companyId], references: [id, companyId], onDelete: Restrict)
   entregadorId             Int
   routeDate                String                          @db.VarChar(10)
-  mode                     String                          @default("ESSENTIAL") // ESSENTIAL | TRACKED (congelado)
+  // 24/08/2026 — toda rota NASCE TRACKED (não existe mais escolha de modo).
+  // ESSENTIAL sobrevive só como valor congelado em rota antiga.
+  mode                     String                          @default("TRACKED") // ESSENTIAL (legado) | TRACKED (congelado)
   status                   String                          @default("PLANNED") // PLANNED | INITIALIZING | ACTIVE | COMPLETED | REFUNDING | FAILED
   billingRevision          Int                             @default(0) // incrementa ao reservar estorno; invalida prepares antigos
   initializationToken      String?                         @unique
@@ -2190,28 +2192,17 @@ model LogisticaConfig {
   raioChegadaM                     Int       @default(60)
   velocidadeMediaKmH               Int       @default(25)
   tempoParadaMin                   Int       @default(5)
-  // LOGÍSTICA MODOS PR1 — escolha comercial exclusiva do dono. TRACKED só é
-  // efetivo quando este opt-in e a feature flag global também estão ligados.
-  // A rota copia o modo ao iniciar; mudar a config não altera rota existente.
-  trackingAtivo                    Boolean   @default(false)
-  modoRotaPadrao                   String    @default("ESSENTIAL") // ESSENTIAL | TRACKED
+  // ⚰️ 24/08/2026 — `trackingAtivo`/`modoRotaPadrao` (toda rota nasce TRACKED,
+  // sem escolha) e `moduloFinanceiroAtivo` (financeiro é SEMPRE ligado; 0,00 é
+  // valor legítimo — em 21/08 o default já tinha virado true porque 12 das 14
+  // empresas estavam off sem nunca terem escolhido) SAÍRAM do schema. O DROP
+  // COLUMN vive em prisma/migrations-hold/ (padrão pending_drop_ da casa).
   cobrancaNaEntrega                Boolean   @default(false)
-  // 🔴 NASCE LIGADO desde 21/08/2026 (ordem do dono). Era `false`, e o preco
-  // disso foi medido: 12 das 14 empresas estavam com o financeiro DESLIGADO sem
-  // nunca terem escolhido isso — e com ele off o servidor nem envia `valorHoje`
-  // (logistica.service.ts), entao a Folha da venda abre com "Conta do item"
-  // VAZIA na porta do cliente. Um app de entrega que nao diz quanto cobrar nao
-  // e um app de entrega. Default que faz a tela mentir e default errado.
-  moduloFinanceiroAtivo            Boolean   @default(true)
   moduloRecoveryAtivo              Boolean   @default(false)
   // ROTA-CONFERIDA (S4/S5/S6 PR25072026) — tela de conferência + rota congelada
   // + preview de créditos no APK. Ligada geral em 26/07, mesma lei acima.
   rotaConferidaAtiva               Boolean   @default(true)
-  // PR18072026 W1 — "cobrança simples" (opt-in do dono): reservado para a UI
-  // do app simplificar a folha de chegada (chips) quando ligado. Só a coluna
-  // nasce aqui; o comportamento em si é de outra frente. Default false = 0
-  // mudança de comportamento pra quem não ligou.
-  cobrancaSimples                  Boolean   @default(false)
+  // ⚰️ 24/08/2026 — `cobrancaSimples` saiu (zero consumidor no backend).
   // MODO PASSEIO (29/07) — liberação do modo pra EQUIPE (papel comum). Admin
   // (ADMIN/USERMASTER) usa sempre; funcionário só com esta chave ligada, porque
   // iniciar passeio DEBITA crédito da empresa. Default false = dormente.
@@ -2303,19 +2294,15 @@ model LogisticaConfig {
   aceitaNaHora                     Boolean   @default(true)
   aceitaMensal                     Boolean   @default(true)
   aceitaFiado                      Boolean   @default(true)
-  precoPorClienteAtivo             Boolean   @default(true)
   // Painel Avançado (novo) — cobrança automática. Opt-in: nasce FALSE (feature
   // ainda não construída no fluxo de cobrança em si, só a coluna/toggle nascem aqui).
   cobrancaAutomatica               Boolean   @default(false)
-  // PR27072026 F1 (27/07) — ROTA 3 NÍVEIS: nível comercial do plano de logística
-  // (Basic/Advanced/Full — a "escada" vendável, ver docs/PLANEJAMENTOS/
-  // PR27072026-ROTA-3-NIVEIS.md). Aplicar o nível pelo endpoint master seta os
-  // toggles do preset (moduloFinanceiroAtivo/cobrancaWhatsAtiva/cobrancaAutomatica/
-  // trackingAtivo+modoRotaPadrao) NO MESMO gesto — mas o preset é ATALHO, não
-  // algema: o Master segue editando toggle a toggle depois (decisão do dono
-  // 27/07). DEFAULT 'ADVANCED' = GRANDFATHERING: toda linha JÁ GRAVADA (empresa
-  // existente) nasce Advanced sem UPDATE nenhum — ninguém perde recurso em uso
-  // (ex.: financeiro real da cia 41) quando os níveis ligarem. Empresa nova só
+  // PR27072026 F1 (27/07) — ROTA NÍVEIS: nível comercial do plano de logística
+  // (a "escada" vendável, ver docs/PLANEJAMENTOS/PR27072026-ROTA-3-NIVEIS.md).
+  // 24/08/2026 — os níveis diferem SÓ por Nº DE ASSENTOS (decisão do dono): o
+  // preset de toggles comerciais do setNivel MORREU (trocar o nível grava só
+  // nível+assentos). DEFAULT 'ADVANCED' = GRANDFATHERING: toda linha JÁ GRAVADA
+  // (empresa existente) nasce Advanced sem UPDATE nenhum. Empresa nova só
   // nasce CREDITO por um caminho de criação explícito que passe o valor (ver
   // seedLogisticaConfigTx, tenant-provisioning.pipeline.ts); sem isso, cai em
   // Advanced também, até o Master mexer.
@@ -2334,10 +2321,10 @@ model LogisticaConfig {
   // default + opção na config de excluir"). 'COBRANCA' (default) = a parada ENTRA
   // normalmente, só ganha o aviso "só cobrar" no payload; 'EXCLUIR' = a entrega do
   // devedor NÃO entra na montagem de hoje (fica agendada, filtro só na SELEÇÃO,
-  // NUNCA cancela); 'NORMAL' = ignora o débito (comportamento pré-F2). Recurso
-  // ADVANCED+ — BASIC sempre se comporta como NORMAL (gate de nível no serviço,
-  // não aqui). DEFAULT 'COBRANCA' é seguro pra quem já tem financeiro real: passa
-  // a AVISAR sem nunca esconder cliente nem cancelar nada sozinho.
+  // NUNCA cancela); 'NORMAL' = ignora o débito (comportamento pré-F2).
+  // 24/08/2026 — o gate de nível (ADVANCED+) morreu: vale pra todo tenant.
+  // DEFAULT 'COBRANCA' é seguro: passa a AVISAR sem nunca esconder cliente nem
+  // cancelar nada sozinho.
   devedorNaRota                    String    @default("COBRANCA") @db.VarChar(10) // COBRANCA | EXCLUIR | NORMAL
   // ── PROSPECTOR CNPJ (PR07082026-PROSPECTOR-CNPJ F0, 07/08) ──────────────────
   // "Localizar empresas por onde a rota passa" (decisões do dono §0 do plano).
@@ -2349,21 +2336,14 @@ model LogisticaConfig {
   //                        valor MEDIDO em produção: ~53 CNPJs por parada).
   //   prospectorMaxDia   = quantas empresas ACENDEM sozinhas no dia (clamp 1–8;
   //                        4 é o meio do "3 a 5 vezes" que o dono pediu).
-  //   prospectorEquipe   = libera pro motorista (papel comum). MESMA regra do
-  //                        passeioEquipe acima: admin usa sempre, funcionário só
-  //                        com esta chave — porque abrir lead DEBITA crédito.
+  // ⚰️ 24/08/2026 — `prospectorEquipe` (todo usuário da empresa vê quando
+  // prospectorAtivo está on; a 1ª vez é segurada pelo "Ciente" por usuário em
+  // User.onboardingStateJson) e `prospectorAutomacaoAtiva`/`MaxDia` (gate
+  // Master sem nada atrás) SAÍRAM — DROP em prisma/migrations-hold/.
   prospectorAtivo                  Boolean   @default(false)
   prospectorTemplate               String?
   prospectorRaioM                  Int       @default(150)
   prospectorMaxDia                 Int       @default(4)
-  prospectorEquipe                 Boolean   @default(false)
-  // Decisão nº8 do dono: disparo AUTOMÁTICO é COBRADO como automação — o tenant
-  // NUNCA liga sozinho. Estes 2 campos só entram pelo caminho do Master
-  // (MasterGuard no controller + setProspectorAutomacao no serviço, mesmo padrão
-  // do logisticaNivel/setNivel); o PATCH genérico da config recusa os dois.
-  // Teto 0 = automação sem cota (nada dispara sozinho) mesmo com a chave ligada.
-  prospectorAutomacaoAtiva         Boolean   @default(false)
-  prospectorAutomacaoMaxDia        Int       @default(0)
   // ── MÓDULOS DO APP DESLIGADOS PELO DESKTOP (item 9 do dono, 07/08) ──────────
   // CSV das chaves que o admin DESATIVOU no app do motorista (dedupe+sort, mesma
   // normalização do diasTrabalho acima). null/vazio = tudo ligado (default).
@@ -2380,8 +2360,8 @@ model LogisticaConfig {
 // PR27072026 F2 (27/07) — ESTOQUE DE CARGA (conferência de caminhão do dia). NÃO
 // é almoxarifado/WMS: só "carregou X, vendeu Y (soma do EntregaItem do dia, já
 // existe), voltou Z" — 1 tela, 2 números por produto (docs/PLANEJAMENTOS/
-// PR27072026-ROTA-3-NIVEIS.md, frente F2). Recurso ADVANCED+ (gate no serviço,
-// mesmo padrão do F1 — BASIC nem vê a tela). 1 linha por (empresa, dia, entregador
+// PR27072026-ROTA-3-NIVEIS.md, frente F2). 24/08/2026 — o gate de nível morreu
+// (plano difere só por assentos). 1 linha por (empresa, dia, entregador
 // opcional); `entregadorId` é coluna SOLTA de propósito (sem @relation/FK), mesmo
 // padrão do LogisticaCobrancaAviso.chargeId — o MVP é 1 caminhão por empresa/dia
 // (o front nem seleciona motorista); null = caminhão único da empresa.

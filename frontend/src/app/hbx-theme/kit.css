@@ -741,23 +741,14 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .tag.warn { color: var(--hbx-warning); background: color-mix(in srgb, var(--hbx-warning) 10%, transparent); border-color: color-mix(in srgb, var(--hbx-warning) 30%, transparent); }
 .tag.red { color: var(--hbx-danger); background: color-mix(in srgb, var(--hbx-danger) 10%, transparent); border-color: color-mix(in srgb, var(--hbx-danger) 30%, transparent); }
 
-/* PR27072026 F1 (ROTA 3 NÍVEIS) — "selo" de ver-mas-não-usar: acompanha um
-   controle DESABILITADO quando o nível do plano (Basic/Advanced/Full) não
-   cobre o recurso. NUNCA esconde o controle — ver-sem-poder-usar é o vendedor
-   silencioso (decisão do dono 27/07). 1 classe central pros dois skins que
-   consomem (ERP .log-cfg__* e casca .ent-* de /entrega) — mesma fórmula de
-   cor do .tag.warn acima, nome próprio pra achar todo selo de plano no grep
-   sem colidir com tag de status genérico.
-   .plano-nivel-grid/-card = o seletor Basic/Advanced/Full de 3 colunas na
-   ficha do Master (título + descrição de venda + estado selecionado). */
+/* PR27072026 F1 — "selo" de plano. 24/08 (última passada): os gates de nível
+   morreram, e com eles quase todo uso do selo; o que SOBROU é o "Sem
+   mensalidade" do nível CREDITO em /logistica/config — por isso a classe fica.
+   Mesma fórmula de cor do .tag.warn acima, nome próprio pra achar todo selo de
+   plano no grep sem colidir com tag de status genérico.
+   (.plano-nivel-grid/-card morreram em 24/08: o seletor de 3 colunas saiu da
+   ficha do Master — a ficha edita só assentos.) */
 .plano-selo { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: var(--radius-pill); font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: 0.01em; color: var(--hbx-warning); background: color-mix(in srgb, var(--hbx-warning) 10%, transparent); border: 1px solid color-mix(in srgb, var(--hbx-warning) 30%, transparent); white-space: nowrap; width: fit-content; }
-.plano-nivel-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.plano-nivel-card { display: grid; gap: 4px; padding: 10px 12px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface-soft); cursor: pointer; text-align: left; font-family: var(--font-body); }
-.plano-nivel-card:disabled { cursor: not-allowed; opacity: 0.6; }
-.plano-nivel-card.is-selected { border-color: var(--hbx-brand); background: color-mix(in srgb, var(--hbx-brand) 10%, transparent); }
-.plano-nivel-card .t { font-size: var(--fz-l2); font-weight: 800; color: var(--text-strong); }
-.plano-nivel-card .d { font-size: var(--hbx-font-min); color: var(--text-muted); line-height: 1.4; }
-@media (max-width: 640px) { .plano-nivel-grid { grid-template-columns: 1fr; } }
 .chan { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: var(--radius-xs); font-size: var(--hbx-font-min); font-weight: 800; }
 .chan.wa { color: var(--hbx-action-ink); background: var(--hbx-accent); }
 .chan.mail { color: var(--hbx-action-ink); background: var(--hbx-info); }

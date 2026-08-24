@@ -290,16 +290,26 @@ function ddmm(iso: string): string {
 }
 
 test('F5+: dia cujas entregas foram APAGADAS ainda aparece vermelho — a trilha responde por ele', async () => {
+  // 24/08/2026 — data DINÂMICA (anteontem): o fixture fixo '2026-08-06' saiu da
+  // janela de 14 dias com a virada do calendário e o teste apodreceu sozinho
+  // ("verde no meu fuso" às avessas). Anteontem está sempre dentro da janela e
+  // nunca é HOJE (que tem regra própria: só entra morto).
+  const anteontem = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 2);
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  })();
   const { service } = buildService([], [
-    { customerProfileId: 'c1', paraTexto: ddmm('2026-08-06') },
-    { customerProfileId: 'c2', paraTexto: ddmm('2026-08-06') },
+    { customerProfileId: 'c1', paraTexto: ddmm(anteontem) },
+    { customerProfileId: 'c2', paraTexto: ddmm(anteontem) },
     // mesma parada cancelada 2× no dia não vira 2 paradas
-    { customerProfileId: 'c2', paraTexto: ddmm('2026-08-06') },
+    { customerProfileId: 'c2', paraTexto: ddmm(anteontem) },
   ]);
 
   const { dias } = (await service.historicoDeRotas(COMPANY)) as any;
   assert.deepEqual(dias, [
-    { data: '2026-08-06', paradas: 2, entregues: 0, naoCompletadas: 2, desfecho: 'cancelada' },
+    { data: anteontem, paradas: 2, entregues: 0, naoCompletadas: 2, desfecho: 'cancelada' },
   ]);
 });
 

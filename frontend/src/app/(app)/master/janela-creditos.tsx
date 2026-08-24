@@ -154,11 +154,14 @@ const MODE_OPTIONS: { value: CreditActionMode; label: string }[] = [
   { value: "debit", label: "Débito" },
 ];
 
-// Apoio curto embaixo do rótulo: só a UNIDADE de cobrança. É o que evita errar o
-// preço — as duas rotas cobram por PARADA desde 28/07 (o bloco de 5 morreu).
+// Apoio curto embaixo do rótulo: só a UNIDADE de cobrança — é o que evita errar
+// o preço. 24/08 — a ação da rota Essencial foi APOSENTADA junto com o modo
+// (toda rota é rastreada). O rótulo dela fica como HISTÓRICO de propósito: a
+// linha só renderiza se o catálogo do backend ainda listar a chave, e apagar o
+// hint deixaria a linha antiga sem explicação no extrato.
 const ACTION_UNIT_HINT: Record<string, string> = {
   lead_delivery: "cobrado na entrega do lead",
-  logistica_essential_block: "cobra 1x por parada da rota",
+  logistica_essential_block: "aposentada em 24/08 (rota Essencial) — fica só como histórico",
   logistica_tracked_delivery: "cobra 1x por entrega concluída com rastreamento válido",
 };
 
@@ -1183,8 +1186,11 @@ export function JanelaCreditos({ companies, reload }: {
             <span className="sc-hint">
               Cada plano dá rota ilimitada em paradas — o limite é o número de motoristas
               simultâneos, editável acima. O nível Rota Avulsa (sem plano) cobra por dia de
-              rota rodado, 1 motorista. O nível de cada empresa é escolhido na ficha dela,
-              aba Comercial.
+              rota rodado, 1 motorista. {/* 24/08 — o seletor de nível saiu da ficha da
+              empresa (aba Comercial edita só assentos); quem troca plano é a guia
+              Empresas aqui do lado. */}
+              O plano de cada empresa se troca na guia Empresas; a ficha dela (aba
+              Comercial) edita só os assentos.
             </span>
           </div>
         </section>

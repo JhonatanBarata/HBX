@@ -40,13 +40,13 @@ export class LogisticaNivelMasterController {
     return { empresas: this.service.listarEmpresasParaMaster() };
   }
 
-  /** PATCH parcial: mandar só o preço não apaga a franquia editada antes. */
+  /** PATCH parcial: mandar só o preço não apaga os assentos editados antes.
+   *  24/08/2026 — `franquiaParadasMes` morreu (vitrine morta desde ROTA v2). */
   @Put(':nivel')
   async atualizar(
     @Param('nivel') nivel: string,
     @Body() body: {
       precoMensal?: number;
-      franquiaParadasMes?: number;
       titulo?: string;
       slogan?: string;
       // ROTA v2 F2b (10/08) — assentos inclusos do nível (1–999, sanitizado em

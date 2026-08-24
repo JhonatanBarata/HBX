@@ -64,7 +64,10 @@ function setup(initial = row()) {
     },
   };
   const wallet: any = { getBalance: async () => 100 };
-  return { service: new LogisticaConfigService(prisma, wallet), upsertCalls };
+  // 24/08 — stub mínimo do UsersService (o carimbo do prospectorCiente tem
+  // teste próprio em logistica-config-prospector.test.ts).
+  const users: any = { findById: async () => ({}), getOnboardingEvents: () => ({}), stampOnboardingEvent: async () => ({ firstTime: true, events: {} }) };
+  return { service: new LogisticaConfigService(prisma, wallet, users), upsertCalls };
 }
 
 test('operacional: gerente/motorista (não billing owner) LEEM devedorNaRota no GET', async () => {
@@ -99,28 +102,21 @@ test('valor inválido é rejeitado antes de gravar', async () => {
   assert.equal(upsertCalls.length, 0);
 });
 
-test('BASIC recusa COBRANCA/EXCLUIR pelo caminho do tenant (gate de nível)', async () => {
+// 24/08/2026 — o gate de nível (Advanced+) MORREU: plano difere só por
+// assentos, e devedorNaRota vale pra TODO tenant.
+test('TODO nível grava COBRANCA/EXCLUIR pelo caminho do tenant (o gate morreu)', async () => {
   for (const modo of ['COBRANCA', 'EXCLUIR']) {
     const { service, upsertCalls } = setup(row({ logisticaNivel: 'BASIC' }));
-    await assert.rejects(
-      () => service.updateConfig(7, { devedorNaRota: modo as any }, OWNER),
-      /Advanced/,
-      `modo ${modo} deveria recusar no BASIC`,
-    );
-    assert.equal(upsertCalls.length, 0);
+    const cfg = await service.updateConfig(7, { devedorNaRota: modo as any }, OWNER);
+    assert.equal(cfg.devedorNaRota, modo, `modo ${modo} deveria gravar em qualquer nível`);
+    assert.equal(upsertCalls.length, 1);
   }
 });
 
-test('BASIC aceita NORMAL (equivale a "desligado")', async () => {
+test('NORMAL segue aceito (equivale a "desligado")', async () => {
   const { service } = setup(row({ logisticaNivel: 'BASIC', devedorNaRota: 'COBRANCA' }));
   const cfg = await service.updateConfig(7, { devedorNaRota: 'NORMAL' }, OWNER);
   assert.equal(cfg.devedorNaRota, 'NORMAL');
-});
-
-test('Master passa por cima do teto do nível (BASIC liga EXCLUIR se o Master mandar)', async () => {
-  const { service } = setup(row({ logisticaNivel: 'BASIC' }));
-  const cfg = await service.updateConfig(7, { devedorNaRota: 'EXCLUIR' }, MASTER);
-  assert.equal(cfg.devedorNaRota, 'EXCLUIR');
 });
 
 test('ADVANCED e FULL aceitam COBRANCA/EXCLUIR normalmente', async () => {

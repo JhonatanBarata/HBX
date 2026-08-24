@@ -252,14 +252,40 @@
         cancelando(0);
       };
       depoisDaTrava(async () => {
-        if (!rotaRefAtual) {
-          soltarRecibo();
-          avisoErro(new Error('Atualize a rota antes de cancelar.'));
-          return false;
+        /* 🔴 A DEMONSTRAÇÃO CANCELA POR DENTRO (24/08), E A REF NÃO ERA A CURA.
+           MEDIDO no g15 (APK 358, conta nova — a demonstração abriu sozinha por
+           `talvezOferecerDemo`): o Cancelar não morria no cano da demonstração
+           (`__demoIntercepta`, § 00-nucleo), morria TRÊS LINHAS ANTES. A ref de
+           continuidade nasce de `refDaResposta` (§ 25-continuidade-rota) e o
+           `GET /logistica/rota` fingido não tem `continuityRef`, não tem
+           `routeId` e não tem `entregador` nos itens — as três portas fechadas,
+           ref vazia, e o dono levava "Atualize a rota antes de cancelar" numa
+           rota que nunca existiu em servidor nenhum.
+           E publicar uma ref no payload fingido seria TROCAR o defeito por um
+           pior: rota 'rodando' + ref viva + `ownedRefs` vazia (a demonstração
+           responde continuidade sem `items`, então `vestirPendencias` sai na
+           primeira linha e `refsDoAtor` fica []) + paradas abertas acende o
+           bloco de posse revogada do lote 1.5 — `stopRoute` + `carregarRota` a
+           cada tique de 60 s, a cada foco e a cada visibilitychange. É o loop
+           que aquele lote existe pra ter matado.
+           Então quem sabe o que "cancelar" significa lá dentro é a própria
+           demonstração, e ela ganha UM seam — a mesma forma do cano, um lugar
+           só. O verbo real fica intocado: sem demonstração no ar o seam nem
+           existe, e daqui pra baixo é a linha de sempre.
+           `=== true` de propósito: seam ausente, casca velha ou demonstração
+           fechada devolvem qualquer outra coisa e o caminho de sempre segue. */
+        const demoTratou = typeof window.__demoCancelarRota === 'function'
+          && window.__demoCancelarRota() === true;
+        if (!demoTratou) {
+          if (!rotaRefAtual) {
+            soltarRecibo();
+            avisoErro(new Error('Atualize a rota antes de cancelar.'));
+            return false;
+          }
+          if (!(await filaOfflinePronta())) { soltarRecibo(); return false; }
+          try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref: rotaRefAtual }); }
+          catch (e) { soltarRecibo(); await avisoErroContinuidade(e); return false; }
         }
-        if (!(await filaOfflinePronta())) { soltarRecibo(); return false; }
-        try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref: rotaRefAtual }); }
-        catch (e) { soltarRecibo(); await avisoErroContinuidade(e); return false; }
         /* 🔴 UM EVENTO VISUAL SÓ, E A ORDEM É O CONSERTO INTEIRO (17/08 — o
            "não tem sequência" do dono, medido quadro a quadro).
            ANTES daqui a saída era em QUATRO repintes soltos, cada um disparado

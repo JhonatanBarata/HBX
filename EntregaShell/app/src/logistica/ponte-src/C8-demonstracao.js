@@ -209,23 +209,27 @@
 
     // ── as portas que enchem as telas ───────────────────────────────────────
     if (metodo === 'GET' && via === '/logistica/config') {
+      // ⚰️ 24/08 — a resposta espelha o contrato NOVO: os campos mortos
+      // (moduloFinanceiroAtivo, cobrancaSimples, precoPorClienteAtivo,
+      // prospectorDisponivel, prospectorEquipe) saíram daqui como saíram do
+      // servidor — demo que responde campo morto ensina o contrato errado.
+      // `admin` fica AUSENTE de propósito: a demonstração nunca foi admin
+      // (a dedução antiga por `modoRotaPadrao` também respondia "não").
       return {
         empresaNome: 'Sua Empresa',
-        moduloFinanceiroAtivo: true,
         aceitaNaHora: true,
         aceitaMensal: false,
         aceitaFiado: false,
-        cobrancaSimples: false,
-        precoPorClienteAtivo: false,
         avisoChegandoEnabled: false,
         avisoChegandoDistanciaM: 500,
         raioChegadaM: 60,
-        /* O prospector fica FORA da demonstração: ele cobra crédito por lead e
-           é o único recurso do app cuja aula termina em "isso custa dinheiro".
-           Ensinar a gastar antes de a pessoa ter um cliente é a ordem errada. */
+        /* O prospector fica FORA da demonstração (decisão mantida em 24/08):
+           ele cobra crédito por lead e é o único recurso do app cuja aula
+           termina em "isso custa dinheiro". Ensinar a gastar antes de a pessoa
+           ter um cliente é a ordem errada. `prospectorCiente: true` porque o
+           portão jurídico também não é assunto de demonstração. */
         prospectorAtivo: false,
-        prospectorDisponivel: false,
-        prospectorEquipe: false,
+        prospectorCiente: true,
         appModulosDesativados: '',
       };
     }
@@ -233,7 +237,7 @@
       return {
         date: e.dia,
         routeStatus: e.routeStatus,
-        moduloFinanceiroAtivo: true,
+        // ⚰️ 24/08 — `moduloFinanceiroAtivo` saiu do payload da rota também.
         avisoChegandoAtivo: false,
         items: e.itens.map((it, i) => ({
           id: it.id,
@@ -349,10 +353,83 @@
       if (alvo) alvo.status = 'cancelada';
       return { ok: true };
     }
+    /* 🔴 O CANCELAR (24/08). Ele chega por DOIS caminhos e os dois terminam
+       aqui dentro: o dock da rota nem consegue postar (sem ref de continuidade
+       ele para na guarda do § 30-verbos-rota, e é pra isso que existe o seam
+       `__demoCancelarRota` lá embaixo), e o cartão de pendência posta — só que
+       na demonstração ele nunca aparece, porque a continuidade responde sem
+       `items` e `vestirPendencias` sai na primeira linha. Estar nos dois
+       lugares custa quatro linhas e fecha a porta pra quando um dos dois
+       mudar. */
+    if (metodo === 'POST' && via === '/logistica/rota/continuidade/cancelar') {
+      cancelarDemo();
+      return { ok: true, resumo: { canceladas: 0 } };
+    }
     /* 🔴 O SILÊNCIO EDUCADO. Toda porta que a demonstração não conhece responde
        "sem fonte" — e o app inteiro já sabe conviver com isso. */
     return null;
   }
+
+  /* ------------------------------------------------------------------------
+     O CANCELAR DA DEMONSTRAÇÃO — o dia de exemplo acaba, e o aviso diz onde
+     recomeçar.
+     ------------------------------------------------------------------------ */
+  /* 🔴 CANCELAR ESVAZIA O DIA, e a demonstração não pode ensinar o contrário.
+     O verbo de verdade (`continuidade/cancelar`) limpa o dia no servidor — é
+     por isso que o § 30-verbos-rota chama `esquecerRotaCarregada`, que publica
+     `vazio: textoVazio(0)`. Uma demonstração que cancelasse e continuasse com
+     as oito paradas na tela estaria dizendo que o botão vermelho não faz nada.
+     Então ela esvazia igual, e `routeStatus` volta pra PLANNED: com zero
+     abertas o `estadoDaRota` rebaixa sozinho pra 'montar' (§ 00-nucleo, a régua
+     da rota fantasma), que é exatamente o dock de um dia limpo.
+     O preço — o exemplo acabou — é o que o aviso abaixo existe pra pagar. */
+  function cancelarDemo() {
+    if (!demoNoAr || !demoEstado) return false;
+    demoEstado.itens = [];
+    demoEstado.routeStatus = 'PLANNED';
+    avisarDemoCancelada();
+    return true;
+  }
+
+  /* 🔴 O AVISO É OUTRO PORQUE O FATO É OUTRO — e ele ESPERA A TELA PARAR.
+     "Não deu certo" seria mentira aqui: deu certo, só que o que foi cancelado
+     era exemplo. Portão `info` com um botão só, a mesma forma do "Preço
+     bloqueado" do catálogo — o único botão É a saída, e por isso vem MARCADO.
+     A espera é a lei da casa (§ 30-verbos-rota, o recibo do Cancelar): o
+     Cancelar troca de tela e a troca de modo dura 900 ms; portão aberto no meio
+     dela nasce na camada que está MORRENDO e some junto com ela. Quem responde
+     "já parou?" é o DOM, não um número — `.tela.sai` é o mesmo sinal que a cena
+     das ruas usa (§ 50-cena-ruas). Os 260 ms de piso cobrem a saída do portão
+     de confirmação (o `fechar` tira o nó aos 210), e o teto de 12 tentativas é
+     o freio de quem nunca vê a tela parar: sem ele um repinte preso deixaria um
+     relógio batendo pra sempre.
+     Depois de aberto ele sobrevive: repinte (`!animar`) leva o `.portao-wrap`
+     vivo pra camada nova (§ mock, `portaoVivo`). */
+  function avisarDemoCancelada() {
+    let tentativas = 0;
+    const abrir = () => {
+      if (!demoNoAr || typeof window.portao !== 'function') return;
+      if (document.querySelector('#app .tela.sai') && tentativas++ < 12) {
+        setTimeout(abrir, 120);
+        return;
+      }
+      window.portao({
+        tom: 'info', ico: 'bulb', titulo: 'Rota de exemplo cancelada',
+        sub: 'Isto é a demonstração: nada foi salvo, e o dia de exemplo ficou vazio '
+          + 'igual ficaria de verdade. Pra ver tudo de novo, vá em Ajustes › Tutorial, '
+          + 'toque em Sair da demonstração e depois em Abrir demonstração.',
+        acoes: [['Entendi', 'principal', true]],
+      });
+    };
+    setTimeout(abrir, 260);
+  }
+
+  /* O seam que o § 30-verbos-rota consulta ANTES de exigir ref de continuidade.
+     Devolve `false` com a demonstração fechada — e aí o Cancelar de verdade
+     segue inteiro, sem saber que este arquivo existe. */
+  window.__demoCancelarRota = function () {
+    try { return cancelarDemo(); } catch (_) { return false; }
+  };
 
   /* ── A FRESTA DAS RUAS (21/08/2026) ───────────────────────────────────────
      🔴 O CANO FECHADO DEIXAVA A TELA DE DIRIGIR PELA METADE. Medido no g15 com

@@ -266,7 +266,9 @@ object MissaoAlarme {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notif = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            // Small icon é máscara de alfa — o `ic_launcher` virava borrão.
+            // Ver a conta em `ic_stat_hbx.xml`.
+            .setSmallIcon(R.drawable.ic_stat_hbx)
             .setContentTitle(titulo.ifBlank { "Recado da central" })
             .setContentText(texto.ifBlank { "Toque para responder" })
             .setPriority(NotificationCompat.PRIORITY_MAX)

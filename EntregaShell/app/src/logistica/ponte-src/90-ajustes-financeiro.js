@@ -76,21 +76,14 @@
      ------------------------------------------------------------------------ */
   let config = null;
 
-  /* 🔴 QUEM É ADMIN QUEM DIZ É O SERVIDOR, NÃO A TELA. O `GET /logistica/config`
-     responde DOIS tamanhos: pra quem é responsável financeiro ele manda o bloco
-     comercial (`modoRotaPadrao`, `pixChave`, `trackingAtivo`…), e pra gerente,
-     vendedor e motorista esses campos vêm AUSENTES — não nulos, ausentes. Então
-     a presença de um deles É a resposta, e não há gate nenhum inventado aqui.
-     É o MESMO `isAdmin()` do app que já roda (`app.js`, L545), com o MESMO
-     campo, de propósito: dois fronts do mesmo produto não podem discordar sobre
-     quem é dono.
-     ⚠️ Medido: `moduloFinanceiroAtivo` é o ÚNICO dos 6 que o backend exige
-     responsável financeiro pra GRAVAR (está no `changesCommercialConfig`); os
-     outros 5 bastam ser ADMIN. Como o app não tem sinal nenhum que separe
-     gerente de motorista, o corte é este — e ele erra pro lado certo: esconder
-     uma chave que o gerente poderia mexer é menos grave que mostrar uma chave
-     que vai devolver 403 na cara dele. Chave que não obedece é mentira. */
-  const ehAdmin = () => !!config && Object.prototype.hasOwnProperty.call(config, 'modoRotaPadrao');
+  /* 🔴 QUEM É ADMIN QUEM DIZ É O SERVIDOR, NÃO A TELA — e agora ele diz COM
+     PALAVRA, não com silêncio (24/08). O `GET /logistica/config` passou a
+     responder `admin: true` no bloco de quem é responsável financeiro; a
+     dedução antiga ("`modoRotaPadrao` presente ⇒ admin") morreu junto com o
+     modo de rota — `modoRotaPadrao` ainda viaja ('TRACKED' cravado) só por
+     compat, e ler papel de um campo de compat é adivinhar por variável de
+     ambiente. Campo explícito, comparação explícita: ausente = não é. */
+  const ehAdmin = () => !!config && config.admin === true;
 
   async function carregarAjustes() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
@@ -121,15 +114,17 @@
       empresa: '',             // o nome da empresa não vem em porta do celular
       ...linhaDaVersao(),      // versão instalada + anúncio de versão nova
     });
-    /* As 6 chaves de dinheiro. Vêm da MESMA resposta que já foi buscada — a tela
+    /* As chaves de dinheiro. Vêm da MESMA resposta que já foi buscada — a tela
        do Avançado não tem chamada própria, e por isso também não tem estado
-       próprio de falha: quem recarrega é o `recarregar-ajustes`. */
+       próprio de falha: quem recarrega é o `recarregar-ajustes`.
+       ⚰️ 24/08 — `financeiro`/`cobrancaSimples`/`precoPorCliente` MORRERAM no
+       contrato (o financeiro é sempre ligado, a folha é sempre a completa):
+       o `GET /logistica/config` não os responde mais e o PATCH devolve 400
+       (forbidNonWhitelisted) pra quem tentar gravá-los. Publicar campo morto
+       no seam seria desenhar chave que o servidor não obedece. */
     window.usarDados('avancado', {
       ...fonteVoltou,
       admin,
-      financeiro: config.moduloFinanceiroAtivo ? 1 : 0,
-      cobrancaSimples: config.cobrancaSimples ? 1 : 0,
-      precoPorCliente: config.precoPorClienteAtivo ? 1 : 0,
       naHora: config.aceitaNaHora ? 1 : 0,
       mensal: config.aceitaMensal ? 1 : 0,
       fiado: config.aceitaFiado ? 1 : 0,
@@ -137,14 +132,12 @@
       // campo e o raio são os mesmos que a raiz dos Ajustes mostrava.
       avisarChegada: config.avisoChegandoEnabled ? 1 : 0,
       avisarChegadaDist: isFinite(dist) && dist > 0 ? `${dist} m` : '',
-      /* PROSPECTOR (09/08) — até hoje a chave só existia no desktop, e o
-         capítulo do tutorial terminava mandando o dono "ligar no computador".
-         São DOIS fatos, não um: `prospector` é o estado da empresa, e
-         `prospectorDisponivel` é a HBX ter ligado o recurso. A linha só é
-         DESENHADA com o segundo — chave de recurso que a empresa não tem
-         devolve 403 na cara do dono. */
+      /* PROSPECTOR (09/08; ABERTO A TODOS em 24/08) — a chave atravessou o
+         vidro em 09/08, e em 24/08 `prospectorDisponivel` morreu no contrato:
+         toda empresa PODE ligar, então sobrou UM fato — `prospector` é a
+         empresa ter ligado. O portão de responsabilidade de quem liga é o
+         "Ciente" (`portaoCienteProspector`), não uma chave-mestra da HBX. */
       prospector: config.prospectorAtivo ? 1 : 0,
-      prospectorDisponivel: prospectorPodeLigar(),
       /* PROSPECTOR v2 (12/08) — o que a PESSOA escolheu pra esta semana. Vem da
          memória do §7b-bis (o último GET/POST), não de uma segunda chamada: esta
          tela não tem porta própria, e pendurar mais uma rede aqui faria a linha
@@ -153,10 +146,10 @@
          é honesto nos dois casos. */
       prospectorTipo: rotuloDoProspector(),
     });
-    /* Só pergunta a escolha se a empresa PODE ter prospector — chave desligada
-       não tem o que procurar, e seria uma ida à rede por tela de Ajustes de todo
+    /* Só pergunta a escolha com o prospector LIGADO — chave desligada não tem
+       o que procurar, e seria uma ida à rede por tela de Ajustes de todo
        mundo. Best-effort: falha aqui não atrapalha nada nesta tela. */
-    if (config.prospectorAtivo && prospectorPodeLigar()) {
+    if (config.prospectorAtivo) {
       carregarProspectorSemana().then(() => {
         if (typeof window.usarDados === 'function') {
           window.usarDados('avancado', { prospectorTipo: rotuloDoProspector() });
@@ -659,30 +652,53 @@
      Quem decide de novo é o próximo boot, lendo o servidor. */
   let obrigatorioResolvido = false;
 
-  /* 🔴 "PODE LIGAR" É CAMPO DO SERVIDOR, NÃO DEDUÇÃO MINHA. O `GET
-     /logistica/config` responde `prospectorDisponivel` — a chave-mestra da HBX
-     (`HBX_PROSPECTOR_ENABLED`), servida a TODO ator, motorista inclusive.
-     Deduzir por "o campo `prospectorAtivo` existe na resposta" daria SEMPRE
-     verdadeiro: ele é serializado pra todo mundo, com default `false`. A chave
-     apareceria nos Ajustes de empresa que não tem o recurso, e chave que não
-     obedece é mentira. Backend velho, sem o campo: NÃO SEI ⇒ não ofereço. */
-  const prospectorPodeLigar = () => (config && typeof config.prospectorDisponivel === 'boolean'
-    ? (config.prospectorDisponivel ? 1 : 0)
-    : 0);
+  /* ⚰️ `prospectorPodeLigar` MORREU em 24/08: `prospectorDisponivel` saiu do
+     contrato — o prospector é aberto a toda empresa, e a régua admin/equipe
+     (`prospectorEquipe`) morreu junto. "Esta pessoa vê os prédios" virou UM
+     fato só: a empresa ligou. Quem carrega a responsabilidade jurídica agora
+     é o carimbo `prospectorCiente` (por ATOR, gravado no servidor — o
+     inventário já provou que `HBX.cache` é por aparelho e não serve pra
+     carimbo), cobrado pelo portão abaixo. */
+  const prospectorEuVejo = () => (config && config.prospectorAtivo === true ? 1 : 0);
 
-  /* 🔴 "A EMPRESA LIGOU" NÃO É "ESTA PESSOA VÊ" (09/08). O prospector tem QUATRO
-     chaves, não uma, e a régua de quem enxerga os prédios é do servidor:
-     **admin sempre, funcionário só com `prospectorEquipe`**
-     (`logistica-rota.service.ts:502`). Ensinar pelo `prospectorAtivo` sozinho
-     poria o capítulo completo — "toque no prédio aceso" — na frente do motorista
-     de uma empresa com `prospectorEquipe` desligado, que nunca verá prédio
-     nenhum. Seria o tutorial FABRICANDO a pergunta besta que ele veio matar
-     ("cadê os prédios que o app me ensinou?").
-     Aqui a régua do servidor é traduzida UMA vez, num fato só: quem vê. */
-  const prospectorEuVejo = () => {
-    if (!config || !config.prospectorAtivo) return 0;
-    return (ehAdmin() || config.prospectorEquipe) ? 1 : 0;
-  };
+  /* ── O PORTÃO "CIENTE" DO PROSPECTOR (24/08) ──────────────────────────────
+     Mensagem automática EM NOME do motorista + custo em crédito = ninguém liga
+     (nem roda com) o prospector sem ler isto uma vez. Mesmo padrão do
+     `travaDoRecado` (A0): portão SEM ESCAPE — só a ação 'Ciente', o
+     `handleBack` já engole o Voltar de portão sem escape — e listener
+     `{once:true}` no principal. O carimbo é SÓ servidor
+     (`POST /logistica/prospector/ciente`, idempotente): quem já é ciente numa
+     conta é ciente em qualquer aparelho. Dois gatilhos chamam este portão:
+     a chave nos Ajustes (ao LIGAR, D0) e a chegada de empresas acesas na rua
+     (`aplicarProspector`, 00-nucleo — o funcionário que nunca abre Ajustes). */
+  function portaoCienteProspector(depois) {
+    if (typeof window.portao !== 'function') return;
+    window.portao({
+      tom: 'info', ico: 'sales', titulo: 'Vender no caminho',
+      sub: 'O Prospector envia mensagens automáticas em seu nome para empresas '
+        + 'no caminho da rota e pode gerar custo em créditos. Você é responsável '
+        + 'pelo conteúdo enviado.',
+      acoes: [['Ciente', 'principal', false]],
+    });
+    const b = naCamada('.portao-wrap .principal');
+    if (b) b.addEventListener('click', () => { carimbarCienteProspector(depois); }, { once: true });
+  }
+
+  /** grava o ciente no SERVIDOR e segue. Falha não prende: o portão volta no
+   *  próximo gatilho (o carimbo continua `false` na config) — nunca em loop. */
+  async function carimbarCienteProspector(depois) {
+    try {
+      await window.API.post('/logistica/prospector/ciente', {});
+      if (config) config.prospectorCiente = true;
+    } catch (e) {
+      console.warn('[HBX ponte] prospector: não consegui gravar o "ciente" —', (e && e.message) || e);
+    }
+    if (typeof depois === 'function') depois();
+  }
+
+  /* O portão da RUA dispara UMA vez por sessão — e a marca só queima quando o
+     portão realmente ABRE (folha de dinheiro aberta adia pro próximo poll). */
+  let cienteProspectorPedido = false;
 
   /* A MESMA régua da barra (`moduloDesligado` da casca), lida do MESMO CSV: não
      existe capítulo de Chat num app em que o admin apagou o Chat. */
@@ -733,11 +749,16 @@
     };
     if (config) {
       fatos.admin = ehAdmin() ? 1 : 0;
-      fatos.financeiro = config.moduloFinanceiroAtivo ? 1 : 0;
+      // ⚰️ 24/08 — `financeiro` e `prospectorDisponivel` saíram dos fatos: o
+      // financeiro é sempre ligado (o capítulo do Fechamento perdeu o `se:`) e
+      // o prospector é aberto a toda empresa.
       fatos.prospectorAtivo = config.prospectorAtivo ? 1 : 0;
-      fatos.prospectorDisponivel = prospectorPodeLigar();
-      // "Esta pessoa vê os prédios?" — o fato que o capítulo completo pede.
+      // "Esta pessoa vê os prédios?" — desde 24/08 é a própria chave da
+      // empresa: a régua admin/equipe morreu com o contrato novo.
       fatos.prospectorVejo = prospectorEuVejo();
+      // O carimbo jurídico do ATOR (24/08) — fato publicado junto dos demais;
+      // quem COBRA o portão é a ponte (`portaoCienteProspector`), não o motor.
+      fatos.prospectorCiente = config.prospectorCiente === true ? 1 : 0;
       fatos.chat = moduloLigado('chat');
     }
     window.usarDados('tutorial', fatos);

@@ -72,7 +72,9 @@ object TrackingSync {
                 ensureSession(api, outbox, sessionStore, routeId)
             } catch (error: Throwable) {
                 if (isPairingBlocked(error)) {
-                    sessionStore.markAuthBlocked()
+                    // R9 (24/08): o bloqueio é DA ROTA que levou o 401 — num
+                    // aparelho compartilhado a rota do outro usuário não paga.
+                    sessionStore.markAuthBlocked(routeId)
                     blockedByPairing = true
                     break@routes
                 }
@@ -110,7 +112,7 @@ object TrackingSync {
                     val apiError = error as? TrackingApiClient.ApiException
                     val status = apiError?.statusCode
                     if (isPairingBlocked(error)) {
-                        sessionStore.markAuthBlocked()
+                        sessionStore.markAuthBlocked(routeId) // R9: por rota
                         blockedByPairing = true
                     } else if (status != null && isTerminalTrackingHttpStatus(status)) {
                         markRouteTerminal(app, outbox, sessionStore, routeId, "http_$status")
@@ -130,7 +132,7 @@ object TrackingSync {
                     }
                     break@routeLoop
                 }
-                if (sessionStore.isAuthBlocked()) sessionStore.clearAuthBlocked()
+                if (sessionStore.isAuthBlocked(routeId)) sessionStore.clearAuthBlocked(routeId)
                 /* O teto só zera com PROGRESSO REAL — uma resposta do VPS.
                    Zerar no `ensureSession` seria enganação: ele devolve a sessão
                    do cache sem tocar a rede, então o contador nunca acumularia e
@@ -185,7 +187,7 @@ object TrackingSync {
                     api.sendEvent(sessionId, event)
                 } catch (error: Throwable) {
                     if (isPairingBlocked(error)) {
-                        sessionStore.markAuthBlocked()
+                        sessionStore.markAuthBlocked(routeId) // R9: por rota
                         blockedByPairing = true
                         break
                     }
@@ -277,7 +279,7 @@ object TrackingSync {
                     needsRetry = true
                     break
                 }
-                if (sessionStore.isAuthBlocked()) sessionStore.clearAuthBlocked()
+                if (sessionStore.isAuthBlocked(routeId)) sessionStore.clearAuthBlocked(routeId)
                 outbox.resetRouteAttempts(routeId)
                 val authority = response.captureAuthority()
                 val endAcknowledged = event.type == TrackingPointEvent.END.name &&
@@ -336,7 +338,7 @@ object TrackingSync {
             throw TrackingSessionMismatchException(expected, session.id)
         }
         store.saveSession(routeId, session.id)
-        store.clearAuthBlocked()
+        store.clearAuthBlocked(routeId)
         outbox.markSession(routeId, session.id)
         return session.id
     }
@@ -374,7 +376,9 @@ object TrackingSync {
         // próxima abertura não volta a capturar esta rota.
         store.markTerminal(routeId)
         outbox.markRouteTerminal(routeId, reason)
-        RotaService.stopTerminal(context, routeId)
+        // 24/08 — sessão terminal REBAIXA em vez de matar: a telemetria morre
+        // aqui, mas a rota (geofence + alarme de chegada) continua viva.
+        RotaService.downgradeTracking(context, routeId)
     }
 
     private fun JSONObject.stringArray(key: String): List<String> {

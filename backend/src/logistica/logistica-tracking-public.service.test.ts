@@ -5,15 +5,15 @@ import { LogisticaTrackingPublicService } from './logistica-tracking-public.serv
 import { signDeliveryTrackingToken, verifyDeliveryTrackingToken } from './logistica-tracking-public.util';
 
 // ============================================================================
-// F3 FULL-POLIDO — prova o gate FULL + token opaco do link "acompanhe sua
-// entrega" (endpoint público) e o resolver de link (endpoint admin):
+// F3 FULL-POLIDO — token opaco do link "acompanhe sua entrega" (endpoint
+// público) e o resolver de link (endpoint admin).
+// 24/08/2026 — o gate de nível FULL e o campo `full` MORRERAM (plano difere só
+// por assentos): o `live` depende só de rota TRACKED ACTIVE + sessão ACTIVE.
 //   1. sem segredo configurado → sempre null (fail-closed técnico);
 //   2. token inválido/adulterado → null (controller responde 404 genérico);
-//   3. entrega existe mas nível < FULL → status estático, `live` é null;
-//   4. nível FULL + rota TRACKED ACTIVE + sessão ACTIVE → `live` preenchido;
-//   5. rota ATIVA em andamento continua visível mesmo com downgrade (nível
-//      lido no MOMENTO da consulta — não há cache do nível em que a rota nasceu);
-//   6. getShareLink/listShareLinksForRoute são company-scoped.
+//   3. rota TRACKED ACTIVE + sessão ACTIVE → `live` preenchido (qualquer nível);
+//   4. fora disso → status estático, `live` null;
+//   5. getShareLink/listShareLinksForRoute são company-scoped.
 // ============================================================================
 
 const SECRET = 'test-secret-para-o-link-publico-32b';
@@ -45,10 +45,6 @@ async function withoutSecret<T>(fn: () => Promise<T> | T): Promise<T> {
   } finally {
     if (previous !== undefined) process.env[ENV_KEY] = previous;
   }
-}
-
-function buildConfig(nivel: 'BASIC' | 'ADVANCED' | 'FULL') {
-  return { getNivel: async (_companyId: number) => ({ nivel }) } as any;
 }
 
 function buildPrisma(opts: { entrega?: any | null; routeStops?: any[] }) {
@@ -88,7 +84,7 @@ const BASE_ENTREGA = {
 test('getStatusByToken: sem segredo configurado = null mesmo com entrega existente', async () => {
   await withoutSecret(async () => {
     const prisma = buildPrisma({ entrega: BASE_ENTREGA });
-    const service = new LogisticaTrackingPublicService(prisma, buildConfig('FULL'));
+    const service = new LogisticaTrackingPublicService(prisma);
     const token = 'qualquer.coisa';
     assert.equal(await service.getStatusByToken(token), null);
   });
@@ -97,7 +93,7 @@ test('getStatusByToken: sem segredo configurado = null mesmo com entrega existen
 test('getShareLink: sem segredo configurado = null (fail-closed)', async () => {
   await withoutSecret(async () => {
     const prisma = buildPrisma({ entrega: BASE_ENTREGA });
-    const service = new LogisticaTrackingPublicService(prisma, buildConfig('FULL'));
+    const service = new LogisticaTrackingPublicService(prisma);
     assert.equal(await service.getShareLink(7, BASE_ENTREGA.id), null);
   });
 });
@@ -106,7 +102,7 @@ test('getShareLink: sem segredo configurado = null (fail-closed)', async () => {
 test('getStatusByToken: token adulterado = null (não vaza qual foi)', async () => {
   await withSecret(async () => {
     const prisma = buildPrisma({ entrega: BASE_ENTREGA });
-    const service = new LogisticaTrackingPublicService(prisma, buildConfig('FULL'));
+    const service = new LogisticaTrackingPublicService(prisma);
     const token = signDeliveryTrackingToken(BASE_ENTREGA.id, SECRET) as string;
     const adulterado = token.slice(0, -2) + 'zz';
     assert.equal(await service.getStatusByToken(adulterado), null);
@@ -116,14 +112,14 @@ test('getStatusByToken: token adulterado = null (não vaza qual foi)', async () 
 test('getStatusByToken: token válido mas entrega não existe mais = null', async () => {
   await withSecret(async () => {
     const prisma = buildPrisma({ entrega: null });
-    const service = new LogisticaTrackingPublicService(prisma, buildConfig('FULL'));
+    const service = new LogisticaTrackingPublicService(prisma);
     const token = signDeliveryTrackingToken('ckoutraentregainexistente', SECRET) as string;
     assert.equal(await service.getStatusByToken(token), null);
   });
 });
 
-// ── gate de nível ─────────────────────────────────────────────────────────────
-test('getStatusByToken: nível ADVANCED (< FULL) = status estático, live null, full=false', async () => {
+// ── ao vivo: só o estado REAL da rota/sessão decide (o gate de nível morreu) ─
+test('getStatusByToken: rota TRACKED ACTIVE com sessão ACTIVE = live preenchido (sem gate de nível) e sem campo full', async () => {
   await withSecret(async () => {
     const entrega = {
       ...BASE_ENTREGA,
@@ -137,18 +133,19 @@ test('getStatusByToken: nível ADVANCED (< FULL) = status estático, live null, 
       },
     };
     const prisma = buildPrisma({ entrega });
-    const service = new LogisticaTrackingPublicService(prisma, buildConfig('ADVANCED'));
+    const service = new LogisticaTrackingPublicService(prisma);
     const token = signDeliveryTrackingToken(entrega.id, SECRET) as string;
     const res = await service.getStatusByToken(token);
     assert.ok(res);
-    assert.equal(res?.full, false);
-    assert.equal(res?.live, null, 'ao vivo é exclusivo do nível FULL, mesmo com rota TRACKED ACTIVE de verdade');
+    // 24/08/2026 — `full` saiu do contrato; o front não deve mais ler isso.
+    assert.equal(Object.prototype.hasOwnProperty.call(res, 'full'), false);
+    assert.ok(res?.live, 'live deveria vir preenchido pra QUALQUER nível');
     assert.equal(res?.empresaNome, 'Água Boa LTDA');
     assert.equal(res?.clienteNome, 'Maria');
   });
 });
 
-test('getStatusByToken: nível FULL + rota TRACKED ACTIVE + sessão ACTIVE = live preenchido', async () => {
+test('getStatusByToken: rota TRACKED ACTIVE + sessão ACTIVE = live com ETA/progresso/idade', async () => {
   await withSecret(async () => {
     const now = new Date();
     const lastPointAt = new Date(now.getTime() - 20_000); // 20s atrás
@@ -170,11 +167,10 @@ test('getStatusByToken: nível FULL + rota TRACKED ACTIVE + sessão ACTIVE = liv
       },
     };
     const prisma = buildPrisma({ entrega });
-    const service = new LogisticaTrackingPublicService(prisma, buildConfig('FULL'));
+    const service = new LogisticaTrackingPublicService(prisma);
     const token = signDeliveryTrackingToken(entrega.id, SECRET) as string;
     const res = await service.getStatusByToken(token);
     assert.ok(res);
-    assert.equal(res?.full, true);
     assert.ok(res?.live, 'live deveria vir preenchido');
     assert.equal(res?.live?.etaLabel, '8 min');
     assert.deepEqual(res?.live?.progresso, { concluidas: 2, total: 4 });
@@ -182,7 +178,7 @@ test('getStatusByToken: nível FULL + rota TRACKED ACTIVE + sessão ACTIVE = liv
   });
 });
 
-test('getStatusByToken: nível FULL mas rota ainda não é TRACKED/ACTIVE = live null (estático)', async () => {
+test('getStatusByToken: rota ainda não é TRACKED/ACTIVE = live null (estático)', async () => {
   await withSecret(async () => {
     const entrega = {
       ...BASE_ENTREGA,
@@ -192,7 +188,7 @@ test('getStatusByToken: nível FULL mas rota ainda não é TRACKED/ACTIVE = live
       },
     };
     const prisma = buildPrisma({ entrega });
-    const service = new LogisticaTrackingPublicService(prisma, buildConfig('FULL'));
+    const service = new LogisticaTrackingPublicService(prisma);
     const token = signDeliveryTrackingToken(entrega.id, SECRET) as string;
     const res = await service.getStatusByToken(token);
     assert.equal(res?.live, null);
@@ -205,7 +201,7 @@ test('getStatusByToken: entrega sem nenhuma rota = AGENDADA (na fila)', async ()
   await withSecret(async () => {
     const entrega = { ...BASE_ENTREGA, status: 'agendada', logisticaRouteStop: null };
     const prisma = buildPrisma({ entrega });
-    const service = new LogisticaTrackingPublicService(prisma, buildConfig('FULL'));
+    const service = new LogisticaTrackingPublicService(prisma);
     const token = signDeliveryTrackingToken(entrega.id, SECRET) as string;
     const res = await service.getStatusByToken(token);
     assert.equal(res?.status, 'AGENDADA');
@@ -223,7 +219,7 @@ test('getStatusByToken: entregue = ENTREGUE mesmo com rota TRACKED ainda ACTIVE'
       },
     };
     const prisma = buildPrisma({ entrega });
-    const service = new LogisticaTrackingPublicService(prisma, buildConfig('FULL'));
+    const service = new LogisticaTrackingPublicService(prisma);
     const token = signDeliveryTrackingToken(entrega.id, SECRET) as string;
     const res = await service.getStatusByToken(token);
     assert.equal(res?.status, 'ENTREGUE');
@@ -235,7 +231,7 @@ test('getStatusByToken: entregue = ENTREGUE mesmo com rota TRACKED ainda ACTIVE'
 test('getShareLink: entrega de OUTRA empresa = null (nunca gera link fora do escopo)', async () => {
   await withSecret(async () => {
     const prisma = buildPrisma({ entrega: BASE_ENTREGA }); // companyId 7
-    const service = new LogisticaTrackingPublicService(prisma, buildConfig('FULL'));
+    const service = new LogisticaTrackingPublicService(prisma);
     assert.equal(await service.getShareLink(999, BASE_ENTREGA.id), null);
   });
 });
@@ -243,7 +239,7 @@ test('getShareLink: entrega de OUTRA empresa = null (nunca gera link fora do esc
 test('getShareLink: entrega da própria empresa = token válido round-trips pro deliveryId', async () => {
   await withSecret(async () => {
     const prisma = buildPrisma({ entrega: BASE_ENTREGA });
-    const service = new LogisticaTrackingPublicService(prisma, buildConfig('FULL'));
+    const service = new LogisticaTrackingPublicService(prisma);
     const link = await service.getShareLink(7, BASE_ENTREGA.id);
     assert.ok(link);
     assert.equal(verifyDeliveryTrackingToken(link!.token, SECRET), BASE_ENTREGA.id);
@@ -275,7 +271,7 @@ test('listShareLinksForRoute: só devolve as paradas da rota pedida, desta empre
       },
     ];
     const prisma = buildPrisma({ routeStops });
-    const service = new LogisticaTrackingPublicService(prisma, buildConfig('FULL'));
+    const service = new LogisticaTrackingPublicService(prisma);
     const links = await service.listShareLinksForRoute(7, 'route-A');
     assert.equal(links.length, 2);
     assert.deepEqual(

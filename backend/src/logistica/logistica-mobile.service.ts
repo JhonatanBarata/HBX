@@ -64,7 +64,6 @@ export class LogisticaMobileService {
       this.prisma.logisticaConfig.findUnique({
         where: { companyId },
         select: {
-          moduloFinanceiroAtivo: true,
           pixChave: true,
           pixNome: true,
           pixCidade: true,
@@ -81,14 +80,14 @@ export class LogisticaMobileService {
         },
       ]),
     );
-    const moduloFinanceiroAtivo = config?.moduloFinanceiroAtivo === true;
-    const pix = moduloFinanceiroAtivo && config?.pixChave
+    // 24/08/2026 — `moduloFinanceiroAtivo` saiu do payload (financeiro é sempre
+    // ligado); o Pix depende só da chave configurada.
+    const pix = config?.pixChave
       ? { chave: config.pixChave, nome: config.pixNome ?? null, cidade: config.pixCidade ?? null }
       : null;
 
     return {
       ...route,
-      moduloFinanceiroAtivo,
       pix,
       items: items.map((item: any) => {
         const customerId = String(item?.cliente?.id || '').trim();

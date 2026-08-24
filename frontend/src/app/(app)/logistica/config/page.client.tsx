@@ -4,15 +4,16 @@
 // Contratos reais (company-scoped, JWT; PATCH é ADMIN-only no backend):
 //   - GET   /logistica/config        → LogisticaConfig
 //   - PATCH /logistica/config {...}   → LogisticaConfig
-//   - PATCH /logistica/config/modo-rota {trackingAtivo?, modoRotaPadrao?}
-//     → LogisticaConfig (26/07: o modo comercial saiu do PATCH genérico pra
-//       fechar a porta do APK velho; este painel é o único caminho legítimo)
+//   - POST  /logistica/prospector/ciente → marca o "Ciente" do ator (24/08)
+// (24/08 — última passada: /logistica/config/modo-rota MORREU junto com o modo
+//  Essencial; toda rota é rastreada e campo morto no PATCH responde 400.)
 //
 // O editor cobre:
 //   · Template do aviso WhatsApp "entregue" (variáveis {saudacao} {cliente}
 //     {itens} {qtd} {produto}) com PREVIEW AO VIVO (mesma lógica do backend,
 //     abaixo em renderPreview — dados de exemplo).
-//   · Toggles: avisar global, cobrança na entrega, gerar dia automático.
+//   · Toggles: avisar na entrega + mensagens automáticas (chegada, cobrança,
+//     prospector).
 //   · Parâmetros de rota: raio de chegada (m), velocidade média (km/h), tempo de
 //     parada (min).
 //
@@ -23,9 +24,14 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { CONTACT_PHONE_DIGITS } from "@/lib/contato";
 import { isTenantAdmin } from "@/lib/roles";
 
-type RouteMode = "ESSENTIAL" | "TRACKED";
+// 24/08 — CTA do cartão de assentos: mesmo WhatsApp de suporte da HBX
+// (lib/contato.ts, fonte única do número), com a frase do pedido já digitada.
+const MAIS_MOTORISTAS_URL =
+  `https://wa.me/${CONTACT_PHONE_DIGITS}?text=` +
+  encodeURIComponent("Olá! Quero mais motoristas por dia na Logística HBX.");
 
 // 🔴 ESTE TIPO DESCREVIA UMA RESPOSTA QUE O SERVIDOR NÃO DÁ MAIS (23/08).
 // Ele nasceu no PR28072026 (mensalidade + franquia de paradas do mês) e a ROTA
@@ -57,9 +63,12 @@ function fmtMoedaMes(v: number): string {
 }
 
 type Config = {
-  trackingAtivo?: boolean;
-  trackingDisponivel?: boolean;
-  modoRotaPadrao?: RouteMode;
+  // 24/08 — última passada: trackingAtivo/trackingDisponivel/modoRotaPadrao
+  // SAÍRAM do GET (toda rota é rastreada; não há mais modo pra escolher).
+  // O GET ganhou `admin` (o ator é admin da empresa) e `prospectorCiente`
+  // (o ator já deu o "Ciente" do Prospector) — ver o modal lá embaixo.
+  admin?: boolean;
+  prospectorCiente?: boolean;
   avisoWhatsEnabled: boolean;
   templateAviso: string | null;
   raioChegadaM: number;
@@ -69,24 +78,22 @@ type Config = {
   sentinelaSemSinalMin: number;
   sentinelaParadoMin: number;
   sentinelaAtrasoMin: number;
-  cobrancaNaEntrega?: boolean;
-  moduloFinanceiroAtivo?: boolean;
+  // 24/08 — moduloFinanceiroAtivo/cobrancaSimples MORRERAM do contrato
+  // (financeiro é incondicional; campo morto no PATCH responde 400).
+  // cobrancaNaEntrega segue existindo no backend, mas o toggle saiu desta
+  // tela na última passada — o tipo só declara o que a tela LÊ.
   moduloRecoveryAtivo?: boolean;
   comprovanteFotoObrigatoria: boolean;
   comprovanteAssinaturaObrigatoria: boolean;
   comprovanteCodigoObrigatorio: boolean;
-  // PR27072026 F1 (ROTA 3 NÍVEIS) — nível do plano; ausente (config antiga) =
-  // ADVANCED no consumo abaixo (mesmo grandfathering do backend).
-  // CREDITO entrou na lista em 23/08: é o nível de toda empresa nova desde a
-  // ROTA v2 (10/08) e o backend já o devolve aqui (`storedNivel`). O tipo o
-  // omitia — e tipo que mente sobre o valor que chega é o mesmo defeito do
-  // PlanoRota lá em cima, só que silencioso.
-  logisticaNivel?: "CREDITO" | "BASIC" | "ADVANCED" | "FULL";
   // ITEM 9 (07/08) — CSV do que está DESLIGADO no app do motorista. "rota" nunca
   // entra (o backend filtra), por isso ela aparece aqui fixa e marcada.
   appModulosDesativados?: string | null;
   // PR07082026-PROSPECTOR-CNPJ F4 — os 3 disparos automáticos, mesmo shape:
-  // toggle + template + condição. `*Disponivel` é derivado da env (read-only).
+  // toggle + template + condição. `cobrancaWhatsDisponivel` é derivado da env
+  // (read-only; infraestrutura da HBX, não plano). 24/08 — prospectorEquipe e
+  // prospectorDisponivel SAÍRAM do contrato: o Prospector é de todos, o que
+  // condiciona ligar é o "Ciente" do ator (prospectorCiente lá em cima).
   avisoChegandoEnabled?: boolean;
   avisoChegandoTemplate?: string | null;
   avisoChegandoDistanciaM?: number;
@@ -97,8 +104,6 @@ type Config = {
   prospectorTemplate?: string | null;
   prospectorRaioM?: number;
   prospectorMaxDia?: number;
-  prospectorEquipe?: boolean;
-  prospectorDisponivel?: boolean;
 };
 
 type ConfigActor = NonNullable<ReturnType<typeof useCurrentUser>> & {
@@ -382,17 +387,15 @@ export function LogisticaConfigClient() {
     });
   }, [template]);
 
-  // Patch de 1 toggle/campo direto (otimista com recarga). `path` existe porque
-  // o MODO DA ROTA mudou de endereço em 26/07: ele tem endpoint próprio
-  // (/logistica/config/modo-rota) pra que o APK velho em campo, que mandava
-  // trackingAtivo/modoRotaPadrao no PATCH genérico, pare de conseguir trocar o
-  // modo. Este painel (só do billing owner, no PC) é o caminho legítimo.
-  const patchAt = useCallback(
-    async (path: string, partial: Record<string, unknown>) => {
+  // Patch de 1 toggle/campo direto (otimista com recarga). 24/08 — voltou a ser
+  // caminho ÚNICO: o endpoint /logistica/config/modo-rota morreu junto com o
+  // modo Essencial (toda rota é rastreada; não sobrou modo pra trocar).
+  const patch = useCallback(
+    async (partial: Partial<Config>) => {
       setSaving(true);
       setSavedMsg(null);
       try {
-        const res = await apiFetch<Config>(path, {
+        const res = await apiFetch<Config>("/logistica/config", {
           method: "PATCH",
           body: JSON.stringify(partial),
         });
@@ -407,29 +410,35 @@ export function LogisticaConfigClient() {
     [],
   );
 
-  const patch = useCallback(
-    (partial: Partial<Config>) => patchAt("/logistica/config", partial),
-    [patchAt],
-  );
-
-  // Modo das novas rotas — endpoint separado (ver comentário acima).
-  const patchModoRota = useCallback(
-    (partial: { trackingAtivo?: boolean; modoRotaPadrao?: RouteMode }) =>
-      patchAt("/logistica/config/modo-rota", partial),
-    [patchAt],
-  );
-
   const salvarTemplate = useCallback(() => {
     patch({ templateAviso: template.trim() });
   }, [patch, template]);
 
   const preview = useMemo(() => renderPreview(template), [template]);
 
-  // PR27072026 F1 (ROTA 3 NÍVEIS) — Rastreado é exclusivo do plano Full;
-  // ausente (config antiga) = ADVANCED, mesmo grandfathering do backend. O
-  // backend recusa a escrita de qualquer forma (updateRouteMode); isto aqui
-  // só evita o admin escolher um modo que vai voltar com erro.
-  const nivelFull = (cfg?.logisticaNivel ?? "ADVANCED") === "FULL";
+  // 24/08 — CONSENTIMENTO DO PROSPECTOR: ligar o toggle exige o "Ciente" do
+  // ator (1x por usuário; o GET traz `prospectorCiente`). O modal bloqueia a
+  // ativação até o POST /logistica/prospector/ciente confirmar — só então o
+  // PATCH liga de fato. Desligar é sempre livre.
+  const [prospectorModal, setProspectorModal] = useState(false);
+  const [cienteBusy, setCienteBusy] = useState(false);
+  const [cienteErro, setCienteErro] = useState<string | null>(null);
+
+  const confirmarCienteProspector = useCallback(async () => {
+    setCienteBusy(true);
+    setCienteErro(null);
+    try {
+      await apiFetch("/logistica/prospector/ciente", { method: "POST" });
+      setProspectorModal(false);
+      // O PATCH devolve a config nova (já com prospectorCiente=true no GET
+      // seguinte) e é ele que liga o toggle de verdade.
+      await patch({ prospectorAtivo: true });
+    } catch (err: unknown) {
+      setCienteErro(err instanceof Error ? err.message : "Não foi possível registrar o ciente.");
+    } finally {
+      setCienteBusy(false);
+    }
+  }, [patch]);
 
   /* Assentos EFETIVOS: o override da empresa manda sobre o do nível — é a
      mesma conta de `assertAssentoDoDia` no backend
@@ -474,13 +483,15 @@ export function LogisticaConfigClient() {
 
         {!loading && cfg && (
           <div className="log-cfg">
-            {/* ── O PLANO DA EMPRESA — reescrito na ROTA v2 (23/08) ──────────
-                A régua deixou de ser FRANQUIA DE PARADAS e passou a ser
-                ASSENTO: quem tem plano roda rota ilimitada, e o que limita é
-                quantos motoristas saem no MESMO dia. Quem está no avulso paga
-                o dia. Uma frase por caso, o número na frente — e o cartão
-                aparece SEMPRE que o servidor responde, porque "em que plano eu
-                estou" é a primeira pergunta de quem paga a conta. */}
+            {/* ── OS ASSENTOS DA EMPRESA — última passada (24/08) ────────────
+                O nível deixou de abrir/fechar recurso (o bloco "Modo das novas
+                rotas" morreu junto com o modo Essencial): o que sobrou de
+                comercial é QUANTOS motoristas saem no MESMO dia. O cartão diz
+                esse número e aponta o caminho pra crescer — o WhatsApp da HBX
+                (lib/contato.ts, o mesmo mecanismo de suporte do app). CREDITO
+                segue com o selo "Sem mensalidade" e a régua de créditos/dia.
+                O cartão aparece SEMPRE que o servidor responde, porque "quantos
+                motoristas eu tenho" é a primeira pergunta de quem paga. */}
             {plano && (
               <div className="log-cfg__block">
                 <div className="log-cfg__block-head">
@@ -490,91 +501,22 @@ export function LogisticaConfigClient() {
                       {plano.precoMensal > 0 ? ` · ${fmtMoedaMes(plano.precoMensal)}` : ""}
                     </strong>
                     <span className="log-cfg__switch-hint">
+                      {`${assentosDoPlano} ${assentosDoPlano === 1 ? "motorista" : "motoristas"} por dia.`}
                       {plano.nivel === "CREDITO"
-                        ? `${assentosDoPlano} ${assentosDoPlano === 1 ? "motorista" : "motoristas"} por dia. `
-                          + "Cada dia com rota consome créditos — remontar o mesmo dia não cobra de novo."
-                        : `Rota ilimitada, com ${assentosDoPlano} ${assentosDoPlano === 1 ? "motorista" : "motoristas"} por dia. `
-                          + "Motorista além disso sai com o passe do dia, em créditos."}
+                        ? " Cada dia com rota consome créditos — remontar o mesmo dia não cobra de novo."
+                        : ""}
                     </span>
                   </div>
                   {plano.nivel === "CREDITO" && <span className="plano-selo">Sem mensalidade</span>}
                 </div>
-              </div>
-            )}
-
-            {/* ── Modo comercial da rota — somente dono/master ────────────── */}
-            {billingOwner && (
-              <div className="log-cfg__block">
-                <div className="log-cfg__block-head">
-                  <div className="log-cfg__heading-copy">
-                    <strong className="log-cfg__block-title">Modo das novas rotas</strong>
-                  </div>
-                  <label className="ctt-toggle ctt-toggle--inline">
-                    <input
-                      type="checkbox"
-                      checked={!!cfg.trackingAtivo}
-                      disabled={saving}
-                      onChange={(e) => patchModoRota({ trackingAtivo: e.target.checked })}
-                      aria-describedby="tracking-availability"
-                    />
-                    <span>{cfg.trackingAtivo ? "Rastreamento permitido" : "Rastreamento desligado"}</span>
-                  </label>
-                </div>
-
-                <div className="log-cfg__mode-grid" role="radiogroup" aria-label="Modo padrão das novas rotas">
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={(cfg.modoRotaPadrao ?? "ESSENTIAL") === "ESSENTIAL"}
-                    className={`log-cfg__mode${(cfg.modoRotaPadrao ?? "ESSENTIAL") === "ESSENTIAL" ? " is-selected" : ""}`}
-                    disabled={saving}
-                    onClick={() => patchModoRota({ modoRotaPadrao: "ESSENTIAL" })}
-                  >
-                    {/* 🔴 "Cobra por parada da rota" e "2 créditos por entrega
-                        concluída" saíram daqui (23/08): as duas ações estão
-                        TRAVADAS em `free` no catálogo desde a ROTA v2
-                        (OVERRIDE_LOCKED_ACTIONS) — o painel descrevia uma
-                        cobrança que o backend não faz mais, para o único
-                        público que decide plano. O que estes dois botões
-                        realmente escolhem, e sempre escolheram desde 10/08, é
-                        RASTREAMENTO: `mode` decide se a rota abre sessão de
-                        telemetria (`trackingRequired` → `activateRoute`). O
-                        copy agora diz isso. */}
-                    <span className="log-cfg__mode-title">Rota Essencial</span>
-                    <span className="log-cfg__mode-copy">O padrão. Registra as entregas sem gravar o trajeto.</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={cfg.modoRotaPadrao === "TRACKED"}
-                    className={`log-cfg__mode${cfg.modoRotaPadrao === "TRACKED" ? " is-selected" : ""}`}
-                    disabled={saving || !cfg.trackingDisponivel || !cfg.trackingAtivo || !nivelFull}
-                    aria-describedby="tracking-availability"
-                    onClick={() => patchModoRota({ modoRotaPadrao: "TRACKED" })}
-                  >
-                    <span className="log-cfg__mode-title">Rota Rastreada</span>
-                    <span className="log-cfg__mode-copy">Grava o trajeto do motorista por GPS enquanto a rota corre.</span>
-                    {/* PR27072026 F1 — selo central (kit.css .plano-selo), ver-mas-não-usar. */}
-                    {!nivelFull && <span className="plano-selo">Disponível no Full</span>}
-                  </button>
-                </div>
-
-                <p
-                  id="tracking-availability"
-                  className={`log-cfg__availability${cfg.trackingDisponivel && nivelFull ? " is-available" : ""}`}
-                  role="status"
+                <a
+                  className="btn-ghost log-cfg__save"
+                  href={MAIS_MOTORISTAS_URL}
+                  target="_blank"
+                  rel="noreferrer"
                 >
-                  {!cfg.trackingDisponivel
-                    ? "Rastreamento indisponível globalmente. A preferência pode ficar salva para uma ativação futura."
-                    : !nivelFull
-                      ? "Rastreamento é do plano Full."
-                      : (cfg.trackingAtivo
-                        ? "Rastreamento disponível para novas rotas."
-                        : "Ligue o rastreamento para liberar a Rota Rastreada.")}
-                </p>
-                <p className="log-cfg__warning">
-                  O modo é congelado ao iniciar a rota e não pode ser alterado durante a sessão.
-                </p>
+                  Quer mais motoristas? Fale com a HBX
+                </a>
               </div>
             )}
 
@@ -681,17 +623,29 @@ export function LogisticaConfigClient() {
                     <p className="log-cfg__note">Ao lançar e no vencimento.</p>
                   </MensagemAuto>
 
+                  {/* 24/08 — o gate prospectorDisponivel MORREU (Prospector é
+                      de todos). O que condiciona LIGAR é o consentimento do
+                      ator: sem `prospectorCiente`, o toggle abre o modal
+                      bloqueante e só o "Ciente" (POST) libera o PATCH.
+                      `prospectorEquipe` também saiu do contrato. */}
                   <MensagemAuto
                     titulo="Prospector CNPJ"
                     ativo={!!cfg.prospectorAtivo}
-                    onAtivo={(v) => patch({ prospectorAtivo: v })}
+                    onAtivo={(v) => {
+                      if (v && !cfg.prospectorCiente) {
+                        setCienteErro(null);
+                        setProspectorModal(true);
+                        return;
+                      }
+                      patch({ prospectorAtivo: v });
+                    }}
                     vars={VARS_PROSPECTOR}
                     template={tplProspector}
                     onTemplate={setTplProspector}
                     onSalvar={() => patch({ prospectorTemplate: tplProspector.trim() })}
                     saving={saving}
-                    disponivel={!!cfg.prospectorDisponivel}
-                    motivo="Prospector indisponível. A preferência fica salva para quando a HBX liberar."
+                    disponivel
+                    motivo=""
                   >
                     <div className="log-cfg__grid">
                       <label className="f">
@@ -702,7 +656,7 @@ export function LogisticaConfigClient() {
                           min={50}
                           max={500}
                           value={cfg.prospectorRaioM ?? 150}
-                          disabled={saving || !cfg.prospectorDisponivel}
+                          disabled={saving}
                           onChange={(e) => setCfg({ ...cfg, prospectorRaioM: Number(e.target.value) })}
                           onBlur={(e) => patch({ prospectorRaioM: Number(e.target.value) })}
                           aria-label="Raio do prospector em metros"
@@ -716,52 +670,23 @@ export function LogisticaConfigClient() {
                           min={1}
                           max={8}
                           value={cfg.prospectorMaxDia ?? 4}
-                          disabled={saving || !cfg.prospectorDisponivel}
+                          disabled={saving}
                           onChange={(e) => setCfg({ ...cfg, prospectorMaxDia: Number(e.target.value) })}
                           onBlur={(e) => patch({ prospectorMaxDia: Number(e.target.value) })}
                           aria-label="Vezes por dia que o prospector acende"
                         />
                       </label>
                     </div>
-                    <label className="log-cfg__switch">
-                      <input
-                        type="checkbox"
-                        checked={!!cfg.prospectorEquipe}
-                        disabled={saving || !cfg.prospectorDisponivel}
-                        onChange={(e) => patch({ prospectorEquipe: e.target.checked })}
-                      />
-                      <span className="log-cfg__switch-txt">
-                        <span className="log-cfg__switch-name">Liberar pro motorista</span>
-                      </span>
-                    </label>
                   </MensagemAuto>
                 </div>
               </div>
             )}
 
-            {/* ── Cobrança ───────────────────────────────────────────────────────
-                🔴 O BLOCO INTEIRO É DO BILLING OWNER (10/08). Ele se chamava
-                "Cobrança e recorrência" e tinha dois toggles; com a morte do
-                "Gerar entregas do dia automaticamente" (o cron que recriava o dia
-                a cada boot do backend — ver logistica-recorrencia.service.ts)
-                sobrou só a cobrança, que já era do dono do faturamento. Deixar o
-                `<div>` de fora do `if` daria um bloco com TÍTULO e NADA dentro
-                pra todo mundo que não é billing owner: some a peça, some o slot. */}
-            {billingOwner && (
-              <div className="log-cfg__block">
-                <strong className="log-cfg__block-title">Cobrança</strong>
-                <label className="log-cfg__switch">
-                  <input
-                    type="checkbox"
-                    checked={!!cfg.cobrancaNaEntrega}
-                    onChange={(e) => patch({ cobrancaNaEntrega: e.target.checked })}
-                  />
-                  <span className="log-cfg__switch-txt">
-                    <span className="log-cfg__switch-name">Cobrança na entrega</span>
-                  </span>
-                </label>
-              </div>
-            )}
+            {/* 24/08 — os blocos "Cobrança" (cobrancaNaEntrega) e "Dinheiro na
+                porta" (moduloFinanceiroAtivo) SAÍRAM da tela na última passada:
+                o financeiro é incondicional no backend. moduloFinanceiroAtivo
+                morreu do contrato (PATCH com campo morto = 400); o toggle de
+                cobrança na entrega deixou de ser decisão de painel. */}
 
             <div className="log-cfg__block">
               <strong className="log-cfg__block-title">Comprovante de entrega</strong>
@@ -840,42 +765,6 @@ export function LogisticaConfigClient() {
                   );
                 })}
               </div>
-            </div>
-
-            {/* ── Dinheiro na porta ──────────────────────────────────────────────
-                🔴 ESTE INTERRUPTOR NÃO EXISTIA, e o buraco foi medido em 21/08:
-                `moduloFinanceiroAtivo` estava declarado no tipo `Cfg` desde
-                sempre e não era renderizado em NENHUMA tela — nem aqui, nem no
-                Master. Ou seja: o único jeito de ligar era UPDATE no banco.
-                Resultado no banco de produção: 12 das 14 empresas com o
-                financeiro desligado sem nunca terem escolhido isso.
-                E o efeito não é cosmético — com ele off o servidor nem envia
-                `valorHoje` (logistica.service.ts), então a Folha da venda abre
-                com "Conta do item" VAZIA na porta do cliente.
-                Fica FORA do bloco `billingOwner`: o DTO trata este toggle como
-                OPERACIONAL (o `@Admin()` do PATCH já basta) — mesmo padrão do
-                `cobrancaSimples`. */}
-            <div className="log-cfg__block">
-              <strong className="log-cfg__block-title">Dinheiro na porta</strong>
-              <p className="log-cfg__note">
-                Com isso ligado, o entregador vê quanto cobrar em cada parada, escolhe a
-                forma de pagamento e fecha o caixa do dia. Desligado, o app entrega sem
-                falar de dinheiro.
-              </p>
-              <label className="log-cfg__switch">
-                <input
-                  type="checkbox"
-                  checked={!!cfg.moduloFinanceiroAtivo}
-                  disabled={saving}
-                  onChange={(e) => patch({ moduloFinanceiroAtivo: e.target.checked })}
-                />
-                <span className="log-cfg__switch-txt">
-                  <span className="log-cfg__switch-name">Mostrar valores e recebimento no app</span>
-                  <span className="log-cfg__switch-hint">
-                    Desligado, a Folha da venda abre sem valor nenhum
-                  </span>
-                </span>
-              </label>
             </div>
 
             {/* ── Parâmetros de rota ─────────────────────────────────────────── */}
@@ -979,6 +868,46 @@ export function LogisticaConfigClient() {
           </div>
         )}
       </section>
+
+      {/* 24/08 — MODAL DE CONSENTIMENTO DO PROSPECTOR (casca .hbx-veil/.hbx-modal
+          do kit — a mesma dos diálogos do cockpit). Bloqueante de propósito: um
+          único botão de ação ("Ciente"); fechar pelo × ou pelo véu desiste de
+          ligar e o toggle continua desligado. */}
+      {prospectorModal && (
+        <div
+          className="hbx-veil"
+          onMouseDown={(e) => { if (e.target === e.currentTarget && !cienteBusy) setProspectorModal(false); }}
+        >
+          <section className="hbx-modal" role="dialog" aria-modal="true" aria-labelledby="prospector-ciente-titulo">
+            <h3 id="prospector-ciente-titulo">
+              Antes de ligar o Prospector
+              <button
+                type="button"
+                className="hbx-x"
+                aria-label="Fechar"
+                onClick={() => setProspectorModal(false)}
+                disabled={cienteBusy}
+              >
+                ×
+              </button>
+            </h3>
+            <p className="log-cfg__note">
+              O Prospector envia mensagens automáticas em seu nome para empresas no
+              caminho da rota e pode gerar custo em créditos. Você é responsável pelo
+              conteúdo enviado.
+            </p>
+            {cienteErro && <p className="log-cfg__availability" role="alert">{cienteErro}</p>}
+            <button
+              type="button"
+              className="btn-teal log-cfg__save"
+              onClick={() => void confirmarCienteProspector()}
+              disabled={cienteBusy}
+            >
+              <I d={ICONS.check} size={14} /> {cienteBusy ? "Registrando…" : "Ciente"}
+            </button>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

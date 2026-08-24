@@ -199,9 +199,8 @@
       const id = it && it.cliente && it.cliente.id;
       if (id) PARADAS_SALVAR.push({ customerProfileId: String(id) });
     });
-    // O nível do financeiro vem no MESMO payload da rota (não é chute nem
-    // pedido extra): é ele que decide qual das duas folhas abre na porta.
-    if (typeof r.moduloFinanceiroAtivo === 'boolean') financeiroAtivo = r.moduloFinanceiroAtivo;
+    // ⚰️ 24/08 — `moduloFinanceiroAtivo` saiu do payload da rota (e do
+    // produto): a folha da porta é sempre a completa, não há mais o que decidir.
     /* O ANEL DO "TÔ CHEGANDO" vem armado do servidor, no mesmo payload: ele já
        manda `avisoChegandoAtivo` (a trava tripla dele resolvida) e o raio. O
        contrato do backend é explícito sobre de quem é a vez — "o app só arma o
@@ -471,14 +470,14 @@
       },
       // As chaves de dinheiro. Todas nascem 0 e a tela nem desenha: chave no
       // estado do desenho é o motorista achando que desligou o que nem carregou.
+      // ⚰️ 24/08 — financeiro/cobrancaSimples/precoPorCliente saíram do seam
+      // (campos mortos no contrato) e prospectorDisponivel morreu junto: o
+      // prospector é aberto a toda empresa, a chave dele nasce só DESLIGADA.
       avancado: {
-        carregando: true, admin: 0, financeiro: 0, cobrancaSimples: 0,
-        precoPorCliente: 0, naHora: 0, mensal: 0, fiado: 0,
+        carregando: true, admin: 0,
+        naHora: 0, mensal: 0, fiado: 0,
         avisarChegada: 0, avisarChegadaDist: '',
-        // A chave do prospector nasce DESLIGADA e INDISPONÍVEL: até o servidor
-        // dizer, a linha nem é desenhada. Oferecer no boot um recurso que a
-        // empresa pode não ter é a mesma mentira das outras chaves.
-        prospector: 0, prospectorDisponivel: 0,
+        prospector: 0,
       },
       /* O TUTORIAL NASCE SEM SABER DE NADA. `carregando:1` é o que segura o
          motor do tour: capítulo escondido antes de a config chegar seria

@@ -1,8 +1,7 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, Optional } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import type { ActorKindUserLike } from '../access/actor-kind';
 import { PrismaService } from '../prisma/prisma.service';
 import { EstoqueService } from '../fiscal/estoque.service';
-import { LogisticaConfigService } from './logistica-config.service';
 import { addCivilDays } from './logistica-dia.util';
 import { canonicalRouteDate } from './logistica-route-billing.util';
 import type { ConferirRetornoCargaDiaDto, DeclararCargaDiaDto } from './dto/logistica-estoque.dto';
@@ -11,8 +10,8 @@ import type { ConferirRetornoCargaDiaDto, DeclararCargaDiaDto } from './dto/logi
  * PR27072026 F2 (27/07) — ESTOQUE DE CARGA: conferência de caminhão do dia
  * ("carregou X, vendeu Y, voltou Z; bateu/estourou"). NÃO é almoxarifado/WMS —
  * 1 tela, 2 números por produto (docs/PLANEJAMENTOS/PR27072026-ROTA-3-NIVEIS.md,
- * frente F2). Recurso ADVANCED+ (gate de nível, mesmo padrão do F1 — BASIC nem
- * vê a tela, ForbiddenException em todo método público).
+ * frente F2). 24/08/2026 — o gate de nível (ADVANCED+) MORREU: plano difere só
+ * por nº de assentos, todo tenant usa o estoque de carga.
  *
  * ── VENDIDO É SEMPRE DERIVADO, NUNCA UMA 2ª FONTE DE VERDADE ─────────────────
  * "Vendeu Y" NÃO é digitado por ninguém: é a SOMA do EntregaItem.qtdEntregue (já
@@ -33,9 +32,10 @@ import type { ConferirRetornoCargaDiaDto, DeclararCargaDiaDto } from './dto/logi
 export class LogisticaEstoqueService {
   private readonly logger = new Logger(LogisticaEstoqueService.name);
 
+  // 24/08/2026 — o LogisticaConfigService saiu do construtor: só alimentava o
+  // gate de nível, que morreu.
   constructor(
     private readonly prisma: PrismaService,
-    private readonly config: LogisticaConfigService,
     // FISCAL F3 — a carga declarada RESERVA o estoque (claim do caminhão) e a
     // conferência do retorno LIBERA o que voltou. Gate estoqueAtivo + vínculo
     // de produto moram DENTRO do serviço fiscal. @Optional() (testes = no-op);
@@ -46,15 +46,6 @@ export class LogisticaEstoqueService {
   /** Ref única da carga no estoque: dia civil + entregador (null = caminhão único). */
   private refCargaDia(dataISO: string, entregadorId: number | null): string {
     return entregadorId != null ? `${dataISO}:${entregadorId}` : dataISO;
-  }
-
-  // ── gate de nível (ADVANCED+) ────────────────────────────────────────────────
-  private async gateNivel(companyId: number, actor?: ActorKindUserLike | null): Promise<void> {
-    if (actor?.isSystemMaster) return;
-    const { nivel } = await this.config.getNivel(companyId);
-    if (nivel === 'BASIC') {
-      throw new ForbiddenException('Estoque de carga é do plano Advanced.');
-    }
   }
 
   private normalizeDataISO(input: string | undefined): string {
@@ -212,7 +203,6 @@ export class LogisticaEstoqueService {
     entregadorIdInput?: number,
   ): Promise<CargaDiaDTO> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
-    await this.gateNivel(companyId, actor);
     const dataISO = this.normalizeDataISO(dataISOInput);
     const entregadorId = this.normalizeEntregadorId(entregadorIdInput);
     const row = await this.findRow(companyId, dataISO, entregadorId);
@@ -231,7 +221,6 @@ export class LogisticaEstoqueService {
     actor?: ActorKindUserLike | null,
   ): Promise<CargaDiaDTO> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
-    await this.gateNivel(companyId, actor);
     const dataISO = this.normalizeDataISO(input?.dataISO);
     const entregadorId = this.normalizeEntregadorId(input?.entregadorId);
     const itensInput = Array.isArray(input?.itens) ? input.itens : [];
@@ -316,7 +305,6 @@ export class LogisticaEstoqueService {
     actor?: ActorKindUserLike | null,
   ): Promise<CargaDiaDTO> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
-    await this.gateNivel(companyId, actor);
     const dataISO = this.normalizeDataISO(input?.dataISO);
     const entregadorId = this.normalizeEntregadorId(input?.entregadorId);
 

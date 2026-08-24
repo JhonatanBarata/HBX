@@ -42,7 +42,10 @@ function setup(rowOverrides: Record<string, unknown> = {}) {
     },
   };
   const wallet: any = { getBalance: async () => 10 };
-  return new LogisticaConfigService(prisma, wallet);
+  // 24/08 — stub mínimo do UsersService (o carimbo do prospectorCiente tem
+  // teste próprio em logistica-config-prospector.test.ts).
+  const users: any = { findById: async () => ({}), getOnboardingEvents: () => ({}), stampOnboardingEvent: async () => ({ firstTime: true, events: {} }) };
+  return new LogisticaConfigService(prisma, wallet, users);
 }
 
 test('rotaConferidaAtiva: SEM a coluna no banco (estado real de hoje) vira false, nunca quebra', async () => {

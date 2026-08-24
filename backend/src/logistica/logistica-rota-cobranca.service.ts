@@ -112,6 +112,25 @@ export class LogisticaRotaCobrancaService {
    */
   async garantirPasseDoDia(companyId: number, driverUserId: number, dateISO: string, actorUserId?: number | null): Promise<void> {
     if (!companyId || !driverUserId || !dateISO) throw new Error('Empresa, motorista e data são obrigatórios.');
+    // 🔴 24/08/2026 — PASSE NÃO EXISTE NO NÍVEL CREDITO, e a recusa vem ANTES de
+    // qualquer débito. O gate (`assertAssentoDoDia` abaixo) barra CREDITO
+    // estourado ANTES de consultar o passe pago — então um passe comprado aqui
+    // debitava créditos SEM liberar assento nenhum (débito irreversível: este
+    // serviço não tem, de propósito, caminho de estorno). Mesmo shape/mensagem
+    // do 402 que o gate já dá pro CREDITO estourado — a tela conhece.
+    const cfg = await this.prisma.logisticaConfig.findUnique({
+      where: { companyId },
+      select: { logisticaNivel: true, logisticaAssentos: true },
+    });
+    const nivelDaEmpresa = storedNivel((cfg as any)?.logisticaNivel);
+    if (nivelDaEmpresa === 'CREDITO') {
+      const override = typeof (cfg as any)?.logisticaAssentos === 'number' ? (cfg as any).logisticaAssentos : null;
+      const assentos = override ?? getLogisticaNivelDefinition(nivelDaEmpresa).assentosInclusos;
+      throw assentosEsgotadosError(
+        `Seu modo atual inclui ${assentos} motorista${assentos === 1 ? '' : 's'} por dia. Conheça os planos com mais motoristas.`,
+        false,
+      );
+    }
     const definition = await this.actionConfig.resolveEffective(CREDIT_ACTION_KEYS.LOGISTICA_PASSE_MOTORISTA_DIA);
     if (!definition || (definition.mode === 'debit' && !(definition.cost > 0))) {
       throw new Error('Contrato de crédito do Passe do dia inválido.');

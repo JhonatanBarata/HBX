@@ -25,7 +25,8 @@ test('rota móvel expõe instrução de recebimento sem inventar campos monetár
   const service = new LogisticaMobileService(prisma, logistica, {} as any, {} as any);
   const result: any = await service.getRoute(7, '2026-07-17', { id: 42, companyId: 7, role: 'USER' });
 
-  assert.equal(result.moduloFinanceiroAtivo, true);
+  // 24/08/2026 — moduloFinanceiroAtivo saiu do payload (financeiro sempre ligado).
+  assert.equal('moduloFinanceiroAtivo' in result, false);
   // L4-A (18/07) — o adapter mobile só acrescenta campos; origem do listRota
   // clássico precisa passar intacta pro app (filtro Avulsos/Recorrentes).
   assert.equal(result.items[0].origem, 'recorrente');

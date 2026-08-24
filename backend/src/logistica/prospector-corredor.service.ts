@@ -58,8 +58,9 @@ import {
  *     e `prisma.prospectoRota.upsert` só faz uma por vez.
  *
  * ⚠️ FRONTEIRA DE ESCOPO: este serviço é CAPACIDADE, não política. Ele não lê
- * `prospectorAtivo`, `prospectorEquipe` nem `HBX_PROSPECTOR_ENABLED` — esses
- * gates são do CHAMADOR (o iniciar-rota, que é dono do ator e do contexto).
+ * `prospectorAtivo` (a única chave de política que restou desde 24/08/2026 —
+ * env global e régua de equipe morreram) — esse gate é do CHAMADOR (o
+ * iniciar-rota, que é dono do ator e do contexto).
  * Chamar `embarcar()` já significa "a empresa ligou e o ator pode ver".
  */
 

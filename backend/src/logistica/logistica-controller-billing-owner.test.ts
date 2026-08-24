@@ -122,29 +122,32 @@ test('logística: controller propaga o ator para leituras redigidas e configura�
   assert.deepEqual(received, [owner, owner, owner, owner]);
 });
 
-// ── 26/07 — o caminho LEGÍTIMO do PC não pode ter quebrado ──────────────────
-// O modo das novas rotas saiu do PATCH genérico e ganhou endereço próprio
-// (PATCH /logistica/config/modo-rota) pra fechar a porta do APK velho. Este
-// teste trava as duas pontas: a rota existe com o path/método certos, e o
-// controller repassa companyId + ATOR (o billing owner é conferido no serviço).
-test('logística: PATCH config/modo-rota existe e propaga empresa e ator', async () => {
-  const recebido: Array<{ companyId: number; dto: unknown; actor: unknown }> = [];
+// ── 24/08/2026 — o endereço do modo MORREU e o do Ciente NASCEU ──────────────
+// PATCH /logistica/config/modo-rota saiu do controller (toda rota nasce
+// TRACKED, sem escolha). No lugar, o prospector ganhou o POST
+// /logistica/prospector/ciente — carimbo POR USUÁRIO, sem guard de admin
+// (funcionário também dá o Ciente dele).
+test('logística: config/modo-rota NÃO existe mais e prospector/ciente propaga o usuário do ator', async () => {
+  // A porta velha sumiu de verdade (nem handler sobrou no protótipo).
+  assert.equal((LogisticaController.prototype as any).updateRouteMode, undefined);
+
+  const recebido: number[] = [];
   const config: any = {
-    updateRouteMode: async (companyId: number, dto: unknown, actor: unknown) => {
-      recebido.push({ companyId, dto, actor });
-      return { modoRotaPadrao: 'TRACKED' };
+    marcarProspectorCiente: async (userId: number) => {
+      recebido.push(userId);
+      return { ok: true, prospectorCiente: true, cienteEm: '2026-08-24T12:00:00.000Z' };
     },
   };
   const controller = controllerWith({}, {}, config);
+  // Vale pra QUALQUER papel — o vendedor/motorista também dá o Ciente dele.
+  const res = await controller.marcarProspectorCiente({ user: seller });
+  assert.deepEqual(res, { ok: true, prospectorCiente: true, cienteEm: '2026-08-24T12:00:00.000Z' });
+  assert.deepEqual(recebido, [seller.id]);
 
-  const res = await controller.updateRouteMode({ user: owner }, { modoRotaPadrao: 'TRACKED' } as any);
-  assert.deepEqual(res, { modoRotaPadrao: 'TRACKED' });
-  assert.deepEqual(recebido, [{ companyId: 1, dto: { modoRotaPadrao: 'TRACKED' }, actor: owner }]);
-
-  // metadados do Nest: método PATCH no caminho 'config/modo-rota'.
-  const handler = (LogisticaController.prototype as any).updateRouteMode;
-  assert.equal(Reflect.getMetadata('path', handler), 'config/modo-rota');
-  assert.equal(Reflect.getMetadata('method', handler), RequestMethod.PATCH);
+  // metadados do Nest: método POST no caminho 'prospector/ciente'.
+  const handler = (LogisticaController.prototype as any).marcarProspectorCiente;
+  assert.equal(Reflect.getMetadata('path', handler), 'prospector/ciente');
+  assert.equal(Reflect.getMetadata('method', handler), RequestMethod.POST);
 });
 
 test('logística: dono continua autorizado no endpoint financeiro', async () => {

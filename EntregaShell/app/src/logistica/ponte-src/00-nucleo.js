@@ -960,6 +960,19 @@
         `[prospector] recebidas=${raio.recebidas} escolhidas=${raio.escolhidas} desenhaveis=${empresas.length} tipo=${raio.tipo || '-'}`,
       );
     } catch (_) { /* console fechado não é motivo pra derrubar a rota */ }
+    /* 🔴 O "CIENTE" TAMBÉM COBRA NA RUA (24/08) — o funcionário que nunca abre
+       Ajustes ganha prédio aceso do mesmo jeito, e a mensagem sai EM NOME DELE.
+       Então: há empresa pra acender + o servidor DISSE que este ator não é
+       ciente (`=== false` — ausente é "não sei", e "não sei" nunca abre portão
+       bloqueante) ⇒ o mesmo portão da chave, UMA vez por sessão. A marca só
+       queima quando o portão ABRE: com a folha de dinheiro aberta (`aberta`,
+       mesma guarda do hbx:arrival — nunca roubar a tela no meio do dinheiro)
+       ele espera o próximo poll. O carimbo vive no servidor, por ATOR. */
+    if (config && config.prospectorCiente === false && !cienteProspectorPedido
+      && !aberta && empresas.some((e) => e.aceso)) {
+      cienteProspectorPedido = true;
+      portaoCienteProspector();
+    }
     window.usarDados('mapa', { empresas });
   }
 

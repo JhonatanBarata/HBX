@@ -17,6 +17,8 @@ import { BadRequestException } from '@nestjs/common';
  * ILIMITADA (o limite é de ASSENTO, não de bloco/entrega cobrada) e o nível
  * CREDITO paga o DIA — nenhum dos dois cobra mais por bloco Essencial nem por
  * entrega Rastreada.
+ * 24/08/2026 — toda rota NOVA nasce TRACKED (a escolha de modo morreu);
+ * ESSENTIAL sobrevive só congelado em rota antiga.
  */
 export type LogisticaRouteMode = 'ESSENTIAL' | 'TRACKED';
 

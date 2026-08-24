@@ -341,15 +341,18 @@ test('W5 listClientes: duplicata por endereco+numero (ambos não-vazios); nomes 
   assert.equal(res.items[2].duplicataDe, null, 'endereco sem numero não forma par');
 });
 
-test('W5 listClientes: debitoAtual OMITIDO sem moduloFinanceiroAtivo; presente com ele', async () => {
+// 24/08/2026 — o gate moduloFinanceiroAtivo MORREU (financeiro é sempre
+// ligado): debitoAtual é SEMPRE presente, mesmo em linha antiga com false.
+test('W5 listClientes: debitoAtual SEMPRE presente (o gate do módulo morreu)', async () => {
   const row = baseRow();
-  // OFF → campo ausente
+  // linha antiga com false gravado → campo presente mesmo assim (0 sem dívida)
   {
     const { prisma } = buildPrismaMock({ pageRows: [row], universe: [row], config: { moduloFinanceiroAtivo: false } });
     const res = await new NucleoCadastroService(prisma).listClientes(7, {});
-    assert.ok(!('debitoAtual' in res.items[0]), 'sem módulo financeiro o campo é omitido');
+    assert.ok('debitoAtual' in res.items[0], 'o campo sempre viaja');
+    assert.equal(res.items[0].debitoAtual, 0);
   }
-  // ON → pending charges + entregas aguardando_fechamento somados
+  // pending charges + entregas aguardando_fechamento somados
   {
     const { prisma } = buildPrismaMock({
       pageRows: [row],

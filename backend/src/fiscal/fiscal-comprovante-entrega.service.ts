@@ -56,19 +56,9 @@ export class FiscalComprovanteEntregaService {
       });
       if (!entrega) return null;
 
-      // M4 (regra do módulo): financeiro do tenant OFF → dinheiro não aparece
-      // em papel nenhum. Config ausente = default seguro (sem valores).
-      let financeiroAtivo = false;
-      try {
-        const cfg = await (this.prisma as any).logisticaConfig.findUnique({
-          where: { companyId },
-          select: { moduloFinanceiroAtivo: true },
-        });
-        financeiroAtivo = Boolean(cfg?.moduloFinanceiroAtivo);
-      } catch (e: any) {
-        this.logger.warn(`[fiscal] comprovante loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
-      }
-
+      // 24/08/2026 — o gate "financeiro OFF esconde valor" MORREU: o módulo é
+      // sempre ligado e o comprovante sempre imprime os valores (0,00 é valor
+      // legítimo).
       const cliente = await (this.prisma as any).customerProfile.findFirst({
         where: { id: entrega.customerProfileId, companyId },
         select: { name: true },
@@ -80,7 +70,7 @@ export class FiscalComprovanteEntregaService {
         ? entrega.itens.map((i: any) => ({
             nome: String(i.product?.name || 'Produto'),
             quantidade: Number(i.qtdEntregue ?? i.qtdPrevista) || 0,
-            valorUnit: financeiroAtivo && i.valorUnit != null ? Number(i.valorUnit) : null,
+            valorUnit: i.valorUnit != null ? Number(i.valorUnit) : null,
           }))
         : [
             {
@@ -107,7 +97,7 @@ export class FiscalComprovanteEntregaService {
         cliente: { nome: cliente?.name || null },
         entregueEm: entrega.deliveredAt || new Date(),
         itens,
-        total: financeiroAtivo ? Number(entrega.valor) || 0 : null,
+        total: Number(entrega.valor) || 0,
         modoEmissao: perfil.modoEmissaoProduto === 'entrega' ? 'entrega' : 'fechamento',
         entregaId: entrega.id,
       });

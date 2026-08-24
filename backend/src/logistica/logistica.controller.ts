@@ -93,13 +93,11 @@ import {
   EspelhoQuadroDto,
   SetAvisarClienteDto,
   SetLogisticaNivelDto,
-  SetProspectorAutomacaoDto,
   SetProspectorSemanaDto,
   UpdateClienteProdutoDto,
   UpdateDiasClienteDto,
   UpdateFinanceiroClienteDto,
   UpdateLogisticaConfigDto,
-  UpdateLogisticaRouteModeDto,
   UpdateProdutoDto,
   UpdateRotaModeloDto,
   TipoComprovanteDto,
@@ -432,8 +430,8 @@ export class LogisticaController {
    * ADMIN-only (RolesGuard + @Admin) — extrato = VALORES (LEI DO VENDEDOR: só
    * Admin vê dinheiro; 'logistica' é company-level, então sem este gate o
    * vendedor USER da empresa puxaria as cobranças com valor). Mesmo padrão do
-   * historicoEntregas/fecharMes/quitarCharge. O gate de moduloFinanceiroAtivo
-   * (regra M4) vive no serviço: OFF → sem valores.
+   * historicoEntregas/fecharMes/quitarCharge. (24/08/2026: o gate de
+   * moduloFinanceiroAtivo morreu — financeiro é sempre ligado.)
    */
   @Get('clientes/:id/extrato')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -458,11 +456,10 @@ export class LogisticaController {
    *
    * ADMIN-only (RolesGuard + @Admin) — score é leitura de VALORES/comportamento
    * de pagamento (LEI DO VENDEDOR: só Admin vê; 'logistica' é company-level,
-   * sem este gate o entregador USER puxaria o histórico de fiado). O gate de
-   * moduloFinanceiroAtivo (regra M4) vive no serviço, FAIL-CLOSED: OFF → score
-   * null sem consultar charge. Read-only, company-scoped; cliente de outra
-   * empresa → 404. v1 é INFORMATIVO: não bloqueia nada (o teto continua sendo
-   * o limiteFiado manual).
+   * sem este gate o entregador USER puxaria o histórico de fiado). (24/08/2026:
+   * o gate de moduloFinanceiroAtivo morreu — financeiro é sempre ligado.)
+   * Read-only, company-scoped; cliente de outra empresa → 404. v1 é
+   * INFORMATIVO: não bloqueia nada (o teto continua sendo o limiteFiado manual).
    */
   @Get('clientes/:id/score')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -485,8 +482,8 @@ export class LogisticaController {
    *
    * ADMIN-only (RolesGuard + @Admin) — é a visão gerencial do dono (LEI DO
    * VENDEDOR: só Admin vê valores; 'logistica' é company-level, então sem este
-   * gate o vendedor USER da empresa puxaria o histórico com dinheiro). O gate de
-   * moduloFinanceiroAtivo (regra M4) vive no serviço: OFF → sem campos de valor.
+   * gate o vendedor USER da empresa puxaria o histórico com dinheiro).
+   * (24/08/2026: o gate de moduloFinanceiroAtivo morreu — financeiro sempre ligado.)
    */
   @Get('clientes/:id/entregas')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -606,8 +603,8 @@ export class LogisticaController {
    * tem saldoAberto>0 || aguardandoFechamento>0, com nome. ADMIN-only (RolesGuard
    * + @Admin) — carteira de devedores é visão do dono (LEI DO VENDEDOR: só Admin
    * vê valores; sem este gate o vendedor USER da empresa puxaria a carteira, já
-   * que 'logistica' é company-level e não filtra por cargo).
-   * + moduloFinanceiroAtivo FAIL-CLOSED (OFF → lista vazia, dinheiro não aparece).
+   * que 'logistica' é company-level e não filtra por cargo). (24/08/2026: o
+   * gate de moduloFinanceiroAtivo morreu — financeiro é sempre ligado.)
    */
   @Get('financeiro/saldos')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -875,7 +872,16 @@ export class LogisticaController {
   async planejarRota(@Req() req: any, @Body() dto: PlanejarRotaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const actorWhere = await this.operacao.whereForActor(req.user);
-    const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
+    // 🔴 24/08/2026 — CONVIVÊNCIA admin+motorista: planejar age SEMPRE na rota
+    // do PRÓPRIO ator (mesmo fail-safe do rota/limpar-dia). Admin sem escopo
+    // (`whereForActor` devolve `{}` de propósito) puxava as paradas de TODOS os
+    // motoristas do dia e reordenava a rota de quem já estava na rua — e o lock
+    // de persistência virava `plan:0`, que não serializa com o `plan:<id>` do
+    // motorista. Montar/planejar o dia de OUTRA pessoa é ato deliberado e vive
+    // no /logistica/admin-route/* (userId explícito).
+    const entregadorId = typeof actorWhere.entregadorId === 'number'
+      ? actorWhere.entregadorId
+      : this.ensureUserId(req.user);
     return this.rota.planejarRota(companyId, {
       date: dto?.date,
       origemLat: dto?.origemLat,
@@ -1035,7 +1041,15 @@ export class LogisticaController {
   async iniciarRota(@Req() req: any, @Body() dto: IniciarRotaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const actorWhere = await this.operacao.whereForActor(req.user);
-    const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
+    // 🔴 24/08/2026 — CONVIVÊNCIA admin+motorista: iniciar age SEMPRE na rota do
+    // PRÓPRIO ator (mesmo fail-safe do planejar acima). Sem isto o admin caía no
+    // `resolveSingleDriver`, que num dia com 2 motoristas devolvia 400 "As
+    // paradas do dia estão divididas entre 2 motoristas" — o admin DIRIGINDO não
+    // conseguia sair pra rua. Iniciar a rota de outro motorista é o
+    // /logistica/admin-route/start.
+    const entregadorId = typeof actorWhere.entregadorId === 'number'
+      ? actorWhere.entregadorId
+      : this.ensureUserId(req.user);
     return this.rota.iniciarRota(
       companyId,
       {
@@ -1048,8 +1062,8 @@ export class LogisticaController {
       entregadorId,
       Number(req.user?.id) || null,
       isBillingOwnerActor(req.user),
-      // PROSPECTOR (07/08) — o ATOR inteiro: a liberação pra equipe é por PAPEL
-      // (admin sempre, funcionário só com prospectorEquipe), não por id.
+      // PROSPECTOR — o ATOR inteiro. 24/08/2026: a régua por papel morreu; o
+      // que o serviço usa é o `id` (a escolha da semana é DA PESSOA).
       req.user,
     );
   }
@@ -1057,11 +1071,11 @@ export class LogisticaController {
   /**
    * PROSPECTOR v2 (12/08) — A ESCOLHA DA SEMANA, e ela é DA PESSOA.
    *
-   * 🔴 SEM GUARD DE ADMIN, e é decisão, não esquecimento. As chaves 1-3 já
-   * decidiram se ESTA pessoa pode ver prospector (env global, opt-in da empresa,
-   * e o papel dela). Esta porta é a pessoa dizendo o que interessa a ELA nesta
-   * semana — pedir admin aqui seria o dono escolhendo o que o motorista caça na
-   * rua, que é o contrário do pedido.
+   * 🔴 SEM GUARD DE ADMIN, e é decisão, não esquecimento. O opt-in da empresa
+   * (prospectorAtivo) já decidiu se ESTA pessoa pode ver prospector — desde
+   * 24/08/2026 não há env global nem régua por papel. Esta porta é a pessoa
+   * dizendo o que interessa a ELA nesta semana — pedir admin aqui seria o dono
+   * escolhendo o que o motorista caça na rua, que é o contrário do pedido.
    *
    * GET devolve sempre a lista de tipos (ela vem do CÓDIGO, não do banco), então
    * a folha do app abre mesmo com o banco no chão: a pessoa consegue escolher.
@@ -1097,6 +1111,21 @@ export class LogisticaController {
   }
 
   /**
+   * PROSPECTOR CIENTE (24/08/2026) — carimba o "Ciente" do aviso do prospector
+   * pro PRÓPRIO ator. POR USUÁRIO e NO SERVIDOR (espelho do POST
+   * /logistica/tutorial/visto — mesmo trilho User.onboardingStateJson, zero
+   * migration); idempotente (o primeiro carimbo fica). SEM @Admin() de
+   * propósito: o prospector é de todo usuário da empresa, então o funcionário
+   * também dá o Ciente dele. O GET /logistica/config devolve `prospectorCiente`
+   * do ator — é o que o app lê pra decidir se mostra o aviso.
+   */
+  @Post('prospector/ciente')
+  marcarProspectorCiente(@Req() req: any) {
+    const userId = this.ensureUserId(req.user);
+    return this.config.marcarProspectorCiente(userId);
+  }
+
+  /**
    * PR17072026 Onda 1 — encerra a rota do dia de forma TRANSACIONAL (tudo-ou-
    * -nada): abertas (agendada/em_rota) voltam para PENDÊNCIA (nunca
    * cancelamento); entregues e canceladas ficam intocadas. Substitui o loop
@@ -1109,7 +1138,17 @@ export class LogisticaController {
   async encerrarRota(@Req() req: any, @Body() dto: EncerrarRotaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const actorWhere = await this.operacao.whereForActor(req.user);
-    const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
+    // 🔴 24/08/2026 — CONVIVÊNCIA admin+motorista (mesmo fail-safe do
+    // rota/limpar-dia abaixo): admin sem escopo (`whereForActor` devolve `{}`)
+    // fazia o serviço encerrar SEM filtro — TODAS as entregas abertas da empresa
+    // voltavam pra pendência, TODAS as rotas vivas ganhavam operationalEndedAt e
+    // as sessões TRACKED dos outros motoristas eram fechadas no meio da rua. No
+    // celular, "Encerrar" é sempre a rota de quem está autenticado (o APK chama
+    // como o próprio motorista); rota de outra pessoa é gerida pelas portas de
+    // continuidade/admin-route, que recebem o alvo explícito.
+    const entregadorId = typeof actorWhere.entregadorId === 'number'
+      ? actorWhere.entregadorId
+      : this.ensureUserId(req.user);
     const resultado = await this.rota.encerrarRota(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
     // 31/07 — encerrar de verdade deixando parada aberta pra trás vira RECADO
     // no web (0 entregues = "abandonou"; entregou parte = "parou no meio").
@@ -1135,7 +1174,15 @@ export class LogisticaController {
   async descartarMontagem(@Req() req: any, @Body() dto: EncerrarRotaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const actorWhere = await this.operacao.whereForActor(req.user);
-    const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
+    // 🔴 24/08/2026 — CONVIVÊNCIA admin+motorista (mesmo fail-safe do
+    // rota/encerrar/limpar-dia): sem escopo, o descarte do admin ia além do
+    // estrago do encerrar — as pendências ALHEIAS ainda perdiam o entregadorId
+    // (o revert do serviço zera o dono de propósito NESTE verbo), então a rota
+    // viva do outro motorista sumia da tela dele. Descartar é sempre a montagem
+    // do PRÓPRIO ator.
+    const entregadorId = typeof actorWhere.entregadorId === 'number'
+      ? actorWhere.entregadorId
+      : this.ensureUserId(req.user);
     const resultado = await this.rota.descartarMontagem(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
     // 31/07 — e o recado de quem SAIU PRA RUA e largou no meio. Quem não iniciou
     // não gera recado nenhum — ver o serviço.
@@ -1155,14 +1202,16 @@ export class LogisticaController {
    * dá pra identificar"* — mas quem desistiu É o autenticado.
    *
    * Separa os dois papéis que estavam grudados num `entregadorId` só:
-   *  - ESCOPO DE ESCRITA (o que apagar) continua sendo o do ator — admin desfaz a
-   *    montagem da empresa inteira, e isso NÃO muda aqui;
+   *  - ESCOPO DE ESCRITA (o que apagar) é o do ator — desde 24/08/2026 SEMPRE a
+   *    rota do próprio autenticado (admin incluso, ver o fail-safe nos três
+   *    verbos acima); a empresa inteira nunca mais entra num verbo destes;
    *  - IDENTIDADE DO AVISO (a quem atribuir) é quem autenticou.
    *
-   * Continua fail-closed pro admin que descarta a rota DE OUTRA PESSOA, porque a
-   * rede de aviso já é escopada por este id: `registrarSaida` só acha
-   * `LogisticaRoute` com `entregadorId` = ele. Admin que não dirigiu não casa com
-   * nada e nenhum aviso nasce no nome de quem não desistiu.
+   * Continua fail-closed pro admin que mexe na rota DE OUTRA PESSOA (pelas
+   * portas de continuidade/admin-route), porque a rede de aviso já é escopada
+   * por este id: `registrarSaida` só acha `LogisticaRoute` com `entregadorId` =
+   * ele. Admin que não dirigiu não casa com nada e nenhum aviso nasce no nome
+   * de quem não desistiu.
    */
   private quemDirigiu(user: any, entregadorId?: number): number | undefined {
     if (entregadorId) return entregadorId;
@@ -1703,22 +1752,9 @@ export class LogisticaController {
     return this.config.updateConfig(companyId, dto, req.user);
   }
 
-  /**
-   * 26/07 — MODO DAS NOVAS ROTAS (Simples × Rastreada), em endereço PRÓPRIO.
-   * A escolha comercial saiu do PATCH genérico acima porque o APK VELHO em campo
-   * ainda mandava `trackingAtivo`/`modoRotaPadrao` por lá e passava quando o
-   * logado era o dono da conta. Agora o payload antigo morre no ValidationPipe
-   * (400, forbidNonWhitelisted) e esta rota só existe no painel do PC
-   * (/logistica/config) — nenhum bundle do celular a conhece, e o gate não
-   * depende de User-Agent (forjável). ADMIN-only + billing owner no serviço.
-   */
-  @Patch('config/modo-rota')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Admin()
-  updateRouteMode(@Req() req: any, @Body() dto: UpdateLogisticaRouteModeDto) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.config.updateRouteMode(companyId, dto, req.user);
-  }
+  // ⚰️ PATCH /logistica/config/modo-rota MORREU em 24/08/2026: não existe mais
+  // escolha de modo — toda rota nasce TRACKED (decisão do dono). O payload
+  // antigo morre no ValidationPipe (404 na rota, na verdade — o endereço sumiu).
 
   /**
    * PR27072026 F1 — NÍVEL DO PLANO (Basic/Advanced/Full), endereço PRÓPRIO
@@ -1745,33 +1781,9 @@ export class LogisticaController {
     return this.config.setNivel(companyId, dto.nivel, req.user, dto.logisticaAssentos);
   }
 
-  /**
-   * PROSPECTOR CNPJ (PR07082026, decisão nº8 do dono) — DISPARO AUTOMÁTICO.
-   *
-   * Endereço PRÓPRIO e só Master, pelo MESMO desenho do nível acima: o disparo
-   * automático é COBRADO como automação, então quem liga é a HBX, nunca o
-   * tenant. O PATCH genérico de config recusa as 2 chaves com 403 e o
-   * ValidationPipe global já as barra antes disso (não existem no
-   * UpdateLogisticaConfigDto) — a porta fecha por CONTRATO, em 3 camadas.
-   *
-   * `companyId` vem do PARÂMETRO da URL (não do JWT): o Master não é escopado a
-   * uma empresa, ele escolhe QUAL empresa na ficha.
-   */
-  @Get('master/company/:companyId/prospector-automacao')
-  @UseGuards(MasterGuard)
-  getProspectorAutomacao(@Param('companyId', ParseIntPipe) companyId: number) {
-    return this.config.getProspectorAutomacao(companyId);
-  }
-
-  @Put('master/company/:companyId/prospector-automacao')
-  @UseGuards(MasterGuard)
-  setProspectorAutomacao(
-    @Req() req: any,
-    @Param('companyId', ParseIntPipe) companyId: number,
-    @Body() dto: SetProspectorAutomacaoDto,
-  ) {
-    return this.config.setProspectorAutomacao(companyId, dto, req.user);
-  }
+  // ⚰️ GET/PUT /logistica/master/company/:id/prospector-automacao MORRERAM em
+  // 24/08/2026: o gate Master do disparo automático era porta sem nada atrás
+  // (zero consumidor); as colunas prospectorAutomacaoAtiva/MaxDia saíram junto.
 
   // ── S6 PORTAL-PEDIDO — link público de pedido (token opaco) ─────────────────
 

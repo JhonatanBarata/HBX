@@ -616,14 +616,13 @@ export class LimparDiaDto {
 // PATCH parcial da config da empresa: template do aviso + toggles + params de rota.
 // Só campos declarados passam (whitelist). companyId NUNCA vem do body (JWT).
 export class UpdateLogisticaConfigDto {
-  // ── 26/07 — `trackingAtivo` e `modoRotaPadrao` NÃO MORAM MAIS AQUI ───────────
-  // Eles migraram para o UpdateLogisticaRouteModeDto (PATCH /logistica/config/
-  // modo-rota). Motivo: o APK VELHO já instalado em campo ainda mandava esses
-  // dois campos neste PATCH e, se quem estivesse logado fosse o dono da conta,
-  // a troca passava. Fora daqui, o ValidationPipe global (whitelist +
-  // forbidNonWhitelisted, main.ts) devolve 400 pro payload antigo ANTES de
-  // qualquer código rodar — a porta fecha por CONTRATO, sem depender de
-  // User-Agent (string de cliente é forjável). Não reintroduzir os campos.
+  // ── 24/08/2026 — `trackingAtivo`/`modoRotaPadrao` MORRERAM DE VEZ ────────────
+  // (antes tinham endpoint próprio, PATCH /config/modo-rota, morto junto): toda
+  // rota nasce TRACKED, não existe escolha de modo. `moduloFinanceiroAtivo`,
+  // `cobrancaSimples`, `precoPorClienteAtivo` e `prospectorEquipe` morreram na
+  // mesma data (financeiro sempre ligado; prospector pra todos). O ValidationPipe
+  // global (whitelist + forbidNonWhitelisted, main.ts) devolve 400 pra qualquer
+  // payload que ainda mande esses campos — não reintroduzir.
   @IsOptional()
   @IsBoolean()
   avisoWhatsEnabled?: boolean;
@@ -674,28 +673,16 @@ export class UpdateLogisticaConfigDto {
 
   @IsOptional()
   @IsBoolean()
-
-  @IsOptional()
-  @IsBoolean()
   cobrancaNaEntrega?: boolean;
 
-  // W1-BACKEND (18/07) — toggle "Cobrança simples na chegada" do app do entregador.
-  @IsOptional()
-  @IsBoolean()
-  cobrancaSimples?: boolean;
-
-  // MODO PASSEIO (29/07) — liberação do modo pra equipe (operacional, padrão
-  // do cobrancaSimples: @Admin() do PATCH já basta).
+  // MODO PASSEIO (29/07) — liberação do modo pra equipe (operacional: @Admin()
+  // do PATCH já basta).
   @IsOptional()
   @IsBoolean()
   passeioEquipe?: boolean;
 
-  @IsOptional()
-  @IsBoolean()
-  moduloFinanceiroAtivo?: boolean;
-
-  // PR18072026 W-A — módulo Financeiro (3 níveis) + painel Avançado. Todos
-  // operacionais (mesmo padrão do cobrancaSimples): não exigem billing owner.
+  // PR18072026 W-A — formas de pagamento aceitas + painel Avançado. Todos
+  // operacionais: não exigem billing owner.
   @IsOptional()
   @IsBoolean()
   aceitaNaHora?: boolean;
@@ -707,10 +694,6 @@ export class UpdateLogisticaConfigDto {
   @IsOptional()
   @IsBoolean()
   aceitaFiado?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  precoPorClienteAtivo?: boolean;
 
   @IsOptional()
   @IsBoolean()
@@ -782,15 +765,10 @@ export class UpdateLogisticaConfigDto {
   // ── PROSPECTOR CNPJ (PR07082026 F0, 07/08) ─────────────────────────────────
   // MESMO shape do trio avisoChegando (toggle + template + condição). Todos
   // OPERACIONAIS: @Admin() do PATCH basta, não exigem billing owner (padrão do
-  // passeioEquipe). Gravar é livre; efeito só com a flag global
-  // HBX_PROSPECTOR_ENABLED ligada (default OFF, dormente).
-  //
-  // 🔴 `prospectorAutomacaoAtiva`/`prospectorAutomacaoMaxDia` NÃO MORAM AQUI —
-  // disparo automático é COBRADO como automação (decisão nº8 do dono) e só entra
-  // pelo endereço do Master (PUT /logistica/master/company/:id/prospector-automacao,
-  // MasterGuard). Fora daqui, o ValidationPipe global (whitelist +
-  // forbidNonWhitelisted) devolve 400 pra quem tentar por este PATCH, e o serviço
-  // ainda tem o cinto-e-suspensório com 403. Não reintroduzir os campos.
+  // passeioEquipe). 24/08/2026 — a env global HBX_PROSPECTOR_ENABLED, o
+  // `prospectorEquipe` e a automação cobrada (prospectorAutomacao*, endpoints
+  // Master) MORRERAM: o toggle da empresa é a única chave, todo usuário vê, e
+  // a 1ª vez é segurada pelo "Ciente" por usuário (POST /prospector/ciente).
   @IsOptional()
   @IsBoolean()
   prospectorAtivo?: boolean;
@@ -814,11 +792,6 @@ export class UpdateLogisticaConfigDto {
   @Min(1)
   @Max(8)
   prospectorMaxDia?: number;
-
-  // Liberação pra EQUIPE (motorista), mesma regra do passeioEquipe.
-  @IsOptional()
-  @IsBoolean()
-  prospectorEquipe?: boolean;
 
   // ── ITEM 9 DO DONO (07/08) — desligar módulos do app PELO DESKTOP ──────────
   // CSV das chaves desativadas: fechamento,clientes,produtos,chat,ajustes.
@@ -873,21 +846,8 @@ export class UpdateLogisticaConfigDto {
   devedorNaRota?: 'COBRANCA' | 'EXCLUIR' | 'NORMAL';
 }
 
-// ── 26/07 — MODO DA ROTA (Simples × Rastreada) EM ENDEREÇO PRÓPRIO ───────────
-// PATCH /logistica/config/modo-rota. Endpoint separado de propósito: é a ÚNICA
-// porta da escolha comercial do modo, e o bundle do APK (nem o velho em campo,
-// nem o novo) chama esta rota — o celular não decide modo comercial (ordem do
-// dono 26/07). Quem liga é o administrador NO PC, em /logistica/config.
-// Admin-only no controller + billing owner no serviço, como era antes.
-export class UpdateLogisticaRouteModeDto {
-  @IsOptional()
-  @IsBoolean()
-  trackingAtivo?: boolean;
-
-  @IsOptional()
-  @IsIn(['ESSENTIAL', 'TRACKED'])
-  modoRotaPadrao?: 'ESSENTIAL' | 'TRACKED';
-}
+// ⚰️ 24/08/2026 — UpdateLogisticaRouteModeDto MORREU junto com o PATCH
+// /logistica/config/modo-rota: toda rota nasce TRACKED, não existe escolha.
 
 // ── MODO PASSEIO (29/07) — POST /logistica/passeio/iniciar ──────────────────
 // tourId nasce no APK (H.uuid) e é a chave de idempotência do débito: retry de
@@ -939,27 +899,12 @@ export class PasseDoDiaDto {
   date?: string;
 }
 
-// ── PROSPECTOR: AUTOMAÇÃO COBRADA (PR07082026, decisão nº8 do dono) ──────────
-// PUT /logistica/master/company/:companyId/prospector-automacao. Endereço
-// PRÓPRIO, só Master (MasterGuard) — MESMO motivo do nível acima: o disparo
-// automático do prospector é COBRADO como automação, então o tenant não liga
-// sozinho nem por engano nem por payload forjado. Os 2 campos são opcionais
-// (PATCH parcial); corpo vazio devolve 400 no serviço ("Nada para alterar").
-export class SetProspectorAutomacaoDto {
-  @IsOptional()
-  @IsBoolean()
-  prospectorAutomacaoAtiva?: boolean;
-
-  // Teto de disparos automáticos por dia. 0 = sem cota (nada sai sozinho).
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(50)
-  prospectorAutomacaoMaxDia?: number;
-}
+// ⚰️ 24/08/2026 — SetProspectorAutomacaoDto MORREU junto com os endpoints
+// Master de prospector-automacao (porta sem consumidor; colunas dropadas).
 
 // ── PROSPECTOR v2: A ESCOLHA DA SEMANA (12/08, decisão do dono) ──────────────
-// POST /logistica/prospector/semana. É a 5ª chave do prospector, e ela é DA
+// POST /logistica/prospector/semana. É a chave nº2 do prospector (24/08/2026:
+// sobraram toggle da empresa → semana → pino), e ela é DA
 // PESSOA que está dirigindo — não do tenant, não do master. Por isso NÃO tem
 // guard de admin: é o próprio ator dizendo o que interessa a ele nesta semana.
 //

@@ -82,27 +82,25 @@ test('sem companyId ou sem clienteIds: devolve Map vazio sem consultar nada', as
 
 // ── gates (fail-safe = NORMAL sem gastar a query de saldo) ──────────────────
 
-test('moduloFinanceiroAtivo OFF: todos NORMAL, nem consulta saldo (M4 fail-closed)', async () => {
-  let consultouSaldo = false;
-  const prisma = buildPrisma({ moduloFinanceiroAtivo: false, onSaldoQuery: () => { consultouSaldo = true; } });
-  const svc = service(prisma);
-  const res = await svc.resolverDevedorNaRota(1, ['conta-1']);
-  assert.deepEqual(res.get('conta-1'), { devedor: false, modo: 'NORMAL', saldoAberto: 0, motivo: null });
-  assert.equal(consultouSaldo, false);
-});
-
-test('nível BASIC: todos NORMAL mesmo com financeiro ON e devedorNaRota=EXCLUIR gravado (gate de nível)', async () => {
-  let consultouSaldo = false;
+// ⚰️ 24/08/2026 — os gates de moduloFinanceiroAtivo (financeiro é sempre
+// ligado) e de nível BASIC (plano difere só por assentos) MORRERAM: a régua
+// vale pra todo tenant. Este teste é o freio contra o gate voltar.
+test('sem gates: linha antiga com financeiro OFF/BASIC gravados ainda resolve a régua normalmente', async () => {
   const prisma = buildPrisma({
-    moduloFinanceiroAtivo: true,
-    devedorNaRota: 'EXCLUIR',
-    logisticaNivel: 'BASIC',
-    onSaldoQuery: () => { consultouSaldo = true; },
+    moduloFinanceiroAtivo: false, // sobra do banco pré-drop — não decide nada
+    logisticaNivel: 'BASIC', // idem
+    devedorNaRota: 'COBRANCA',
+    clientes: [{ id: 'conta-1', limiteFiado: null }],
+    pendentes: [{ customerProfileId: 'conta-1', _sum: { amount: 100 } }],
   });
   const svc = service(prisma);
   const res = await svc.resolverDevedorNaRota(1, ['conta-1']);
-  assert.deepEqual(res.get('conta-1'), { devedor: false, modo: 'NORMAL', saldoAberto: 0, motivo: null });
-  assert.equal(consultouSaldo, false, 'BASIC nem gasta a query de saldo — sai antes');
+  assert.deepEqual(res.get('conta-1'), {
+    devedor: true,
+    modo: 'COBRANCA',
+    saldoAberto: 100,
+    motivo: 'R$ 100,00 em aberto',
+  });
 });
 
 test('devedorNaRota=NORMAL: todos NORMAL mesmo com saldo positivo e nível Advanced', async () => {

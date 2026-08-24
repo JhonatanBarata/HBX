@@ -54,6 +54,9 @@ export type PlanoDeRota = {
   date: string;
   total: number;
   routeId?: string | null;
+  // 24/08 — NÃO remover: sobreviveu à morte do modo Essencial de propósito.
+  // A semântica é "a rota abre sessão de telemetria" (sessão viva) — toda rota
+  // é TRACKED, então hoje vem sempre true, mas o campo segue no contrato.
   trackingRequired: boolean;
   trackingSessionId?: string | null;
   trackingStatus?: 'ACTIVE' | 'ENDED' | null;

@@ -7,16 +7,19 @@ import { tipoPorSlug } from './logistica-prospector-tipos';
 /**
  * PROSPECTOR CNPJ — F1 do lado do SERVIDOR: o corredor ligado no INICIAR ROTA.
  * Plano: docs/PLANEJAMENTOS/PR07082026-PROSPECTOR-CNPJ.md (§0, §1, F0/F1).
- * PROSPECTOR v2 (12/08): a 5ª chave (a escolha da SEMANA, por PESSOA) e as DUAS
- * CORES (azul = ambiente mudo · verde = o tipo escolhido).
+ * PROSPECTOR v2 (12/08): a chave da SEMANA (por PESSOA) e as DUAS CORES
+ * (azul = ambiente mudo · verde = o tipo escolhido).
+ *
+ * 24/08/2026 (decisão do dono) — o prospector ABRIU: a env global
+ * HBX_PROSPECTOR_ENABLED e a régua "funcionário só com prospectorEquipe"
+ * MORRERAM. Sobraram 3 CHAVES: prospectorAtivo do tenant · A SEMANA DA PESSOA
+ * · pino na região.
  *
  * O que se prova aqui é o que o iniciar-rota passou a decidir — e o que ele
  * JAMAIS pode deixar de fazer:
  *
- *  · AS 5 CHAVES, uma a uma: env global · prospectorAtivo do tenant · ATOR
- *    (admin sempre, funcionário só com prospectorEquipe) · A SEMANA DA PESSOA ·
- *    pino na região. Chave fechada = ZERO prospecto, sem erro, e o payload byte
- *    a byte o de hoje (a chave `prospector` nem existe).
+ *  · AS 3 CHAVES, uma a uma. Chave fechada = ZERO prospecto, sem erro, e o
+ *    payload byte a byte o de hoje (a chave `prospector` nem existe).
  *  · AS DUAS CORES: `escolhida` sai do CÓDIGO do CNAE contra o tipo da semana, e
  *    `aceso` NUNCA cai em quem não é escolhida — azul é ambiente, e ambiente não
  *    fala.
@@ -156,15 +159,29 @@ function bancada(cenario: CenarioBancada = {}) {
     garantirPasseDoDia: async () => undefined,
   };
 
+  // 24/08/2026 — TODA rota nasce TRACKED (hard-on): o iniciar exige o serviço
+  // de tracking pra abrir a sessão de GPS. Dublê mínimo, fiel ao contrato.
+  const tracking: any = {
+    ensureSessionForStartedRoute: async () => ({ id: 'sess-teste', status: 'ACTIVE' }),
+    discardUnboundSessionAfterRouteFailure: async () => undefined,
+    getOperationalRouteMetadata: async () => ({
+      routeId: 'route-1',
+      trackingRequired: true,
+      routeStatus: 'ACTIVE',
+      trackingSessionId: 'sess-teste',
+      trackingStatus: 'ACTIVE',
+    }),
+  };
+
   const semana = cenario.semana === undefined ? semanaDuble().servico : cenario.semana ?? undefined;
   const rota = new LogisticaRotaService(
     prisma,
     cobranca,
-    undefined, // tracking
+    tracking,
     undefined, // osrm
     undefined, // cargaEstoque (B4)
     cenario.prospector,
-    semana, // PROSPECTOR v2 — a escolha da semana (chave nº4)
+    semana, // PROSPECTOR v2 — a escolha da semana (chave nº2)
   );
   (rota as any).logger = {
     log: (m: string) => logs.push({ nivel: 'log', msg: String(m) }),
@@ -253,7 +270,6 @@ const EMPRESA_SALAO = {
 
 const CONFIG_LIGADA = {
   prospectorAtivo: true,
-  prospectorEquipe: false,
   prospectorRaioM: 150,
   prospectorMaxDia: 4,
 };
@@ -262,7 +278,12 @@ const ADMIN = { id: 7, role: 'USERMASTER', isSystemMaster: false, canViewBilling
 const GERENTE = { id: 8, role: 'ADMIN', isSystemMaster: false, canViewBilling: false };
 const FUNCIONARIO = { id: 9, role: 'USER', isSystemMaster: false, canViewBilling: false };
 
-/** Liga/desliga a env global só durante o teste (nunca vaza pro processo). */
+/**
+ * 24/08/2026 — a env HBX_PROSPECTOR_ENABLED MORREU. O wrapper continua SETANDO
+ * a env de propósito: os testes abaixo rodam com ela em todo estado possível
+ * (ausente, lixo, 'true') e o resultado tem que ser o MESMO — é a prova de que
+ * nada voltou a ler a env.
+ */
 async function comEnv(valor: string | undefined, callback: () => Promise<void>) {
   const antes = process.env.HBX_PROSPECTOR_ENABLED;
   if (valor === undefined) delete process.env.HBX_PROSPECTOR_ENABLED;
@@ -276,37 +297,27 @@ async function comEnv(valor: string | undefined, callback: () => Promise<void>) 
 }
 
 // ---------------------------------------------------------------------------
-// CHAVE 1 — a env global
+// ⚰️ ENV GLOBAL MORTA (24/08/2026) — a env não decide mais NADA
 // ---------------------------------------------------------------------------
 
-test('CHAVE 1 (env global OFF): a rota inicia igual, sem consultar nada e sem o campo novo', async () => {
-  await comEnv(undefined, async () => {
-    const corredor = corredorDuble();
-    const b = bancada({ config: CONFIG_LIGADA, prospector: corredor.servico });
-    const r: any = await b.iniciar(ADMIN);
-
-    assert.equal(r.total, 3, 'a rota tem que iniciar normal');
-    assert.equal(Object.prototype.hasOwnProperty.call(r, 'prospector'), false, 'campo novo NÃO pode existir com a env OFF');
-    assert.equal(corredor.chamadas.length, 0, 'nem uma chamada ao corredor');
-    assert.equal(b.configReads.length, 0, 'nem uma ida ao banco pela config do prospector');
-  });
-});
-
-test('CHAVE 1: valor lixo na env conta como OFF (só true/1/yes/on ligam)', async () => {
-  await comEnv('talvez', async () => {
-    const corredor = corredorDuble();
-    const b = bancada({ config: CONFIG_LIGADA, prospector: corredor.servico });
-    const r: any = await b.iniciar(ADMIN);
-    assert.equal(r.prospector, undefined);
-    assert.equal(corredor.chamadas.length, 0);
-  });
+test('env morta: ausente, lixo ou true — o prospector embarca IGUAL (só as 3 chaves decidem)', async () => {
+  for (const valor of [undefined, 'talvez', 'true'] as const) {
+    await comEnv(valor, async () => {
+      const corredor = corredorDuble({ prospectos: [EMPRESA_SALAO] });
+      const b = bancada({ config: CONFIG_LIGADA, prospector: corredor.servico });
+      const r: any = await b.iniciar(ADMIN);
+      assert.equal(r.total, 3, `env=${String(valor)}: a rota inicia normal`);
+      assert.equal(corredor.chamadas.length, 1, `env=${String(valor)}: o corredor roda`);
+      assert.equal(r.prospector.empresas.length, 1, `env=${String(valor)}: o payload sai`);
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
-// CHAVE 2 — prospectorAtivo do tenant
+// CHAVE 1 — prospectorAtivo do tenant
 // ---------------------------------------------------------------------------
 
-test('CHAVE 2 (prospectorAtivo=false): env ligada não basta — zero prospecto e zero corredor', async () => {
+test('CHAVE 1 (prospectorAtivo=false): zero prospecto e zero corredor', async () => {
   await comEnv('true', async () => {
     const corredor = corredorDuble();
     const b = bancada({ config: { ...CONFIG_LIGADA, prospectorAtivo: false }, prospector: corredor.servico });
@@ -319,7 +330,7 @@ test('CHAVE 2 (prospectorAtivo=false): env ligada não basta — zero prospecto 
   });
 });
 
-test('CHAVE 2: empresa SEM linha de LogisticaConfig fica fechada (opt-in, nunca por omissão)', async () => {
+test('CHAVE 1: empresa SEM linha de LogisticaConfig fica fechada (opt-in, nunca por omissão)', async () => {
   await comEnv('true', async () => {
     const corredor = corredorDuble();
     const b = bancada({ config: null, prospector: corredor.servico });
@@ -330,37 +341,14 @@ test('CHAVE 2: empresa SEM linha de LogisticaConfig fica fechada (opt-in, nunca 
 });
 
 // ---------------------------------------------------------------------------
-// CHAVE 3 — o ATOR (molde do passeioEquipe)
+// ⚰️ RÉGUA POR PAPEL MORTA (24/08/2026) — todo usuário da empresa entra
 // ---------------------------------------------------------------------------
 
-test('CHAVE 3: funcionário comum SEM prospectorEquipe não recebe prospecto', async () => {
+test('todo usuário da empresa recebe prospecto quando o toggle está on (a régua de equipe morreu)', async () => {
   await comEnv('true', async () => {
-    const corredor = corredorDuble({ prospectos: [EMPRESA_SALAO] });
-    const b = bancada({ config: { ...CONFIG_LIGADA, prospectorEquipe: false }, prospector: corredor.servico });
-    const r: any = await b.iniciar(FUNCIONARIO);
-
-    assert.equal(r.total, 3, 'a rota do funcionário inicia normal');
-    assert.equal(r.prospector, undefined);
-    assert.equal(corredor.chamadas.length, 0);
-  });
-});
-
-test('CHAVE 3: funcionário COM prospectorEquipe recebe', async () => {
-  await comEnv('true', async () => {
-    const corredor = corredorDuble({ prospectos: [EMPRESA_SALAO] });
-    const b = bancada({ config: { ...CONFIG_LIGADA, prospectorEquipe: true }, prospector: corredor.servico });
-    const r: any = await b.iniciar(FUNCIONARIO);
-
-    assert.equal(corredor.chamadas.length, 1);
-    assert.equal(r.prospector.empresas.length, 1);
-  });
-});
-
-test('CHAVE 3: admin (dono e gerente) passa mesmo com prospectorEquipe=false', async () => {
-  await comEnv('true', async () => {
-    for (const ator of [ADMIN, GERENTE, { id: 1, role: 'USER', isSystemMaster: true }]) {
+    for (const ator of [ADMIN, GERENTE, FUNCIONARIO, { id: 1, role: 'USER', isSystemMaster: true }]) {
       const corredor = corredorDuble({ prospectos: [EMPRESA_SALAO] });
-      const b = bancada({ config: { ...CONFIG_LIGADA, prospectorEquipe: false }, prospector: corredor.servico });
+      const b = bancada({ config: CONFIG_LIGADA, prospector: corredor.servico });
       const r: any = await b.iniciar(ator);
       assert.equal(corredor.chamadas.length, 1, `ator ${ator.role} deveria passar`);
       assert.equal(r.prospector.empresas.length, 1);
@@ -368,35 +356,27 @@ test('CHAVE 3: admin (dono e gerente) passa mesmo com prospectorEquipe=false', a
   });
 });
 
-test('CHAVE 3: chamada SEM ator é fail-closed (tratada como funcionário comum)', async () => {
+test('chamada SEM ator segue fail-closed — a chave da SEMANA é DA PESSOA', async () => {
   await comEnv('true', async () => {
-    const fechado = corredorDuble({ prospectos: [EMPRESA_SALAO] });
-    const b1 = bancada({ config: { ...CONFIG_LIGADA, prospectorEquipe: false }, prospector: fechado.servico });
-    const r1: any = await b1.iniciar(undefined);
-    assert.equal(r1.prospector, undefined, 'sem ator e sem liberação de equipe = fechado');
-    assert.equal(fechado.chamadas.length, 0);
-
-    /* 🔴 12/08 — SEM ATOR AGORA É FECHADO ATÉ COM prospectorEquipe LIGADO, e é a
-       chave nº4 que fecha: a escolha da semana é DA PESSOA, então chamada interna
-       sem ator não tem de quem ler escolha nenhuma. Antes desta leva, `equipe:true`
-       deixava passar uma chamada anônima — o que hoje seria acender prédio na tela
-       de alguém que nunca disse o que queria caçar. */
-    const aberto = corredorDuble({ prospectos: [EMPRESA_SALAO] });
-    const b2 = bancada({ config: { ...CONFIG_LIGADA, prospectorEquipe: true }, prospector: aberto.servico });
-    const r2: any = await b2.iniciar(undefined);
-    assert.equal(r2.prospector, undefined, 'sem PESSOA não há escolha da semana — fechado');
-    assert.equal(aberto.chamadas.length, 0, 'e o corredor (que varre a RFB) nem roda');
+    /* 🔴 12/08 — sem ator não tem de quem ler a escolha da semana: chamada
+       interna anônima nunca acende prédio na tela de ninguém. A régua por papel
+       morreu (24/08), mas ESTA continua de pé. */
+    const corredor = corredorDuble({ prospectos: [EMPRESA_SALAO] });
+    const b = bancada({ config: CONFIG_LIGADA, prospector: corredor.servico });
+    const r: any = await b.iniciar(undefined);
+    assert.equal(r.prospector, undefined, 'sem PESSOA não há escolha da semana — fechado');
+    assert.equal(corredor.chamadas.length, 0, 'e o corredor (que varre a RFB) nem roda');
   });
 });
 
 // ---------------------------------------------------------------------------
-// 🔴 CHAVE 4 — A ESCOLHA DA SEMANA, e ela é DA PESSOA (PROSPECTOR v2, 12/08)
+// 🔴 CHAVE 2 — A ESCOLHA DA SEMANA, e ela é DA PESSOA (PROSPECTOR v2, 12/08)
 //
 // A decisão do dono: o prospector nasce DESLIGADO pra todo mundo e só acorda
 // quando a PESSOA aciona e diz o TIPO que interessa a ela NESTA semana.
 // ---------------------------------------------------------------------------
 
-test('CHAVE 4: sem escolha na semana, o payload sai BYTE A BYTE o de sempre e o corredor nem roda', async () => {
+test('CHAVE 2 (semana): sem escolha na semana, o payload sai BYTE A BYTE o de sempre e o corredor nem roda', async () => {
   await comEnv('true', async () => {
     const corredor = corredorDuble({ prospectos: [EMPRESA_SALAO] });
     const semana = semanaDuble(null); // a pessoa não escolheu nada
@@ -415,7 +395,7 @@ test('CHAVE 4: sem escolha na semana, o payload sai BYTE A BYTE o de sempre e o 
   });
 });
 
-test('CHAVE 4: a escolha é perguntada com a EMPRESA e a PESSOA — nunca só com a empresa', async () => {
+test('CHAVE 2 (semana): a escolha é perguntada com a EMPRESA e a PESSOA — nunca só com a empresa', async () => {
   await comEnv('true', async () => {
     const semana = semanaDuble('salao');
     const b = bancada({
@@ -433,7 +413,7 @@ test('CHAVE 4: a escolha é perguntada com a EMPRESA e a PESSOA — nunca só co
   });
 });
 
-test('CHAVE 4: serviço da semana NÃO injetado é FAIL-CLOSED (nada de "segue como antes")', async () => {
+test('CHAVE 2 (semana): serviço da semana NÃO injetado é FAIL-CLOSED (nada de "segue como antes")', async () => {
   await comEnv('true', async () => {
     const corredor = corredorDuble({ prospectos: [EMPRESA_SALAO] });
     const b = bancada({ config: CONFIG_LIGADA, prospector: corredor.servico, semana: null });
@@ -446,10 +426,10 @@ test('CHAVE 4: serviço da semana NÃO injetado é FAIL-CLOSED (nada de "segue c
 });
 
 // ---------------------------------------------------------------------------
-// CHAVE 5 — pino na região (vazio HONESTO)
+// CHAVE 3 — pino na região (vazio HONESTO)
 // ---------------------------------------------------------------------------
 
-test('CHAVE 5: empresa sem pino na região devolve lista VAZIA — vazio honesto, não erro', async () => {
+test('CHAVE 3 (pino): empresa sem pino na região devolve lista VAZIA — vazio honesto, não erro', async () => {
   await comEnv('true', async () => {
     const corredor = corredorDuble({ prospectos: [] });
     const b = bancada({ config: CONFIG_LIGADA, prospector: corredor.servico });
@@ -664,9 +644,10 @@ test('MULTI-TENANT: a config só é lida com as colunas do prospector, sempre es
     const corredor = corredorDuble();
     const b = bancada({ companyId: 41, config: CONFIG_LIGADA, prospector: corredor.servico });
     await b.iniciar(ADMIN);
+    // 24/08/2026 — prospectorEquipe morreu: só a chave + as 2 réguas.
     assert.deepEqual(
       b.configReads[0].campos.sort(),
-      ['prospectorAtivo', 'prospectorEquipe', 'prospectorMaxDia', 'prospectorRaioM'],
+      ['prospectorAtivo', 'prospectorMaxDia', 'prospectorRaioM'],
     );
   });
 });
@@ -1011,44 +992,35 @@ test('RELEITURA: linha antiga (embarcada antes da coluna cnae) é AZUL, nunca ac
   });
 });
 
-test('RELEITURA: as 5 chaves valem aqui também — desligar apaga a tela, não só para de embarcar', async () => {
-  // Chave 1 — env global
+test('RELEITURA: as 3 chaves valem aqui também — desligar apaga a tela, não só para de embarcar', async () => {
+  // ⚰️ 24/08/2026 — env e régua de equipe morreram: a env em qualquer estado
+  // não muda nada, e TODO usuário (funcionário incluso) lê quando as chaves
+  // que restaram abrem.
   await comEnv(undefined, async () => {
     const b = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()] });
-    assert.equal(await b.ler(ADMIN), null);
-    assert.equal(b.buscas.length, 0, 'env OFF não gasta nem uma consulta');
+    assert.equal((await b.ler(FUNCIONARIO))!.empresas.length, 1, 'sem env e sem equipe: funcionário lê');
   });
   await comEnv('true', async () => {
-    // Chave 2 — o tenant
+    // Chave 1 — o tenant
     const desligada = bancadaReleitura({ config: { ...CONFIG_LIGADA, prospectorAtivo: false }, linhas: [LINHA()] });
     assert.equal(await desligada.ler(ADMIN), null);
     assert.equal(desligada.buscas.length, 0);
 
-    // Chave 2 — empresa sem linha de config nenhuma (opt-in, nunca por omissão)
+    // Chave 1 — empresa sem linha de config nenhuma (opt-in, nunca por omissão)
     const semConfig = bancadaReleitura({ config: null, linhas: [LINHA()] });
     assert.equal(await semConfig.ler(ADMIN), null);
 
-    // Chave 3 — funcionário comum sem prospectorEquipe
-    const semEquipe = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()] });
-    assert.equal(await semEquipe.ler(FUNCIONARIO), null);
-    assert.equal(semEquipe.buscas.length, 0);
-
-    // Chave 3 — fail-closed: chamada SEM ator é funcionário comum
+    // Chave 2 — fail-closed: chamada SEM ator não tem de quem ler a escolha
     const semAtor = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()] });
     assert.equal(await semAtor.ler(undefined), null);
 
-    // Chave 3 — com prospectorEquipe ligado o funcionário passa
-    const comEquipe = bancadaReleitura({
-      config: { ...CONFIG_LIGADA, prospectorEquipe: true },
-      linhas: [LINHA()],
-    });
-    assert.equal((await comEquipe.ler(FUNCIONARIO))!.empresas.length, 1);
-
-    // Chave 3 — gerente é admin-tier: passa sem prospectorEquipe
+    // Todo papel passa (a régua por papel morreu): gerente e funcionário leem.
     const gerente = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()] });
     assert.equal((await gerente.ler(GERENTE))!.empresas.length, 1);
+    const funcionario = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()] });
+    assert.equal((await funcionario.ler(FUNCIONARIO))!.empresas.length, 1);
 
-    // Chave 4 — a PESSOA não escolheu nada nesta semana: a tela APAGA. Não basta
+    // Chave 2 — a PESSOA não escolheu nada nesta semana: a tela APAGA. Não basta
     // parar de embarcar novos; o que já está no banco também some da vista.
     const semEscolha = bancadaReleitura({
       config: CONFIG_LIGADA,
@@ -1058,11 +1030,11 @@ test('RELEITURA: as 5 chaves valem aqui também — desligar apaga a tela, não 
     assert.equal(await semEscolha.ler(ADMIN), null);
     assert.equal(semEscolha.buscas.length, 0, 'sem escolha não gasta nem a consulta da tabela');
 
-    // Chave 4 — serviço da semana ausente é FAIL-CLOSED
+    // Chave 2 — serviço da semana ausente é FAIL-CLOSED
     const semServico = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()], semana: null });
     assert.equal(await semServico.ler(ADMIN), null);
 
-    // Chave 5 — nenhuma linha embarcada no dia
+    // Chave 3 — nenhuma linha embarcada no dia
     const vazio = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [] });
     assert.equal(await vazio.ler(ADMIN), null, 'dia sem embarque não inventa chave no payload');
   });

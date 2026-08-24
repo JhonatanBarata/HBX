@@ -1,15 +1,17 @@
-// PR27072026 F1 (27/07) — ROTA 3 NÍVEIS: testes do nível do plano de logística
-// (Basic/Advanced/Full) em LogisticaConfigService. Mesmo molde de
-// logistica-config-route-modes.test.ts (prisma fake em memória, node:test).
+// PR27072026 F1 (27/07) — ROTA NÍVEIS: testes do nível do plano de logística em
+// LogisticaConfigService. Mesmo molde de logistica-config-route-modes.test.ts
+// (prisma fake em memória, node:test).
 //
-// Cobre exatamente o que o dono pediu:
-//  1) preset aplica a matriz certa por nível (setNivel);
-//  2) BASIC não liga financeiro real (nem cobrança por WhatsApp) pelo caminho
-//     do tenant — updateConfig recusa; Master passa por cima;
-//  3) TRACKED recusado fora do FULL — updateRouteMode recusa a ESCRITA e
-//     resolveRouteMode recusa a LEITURA (cinto-e-suspensório), fora do FULL;
-//  4) grandfathering — config existente sem `logisticaNivel` (linha pré-
-//     migration) é tratada como ADVANCED, nada desliga.
+// 24/08/2026 (decisão do dono) — PLANO DIFERE SÓ POR Nº DE ASSENTOS: os gates
+// de recurso por nível (financeiro Advanced+, cobrança Whats Advanced+, TRACKED
+// só no Full) e o preset de toggles do setNivel MORRERAM. O que este arquivo
+// cobre agora:
+//  1) setNivel grava SÓ nível (+ assentos quando enviados) — nenhum toggle
+//     comercial pega carona;
+//  2) BASIC liga qualquer recurso normalmente (o teto por nível não existe);
+//  3) grandfathering — linha sem `logisticaNivel`/valor sujo cai em ADVANCED;
+//  4) o GET operacional continua carregando nível + assentos (o front mostra o
+//     plano; não gateia nada).
 import 'reflect-metadata';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -28,7 +30,6 @@ function row(overrides: Record<string, unknown> = {}) {
     velocidadeMediaKmH: 25,
     tempoParadaMin: 5,
     cobrancaNaEntrega: false,
-    moduloFinanceiroAtivo: false,
     moduloRecoveryAtivo: false,
     diasTrabalho: null,
     pixChave: null,
@@ -46,8 +47,6 @@ function row(overrides: Record<string, unknown> = {}) {
     comprovanteFotoObrigatoria: false,
     comprovanteAssinaturaObrigatoria: false,
     comprovanteCodigoObrigatorio: false,
-    trackingAtivo: false,
-    modoRotaPadrao: 'ESSENTIAL',
     logisticaNivel: 'ADVANCED',
     ...overrides,
   };
@@ -71,53 +70,32 @@ function setup(initial = row()) {
     },
   };
   const wallet: any = { getBalance: async () => 100 };
-  return { service: new LogisticaConfigService(prisma, wallet), upsertCalls, getCurrent: () => current };
+  const users: any = {
+    findById: async () => ({ onboardingStateJson: null }),
+    getOnboardingEvents: () => ({}),
+    stampOnboardingEvent: async () => ({ firstTime: true, events: {} }),
+  };
+  return { service: new LogisticaConfigService(prisma, wallet, users), upsertCalls, getCurrent: () => current };
 }
 
-// ── 1) PRESET DA MATRIZ ───────────────────────────────────────────────────────
+// ── 1) setNivel grava SÓ nível (+ assentos) ──────────────────────────────────
 
-test('setNivel BASIC: financeiro, cobrança automática e tracking OFF', async () => {
-  const { service, upsertCalls } = setup(row({ logisticaNivel: 'FULL', moduloFinanceiroAtivo: true, cobrancaWhatsAtiva: true, cobrancaAutomatica: true, trackingAtivo: true, modoRotaPadrao: 'TRACKED' }));
+test('setNivel grava só o nível — nenhum toggle comercial pega carona (o preset morreu)', async () => {
+  const { service, upsertCalls } = setup(row({ logisticaNivel: 'FULL', cobrancaWhatsAtiva: true, cobrancaAutomatica: true }));
   const cfg = await service.setNivel(7, 'basic', MASTER);
-  assert.deepEqual(upsertCalls[0].update, {
-    logisticaNivel: 'BASIC',
-    moduloFinanceiroAtivo: false,
-    cobrancaWhatsAtiva: false,
-    cobrancaAutomatica: false,
-    trackingAtivo: false,
-    modoRotaPadrao: 'ESSENTIAL',
-  });
+  assert.deepEqual(upsertCalls[0].update, { logisticaNivel: 'BASIC' });
   assert.equal(cfg.logisticaNivel, 'BASIC');
-  assert.equal(cfg.moduloFinanceiroAtivo, false);
+  // O que a empresa já tinha ligado continua ligado — trocar de nível não mexe.
+  assert.equal(cfg.cobrancaWhatsAtiva, true);
+  assert.equal(cfg.cobrancaAutomatica, true);
 });
 
-test('setNivel ADVANCED: liga financeiro real; tracking segue exclusivo do Full', async () => {
+test('setNivel com assentos grava nível + override de assentos na mesma ficha (ROTA v2 F2c)', async () => {
   const { service, upsertCalls } = setup(row({ logisticaNivel: 'BASIC' }));
-  const cfg = await service.setNivel(7, 'ADVANCED', MASTER);
-  assert.deepEqual(upsertCalls[0].update, {
-    logisticaNivel: 'ADVANCED',
-    moduloFinanceiroAtivo: true,
-    trackingAtivo: false,
-    modoRotaPadrao: 'ESSENTIAL',
-  });
-  assert.equal(cfg.logisticaNivel, 'ADVANCED');
-  assert.equal(cfg.moduloFinanceiroAtivo, true);
-});
-
-test('setNivel FULL: tudo ligado, incluindo TRACKED por padrão de rota', async () => {
-  const { service, upsertCalls } = setup(row({ logisticaNivel: 'BASIC' }));
-  const cfg = await service.setNivel(7, 'full', MASTER);
-  assert.deepEqual(upsertCalls[0].update, {
-    logisticaNivel: 'FULL',
-    moduloFinanceiroAtivo: true,
-    cobrancaWhatsAtiva: true,
-    cobrancaAutomatica: true,
-    trackingAtivo: true,
-    modoRotaPadrao: 'TRACKED',
-  });
+  const cfg = await service.setNivel(7, 'FULL', MASTER, 5);
+  assert.deepEqual(upsertCalls[0].update, { logisticaNivel: 'FULL', logisticaAssentos: 5 });
   assert.equal(cfg.logisticaNivel, 'FULL');
-  assert.equal(cfg.trackingAtivo, true);
-  assert.equal(cfg.modoRotaPadrao, 'TRACKED');
+  assert.equal(cfg.logisticaAssentos, 5);
 });
 
 test('setNivel rejeita valor desconhecido antes de gravar', async () => {
@@ -133,102 +111,23 @@ test('getNivel devolve o nível gravado', async () => {
   assert.deepEqual(await service.getNivel(7), { nivel: 'FULL', logisticaAssentos: null });
 });
 
-// ── 2) TETO DE USO: financeiro real e cobrança automática são Advanced+ ──────
+// ── 2) SEM TETO POR NÍVEL: BASIC liga tudo ───────────────────────────────────
 
-test('BASIC não liga financeiro real pelo caminho do tenant (updateConfig)', async () => {
-  const { service, upsertCalls } = setup(row({ logisticaNivel: 'BASIC' }));
-  await assert.rejects(
-    () => service.updateConfig(7, { moduloFinanceiroAtivo: true }, OWNER),
-    /Financeiro completo é do plano Advanced/,
-  );
-  assert.equal(upsertCalls.length, 0);
-});
-
-test('BASIC não liga cobrança automática por WhatsApp pelo caminho do tenant', async () => {
-  const { service, upsertCalls } = setup(row({ logisticaNivel: 'BASIC' }));
-  await assert.rejects(
-    () => service.updateConfig(7, { cobrancaWhatsAtiva: true }, OWNER),
-    /Cobrança automática por WhatsApp é do plano Advanced/,
-  );
-  assert.equal(upsertCalls.length, 0);
-});
-
-test('BASIC ainda pode DESLIGAR financeiro/cobrança (só ligar é que é barrado)', async () => {
-  const { service, upsertCalls } = setup(row({ logisticaNivel: 'BASIC', moduloFinanceiroAtivo: true, cobrancaWhatsAtiva: true }));
-  const cfg = await service.updateConfig(7, { moduloFinanceiroAtivo: false, cobrancaWhatsAtiva: false }, OWNER);
-  assert.equal(cfg.moduloFinanceiroAtivo, false);
-  assert.equal(cfg.cobrancaWhatsAtiva, false);
-  assert.equal(upsertCalls.length, 1);
-});
-
-test('ADVANCED e FULL ligam financeiro real pelo caminho do tenant normalmente', async () => {
-  for (const nivel of ['ADVANCED', 'FULL']) {
-    const { service } = setup(row({ logisticaNivel: nivel }));
-    const cfg = await service.updateConfig(7, { moduloFinanceiroAtivo: true }, OWNER);
-    assert.equal(cfg.moduloFinanceiroAtivo, true, `nível ${nivel} deveria permitir`);
-  }
-});
-
-test('Master passa por cima do teto do nível (BASIC liga financeiro se o Master mandar)', async () => {
+test('BASIC liga cobrança automática por WhatsApp normalmente (o gate Advanced+ morreu)', async () => {
   const { service } = setup(row({ logisticaNivel: 'BASIC' }));
-  const cfg = await service.updateConfig(7, { moduloFinanceiroAtivo: true }, MASTER);
-  assert.equal(cfg.moduloFinanceiroAtivo, true);
+  const cfg = await service.updateConfig(7, { cobrancaWhatsAtiva: true }, OWNER);
+  assert.equal(cfg.cobrancaWhatsAtiva, true);
 });
 
-// ── 3) TRACKED é exclusivo do FULL (escrita E leitura) ────────────────────────
-
-test('updateRouteMode recusa TRACKED fora do FULL (BASIC e ADVANCED)', async () => {
-  for (const nivel of ['BASIC', 'ADVANCED']) {
-    const { service, upsertCalls } = setup(row({ logisticaNivel: nivel }));
-    await assert.rejects(
-      () => service.updateRouteMode(7, { modoRotaPadrao: 'TRACKED' }, OWNER),
-      /Rastreamento é do plano Full/,
-      `nível ${nivel} deveria recusar`,
-    );
-    assert.equal(upsertCalls.length, 0);
+test('BASIC grava devedorNaRota COBRANCA/EXCLUIR normalmente (o gate de nível morreu)', async () => {
+  for (const modo of ['COBRANCA', 'EXCLUIR'] as const) {
+    const { service } = setup(row({ logisticaNivel: 'BASIC' }));
+    const cfg = await service.updateConfig(7, { devedorNaRota: modo }, OWNER);
+    assert.equal(cfg.devedorNaRota, modo, `modo ${modo} deveria gravar no BASIC`);
   }
 });
 
-test('updateRouteMode aceita TRACKED no FULL', async () => {
-  const { service } = setup(row({ logisticaNivel: 'FULL' }));
-  const cfg = await service.updateRouteMode(7, { trackingAtivo: true, modoRotaPadrao: 'TRACKED' }, OWNER);
-  assert.equal(cfg.modoRotaPadrao, 'TRACKED');
-});
-
-test('Master liga TRACKED mesmo em empresa BASIC (bypass do teto)', async () => {
-  const { service } = setup(row({ logisticaNivel: 'BASIC' }));
-  const cfg = await service.updateRouteMode(7, { trackingAtivo: true, modoRotaPadrao: 'TRACKED' }, MASTER);
-  assert.equal(cfg.modoRotaPadrao, 'TRACKED');
-});
-
-test('PATCH "contraditório" (trackingAtivo:false + modoRotaPadrao:TRACKED) resolve em ESSENTIAL sem erro fora do FULL', async () => {
-  // O gate de nível olha o valor FINAL gravado (depois da desarma de 26/07),
-  // não o `mode` bruto do input — a desarma já neutraliza TRACKED quando o
-  // mesmo PATCH desliga trackingAtivo, então não sobra nada pra recusar.
-  const { service, upsertCalls } = setup(row({ logisticaNivel: 'BASIC', trackingAtivo: true, modoRotaPadrao: 'TRACKED' }));
-  const cfg = await service.updateRouteMode(7, { trackingAtivo: false, modoRotaPadrao: 'TRACKED' }, OWNER);
-  assert.equal(upsertCalls[0].update.modoRotaPadrao, 'ESSENTIAL');
-  assert.equal(cfg.modoRotaPadrao, 'ESSENTIAL');
-});
-
-test('resolveRouteMode (iniciar rota) cai em ESSENTIAL fora do FULL mesmo com TRACKED já gravado (cinto-e-suspensório)', async () => {
-  const previous = process.env.HBX_LOGISTICA_TRACKING_ENABLED;
-  process.env.HBX_LOGISTICA_TRACKING_ENABLED = 'true';
-  try {
-    // Estado "sujo": trackingAtivo+TRACKED gravados, mas nível caiu pra ADVANCED
-    // depois (ex.: Master reaplicou o preset Advanced sem passar por aqui).
-    const { service } = setup(row({ logisticaNivel: 'ADVANCED', trackingAtivo: true, modoRotaPadrao: 'TRACKED' }));
-    assert.equal(await service.resolveRouteMode(7), 'ESSENTIAL');
-
-    const full = setup(row({ logisticaNivel: 'FULL', trackingAtivo: true, modoRotaPadrao: 'TRACKED' }));
-    assert.equal(await full.service.resolveRouteMode(7), 'TRACKED');
-  } finally {
-    if (previous === undefined) delete process.env.HBX_LOGISTICA_TRACKING_ENABLED;
-    else process.env.HBX_LOGISTICA_TRACKING_ENABLED = previous;
-  }
-});
-
-// ── 4) GRANDFATHERING ─────────────────────────────────────────────────────────
+// ── 3) GRANDFATHERING ─────────────────────────────────────────────────────────
 
 test('config existente SEM logisticaNivel (linha pré-migration) é tratada como ADVANCED', async () => {
   const semNivel = row();
@@ -237,23 +136,17 @@ test('config existente SEM logisticaNivel (linha pré-migration) é tratada como
   assert.deepEqual(await service.getNivel(7), { nivel: 'ADVANCED', logisticaAssentos: null });
 });
 
-test('grandfathering: financeiro real JÁ LIGADO sobrevive sem nível gravado (nada desliga)', async () => {
-  const semNivel = row({ moduloFinanceiroAtivo: true });
-  delete (semNivel as any).logisticaNivel;
-  const { service } = setup(semNivel);
-  const config = await service.getConfig(7, OWNER);
-  assert.equal(config.moduloFinanceiroAtivo, true);
-  assert.equal(config.logisticaNivel, 'ADVANCED');
-});
-
-test('grandfathering: valor sujo no banco (não é BASIC/ADVANCED/FULL) também cai em ADVANCED', async () => {
+test('grandfathering: valor sujo no banco (não é BASIC/ADVANCED/FULL/CREDITO) cai em ADVANCED', async () => {
   const { service } = setup(row({ logisticaNivel: 'legacy-lixo' }));
   assert.deepEqual(await service.getNivel(7), { nivel: 'ADVANCED', logisticaAssentos: null });
 });
 
-test('config operacional (GET consumido por qualquer ator) inclui logisticaNivel', async () => {
-  const { service } = setup(row({ logisticaNivel: 'FULL' }));
+// ── 4) GET operacional carrega nível + assentos ──────────────────────────────
+
+test('config operacional (GET consumido por qualquer ator) inclui logisticaNivel e assentos', async () => {
+  const { service } = setup(row({ logisticaNivel: 'FULL', logisticaAssentos: 3 }));
   const driver = { role: 'USER', isSystemMaster: false, canViewBilling: false };
   const config = await service.getConfig(7, driver);
   assert.equal(config.logisticaNivel, 'FULL');
+  assert.equal(config.logisticaAssentos, 3);
 });

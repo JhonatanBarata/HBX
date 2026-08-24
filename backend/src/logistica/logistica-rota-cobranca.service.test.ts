@@ -307,8 +307,11 @@ test('assertAssentoDoDia: sem motorista/empresa/data é no-op (quem chama sem co
 });
 
 // ── Passe do dia ──────────────────────────────────────────────────────────
+// 24/08/2026 — o passe é um recurso dos níveis COM PLANO: os harnesses abaixo
+// declaram `nivel: 'BASIC'` explícito (o default do harness é CREDITO, e em
+// CREDITO a compra agora é RECUSADA antes de debitar — teste próprio adiante).
 test('garantirPasseDoDia: debita 1× por empresa+motorista+data', async () => {
-  const h = makeHarness({ passeCost: 8 });
+  const h = makeHarness({ nivel: 'BASIC', passeCost: 8 });
   await h.cobranca.garantirPasseDoDia(COMPANY, 9, DATE, 1);
   assert.equal(h.debitCalls.length, 1);
   assert.equal(h.debitCalls[0].amount, 8);
@@ -316,21 +319,21 @@ test('garantirPasseDoDia: debita 1× por empresa+motorista+data', async () => {
 });
 
 test('garantirPasseDoDia: repetir a compra do MESMO motorista+dia não debita 2×', async () => {
-  const h = makeHarness();
+  const h = makeHarness({ nivel: 'BASIC' });
   await h.cobranca.garantirPasseDoDia(COMPANY, 9, DATE, 1);
   await h.cobranca.garantirPasseDoDia(COMPANY, 9, DATE, 1);
   assert.equal(h.debitCalls.length, 1);
 });
 
 test('garantirPasseDoDia: outro motorista no MESMO dia paga o PRÓPRIO passe (chave por driver)', async () => {
-  const h = makeHarness();
+  const h = makeHarness({ nivel: 'BASIC' });
   await h.cobranca.garantirPasseDoDia(COMPANY, 9, DATE, 1);
   await h.cobranca.garantirPasseDoDia(COMPANY, 10, DATE, 1);
   assert.equal(h.debitCalls.length, 2, 'motoristas diferentes = usageKeys diferentes = 2 débitos legítimos');
 });
 
 test('garantirPasseDoDia: saldo insuficiente lança 402 e estorna o parcial', async () => {
-  const h = makeHarness({ passeCost: 8 });
+  const h = makeHarness({ nivel: 'BASIC', passeCost: 8 });
   h.setAvailable(0);
   await assert.rejects(h.cobranca.garantirPasseDoDia(COMPANY, 9, DATE, 1), (err: any) => {
     assert.equal(err.getStatus(), 402);

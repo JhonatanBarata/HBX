@@ -214,6 +214,10 @@ export class LogisticaAdminRouteService {
     });
 
     const { start, end } = dateRange(operationalDate);
+    // 24/08/2026 (decisão registrada na revisão de convivência admin+motorista):
+    // adotar as ÓRFÃS do dia pra quem prepara FICA — montar o dia por aqui é ato
+    // deliberado do admin, e a régua de assentos roda logo depois (planejar/
+    // iniciar). Só entrega SEM dono entra no WHERE: rota alheia nunca é tocada.
     await this.prisma.entrega.updateMany({
       where: {
         companyId,

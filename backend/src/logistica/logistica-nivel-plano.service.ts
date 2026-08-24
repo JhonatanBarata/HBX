@@ -3,7 +3,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { storedNivel, type LogisticaNivel } from './logistica-config.service';
 import {
   applyLogisticaNivelOverrides,
-  franquiaEmBlocos,
   getLogisticaNivelDefinition,
   getLogisticaNivelOverride,
   LOGISTICA_NIVEIS,
@@ -14,16 +13,16 @@ import {
 } from './logistica-nivel-catalog';
 
 /**
- * PR28072026 HÍBRIDO (28/07) — o preço e a FRANQUIA dos 3 níveis de Rota.
+ * PR28072026 HÍBRIDO (28/07) — o preço (e os assentos) dos níveis de Rota.
+ * 24/08/2026 — a FRANQUIA saiu do catálogo (vitrine morta desde ROTA v2).
  *
  * Espelho exato do CreditPackConfigService: base em código + overlay do banco,
  * hidratado no boot e a cada edição do master. Falha ao hidratar NUNCA derruba o
  * boot (defensivo, igual ao catálogo comercial e ao de pacotes) — sem overlay o
  * sistema roda na base, que é um estado válido, nunca um preço errado.
  *
- * Este serviço é a FONTE ÚNICA de "quanto custa o nível" e "quantas paradas o
- * plano inclui". Quem cobra (logistica-route-billing) pergunta aqui; ninguém
- * recalcula franquia por conta própria.
+ * Este serviço é a FONTE ÚNICA de "quanto custa o nível" e "quantos assentos o
+ * plano inclui".
  */
 @Injectable()
 export class LogisticaNivelPlanoService implements OnModuleInit {
@@ -58,21 +57,20 @@ export class LogisticaNivelPlanoService implements OnModuleInit {
     applyLogisticaNivelOverrides(entries);
   }
 
-  /** Catálogo efetivo dos 3 níveis + marca de "editado pelo master". */
-  listForMaster(): Array<LogisticaNivelDefinition & { editado: boolean; franquiaBlocos: number }> {
+  /** Catálogo efetivo dos níveis + marca de "editado pelo master". */
+  listForMaster(): Array<LogisticaNivelDefinition & { editado: boolean }> {
     return listLogisticaNiveisCatalog().map((def) => ({
       ...def,
       editado: !!getLogisticaNivelOverride(def.nivel),
-      franquiaBlocos: franquiaEmBlocos(def.franquiaParadasMes),
     }));
   }
 
   /**
    * Catálogo para a VITRINE PÚBLICA do site (/rota, sem login) — mesma fonte do
    * billing, recortada no que é material de anúncio: nível, título, slogan,
-   * mensalidade e franquia. `editado`/`franquiaBlocos` ficam de fora de
-   * propósito: são detalhe interno de operação, não interessam a quem está
-   * decidindo comprar. Ver logistica-planos-publico.controller.ts.
+   * mensalidade e assentos. `editado` fica de fora de propósito: é detalhe
+   * interno de operação, não interessa a quem está decidindo comprar.
+   * Ver logistica-planos-publico.controller.ts.
    */
   listPublico(): LogisticaNivelDefinition[] {
     return listLogisticaNiveisCatalog();
@@ -84,10 +82,10 @@ export class LogisticaNivelPlanoService implements OnModuleInit {
     if (!nivel) throw new BadRequestException('Nível inválido — use BASIC, ADVANCED ou FULL.');
     const patch = sanitizeLogisticaNivelOverride(body);
     if (Object.keys(patch).length === 0) {
-      throw new BadRequestException('Nada para alterar — informe preço ou franquia.');
+      throw new BadRequestException('Nada para alterar — informe preço, título, slogan ou assentos.');
     }
     // Merge com o override que já existe: PATCH parcial de verdade (mandar só o
-    // preço não apaga a franquia editada antes).
+    // preço não apaga os assentos editados antes).
     const atual = getLogisticaNivelOverride(nivel) ?? {};
     const merged = { ...atual, ...patch };
     await (this.prisma as any).logisticaNivelConfig.upsert({
@@ -120,12 +118,9 @@ export class LogisticaNivelPlanoService implements OnModuleInit {
 
   // ⛔ ROTA v2 (10/08, "PICAR A PONTE") — `franquiaDoMes`/`cobreParadaRastreada`
   // MORRERAM aqui. Plano com nível (BASIC/ADVANCED/FULL) virou rota ILIMITADA
-  // — não existe mais franquia de paradas pra consumir nem estourar; o único
-  // limite que resta é de ASSENTO (quantos motoristas rodam ao mesmo tempo,
-  // ver `LogisticaRotaCobrancaService.assertAssentoDoDia`). A mensalidade e
-  // `franquiaParadasMes` seguem existindo no CATÁLOGO (logistica-nivel-catalog.ts)
-  // só como material de VITRINE (o número vendido no anúncio/site) — nunca mais
-  // é lido por um gate de cobrança.
+  // — o único limite que resta é de ASSENTO (quantos motoristas rodam ao mesmo
+  // tempo, ver `LogisticaRotaCobrancaService.assertAssentoDoDia`).
+  // 24/08/2026 — `franquiaParadasMes` saiu até do CATÁLOGO (era vitrine morta).
 
   /**
    * Status do nível pra tela do TENANT ("seu plano é X, N assentos inclusos").
@@ -186,11 +181,11 @@ export class LogisticaNivelPlanoService implements OnModuleInit {
     });
   }
 
-  /** Só pra log/telemetria — os 3 níveis numa linha. */
+  /** Só pra log/telemetria — os níveis numa linha. */
   resumo(): string {
     return LOGISTICA_NIVEIS.map((n) => {
       const d = getLogisticaNivelDefinition(n);
-      return `${n}=R$${d.precoMensal}/${d.franquiaParadasMes}p`;
+      return `${n}=R$${d.precoMensal}/${d.assentosInclusos}a`;
     }).join(' ');
   }
 }

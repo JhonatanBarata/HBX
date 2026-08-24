@@ -12,11 +12,9 @@
 //   - GET  /logistica/estoque/carga?date=YYYY-MM-DD        → CargaDiaDTO
 //   - POST /logistica/estoque/carga {itens:[...]}          → CargaDiaDTO
 //   - POST /logistica/estoque/carga/conferir {itens:[...]} → CargaDiaDTO
-// Recurso ADVANCED+: sem o nível, o GET/POST devolvem 403. 28/07 — o 403 NÃO é
-// erro vermelho de tela quebrada: é o VENDEDOR SILENCIOSO. A tela mostra o selo
-// .plano-selo "Disponível no Advanced" (F1 item 3 — ver-mas-não-usar), MESMO
-// padrão do showFullGate de /logistica/rastreamento. Qualquer outro erro segue
-// no aviso vermelho com a mensagem do backend (humanError).
+// 24/08 — última passada: o gate de plano MORREU (o backend removeu o 403 de
+// nível; estoque é de todos). Erro aqui é sempre o aviso vermelho com a
+// mensagem do backend (humanError) — não existe mais "vendedor silencioso".
 //
 // Design system (5 Leis): casco reusa .log-agenda/.log-agenda__surface/
 // .log-agenda__head (MESMO padrão da Saúde da Base);
@@ -70,11 +68,6 @@ function humanError(err: unknown): string {
   return err instanceof Error ? err.message : "Não foi possível carregar o estoque de carga.";
 }
 
-/** 403 do gate de nível (BASIC) — vira selo de plano, nunca erro vermelho. */
-function isGateDePlano(err: unknown): boolean {
-  return (err as { status?: number } | null)?.status === 403;
-}
-
 function fmtHora(iso: string | null): string {
   if (!iso) return "";
   try {
@@ -96,8 +89,6 @@ export function EstoqueCargaClient() {
 
   const [linhas, setLinhas] = useState<DeclararLinha[]>([{ productId: "", qtd: "" }]);
   const [retorno, setRetorno] = useState<Record<number, string>>({});
-  // 28/07 — plano BASIC: o backend recusa com 403 e a tela vira convite de upgrade.
-  const [semPlano, setSemPlano] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -105,15 +96,9 @@ export function EstoqueCargaClient() {
       .then((res) => {
         setDados(res);
         setError(null);
-        setSemPlano(false);
         setRetorno({});
       })
       .catch((err: unknown) => {
-        if (isGateDePlano(err)) {
-          setSemPlano(true);
-          setError(null);
-          return;
-        }
         setError(humanError(err));
       })
       .finally(() => setLoading(false));
@@ -194,35 +179,20 @@ export function EstoqueCargaClient() {
             <div className="log-agenda__head-copy">
               <h2>Estoque de carga</h2>
               <p>
-                {semPlano
-                  ? "Carregou, vendeu, voltou — a conferência do caminhão do dia."
-                  : status === "CONFERIDA"
-                    ? "Carga do dia conferida — carregado, vendido e retorno de cada produto."
-                    : status === "ABERTA"
-                      ? "O vendido é atualizado sozinho a cada entrega confirmada. No fim do dia, confira o retorno."
-                      : "Declare o que subiu no caminhão hoje — produto e quantidade."}
+                {status === "CONFERIDA"
+                  ? "Carga do dia conferida — carregado, vendido e retorno de cada produto."
+                  : status === "ABERTA"
+                    ? "O vendido é atualizado sozinho a cada entrega confirmada. No fim do dia, confira o retorno."
+                    : "Declare o que subiu no caminhão hoje — produto e quantidade."}
               </p>
             </div>
           </div>
-          {!semPlano && (
-            <div className="log-agenda__actions">
-              <button type="button" className="btn-ghost btn-xs" onClick={() => void load()} disabled={loading}>
-                <span aria-hidden>↻</span> {loading ? "Atualizando…" : "Atualizar"}
-              </button>
-            </div>
-          )}
-        </header>
-
-        {semPlano && (
-          <div className="emp-empty" aria-label="Recurso do plano Advanced">
-            <span className="plano-selo">Disponível no Advanced</span>
-            <strong className="emp-empty__title">Estoque de carga é do plano Advanced</strong>
-            <span className="emp-empty__text">
-              Você declara o que subiu no caminhão, o sistema abate cada entrega confirmada e no fim do dia
-              mostra o que tinha que voltar — bateu, sobrou ou faltou, produto por produto.
-            </span>
+          <div className="log-agenda__actions">
+            <button type="button" className="btn-ghost btn-xs" onClick={() => void load()} disabled={loading}>
+              <span aria-hidden>↻</span> {loading ? "Atualizando…" : "Atualizar"}
+            </button>
           </div>
-        )}
+        </header>
 
         {loading && !dados && (
           <div className="log-agenda__feedback">

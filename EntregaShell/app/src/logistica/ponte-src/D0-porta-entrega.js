@@ -2,9 +2,9 @@
      8. L4 — A PORTA: chegar, entregar e receber.
 
      Três regras de domínio que NÃO nasceram aqui — vieram do app que já roda:
-     · a folha é escolhida pela CONFIG, não pelo gosto: financeiro OFF ou
-       "cobrança simples" abrem a folha SIMPLES (`venda`); o resto abre a
-       COMPLETA (`folha`). É o mesmo degrau do `deliverySheet()` do app velho;
+     · a folha é UMA: a COMPLETA (`folha`). Até 24/08 a config escolhia entre
+       ela e a simples (`venda`) — a simples morreu junto com o interruptor do
+       financeiro, e toda chegada abre a completa;
      · a hora da CHEGADA nasce no celular quando a folha abre e viaja no
        DESFECHO (nunca num POST próprio) — a folha tem que abrir sem rede;
      · toque repetido não confirma duas vezes: a `idempotencyKey` é gravada
@@ -95,8 +95,8 @@
     if (el && el.matches && el.matches('[data-campo="contato-telefone"]')) contatoTelefone = String(el.value || '');
   });
 
-  let financeiroAtivo = true;
-  let cobrancaSimples = false;
+  // ⚰️ 24/08 — `financeiroAtivo`/`cobrancaSimples` morreram: o financeiro é
+  // sempre ligado e TODA chegada abre a folha completa (a simples morreu).
   let aberta = null;              // { id, n, item } — a parada com a folha aberta
   let forma = '';                 // pix | dinheiro | cartao | fiado
   let motivo = '';                // o motivo do "não entregue"
@@ -123,19 +123,9 @@
      virar tela de dado, ela entra AQUI e nada mais precisa mudar. */
   const PALCOS_3D = ['mapa'];
 
-  // A config só muda quando o dono mexe em Ajustes: pedir 1× por abertura do
-  // app basta, e uma falha aqui NÃO pode fechar a porta — o default é o
-  // comportamento de hoje (financeiro ligado, folha completa).
-  (async function lerConfig() {
-    if (!temPonte()) return;
-    try {
-      const c = await window.API.get('/logistica/config');
-      if (c && typeof c === 'object') {
-        if (typeof c.moduloFinanceiroAtivo === 'boolean') financeiroAtivo = c.moduloFinanceiroAtivo;
-        cobrancaSimples = !!c.cobrancaSimples;
-      }
-    } catch (_) { /* fica o default */ }
-  })();
+  // ⚰️ 24/08 — o `lerConfig()` que morava aqui morreu junto com a bifurcação
+  // venda×folha: era um `GET /logistica/config` a mais POR ABERTURA DO APP só
+  // pra decidir qual folha abrir — e a decisão acabou (folha completa, sempre).
 
   /** a hora em que o motorista CHEGOU nesta parada (1ª abertura da folha) */
   function carimbarChegada(id) {
@@ -241,83 +231,21 @@
          mostrava um e o banco gravava outro. Agora o seam recebe EXATAMENTE o
          que vai ser enviado, inclusive o padrão da 1ª abertura. */
       motivo: motivo || (DADOS_MOTIVO_PADRAO() || ''),
-      // DE QUAL FOLHA a `folhanao` foi aberta. Aqui é a COMPLETA — e ela ESTÁ
-      // preenchida, então voltar pra ela é honesto. O par mora em `encherVenda`.
+      // DE QUAL FOLHA a `folhanao` foi aberta — desde 24/08 só existe a
+      // COMPLETA, e ela ESTÁ preenchida: voltar pra ela é honesto.
       voltarPara: 'folha',
     });
   }
 
-  /** entrega do servidor → seam da folha SIMPLES (a venda) */
-  function encherVenda(item, n) {
-    const c = item.cliente || {};
-    const lista = somaItens(item);
-    const primeiro = lista[0] || {};
-    const prod = primeiro.produto || {};
-    const hojeVal = typeof item.valorHoje === 'number' ? item.valorHoje : null;
-    const anterior = typeof c.debitoAtual === 'number' ? c.debitoAtual : null;
-    /* 🔴 ZERO NÃO É "SEM PREÇO" (21/08). Com o financeiro LIGADO e nenhum produto
-       precificado, esta folha imprimia `R$ 0,00` — e zero, na porta do cliente,
-       não parece defeito: parece a conta. O entregador cobra nada e o dia fecha
-       errado. O servidor agora distingue os dois casos e manda `semPreco`; o
-       campo só viaja quando é VERDADE, então ausência = há preço (o caso normal).
-       ⚠️ Não é o mesmo que o módulo DESLIGADO: lá `valorHoje` nem vem, a folha
-       inteira nasce sem dinheiro e isso está certo. Aqui a empresa PEDIU
-       dinheiro e o cadastro não respondeu — a tela tem que dizer isso. */
-    const semPreco = item.semPreco === true;
-    const conta = semPreco ? 'sem preço' : hojeVal != null ? dinheiro(hojeVal) : '';
-    window.usarDados('venda', {
-      n: String(n),
-      titulo: `Parada ${n} • ${esc(c.nome)}`,
-      endereco: [esc(c.endereco), esc(c.cidade)].filter(Boolean).join(' • '),
-      pill: 'Chegou',
-      produto: esc(prod.nome) || (lista.length > 1 ? `${lista.length} produtos` : ''),
-      tags: lista.map((it) => {
-        const p = (it && it.produto) || {};
-        return [`${esc(p.nome)} x${it.qtdPrevista}`, 'blue'];
-      }),
-      semPreco: semPreco ? 1 : 0,
-      contaItem: conta,
-      contaChegada: conta,
-      // "Ficou marcado" só é verdade quando a forma escolhida é FIADO
-      // — em dinheiro/pix/cartão nada fica marcado. Número que muda de
-      // significado conforme o botão é número que mente.
-      // Sem preço, TODA a coluna de dinheiro vira travessão: imprimir `R$ 0,00`
-      // em "Ficou marcado" e "Recebido hoje" é a mesma mentira, três vezes.
-      lancamento: semPreco ? '—' : forma === 'fiado' && hojeVal != null ? dinheiro(hojeVal) : dinheiro(0),
-      recebido: semPreco ? '—' : forma && forma !== 'fiado' && hojeVal != null ? dinheiro(hojeVal) : dinheiro(0),
-      paraMarcado: anterior != null ? dinheiro(anterior + (forma === 'fiado' ? (hojeVal || 0) : 0)) : '',
-      forma,
-    });
-    /* 🔴 A FOLHA SIMPLES GANHOU A SAÍDA DO "NÃO ENTREGUE" (17/08, ordem 9 do
-       dono: *"fui em entregas, e nem achei onde clicar para isso acontecer!!!
-       isso já existe, não invente ache e religue"*).
+  /* ⚰️ `encherVenda` (a folha SIMPLES) MORREU em 24/08. A bifurcação
+     venda×folha vivia da config (`!financeiroAtivo || cobrancaSimples`) e os
+     dois campos morreram no contrato — toda chegada abre a folha COMPLETA, que
+     sempre teve o "Não entregue" (a ordem 9 de 17/08 era exatamente religar
+     essa saída na folha que o dono usava). O `semPreco` morreu junto: o
+     servidor não distingue mais — R$ 0,00 é valor legítimo e é o que
+     `dinheiro(0)` imprime na folha completa. */
 
-       O elo cortado era ESTE arquivo, uma linha abaixo em `abrirParada`:
-       `const simples = !financeiroAtivo || cobrancaSimples` manda a chegada pra
-       `venda` (a folha simples), e o botão "Não entregue" só existia na folha
-       COMPLETA. Nada tinha sumido — ele nunca esteve na folha que o dono usa, e
-       por isso o único verbo da porta era "Confirmar venda": o histórico do
-       cliente marcava como atendido o que ninguém conseguiu entregar.
-
-       A porta é a mesma peça (`folhanao`), e ela lê o seam da folha COMPLETA
-       (`folhaCompleta` desenha com `DADOS.folha`). São duas chaves, e cada uma
-       mata um defeito já medido nesta casa:
-       · `motivo` — o MESMO par que `encherFolha` semeia (§ "A TELA E O SERVIDOR
-         TÊM QUE DIZER O MESMO MOTIVO", acima). Sem ele o furo curado lá
-         ressuscitaria pela porta nova: marcar "Endereço não encontrado" na
-         parada 3 deixaria o motivo aceso ao abrir a parada 5, enquanto o
-         `registrarNaoEntregue` mandaria "Ninguém atendeu" pro servidor.
-       · `voltarPara` — o Voltar da `folhanao` cravava `folha`; em cobrança
-         simples a folha COMPLETA nunca foi preenchida, e como o seam `folha`
-         não entra no apagador da demonstração, voltar por ali cuspiria o
-         DESENHO na cara do motorista (Maria Aparecida · R$ 21,00). */
-    window.usarDados('folha', {
-      motivo: motivo || (DADOS_MOTIVO_PADRAO() || ''),
-      voltarPara: 'venda',
-    });
-  }
-
-  /** toque na parada: carimba a chegada e abre a folha que a config mandar */
+  /** toque na parada: carimba a chegada e abre a folha completa */
   function abrirParada(id) {
     const reg = ENTREGAS.get(String(id));
     if (!reg || typeof window.usarDados !== 'function') return;
@@ -351,9 +279,9 @@
     // VASILHAME onda 2 — a contagem de vazios é DESTA porta. Sobrar o "2" da
     // parada anterior daria casco ao cliente errado (mesma lei do `motivo`).
     zerarVazios();
-    const simples = !financeiroAtivo || cobrancaSimples;
-    if (simples) { encherVenda(reg.item, reg.n); window.ir('venda'); }
-    else { encherFolha(reg.item, reg.n); window.ir('folha'); }
+    // 24/08 — sem bifurcação: a folha simples morreu, a completa é a única.
+    encherFolha(reg.item, reg.n);
+    window.ir('folha');
   }
 
   /* ---- CHEGOU NA PORTA: O CARTÃO ABRE SOZINHO -----------------------------
@@ -486,14 +414,15 @@
      em `window.ir(destino)`. */
   if (typeof window.ir === 'function') {
     const irAntesDaPorta = window.ir;
-    const naFolha = (t) => t === 'venda' || t === 'folha' || t === 'folhanao';
+    // 24/08 — 'venda' saiu da lista: a tela morreu junto com a folha simples.
+    const naFolha = (t) => t === 'folha' || t === 'folhanao';
     window.ir = function (tela) {
       const veioDe = telaAtual();
       const r = irAntesDaPorta.apply(this, arguments);
       /* Só morde quando `aberta` SOBREVIVEU à troca de tela. `confirmarEntrega`
          e `registrarNaoEntregue` já zeram `aberta` (e `chegadaPalco`) ANTES de
          chamar `ir` — então nesses dois caminhos isto é um no-op honesto.
-         `aberta` de pé DEPOIS de sair de venda/folha/folhanao só pode
+         `aberta` de pé DEPOIS de sair de folha/folhanao só pode
          significar abandono — nunca a troca folha↔folhanao ("Não entregue"
          dentro da própria folha), que fica DENTRO do conjunto e não é saída
          nenhuma: é o motivo mudando de tela, a mesma folha ainda aberta. */
@@ -548,9 +477,7 @@
   /** repinta a folha aberta (o seam é a única fonte da marcação selecionada) */
   function repintarFolha() {
     if (!aberta) return;
-    const simples = !financeiroAtivo || cobrancaSimples;
-    if (simples) encherVenda(aberta.item, aberta.n);
-    else encherFolha(aberta.item, aberta.n);
+    encherFolha(aberta.item, aberta.n);
   }
 
   /* ------------------------------------------------------------------------
@@ -637,14 +564,11 @@
     // sem tirar os olhos dele da rua. Ver L8b.
     if (travaDoRecado()) return;
     const escolhido = metodo || forma;
-    // Financeiro ON exige saber como recebeu — senão o fechamento do dia soma
-    // errado e ninguém descobre até o caixa não bater.
-    if (financeiroAtivo && !escolhido) {
-      return window.portao({
-        tom: 'alerta', ico: 'cash', titulo: 'Como o cliente pagou?',
-        sub: 'Escolha a forma antes de confirmar.', acoes: [['Fechar', '']],
-      });
-    }
+    /* ⚰️ 24/08 — o portão "Como o cliente pagou?" MORREU: a entrega confirma
+       mesmo sem forma escolhida. O POST aceita `receiptMethod` ausente, e o
+       campo só viaja quando o motorista TOCOU num dos botões da folha
+       (Dinheiro/Pix/Cartão/Marcar, que continuam lá). Pergunta bloqueante na
+       porta do cliente era um degrau a mais no verbo mais repetido do dia. */
     await comTrava(async () => {
       const chave = `entrega-confirmar:${aberta.id}`;
       let idem = window.HBX.cache.get(chave, null);
@@ -838,7 +762,8 @@
     'chegada-dispensar': dispensarChegada,
     'entregue-pagou': () => confirmarEntrega(''),
     'entregue-marcou': () => confirmarEntrega('fiado'),
-    'confirmar-venda': () => confirmarEntrega(''),
+    // ⚰️ 'confirmar-venda' morreu em 24/08 com a folha simples (T.venda): o
+    // único botão que o disparava saiu do desenho junto com a tela.
     'registrar-nao-entregue': registrarNaoEntregue,
     'fechar-dia': fecharDia,
     'salvar-cliente': salvarCliente,
@@ -990,18 +915,25 @@
     // no mock). É a mesma porta do alvo: informação e saída na mesma peça.
     'gps-ligar': () => { pedirGpsNoToque(); },
     'aviso-chegada': () => virarChave('avisoChegandoEnabled'),
-    // As 6 do dono. Uma chave = um campo = um PATCH, sem lote: assim o que
-    // falhou fica evidente e o resto não volta atrás junto.
-    'chave-financeiro': () => virarChave('moduloFinanceiroAtivo'),
-    'chave-cobranca-simples': () => virarChave('cobrancaSimples'),
-    'chave-preco-cliente': () => virarChave('precoPorClienteAtivo'),
+    // As formas de pagamento do dono. Uma chave = um campo = um PATCH, sem
+    // lote: assim o que falhou fica evidente e o resto não volta atrás junto.
+    // ⚰️ 24/08 — chave-financeiro/chave-cobranca-simples/chave-preco-cliente
+    // morreram com os campos: o PATCH com qualquer um deles agora é 400.
     'chave-na-hora': () => virarChave('aceitaNaHora'),
     'chave-mensal': () => virarChave('aceitaMensal'),
     'chave-fiado': () => virarChave('aceitaFiado'),
-    // A do prospector entra pela MESMA porta das seis: um campo, um PATCH, sem
-    // otimismo na tela. É ela que deixa o capítulo "Ligue o prospector"
-    // terminar num `fazer` de verdade — o dono liga na hora, aprendeu fazendo.
-    'chave-prospector': () => virarChave('prospectorAtivo'),
+    /* A do prospector entra pela MESMA porta: um campo, um PATCH, sem otimismo
+       na tela. 24/08 — ao LIGAR, o portão "Ciente" vem ANTES do PATCH: mensagem
+       automática em nome do motorista + custo em crédito exigem o carimbo do
+       ator no servidor (`POST /logistica/prospector/ciente`) uma vez na vida.
+       DESLIGAR nunca pergunta nada. */
+    'chave-prospector': () => {
+      const ligando = !!(config && !config.prospectorAtivo);
+      if (ligando && config.prospectorCiente !== true) {
+        return portaoCienteProspector(() => virarChave('prospectorAtivo'));
+      }
+      virarChave('prospectorAtivo');
+    },
     /* PROSPECTOR v2 (12/08) — as três portas da ESCOLHA DA SEMANA. Elas NÃO são
        chave de config: a chave de cima é da EMPRESA (um campo, um PATCH), estas
        são da PESSOA que dirige (§7b-bis). Abrir CARREGA antes de navegar — folha

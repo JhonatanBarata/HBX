@@ -121,8 +121,9 @@ function bancada() {
       findUnique: async (args: any) => {
         const campos = Object.keys(args?.select || {});
         if (campos.includes('velocidadeMediaKmH')) return { velocidadeMediaKmH: 25, tempoParadaMin: 5 };
-        if (campos.length === 1 && campos[0] === 'trackingAtivo') return { trackingAtivo: true };
-        return { trackingAtivo: true, logisticaNivel: 'FULL', modoRotaPadrao: 'TRACKED' };
+        // 24/08/2026 — rastreio hard-on: as colunas de gate morreram; a config
+        // devolvida aqui é a linha "limpa" pós-drop (nada de trackingAtivo).
+        return {};
       },
     },
     logisticaRoute: {
@@ -268,8 +269,10 @@ function cliente(nome: string, lat: number, lng: number) {
 }
 
 test('LOTE 1.6 · CENA INTEIRA: manhã cumprida sem Encerrar → cancelam o rascunho da tarde → Iniciar de novo nasce com rota E sessão NOVAS e ACTIVE', async () => {
+  // 24/08/2026 — a env HBX_LOGISTICA_TRACKING_ENABLED morreu (hard-on): o
+  // teste roda SEM setá-la, e é prova de que nada mais depende dela.
   const antes = process.env.HBX_LOGISTICA_TRACKING_ENABLED;
-  process.env.HBX_LOGISTICA_TRACKING_ENABLED = 'true';
+  delete process.env.HBX_LOGISTICA_TRACKING_ENABLED;
   try {
     const b = bancada();
 

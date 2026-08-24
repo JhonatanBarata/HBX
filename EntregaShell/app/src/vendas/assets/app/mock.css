@@ -3658,6 +3658,16 @@ button,input{font:inherit;color:inherit}
      quem dirige de dia. Mesma cena, lado oposto. */
   --veu:#eef2f8;
   --puck-anel:rgba(18,87,200,.42);
+  /* 🔴 MESMO PAR QUE O LOGÍSTICA GANHOU EM 24/08 (ver o bloco gêmeo lá). Estas
+     três superfícies nasceram só no bloco escuro e a folha se virava com uma
+     lista de seletores; no Logística essa lista deixou passar o rodapé do mapa
+     2D e o resultado foi tinta preta sobre fundo preto na tela de dirigir.
+     Aqui não há mapa 2D com rodapé, então isto é PREVENÇÃO — mas as duas cascas
+     são a mesma lei, e token que existe numa e falta na outra é o começo de as
+     duas discordarem. */
+  --glass:#ffffff;
+  --field:#f7f9fc;
+  --chip-bg:#f7f9fc;
   background:linear-gradient(180deg,var(--bg-2),var(--bg) 34%);
   color:var(--ink);
 }

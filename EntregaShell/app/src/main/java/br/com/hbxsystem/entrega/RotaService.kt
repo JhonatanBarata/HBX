@@ -94,8 +94,13 @@ class RotaService : Service() {
             context.startService(intent)
         }
 
-        /** Sinal do sync: encerra GPS/foreground sem criar um END novo. */
-        fun stopTerminal(context: Context, routeId: String) {
+        /**
+         * Sinal do sync: sessão de telemetria TERMINAL. 24/08 — isto deixou de
+         * MATAR a rota (o stopSelf() de antes derrubava o geofence e o alarme
+         * de chegada junto) e passou a REBAIXAR: a telemetria morre, a rota
+         * segue viva como ESSENTIAL. Sem END novo — a sessão já morreu no VPS.
+         */
+        fun downgradeTracking(context: Context, routeId: String) {
             if (routeId.isBlank()) return
             val app = context.applicationContext
             if (isRunning) {
@@ -108,12 +113,17 @@ class RotaService : Service() {
                 }.isSuccess
                 if (delivered) return
             }
-            // JobScheduler pode detectar terminal com o serviço já morto. Limpa
-            // também o snapshot para um restart futuro não ressuscitar o GPS.
+            // JobScheduler pode detectar terminal com o serviço já morto. Tira
+            // só o TRACKED do snapshot: um restart futuro renasce com o
+            // geofence (rota viva) e sem telemetria — nunca mais apagando a
+            // rota inteira como o clearTerminalRoute de antes fazia.
             if (RotaState.trackingConfig(includeInactive = true) == null && RotaState.alvos.isEmpty()) {
                 RotaState.restaurar(app)
             }
-            if (RotaState.clearTerminalRoute(routeId)) RotaState.persistir(app)
+            if (RotaState.trackingConfig(includeInactive = true)?.routeId == routeId) {
+                RotaState.clearTrackingIfMatches(routeId)
+                RotaState.persistir(app)
+            }
         }
     }
 
@@ -172,9 +182,10 @@ class RotaService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_TERMINAL -> {
+                // 24/08 — terminal REBAIXA e o serviço CONTINUA: o listener de
+                // GPS segue de pé pro alarme de chegada; só a notificação muda.
                 val routeId = intent.getStringExtra(EXTRA_TERMINAL_ROUTE_ID).orEmpty()
-                pararPorTerminal(routeId)
-                return START_NOT_STICKY
+                rebaixarPorTerminal(routeId)
             }
             ACTION_CLEAR -> {
                 stopHandler.removeCallbacks(stopRunnable)
@@ -185,7 +196,7 @@ class RotaService : Service() {
                 // listener de GPS de pé e atualiza a notificação persistente.
                 stopHandler.removeCallbacks(stopRunnable)
                 sincronizarRastreamento()
-                if (pararSeRotaTerminal()) return START_NOT_STICKY
+                rebaixarSeRotaTerminal() // 24/08: rebaixa e SEGUE — não retorna
                 garantirLocationListener()
                 tentarPontoInicialImediato()
                 atualizarNotificacaoRota()
@@ -204,7 +215,7 @@ class RotaService : Service() {
                 }
                 stopHandler.removeCallbacks(stopRunnable)
                 sincronizarRastreamento()
-                if (pararSeRotaTerminal()) return START_NOT_STICKY
+                rebaixarSeRotaTerminal() // 24/08: rebaixa e SEGUE — não retorna
                 garantirLocationListener()
                 tentarPontoInicialImediato()
                 atualizarNotificacaoRota()
@@ -258,32 +269,25 @@ class RotaService : Service() {
         stopSelf()
     }
 
-    private fun pararSeRotaTerminal(): Boolean {
-        val config = RotaState.trackingConfig(includeInactive = true) ?: return false
-        if (!trackingStore.isTerminal(config.routeId)) return false
-        pararPorTerminal(config.routeId)
-        return true
+    /* 🔴 SESSÃO MORTA REBAIXA, NÃO MATA (24/08). O par antigo
+       (`pararSeRotaTerminal`/`pararPorTerminal`) fazia stopSelf(): uma sessão
+       de telemetria terminal derrubava o serviço INTEIRO — geofence e alarme
+       de chegada juntos — no meio da rua, por um problema que é só do
+       rastreamento. Agora: tira o TRACKED (`clearTrackingIfMatches`, que já
+       existe pra isso — telemetria off, alvos ficam), persiste, atualiza a
+       notificação pro rótulo de "Rota em andamento" e o serviço CONTINUA. */
+    private fun rebaixarSeRotaTerminal() {
+        val config = RotaState.trackingConfig(includeInactive = true) ?: return
+        if (!trackingStore.isTerminal(config.routeId)) return
+        rebaixarPorTerminal(config.routeId)
     }
 
-    private fun pararPorTerminal(routeId: String) {
+    private fun rebaixarPorTerminal(routeId: String) {
         val current = RotaState.trackingConfig(includeInactive = true)
         if (current?.routeId != routeId) return
-        stopHandler.removeCallbacksAndMessages(null)
-        RotaState.clearTerminalRoute(routeId)
+        RotaState.clearTrackingIfMatches(routeId)
         RotaState.persistir(this)
-        try {
-            locationManager?.removeUpdates(locationListener)
-        } catch (_: Exception) {
-            // provider já parado
-        }
-        ouvindoLocalizacao = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } else {
-            @Suppress("DEPRECATION")
-            stopForeground(true)
-        }
-        stopSelf()
+        atualizarNotificacaoRota()
     }
 
     private fun garantirLocationListener() {
@@ -388,7 +392,9 @@ class RotaService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val notif = NotificationCompat.Builder(this, CHANNEL_CHEGADA)
-                .setSmallIcon(R.mipmap.ic_launcher)
+                // Ver `ic_stat_hbx.xml`: small icon é MÁSCARA DE ALFA, e o
+                // `ic_launcher` virava um borrão nela.
+                .setSmallIcon(R.drawable.ic_stat_hbx)
                 .setContentTitle(alvo.nome)
                 .setContentText("Você chegou no endereço")
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -397,7 +403,10 @@ class RotaService : Service() {
                 .setVibrate(longArrayOf(0, 400, 250, 400))
                 .setAutoCancel(true)
                 .setContentIntent(pendingActivity)
-                .addAction(R.mipmap.ic_launcher, "Abrir entrega", pendingActivity)
+                // O ícone da AÇÃO some no template padrão do Android N+, mas
+                // ainda é desenhado em Wear e em alguns launchers — e lá ele
+                // sofre o mesmo achatamento em alfa que o small icon.
+                .addAction(R.drawable.ic_stat_hbx, "Abrir entrega", pendingActivity)
                 .build()
             NotificationManagerCompat.from(this).notify(alvo.id.hashCode(), notif)
         } catch (e: Exception) {
@@ -421,18 +430,52 @@ class RotaService : Service() {
         nm.createNotificationChannel(chegada)
     }
 
+    /**
+     * 🔴 A NOTIFICAÇÃO DA ROTA ERA UM BECO (24/08 — dono: *"se eu clicar nessa
+     * rota em andamento, era pra abrir o app"*).
+     *
+     * Ela nunca teve `setContentIntent`, então tocar nela não fazia NADA. E é
+     * justamente ela que sobra quando o motorista tira o HBX dos recentes: com
+     * rota montada o serviço de primeiro plano segura o processo (é pra isso que
+     * ele existe — GPS que morre no bolso é entrega sem rastro), a tela morre, e
+     * o único caminho de volta visível na tela do celular não respondia ao dedo.
+     * O aparelho ficava dizendo "sua rota está rodando" sem oferecer a porta.
+     *
+     * Aponta pra `OfflineLauncherActivity`, a MESMA porta do ícone da gaveta, com
+     * o mesmo intent (`MAIN` + `LAUNCHER`): app vivo retoma a tela onde parou;
+     * processo morto faz a abertura inteira. Uma porta só — dois caminhos de
+     * volta que divergem é como um deles apodrece sem ninguém ver.
+     *
+     * `FLAG_UPDATE_CURRENT`: a notificação é reconstruída a cada `sync`, e sem
+     * isto o PendingIntent velho fica pendurado. `FLAG_IMMUTABLE` é exigência de
+     * Android 12+ e aqui não custa nada — ninguém precisa preencher extras.
+     */
     private fun buildNotificacaoRota(): Notification {
         val count = RotaState.alvos.size
         val texto = if (count == 1) "1 parada" else "$count paradas"
         val tracked = RotaState.isTrackedRoute()
         val trackingBlocked = tracked && ::trackingStore.isInitialized &&
             RotaState.activeTrackingConfig()?.let { trackingStore.isCaptureBlocked(it.routeId) } == true
+        val abrirApp = PendingIntent.getActivity(
+            this,
+            NOTIF_ID_ROTA,
+            OfflineLauncherActivity.intentDeRetomada(this),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         return NotificationCompat.Builder(this, CHANNEL_ROTA)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            // 🔴 ERA O `ic_launcher` E SAÍA UM ANEL VAZIO (24/08, foto do dono).
+            // Esta é a notificação que fica o DIA INTEIRO na barra do motorista e
+            // a que aparece no vídeo que o Play Console exige pro FGS `location`
+            // — o ícone dela é a cara do app naquela gravação. A conta inteira
+            // está em `ic_stat_hbx.xml`.
+            .setSmallIcon(R.drawable.ic_stat_hbx)
             .setContentTitle(
                 when {
                     trackingBlocked -> "Rastreamento aguardando vínculo"
                     tracked -> "Rastreamento ao vivo"
+                    // 24/08: o terceiro ramo é também o estado REBAIXADO (sessão
+                    // terminal → telemetria off, rota viva) — mesmo rótulo do
+                    // ESSENTIAL, porque pro motorista é o mesmo fato.
                     else -> "Rota em andamento"
                 },
             )
@@ -440,6 +483,7 @@ class RotaService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setSilent(true)
+            .setContentIntent(abrirApp)
             .build()
     }
 

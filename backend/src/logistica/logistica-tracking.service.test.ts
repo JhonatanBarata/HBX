@@ -329,15 +329,11 @@ test('metadados operacionais omitem routeMode por padrão e expõem somente trac
   assert.equal(administrative.routeMode, 'TRACKED');
 });
 
+// 24/08/2026 — a env HBX_LOGISTICA_TRACKING_ENABLED MORREU (rastreio é
+// hard-on). O wrapper fica como no-op de propósito: o corpo dos testes não
+// muda, e ele agora PROVA que nada depende mais da env (nenhuma é setada).
 async function withTrackingEnabled<T>(callback: () => Promise<T>) {
-  const before = process.env.HBX_LOGISTICA_TRACKING_ENABLED;
-  process.env.HBX_LOGISTICA_TRACKING_ENABLED = 'true';
-  try {
-    return await callback();
-  } finally {
-    if (before === undefined) delete process.env.HBX_LOGISTICA_TRACKING_ENABLED;
-    else process.env.HBX_LOGISTICA_TRACKING_ENABLED = before;
-  }
+  return callback();
 }
 
 test('rota TRACKED ainda PLANNED abre sessão — é como o iniciar chama, ANTES de ativar', async () => {
@@ -568,29 +564,25 @@ test('start/bind rejeita aparelho cross-driver e cross-company antes de tocar a 
   });
 });
 
-test('feature flag global e toggle do tenant bloqueiam qualquer escrita de tracking', async () => {
+// 24/08/2026 — rastreio HARD-ON: a env global e o toggle trackingAtivo
+// morreram. Este teste é o freio contra o gate voltar: a escrita funciona SEM
+// env nenhuma e SEM trackingAtivo — quem segura escrita fora de hora é o
+// vínculo rota TRACKED ACTIVE + sessão do aparelho.
+test('escrita de tracking funciona sem env e sem trackingAtivo (hard-on; o freio é a rota/sessão)', async () => {
   const before = process.env.HBX_LOGISTICA_TRACKING_ENABLED;
   delete process.env.HBX_LOGISTICA_TRACKING_ENABLED;
   try {
-    const globalOff = setup({ session: true });
-    await assert.rejects(
-      globalOff.service.startSession({ ...CREDENTIAL, routeId: 'route-1' }),
-      /temporariamente indisponível/i,
-    );
+    const semGates = setup({ session: true });
+    // simula a linha do banco DEPOIS do drop: a coluna nem existe mais.
+    delete (semGates.state.config as any).trackingAtivo;
+    const started = await semGates.service.startSession({ ...CREDENTIAL, routeId: 'route-1' });
+    assert.ok(started.session, 'a sessão abre sem gate nenhum');
+    const ingest = await semGates.service.ingestPositions('session-1', { ...CREDENTIAL, points: [point()] });
+    assert.equal(ingest.accepted.length, 1, 'o ponto entra sem gate nenhum');
   } finally {
     if (before === undefined) delete process.env.HBX_LOGISTICA_TRACKING_ENABLED;
     else process.env.HBX_LOGISTICA_TRACKING_ENABLED = before;
   }
-
-  await withTrackingEnabled(async () => {
-    const tenantOff = setup({ session: true });
-    tenantOff.state.config.trackingAtivo = false;
-    await assert.rejects(
-      tenantOff.service.ingestPositions('session-1', { ...CREDENTIAL, points: [point()] }),
-      /não está habilitado para esta empresa/i,
-    );
-    assert.equal(tenantOff.state.points.length, 0);
-  });
 });
 
 test('batch rejeita ponto velho, futuro, impreciso, fora dos bounds e salto impossível; retry exato deduplica', async () => {

@@ -960,6 +960,19 @@
         `[prospector] recebidas=${raio.recebidas} escolhidas=${raio.escolhidas} desenhaveis=${empresas.length} tipo=${raio.tipo || '-'}`,
       );
     } catch (_) { /* console fechado não é motivo pra derrubar a rota */ }
+    /* 🔴 O "CIENTE" TAMBÉM COBRA NA RUA (24/08) — o funcionário que nunca abre
+       Ajustes ganha prédio aceso do mesmo jeito, e a mensagem sai EM NOME DELE.
+       Então: há empresa pra acender + o servidor DISSE que este ator não é
+       ciente (`=== false` — ausente é "não sei", e "não sei" nunca abre portão
+       bloqueante) ⇒ o mesmo portão da chave, UMA vez por sessão. A marca só
+       queima quando o portão ABRE: com a folha de dinheiro aberta (`aberta`,
+       mesma guarda do hbx:arrival — nunca roubar a tela no meio do dinheiro)
+       ele espera o próximo poll. O carimbo vive no servidor, por ATOR. */
+    if (config && config.prospectorCiente === false && !cienteProspectorPedido
+      && !aberta && empresas.some((e) => e.aceso)) {
+      cienteProspectorPedido = true;
+      portaoCienteProspector();
+    }
     window.usarDados('mapa', { empresas });
   }
 
@@ -1243,9 +1256,8 @@
       const id = it && it.cliente && it.cliente.id;
       if (id) PARADAS_SALVAR.push({ customerProfileId: String(id) });
     });
-    // O nível do financeiro vem no MESMO payload da rota (não é chute nem
-    // pedido extra): é ele que decide qual das duas folhas abre na porta.
-    if (typeof r.moduloFinanceiroAtivo === 'boolean') financeiroAtivo = r.moduloFinanceiroAtivo;
+    // ⚰️ 24/08 — `moduloFinanceiroAtivo` saiu do payload da rota (e do
+    // produto): a folha da porta é sempre a completa, não há mais o que decidir.
     /* O ANEL DO "TÔ CHEGANDO" vem armado do servidor, no mesmo payload: ele já
        manda `avisoChegandoAtivo` (a trava tripla dele resolvida) e o raio. O
        contrato do backend é explícito sobre de quem é a vez — "o app só arma o
@@ -1515,14 +1527,14 @@
       },
       // As chaves de dinheiro. Todas nascem 0 e a tela nem desenha: chave no
       // estado do desenho é o motorista achando que desligou o que nem carregou.
+      // ⚰️ 24/08 — financeiro/cobrancaSimples/precoPorCliente saíram do seam
+      // (campos mortos no contrato) e prospectorDisponivel morreu junto: o
+      // prospector é aberto a toda empresa, a chave dele nasce só DESLIGADA.
       avancado: {
-        carregando: true, admin: 0, financeiro: 0, cobrancaSimples: 0,
-        precoPorCliente: 0, naHora: 0, mensal: 0, fiado: 0,
+        carregando: true, admin: 0,
+        naHora: 0, mensal: 0, fiado: 0,
         avisarChegada: 0, avisarChegadaDist: '',
-        // A chave do prospector nasce DESLIGADA e INDISPONÍVEL: até o servidor
-        // dizer, a linha nem é desenhada. Oferecer no boot um recurso que a
-        // empresa pode não ter é a mesma mentira das outras chaves.
-        prospector: 0, prospectorDisponivel: 0,
+        prospector: 0,
       },
       /* O TUTORIAL NASCE SEM SABER DE NADA. `carregando:1` é o que segura o
          motor do tour: capítulo escondido antes de a config chegar seria
@@ -3765,14 +3777,40 @@
         cancelando(0);
       };
       depoisDaTrava(async () => {
-        if (!rotaRefAtual) {
-          soltarRecibo();
-          avisoErro(new Error('Atualize a rota antes de cancelar.'));
-          return false;
+        /* 🔴 A DEMONSTRAÇÃO CANCELA POR DENTRO (24/08), E A REF NÃO ERA A CURA.
+           MEDIDO no g15 (APK 358, conta nova — a demonstração abriu sozinha por
+           `talvezOferecerDemo`): o Cancelar não morria no cano da demonstração
+           (`__demoIntercepta`, § 00-nucleo), morria TRÊS LINHAS ANTES. A ref de
+           continuidade nasce de `refDaResposta` (§ 25-continuidade-rota) e o
+           `GET /logistica/rota` fingido não tem `continuityRef`, não tem
+           `routeId` e não tem `entregador` nos itens — as três portas fechadas,
+           ref vazia, e o dono levava "Atualize a rota antes de cancelar" numa
+           rota que nunca existiu em servidor nenhum.
+           E publicar uma ref no payload fingido seria TROCAR o defeito por um
+           pior: rota 'rodando' + ref viva + `ownedRefs` vazia (a demonstração
+           responde continuidade sem `items`, então `vestirPendencias` sai na
+           primeira linha e `refsDoAtor` fica []) + paradas abertas acende o
+           bloco de posse revogada do lote 1.5 — `stopRoute` + `carregarRota` a
+           cada tique de 60 s, a cada foco e a cada visibilitychange. É o loop
+           que aquele lote existe pra ter matado.
+           Então quem sabe o que "cancelar" significa lá dentro é a própria
+           demonstração, e ela ganha UM seam — a mesma forma do cano, um lugar
+           só. O verbo real fica intocado: sem demonstração no ar o seam nem
+           existe, e daqui pra baixo é a linha de sempre.
+           `=== true` de propósito: seam ausente, casca velha ou demonstração
+           fechada devolvem qualquer outra coisa e o caminho de sempre segue. */
+        const demoTratou = typeof window.__demoCancelarRota === 'function'
+          && window.__demoCancelarRota() === true;
+        if (!demoTratou) {
+          if (!rotaRefAtual) {
+            soltarRecibo();
+            avisoErro(new Error('Atualize a rota antes de cancelar.'));
+            return false;
+          }
+          if (!(await filaOfflinePronta())) { soltarRecibo(); return false; }
+          try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref: rotaRefAtual }); }
+          catch (e) { soltarRecibo(); await avisoErroContinuidade(e); return false; }
         }
-        if (!(await filaOfflinePronta())) { soltarRecibo(); return false; }
-        try { await window.API.post('/logistica/rota/continuidade/cancelar', { ref: rotaRefAtual }); }
-        catch (e) { soltarRecibo(); await avisoErroContinuidade(e); return false; }
         /* 🔴 UM EVENTO VISUAL SÓ, E A ORDEM É O CONSERTO INTEIRO (17/08 — o
            "não tem sequência" do dono, medido quadro a quadro).
            ANTES daqui a saída era em QUATRO repintes soltos, cada um disparado
@@ -11304,20 +11342,21 @@
          dela pro mapa não podia reencenar a cidade nascendo. Ela morreu —
          "Você chegou" agora é a peça `.chegou-wrap`, por cima do PRÓPRIO
          `T.mapa` — mas o cruzamento que esta exceção evita continua existindo,
-         só que por outra porta: "Registrar entrega" no cartão abre
-         'venda'/'folha' (ou 'folhanao', o desfecho sem entregar), e confirmar
+         só que por outra porta: "Registrar entrega" no cartão abre a
+         'folha' (ou 'folhanao', o desfecho sem entregar — a 'venda' morreu em
+         24/08 com a folha simples), e confirmar
          devolve o motorista pro 'mapa' de onde o cartão nasceu
          (`irDepoisDoDesfecho`, lendo `chegadaPalco`). Sem esta tradução, cada
          parada resolvida enquanto dirigindo reencenaria a cidade nascendo +
          1,8 s de descida de câmera, dezenas de vezes por dia, no meio da rua —
          era exatamente o defeito que a exceção original existia pra matar. */
       if (telaVistaAqui === 'mapa') {
-        if (veioDe === 'venda' || veioDe === 'folha' || veioDe === 'folhanao') { camFase = 'dirigindo'; pedirCamera(); }
+        if (veioDe === 'folha' || veioDe === 'folhanao') { camFase = 'dirigindo'; pedirCamera(); }
         /* 🔴 VOLTAR DA PANORÂMICA TAMBÉM NÃO É ENTRAR NA ROTA (16/08). Caía no
            `entrarNaDescida` — a coreografia de quem chega pela primeira vez:
            cena das ruas + 400 ms de vista de cima + 1,8 s de descida, MEDIDOS
            no g15 como 3 s de tela parada antes de a câmera se mexer. É a mesma
-           exceção de 'venda'/'folha' logo acima, pelo mesmo motivo (a cidade já
+           exceção da 'folha' logo acima, pelo mesmo motivo (a cidade já
            nasceu) — só que aqui a câmera TEM que voltar, porque ela subiu. A
            pose do 2D é guardada agora, antes de o mapa ser estacionado, e a
            descida acontece depois do transplante (§ `descerDoPlano`). */
@@ -11757,21 +11796,14 @@
      ------------------------------------------------------------------------ */
   let config = null;
 
-  /* 🔴 QUEM É ADMIN QUEM DIZ É O SERVIDOR, NÃO A TELA. O `GET /logistica/config`
-     responde DOIS tamanhos: pra quem é responsável financeiro ele manda o bloco
-     comercial (`modoRotaPadrao`, `pixChave`, `trackingAtivo`…), e pra gerente,
-     vendedor e motorista esses campos vêm AUSENTES — não nulos, ausentes. Então
-     a presença de um deles É a resposta, e não há gate nenhum inventado aqui.
-     É o MESMO `isAdmin()` do app que já roda (`app.js`, L545), com o MESMO
-     campo, de propósito: dois fronts do mesmo produto não podem discordar sobre
-     quem é dono.
-     ⚠️ Medido: `moduloFinanceiroAtivo` é o ÚNICO dos 6 que o backend exige
-     responsável financeiro pra GRAVAR (está no `changesCommercialConfig`); os
-     outros 5 bastam ser ADMIN. Como o app não tem sinal nenhum que separe
-     gerente de motorista, o corte é este — e ele erra pro lado certo: esconder
-     uma chave que o gerente poderia mexer é menos grave que mostrar uma chave
-     que vai devolver 403 na cara dele. Chave que não obedece é mentira. */
-  const ehAdmin = () => !!config && Object.prototype.hasOwnProperty.call(config, 'modoRotaPadrao');
+  /* 🔴 QUEM É ADMIN QUEM DIZ É O SERVIDOR, NÃO A TELA — e agora ele diz COM
+     PALAVRA, não com silêncio (24/08). O `GET /logistica/config` passou a
+     responder `admin: true` no bloco de quem é responsável financeiro; a
+     dedução antiga ("`modoRotaPadrao` presente ⇒ admin") morreu junto com o
+     modo de rota — `modoRotaPadrao` ainda viaja ('TRACKED' cravado) só por
+     compat, e ler papel de um campo de compat é adivinhar por variável de
+     ambiente. Campo explícito, comparação explícita: ausente = não é. */
+  const ehAdmin = () => !!config && config.admin === true;
 
   async function carregarAjustes() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
@@ -11802,15 +11834,17 @@
       empresa: '',             // o nome da empresa não vem em porta do celular
       ...linhaDaVersao(),      // versão instalada + anúncio de versão nova
     });
-    /* As 6 chaves de dinheiro. Vêm da MESMA resposta que já foi buscada — a tela
+    /* As chaves de dinheiro. Vêm da MESMA resposta que já foi buscada — a tela
        do Avançado não tem chamada própria, e por isso também não tem estado
-       próprio de falha: quem recarrega é o `recarregar-ajustes`. */
+       próprio de falha: quem recarrega é o `recarregar-ajustes`.
+       ⚰️ 24/08 — `financeiro`/`cobrancaSimples`/`precoPorCliente` MORRERAM no
+       contrato (o financeiro é sempre ligado, a folha é sempre a completa):
+       o `GET /logistica/config` não os responde mais e o PATCH devolve 400
+       (forbidNonWhitelisted) pra quem tentar gravá-los. Publicar campo morto
+       no seam seria desenhar chave que o servidor não obedece. */
     window.usarDados('avancado', {
       ...fonteVoltou,
       admin,
-      financeiro: config.moduloFinanceiroAtivo ? 1 : 0,
-      cobrancaSimples: config.cobrancaSimples ? 1 : 0,
-      precoPorCliente: config.precoPorClienteAtivo ? 1 : 0,
       naHora: config.aceitaNaHora ? 1 : 0,
       mensal: config.aceitaMensal ? 1 : 0,
       fiado: config.aceitaFiado ? 1 : 0,
@@ -11818,14 +11852,12 @@
       // campo e o raio são os mesmos que a raiz dos Ajustes mostrava.
       avisarChegada: config.avisoChegandoEnabled ? 1 : 0,
       avisarChegadaDist: isFinite(dist) && dist > 0 ? `${dist} m` : '',
-      /* PROSPECTOR (09/08) — até hoje a chave só existia no desktop, e o
-         capítulo do tutorial terminava mandando o dono "ligar no computador".
-         São DOIS fatos, não um: `prospector` é o estado da empresa, e
-         `prospectorDisponivel` é a HBX ter ligado o recurso. A linha só é
-         DESENHADA com o segundo — chave de recurso que a empresa não tem
-         devolve 403 na cara do dono. */
+      /* PROSPECTOR (09/08; ABERTO A TODOS em 24/08) — a chave atravessou o
+         vidro em 09/08, e em 24/08 `prospectorDisponivel` morreu no contrato:
+         toda empresa PODE ligar, então sobrou UM fato — `prospector` é a
+         empresa ter ligado. O portão de responsabilidade de quem liga é o
+         "Ciente" (`portaoCienteProspector`), não uma chave-mestra da HBX. */
       prospector: config.prospectorAtivo ? 1 : 0,
-      prospectorDisponivel: prospectorPodeLigar(),
       /* PROSPECTOR v2 (12/08) — o que a PESSOA escolheu pra esta semana. Vem da
          memória do §7b-bis (o último GET/POST), não de uma segunda chamada: esta
          tela não tem porta própria, e pendurar mais uma rede aqui faria a linha
@@ -11834,10 +11866,10 @@
          é honesto nos dois casos. */
       prospectorTipo: rotuloDoProspector(),
     });
-    /* Só pergunta a escolha se a empresa PODE ter prospector — chave desligada
-       não tem o que procurar, e seria uma ida à rede por tela de Ajustes de todo
+    /* Só pergunta a escolha com o prospector LIGADO — chave desligada não tem
+       o que procurar, e seria uma ida à rede por tela de Ajustes de todo
        mundo. Best-effort: falha aqui não atrapalha nada nesta tela. */
-    if (config.prospectorAtivo && prospectorPodeLigar()) {
+    if (config.prospectorAtivo) {
       carregarProspectorSemana().then(() => {
         if (typeof window.usarDados === 'function') {
           window.usarDados('avancado', { prospectorTipo: rotuloDoProspector() });
@@ -12340,30 +12372,53 @@
      Quem decide de novo é o próximo boot, lendo o servidor. */
   let obrigatorioResolvido = false;
 
-  /* 🔴 "PODE LIGAR" É CAMPO DO SERVIDOR, NÃO DEDUÇÃO MINHA. O `GET
-     /logistica/config` responde `prospectorDisponivel` — a chave-mestra da HBX
-     (`HBX_PROSPECTOR_ENABLED`), servida a TODO ator, motorista inclusive.
-     Deduzir por "o campo `prospectorAtivo` existe na resposta" daria SEMPRE
-     verdadeiro: ele é serializado pra todo mundo, com default `false`. A chave
-     apareceria nos Ajustes de empresa que não tem o recurso, e chave que não
-     obedece é mentira. Backend velho, sem o campo: NÃO SEI ⇒ não ofereço. */
-  const prospectorPodeLigar = () => (config && typeof config.prospectorDisponivel === 'boolean'
-    ? (config.prospectorDisponivel ? 1 : 0)
-    : 0);
+  /* ⚰️ `prospectorPodeLigar` MORREU em 24/08: `prospectorDisponivel` saiu do
+     contrato — o prospector é aberto a toda empresa, e a régua admin/equipe
+     (`prospectorEquipe`) morreu junto. "Esta pessoa vê os prédios" virou UM
+     fato só: a empresa ligou. Quem carrega a responsabilidade jurídica agora
+     é o carimbo `prospectorCiente` (por ATOR, gravado no servidor — o
+     inventário já provou que `HBX.cache` é por aparelho e não serve pra
+     carimbo), cobrado pelo portão abaixo. */
+  const prospectorEuVejo = () => (config && config.prospectorAtivo === true ? 1 : 0);
 
-  /* 🔴 "A EMPRESA LIGOU" NÃO É "ESTA PESSOA VÊ" (09/08). O prospector tem QUATRO
-     chaves, não uma, e a régua de quem enxerga os prédios é do servidor:
-     **admin sempre, funcionário só com `prospectorEquipe`**
-     (`logistica-rota.service.ts:502`). Ensinar pelo `prospectorAtivo` sozinho
-     poria o capítulo completo — "toque no prédio aceso" — na frente do motorista
-     de uma empresa com `prospectorEquipe` desligado, que nunca verá prédio
-     nenhum. Seria o tutorial FABRICANDO a pergunta besta que ele veio matar
-     ("cadê os prédios que o app me ensinou?").
-     Aqui a régua do servidor é traduzida UMA vez, num fato só: quem vê. */
-  const prospectorEuVejo = () => {
-    if (!config || !config.prospectorAtivo) return 0;
-    return (ehAdmin() || config.prospectorEquipe) ? 1 : 0;
-  };
+  /* ── O PORTÃO "CIENTE" DO PROSPECTOR (24/08) ──────────────────────────────
+     Mensagem automática EM NOME do motorista + custo em crédito = ninguém liga
+     (nem roda com) o prospector sem ler isto uma vez. Mesmo padrão do
+     `travaDoRecado` (A0): portão SEM ESCAPE — só a ação 'Ciente', o
+     `handleBack` já engole o Voltar de portão sem escape — e listener
+     `{once:true}` no principal. O carimbo é SÓ servidor
+     (`POST /logistica/prospector/ciente`, idempotente): quem já é ciente numa
+     conta é ciente em qualquer aparelho. Dois gatilhos chamam este portão:
+     a chave nos Ajustes (ao LIGAR, D0) e a chegada de empresas acesas na rua
+     (`aplicarProspector`, 00-nucleo — o funcionário que nunca abre Ajustes). */
+  function portaoCienteProspector(depois) {
+    if (typeof window.portao !== 'function') return;
+    window.portao({
+      tom: 'info', ico: 'sales', titulo: 'Vender no caminho',
+      sub: 'O Prospector envia mensagens automáticas em seu nome para empresas '
+        + 'no caminho da rota e pode gerar custo em créditos. Você é responsável '
+        + 'pelo conteúdo enviado.',
+      acoes: [['Ciente', 'principal', false]],
+    });
+    const b = naCamada('.portao-wrap .principal');
+    if (b) b.addEventListener('click', () => { carimbarCienteProspector(depois); }, { once: true });
+  }
+
+  /** grava o ciente no SERVIDOR e segue. Falha não prende: o portão volta no
+   *  próximo gatilho (o carimbo continua `false` na config) — nunca em loop. */
+  async function carimbarCienteProspector(depois) {
+    try {
+      await window.API.post('/logistica/prospector/ciente', {});
+      if (config) config.prospectorCiente = true;
+    } catch (e) {
+      console.warn('[HBX ponte] prospector: não consegui gravar o "ciente" —', (e && e.message) || e);
+    }
+    if (typeof depois === 'function') depois();
+  }
+
+  /* O portão da RUA dispara UMA vez por sessão — e a marca só queima quando o
+     portão realmente ABRE (folha de dinheiro aberta adia pro próximo poll). */
+  let cienteProspectorPedido = false;
 
   /* A MESMA régua da barra (`moduloDesligado` da casca), lida do MESMO CSV: não
      existe capítulo de Chat num app em que o admin apagou o Chat. */
@@ -12414,11 +12469,16 @@
     };
     if (config) {
       fatos.admin = ehAdmin() ? 1 : 0;
-      fatos.financeiro = config.moduloFinanceiroAtivo ? 1 : 0;
+      // ⚰️ 24/08 — `financeiro` e `prospectorDisponivel` saíram dos fatos: o
+      // financeiro é sempre ligado (o capítulo do Fechamento perdeu o `se:`) e
+      // o prospector é aberto a toda empresa.
       fatos.prospectorAtivo = config.prospectorAtivo ? 1 : 0;
-      fatos.prospectorDisponivel = prospectorPodeLigar();
-      // "Esta pessoa vê os prédios?" — o fato que o capítulo completo pede.
+      // "Esta pessoa vê os prédios?" — desde 24/08 é a própria chave da
+      // empresa: a régua admin/equipe morreu com o contrato novo.
       fatos.prospectorVejo = prospectorEuVejo();
+      // O carimbo jurídico do ATOR (24/08) — fato publicado junto dos demais;
+      // quem COBRA o portão é a ponte (`portaoCienteProspector`), não o motor.
+      fatos.prospectorCiente = config.prospectorCiente === true ? 1 : 0;
       fatos.chat = moduloLigado('chat');
     }
     window.usarDados('tutorial', fatos);
@@ -14210,9 +14270,10 @@
        que a lista de Clientes já mostra pra ele. Mas `PATCH
        /logistica/clientes/:id/financeiro` é ADMIN-only no servidor: desenhar os
        campos pra quem vai levar 403 é o botão morto que esta ficha já matou uma
-       vez (o Excluir de 08/08). Duas chaves, portanto — e a de fora é a mesma
-       do resto do bloco: financeiro desligado, seção nenhuma. */
-    const financeiroLigado = !!(config && config.moduloFinanceiroAtivo);
+       vez (o Excluir de 08/08).
+       ⚰️ 24/08 — a chave de fora (`moduloFinanceiroAtivo`) morreu no contrato:
+       o financeiro é sempre ligado e a seção sempre existe. Sobrou a régua que
+       era a de dentro: quem EDITA é o admin. */
     const saldo = typeof d.debitoAtual === 'number' ? d.debitoAtual
       : (typeof it.debitoAtual === 'number' ? it.debitoAtual : null);
     window.usarDados('ficha', {
@@ -14261,12 +14322,12 @@
            ele o cartão fica inerte, com ele abre o VÍNCULO — nunca o catálogo. */
         return ['box', esc(p.nome), `${Number(v.qtdPadrao) || 0} por entrega${valor}${pausado}`, String(v.id || '')];
       }),
-      /* ---------- FINANCEIRO (12/08) ---------- */
-      financeiro: financeiroLigado ? 1 : 0,
-      financeiroEdita: financeiroLigado && ehAdmin() ? 1 : 0,
+      /* ---------- FINANCEIRO (12/08; sempre ligado desde 24/08) ---------- */
+      financeiro: 1,
+      financeiroEdita: ehAdmin() ? 1 : 0,
       // Lei do IF: saldo zero não é notícia na porta — some, como o resto.
-      saldo: financeiroLigado && saldo ? dinheiro(saldo) : '',
-      limiteLido: financeiroLigado && typeof d.limiteFiado === 'number' ? dinheiro(d.limiteFiado) : '',
+      saldo: saldo ? dinheiro(saldo) : '',
+      limiteLido: typeof d.limiteFiado === 'number' ? dinheiro(d.limiteFiado) : '',
       formas: formasDisponiveis(forma),
       forma,
       metodo: esc(fin.metodo),
@@ -15043,12 +15104,11 @@
        opção é enfeite. */
     const locais = (ficha && ficha.detalhe && Array.isArray(ficha.detalhe.locais) ? ficha.detalhe.locais : [])
       .map((l) => [String(l.id), esc(l.apelido || l.endereco || 'Endereço'), esc([l.bairro, l.cidade].filter(Boolean).join(' • '))]);
-    /* O preço por cliente é chave da EMPRESA (`precoPorClienteAtivo`) — mas um
-       vínculo que JÁ tem preço combinado mostra o campo de qualquer jeito:
-       esconder um número que está valendo é o dono nunca descobrir por que a
-       entrega sai por 22 quando o catálogo diz 11. */
-    const temPreco = String(v.rascunho.preco || '').trim() !== ''
-      || typeof it.precoAcordado === 'number';
+    /* ⚰️ 24/08 — a chave da EMPRESA (`precoPorClienteAtivo`) morreu no
+       contrato, e por ordem do dono o preço por cliente é FIXO: o campo
+       aparece SEMPRE, inclusive em vínculo novo (vazio = preço do catálogo;
+       0,00 é valor legítimo). Sem seam `precoPorCliente` — campo sem leitor
+       no desenho é armadilha, e o desenho agora renderiza incondicional. */
     window.usarDados('fichavinculo', {
       volta: 'ficha',
       novo: v.novo ? 1 : 0,
@@ -15063,7 +15123,6 @@
       ]),
       qtd: v.rascunho.qtd,
       preco: v.rascunho.preco,
-      precoPorCliente: (config && config.precoPorClienteAtivo) || temPreco ? 1 : 0,
       precoDica: 'Vazio = usa o preço do catálogo',
       locais,
       localId: String(v.localId || ''),
@@ -15766,9 +15825,10 @@
          `corpoFinanceiro` devolve SÓ o que mudou, e null quando nada mudou; sem
          essa disciplina, abrir e salvar qualquer ficha reescreveria o contrato
          de cobrança de todo cliente legado da base sem ninguém pedir.
-         Só quem PODE editar manda: com o módulo desligado ou sem admin a seção
-         nem existe na tela, e um PATCH daqui voltaria 403. */
-      const fin = (config && config.moduloFinanceiroAtivo && ehAdmin()) ? corpoFinanceiro() : null;
+         Só quem PODE editar manda: sem admin a seção nem existe na tela, e um
+         PATCH daqui voltaria 403. (24/08 — a chave do módulo morreu no
+         contrato: o financeiro é sempre ligado, sobrou só a régua do admin.) */
+      const fin = ehAdmin() ? corpoFinanceiro() : null;
 
       if (!Object.keys(conta).length && !mudouEndereco && !mudouDias && !fin) {
         return window.portao({
@@ -17068,23 +17128,27 @@
 
     // ── as portas que enchem as telas ───────────────────────────────────────
     if (metodo === 'GET' && via === '/logistica/config') {
+      // ⚰️ 24/08 — a resposta espelha o contrato NOVO: os campos mortos
+      // (moduloFinanceiroAtivo, cobrancaSimples, precoPorClienteAtivo,
+      // prospectorDisponivel, prospectorEquipe) saíram daqui como saíram do
+      // servidor — demo que responde campo morto ensina o contrato errado.
+      // `admin` fica AUSENTE de propósito: a demonstração nunca foi admin
+      // (a dedução antiga por `modoRotaPadrao` também respondia "não").
       return {
         empresaNome: 'Sua Empresa',
-        moduloFinanceiroAtivo: true,
         aceitaNaHora: true,
         aceitaMensal: false,
         aceitaFiado: false,
-        cobrancaSimples: false,
-        precoPorClienteAtivo: false,
         avisoChegandoEnabled: false,
         avisoChegandoDistanciaM: 500,
         raioChegadaM: 60,
-        /* O prospector fica FORA da demonstração: ele cobra crédito por lead e
-           é o único recurso do app cuja aula termina em "isso custa dinheiro".
-           Ensinar a gastar antes de a pessoa ter um cliente é a ordem errada. */
+        /* O prospector fica FORA da demonstração (decisão mantida em 24/08):
+           ele cobra crédito por lead e é o único recurso do app cuja aula
+           termina em "isso custa dinheiro". Ensinar a gastar antes de a pessoa
+           ter um cliente é a ordem errada. `prospectorCiente: true` porque o
+           portão jurídico também não é assunto de demonstração. */
         prospectorAtivo: false,
-        prospectorDisponivel: false,
-        prospectorEquipe: false,
+        prospectorCiente: true,
         appModulosDesativados: '',
       };
     }
@@ -17092,7 +17156,7 @@
       return {
         date: e.dia,
         routeStatus: e.routeStatus,
-        moduloFinanceiroAtivo: true,
+        // ⚰️ 24/08 — `moduloFinanceiroAtivo` saiu do payload da rota também.
         avisoChegandoAtivo: false,
         items: e.itens.map((it, i) => ({
           id: it.id,
@@ -17208,10 +17272,83 @@
       if (alvo) alvo.status = 'cancelada';
       return { ok: true };
     }
+    /* 🔴 O CANCELAR (24/08). Ele chega por DOIS caminhos e os dois terminam
+       aqui dentro: o dock da rota nem consegue postar (sem ref de continuidade
+       ele para na guarda do § 30-verbos-rota, e é pra isso que existe o seam
+       `__demoCancelarRota` lá embaixo), e o cartão de pendência posta — só que
+       na demonstração ele nunca aparece, porque a continuidade responde sem
+       `items` e `vestirPendencias` sai na primeira linha. Estar nos dois
+       lugares custa quatro linhas e fecha a porta pra quando um dos dois
+       mudar. */
+    if (metodo === 'POST' && via === '/logistica/rota/continuidade/cancelar') {
+      cancelarDemo();
+      return { ok: true, resumo: { canceladas: 0 } };
+    }
     /* 🔴 O SILÊNCIO EDUCADO. Toda porta que a demonstração não conhece responde
        "sem fonte" — e o app inteiro já sabe conviver com isso. */
     return null;
   }
+
+  /* ------------------------------------------------------------------------
+     O CANCELAR DA DEMONSTRAÇÃO — o dia de exemplo acaba, e o aviso diz onde
+     recomeçar.
+     ------------------------------------------------------------------------ */
+  /* 🔴 CANCELAR ESVAZIA O DIA, e a demonstração não pode ensinar o contrário.
+     O verbo de verdade (`continuidade/cancelar`) limpa o dia no servidor — é
+     por isso que o § 30-verbos-rota chama `esquecerRotaCarregada`, que publica
+     `vazio: textoVazio(0)`. Uma demonstração que cancelasse e continuasse com
+     as oito paradas na tela estaria dizendo que o botão vermelho não faz nada.
+     Então ela esvazia igual, e `routeStatus` volta pra PLANNED: com zero
+     abertas o `estadoDaRota` rebaixa sozinho pra 'montar' (§ 00-nucleo, a régua
+     da rota fantasma), que é exatamente o dock de um dia limpo.
+     O preço — o exemplo acabou — é o que o aviso abaixo existe pra pagar. */
+  function cancelarDemo() {
+    if (!demoNoAr || !demoEstado) return false;
+    demoEstado.itens = [];
+    demoEstado.routeStatus = 'PLANNED';
+    avisarDemoCancelada();
+    return true;
+  }
+
+  /* 🔴 O AVISO É OUTRO PORQUE O FATO É OUTRO — e ele ESPERA A TELA PARAR.
+     "Não deu certo" seria mentira aqui: deu certo, só que o que foi cancelado
+     era exemplo. Portão `info` com um botão só, a mesma forma do "Preço
+     bloqueado" do catálogo — o único botão É a saída, e por isso vem MARCADO.
+     A espera é a lei da casa (§ 30-verbos-rota, o recibo do Cancelar): o
+     Cancelar troca de tela e a troca de modo dura 900 ms; portão aberto no meio
+     dela nasce na camada que está MORRENDO e some junto com ela. Quem responde
+     "já parou?" é o DOM, não um número — `.tela.sai` é o mesmo sinal que a cena
+     das ruas usa (§ 50-cena-ruas). Os 260 ms de piso cobrem a saída do portão
+     de confirmação (o `fechar` tira o nó aos 210), e o teto de 12 tentativas é
+     o freio de quem nunca vê a tela parar: sem ele um repinte preso deixaria um
+     relógio batendo pra sempre.
+     Depois de aberto ele sobrevive: repinte (`!animar`) leva o `.portao-wrap`
+     vivo pra camada nova (§ mock, `portaoVivo`). */
+  function avisarDemoCancelada() {
+    let tentativas = 0;
+    const abrir = () => {
+      if (!demoNoAr || typeof window.portao !== 'function') return;
+      if (document.querySelector('#app .tela.sai') && tentativas++ < 12) {
+        setTimeout(abrir, 120);
+        return;
+      }
+      window.portao({
+        tom: 'info', ico: 'bulb', titulo: 'Rota de exemplo cancelada',
+        sub: 'Isto é a demonstração: nada foi salvo, e o dia de exemplo ficou vazio '
+          + 'igual ficaria de verdade. Pra ver tudo de novo, vá em Ajustes › Tutorial, '
+          + 'toque em Sair da demonstração e depois em Abrir demonstração.',
+        acoes: [['Entendi', 'principal', true]],
+      });
+    };
+    setTimeout(abrir, 260);
+  }
+
+  /* O seam que o § 30-verbos-rota consulta ANTES de exigir ref de continuidade.
+     Devolve `false` com a demonstração fechada — e aí o Cancelar de verdade
+     segue inteiro, sem saber que este arquivo existe. */
+  window.__demoCancelarRota = function () {
+    try { return cancelarDemo(); } catch (_) { return false; }
+  };
 
   /* ── A FRESTA DAS RUAS (21/08/2026) ───────────────────────────────────────
      🔴 O CANO FECHADO DEIXAVA A TELA DE DIRIGIR PELA METADE. Medido no g15 com
@@ -17560,9 +17697,9 @@
      8. L4 — A PORTA: chegar, entregar e receber.
 
      Três regras de domínio que NÃO nasceram aqui — vieram do app que já roda:
-     · a folha é escolhida pela CONFIG, não pelo gosto: financeiro OFF ou
-       "cobrança simples" abrem a folha SIMPLES (`venda`); o resto abre a
-       COMPLETA (`folha`). É o mesmo degrau do `deliverySheet()` do app velho;
+     · a folha é UMA: a COMPLETA (`folha`). Até 24/08 a config escolhia entre
+       ela e a simples (`venda`) — a simples morreu junto com o interruptor do
+       financeiro, e toda chegada abre a completa;
      · a hora da CHEGADA nasce no celular quando a folha abre e viaja no
        DESFECHO (nunca num POST próprio) — a folha tem que abrir sem rede;
      · toque repetido não confirma duas vezes: a `idempotencyKey` é gravada
@@ -17653,8 +17790,8 @@
     if (el && el.matches && el.matches('[data-campo="contato-telefone"]')) contatoTelefone = String(el.value || '');
   });
 
-  let financeiroAtivo = true;
-  let cobrancaSimples = false;
+  // ⚰️ 24/08 — `financeiroAtivo`/`cobrancaSimples` morreram: o financeiro é
+  // sempre ligado e TODA chegada abre a folha completa (a simples morreu).
   let aberta = null;              // { id, n, item } — a parada com a folha aberta
   let forma = '';                 // pix | dinheiro | cartao | fiado
   let motivo = '';                // o motivo do "não entregue"
@@ -17681,19 +17818,9 @@
      virar tela de dado, ela entra AQUI e nada mais precisa mudar. */
   const PALCOS_3D = ['mapa'];
 
-  // A config só muda quando o dono mexe em Ajustes: pedir 1× por abertura do
-  // app basta, e uma falha aqui NÃO pode fechar a porta — o default é o
-  // comportamento de hoje (financeiro ligado, folha completa).
-  (async function lerConfig() {
-    if (!temPonte()) return;
-    try {
-      const c = await window.API.get('/logistica/config');
-      if (c && typeof c === 'object') {
-        if (typeof c.moduloFinanceiroAtivo === 'boolean') financeiroAtivo = c.moduloFinanceiroAtivo;
-        cobrancaSimples = !!c.cobrancaSimples;
-      }
-    } catch (_) { /* fica o default */ }
-  })();
+  // ⚰️ 24/08 — o `lerConfig()` que morava aqui morreu junto com a bifurcação
+  // venda×folha: era um `GET /logistica/config` a mais POR ABERTURA DO APP só
+  // pra decidir qual folha abrir — e a decisão acabou (folha completa, sempre).
 
   /** a hora em que o motorista CHEGOU nesta parada (1ª abertura da folha) */
   function carimbarChegada(id) {
@@ -17799,83 +17926,21 @@
          mostrava um e o banco gravava outro. Agora o seam recebe EXATAMENTE o
          que vai ser enviado, inclusive o padrão da 1ª abertura. */
       motivo: motivo || (DADOS_MOTIVO_PADRAO() || ''),
-      // DE QUAL FOLHA a `folhanao` foi aberta. Aqui é a COMPLETA — e ela ESTÁ
-      // preenchida, então voltar pra ela é honesto. O par mora em `encherVenda`.
+      // DE QUAL FOLHA a `folhanao` foi aberta — desde 24/08 só existe a
+      // COMPLETA, e ela ESTÁ preenchida: voltar pra ela é honesto.
       voltarPara: 'folha',
     });
   }
 
-  /** entrega do servidor → seam da folha SIMPLES (a venda) */
-  function encherVenda(item, n) {
-    const c = item.cliente || {};
-    const lista = somaItens(item);
-    const primeiro = lista[0] || {};
-    const prod = primeiro.produto || {};
-    const hojeVal = typeof item.valorHoje === 'number' ? item.valorHoje : null;
-    const anterior = typeof c.debitoAtual === 'number' ? c.debitoAtual : null;
-    /* 🔴 ZERO NÃO É "SEM PREÇO" (21/08). Com o financeiro LIGADO e nenhum produto
-       precificado, esta folha imprimia `R$ 0,00` — e zero, na porta do cliente,
-       não parece defeito: parece a conta. O entregador cobra nada e o dia fecha
-       errado. O servidor agora distingue os dois casos e manda `semPreco`; o
-       campo só viaja quando é VERDADE, então ausência = há preço (o caso normal).
-       ⚠️ Não é o mesmo que o módulo DESLIGADO: lá `valorHoje` nem vem, a folha
-       inteira nasce sem dinheiro e isso está certo. Aqui a empresa PEDIU
-       dinheiro e o cadastro não respondeu — a tela tem que dizer isso. */
-    const semPreco = item.semPreco === true;
-    const conta = semPreco ? 'sem preço' : hojeVal != null ? dinheiro(hojeVal) : '';
-    window.usarDados('venda', {
-      n: String(n),
-      titulo: `Parada ${n} • ${esc(c.nome)}`,
-      endereco: [esc(c.endereco), esc(c.cidade)].filter(Boolean).join(' • '),
-      pill: 'Chegou',
-      produto: esc(prod.nome) || (lista.length > 1 ? `${lista.length} produtos` : ''),
-      tags: lista.map((it) => {
-        const p = (it && it.produto) || {};
-        return [`${esc(p.nome)} x${it.qtdPrevista}`, 'blue'];
-      }),
-      semPreco: semPreco ? 1 : 0,
-      contaItem: conta,
-      contaChegada: conta,
-      // "Ficou marcado" só é verdade quando a forma escolhida é FIADO
-      // — em dinheiro/pix/cartão nada fica marcado. Número que muda de
-      // significado conforme o botão é número que mente.
-      // Sem preço, TODA a coluna de dinheiro vira travessão: imprimir `R$ 0,00`
-      // em "Ficou marcado" e "Recebido hoje" é a mesma mentira, três vezes.
-      lancamento: semPreco ? '—' : forma === 'fiado' && hojeVal != null ? dinheiro(hojeVal) : dinheiro(0),
-      recebido: semPreco ? '—' : forma && forma !== 'fiado' && hojeVal != null ? dinheiro(hojeVal) : dinheiro(0),
-      paraMarcado: anterior != null ? dinheiro(anterior + (forma === 'fiado' ? (hojeVal || 0) : 0)) : '',
-      forma,
-    });
-    /* 🔴 A FOLHA SIMPLES GANHOU A SAÍDA DO "NÃO ENTREGUE" (17/08, ordem 9 do
-       dono: *"fui em entregas, e nem achei onde clicar para isso acontecer!!!
-       isso já existe, não invente ache e religue"*).
+  /* ⚰️ `encherVenda` (a folha SIMPLES) MORREU em 24/08. A bifurcação
+     venda×folha vivia da config (`!financeiroAtivo || cobrancaSimples`) e os
+     dois campos morreram no contrato — toda chegada abre a folha COMPLETA, que
+     sempre teve o "Não entregue" (a ordem 9 de 17/08 era exatamente religar
+     essa saída na folha que o dono usava). O `semPreco` morreu junto: o
+     servidor não distingue mais — R$ 0,00 é valor legítimo e é o que
+     `dinheiro(0)` imprime na folha completa. */
 
-       O elo cortado era ESTE arquivo, uma linha abaixo em `abrirParada`:
-       `const simples = !financeiroAtivo || cobrancaSimples` manda a chegada pra
-       `venda` (a folha simples), e o botão "Não entregue" só existia na folha
-       COMPLETA. Nada tinha sumido — ele nunca esteve na folha que o dono usa, e
-       por isso o único verbo da porta era "Confirmar venda": o histórico do
-       cliente marcava como atendido o que ninguém conseguiu entregar.
-
-       A porta é a mesma peça (`folhanao`), e ela lê o seam da folha COMPLETA
-       (`folhaCompleta` desenha com `DADOS.folha`). São duas chaves, e cada uma
-       mata um defeito já medido nesta casa:
-       · `motivo` — o MESMO par que `encherFolha` semeia (§ "A TELA E O SERVIDOR
-         TÊM QUE DIZER O MESMO MOTIVO", acima). Sem ele o furo curado lá
-         ressuscitaria pela porta nova: marcar "Endereço não encontrado" na
-         parada 3 deixaria o motivo aceso ao abrir a parada 5, enquanto o
-         `registrarNaoEntregue` mandaria "Ninguém atendeu" pro servidor.
-       · `voltarPara` — o Voltar da `folhanao` cravava `folha`; em cobrança
-         simples a folha COMPLETA nunca foi preenchida, e como o seam `folha`
-         não entra no apagador da demonstração, voltar por ali cuspiria o
-         DESENHO na cara do motorista (Maria Aparecida · R$ 21,00). */
-    window.usarDados('folha', {
-      motivo: motivo || (DADOS_MOTIVO_PADRAO() || ''),
-      voltarPara: 'venda',
-    });
-  }
-
-  /** toque na parada: carimba a chegada e abre a folha que a config mandar */
+  /** toque na parada: carimba a chegada e abre a folha completa */
   function abrirParada(id) {
     const reg = ENTREGAS.get(String(id));
     if (!reg || typeof window.usarDados !== 'function') return;
@@ -17909,9 +17974,9 @@
     // VASILHAME onda 2 — a contagem de vazios é DESTA porta. Sobrar o "2" da
     // parada anterior daria casco ao cliente errado (mesma lei do `motivo`).
     zerarVazios();
-    const simples = !financeiroAtivo || cobrancaSimples;
-    if (simples) { encherVenda(reg.item, reg.n); window.ir('venda'); }
-    else { encherFolha(reg.item, reg.n); window.ir('folha'); }
+    // 24/08 — sem bifurcação: a folha simples morreu, a completa é a única.
+    encherFolha(reg.item, reg.n);
+    window.ir('folha');
   }
 
   /* ---- CHEGOU NA PORTA: O CARTÃO ABRE SOZINHO -----------------------------
@@ -18044,14 +18109,15 @@
      em `window.ir(destino)`. */
   if (typeof window.ir === 'function') {
     const irAntesDaPorta = window.ir;
-    const naFolha = (t) => t === 'venda' || t === 'folha' || t === 'folhanao';
+    // 24/08 — 'venda' saiu da lista: a tela morreu junto com a folha simples.
+    const naFolha = (t) => t === 'folha' || t === 'folhanao';
     window.ir = function (tela) {
       const veioDe = telaAtual();
       const r = irAntesDaPorta.apply(this, arguments);
       /* Só morde quando `aberta` SOBREVIVEU à troca de tela. `confirmarEntrega`
          e `registrarNaoEntregue` já zeram `aberta` (e `chegadaPalco`) ANTES de
          chamar `ir` — então nesses dois caminhos isto é um no-op honesto.
-         `aberta` de pé DEPOIS de sair de venda/folha/folhanao só pode
+         `aberta` de pé DEPOIS de sair de folha/folhanao só pode
          significar abandono — nunca a troca folha↔folhanao ("Não entregue"
          dentro da própria folha), que fica DENTRO do conjunto e não é saída
          nenhuma: é o motivo mudando de tela, a mesma folha ainda aberta. */
@@ -18106,9 +18172,7 @@
   /** repinta a folha aberta (o seam é a única fonte da marcação selecionada) */
   function repintarFolha() {
     if (!aberta) return;
-    const simples = !financeiroAtivo || cobrancaSimples;
-    if (simples) encherVenda(aberta.item, aberta.n);
-    else encherFolha(aberta.item, aberta.n);
+    encherFolha(aberta.item, aberta.n);
   }
 
   /* ------------------------------------------------------------------------
@@ -18195,14 +18259,11 @@
     // sem tirar os olhos dele da rua. Ver L8b.
     if (travaDoRecado()) return;
     const escolhido = metodo || forma;
-    // Financeiro ON exige saber como recebeu — senão o fechamento do dia soma
-    // errado e ninguém descobre até o caixa não bater.
-    if (financeiroAtivo && !escolhido) {
-      return window.portao({
-        tom: 'alerta', ico: 'cash', titulo: 'Como o cliente pagou?',
-        sub: 'Escolha a forma antes de confirmar.', acoes: [['Fechar', '']],
-      });
-    }
+    /* ⚰️ 24/08 — o portão "Como o cliente pagou?" MORREU: a entrega confirma
+       mesmo sem forma escolhida. O POST aceita `receiptMethod` ausente, e o
+       campo só viaja quando o motorista TOCOU num dos botões da folha
+       (Dinheiro/Pix/Cartão/Marcar, que continuam lá). Pergunta bloqueante na
+       porta do cliente era um degrau a mais no verbo mais repetido do dia. */
     await comTrava(async () => {
       const chave = `entrega-confirmar:${aberta.id}`;
       let idem = window.HBX.cache.get(chave, null);
@@ -18396,7 +18457,8 @@
     'chegada-dispensar': dispensarChegada,
     'entregue-pagou': () => confirmarEntrega(''),
     'entregue-marcou': () => confirmarEntrega('fiado'),
-    'confirmar-venda': () => confirmarEntrega(''),
+    // ⚰️ 'confirmar-venda' morreu em 24/08 com a folha simples (T.venda): o
+    // único botão que o disparava saiu do desenho junto com a tela.
     'registrar-nao-entregue': registrarNaoEntregue,
     'fechar-dia': fecharDia,
     'salvar-cliente': salvarCliente,
@@ -18548,18 +18610,25 @@
     // no mock). É a mesma porta do alvo: informação e saída na mesma peça.
     'gps-ligar': () => { pedirGpsNoToque(); },
     'aviso-chegada': () => virarChave('avisoChegandoEnabled'),
-    // As 6 do dono. Uma chave = um campo = um PATCH, sem lote: assim o que
-    // falhou fica evidente e o resto não volta atrás junto.
-    'chave-financeiro': () => virarChave('moduloFinanceiroAtivo'),
-    'chave-cobranca-simples': () => virarChave('cobrancaSimples'),
-    'chave-preco-cliente': () => virarChave('precoPorClienteAtivo'),
+    // As formas de pagamento do dono. Uma chave = um campo = um PATCH, sem
+    // lote: assim o que falhou fica evidente e o resto não volta atrás junto.
+    // ⚰️ 24/08 — chave-financeiro/chave-cobranca-simples/chave-preco-cliente
+    // morreram com os campos: o PATCH com qualquer um deles agora é 400.
     'chave-na-hora': () => virarChave('aceitaNaHora'),
     'chave-mensal': () => virarChave('aceitaMensal'),
     'chave-fiado': () => virarChave('aceitaFiado'),
-    // A do prospector entra pela MESMA porta das seis: um campo, um PATCH, sem
-    // otimismo na tela. É ela que deixa o capítulo "Ligue o prospector"
-    // terminar num `fazer` de verdade — o dono liga na hora, aprendeu fazendo.
-    'chave-prospector': () => virarChave('prospectorAtivo'),
+    /* A do prospector entra pela MESMA porta: um campo, um PATCH, sem otimismo
+       na tela. 24/08 — ao LIGAR, o portão "Ciente" vem ANTES do PATCH: mensagem
+       automática em nome do motorista + custo em crédito exigem o carimbo do
+       ator no servidor (`POST /logistica/prospector/ciente`) uma vez na vida.
+       DESLIGAR nunca pergunta nada. */
+    'chave-prospector': () => {
+      const ligando = !!(config && !config.prospectorAtivo);
+      if (ligando && config.prospectorCiente !== true) {
+        return portaoCienteProspector(() => virarChave('prospectorAtivo'));
+      }
+      virarChave('prospectorAtivo');
+    },
     /* PROSPECTOR v2 (12/08) — as três portas da ESCOLHA DA SEMANA. Elas NÃO são
        chave de config: a chave de cima é da EMPRESA (um campo, um PATCH), estas
        são da PESSOA que dirige (§7b-bis). Abrir CARREGA antes de navegar — folha

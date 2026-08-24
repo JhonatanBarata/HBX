@@ -504,9 +504,10 @@
          `corpoFinanceiro` devolve SÓ o que mudou, e null quando nada mudou; sem
          essa disciplina, abrir e salvar qualquer ficha reescreveria o contrato
          de cobrança de todo cliente legado da base sem ninguém pedir.
-         Só quem PODE editar manda: com o módulo desligado ou sem admin a seção
-         nem existe na tela, e um PATCH daqui voltaria 403. */
-      const fin = (config && config.moduloFinanceiroAtivo && ehAdmin()) ? corpoFinanceiro() : null;
+         Só quem PODE editar manda: sem admin a seção nem existe na tela, e um
+         PATCH daqui voltaria 403. (24/08 — a chave do módulo morreu no
+         contrato: o financeiro é sempre ligado, sobrou só a régua do admin.) */
+      const fin = ehAdmin() ? corpoFinanceiro() : null;
 
       if (!Object.keys(conta).length && !mudouEndereco && !mudouDias && !fin) {
         return window.portao({

@@ -29,7 +29,7 @@ button,input{font:inherit;color:inherit}
 .app button:focus{outline:none}
 .app button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 
-/* ---------- cromo do documento ---------- */
+/* ---------- cromo do documento ---------- */
 
 /* ==========================================================================
    O CELULAR — 400x900 lógico, ampliado por zoom (padrão 1.7)
@@ -233,7 +233,7 @@ button,input{font:inherit;color:inherit}
    fábrica. Peso alto fica só no logotipo, que é marca, não texto. */
 .app b,.app strong{font-weight:500}
 .app h2{font-weight:400;letter-spacing:-.018em}
-.app .v,.app .eta b,.app .price,.app .form-c.total b{letter-spacing:-.02em}
+.app .v,.app .eta b,.app .price,.app .form-c.total b{letter-spacing:-.02em}
 
 /* ==========================================================================
    PADRÕES DE MOVIMENTO — as 7 leis. Nada nesta casca aparece do nada.
@@ -3782,6 +3782,30 @@ button,input{font:inherit;color:inherit}
      quem dirige de dia. Mesma cena, lado oposto. */
   --veu:#eef2f8;
   --puck-anel:rgba(18,87,200,.42);
+  /* 🔴 AS TRÊS SUPERFÍCIES QUE SÓ EXISTIAM DE NOITE (24/08, medido na foto do
+     dono: *"contraste, resolva de vez"*). `--glass`, `--field` e `--chip-bg`
+     nasceram no bloco escuro e NUNCA tiveram par aqui. A folha se virava com
+     uma LISTA de seletores lá embaixo (`[data-luz="claro"] .nav,.tmx-dock,
+     .gps-rodape` e a lista das peças de vidro), e o comentário daquela lista já
+     avisava: *"peça nova de vidro que não entrar aqui repete o mesmo defeito"*.
+     Repetiu — e do jeito pior, porque a peça nova nem era nova: o rodapé do 2D
+     ganhou o seletor `.plano.com-rodape .gps-rodape` (3 classes, 0-3-0) em
+     17/08 pra vestir o mesmo painel do 3D, e a linha do claro que existia era
+     `[data-luz="claro"] .gps-rodape` (0-2-0). A de 3 classes GANHA: o rodapé do
+     mapa 2D continuou pintando `--glass` (#0b1322) com `--ink` (#0f1726) por
+     cima — 1,03:1, os números "restante · distância · chegada" literalmente
+     invisíveis, e "Cancelar/Registrar/Finalizar" em 2,7:1.
+     Lista de seletores é disciplina; TOKEN é construção. Com o par aqui, todo
+     `var(--glass)` acerta sozinho — inclusive os três que ninguém tinha visto
+     ainda: os cartões de rota pendente (`.rota-continuidade`), o selo
+     "Redirecionando…" (`.gps-redir`) e o rótulo do nome no pino, que o
+     `--map-pino-nome-fundo` lá embaixo JÁ dizia que era "o `--glass` do modo
+     claro" — uma frase que só passou a ser verdade nesta linha.
+     As regras `background:#fff` escritas à mão continuam onde estão e continuam
+     ganhando por especificidade: mesma tinta, zero mudança na tela. */
+  --glass:#ffffff;
+  --field:#f7f9fc;
+  --chip-bg:#f7f9fc;
   background:linear-gradient(180deg,var(--bg-2),var(--bg) 34%);
   color:var(--ink);
 }
@@ -4091,11 +4115,13 @@ button,input{font:inherit;color:inherit}
 /* Barras fixas: branco sólido, separadas por fio — sem gradiente de fumaça. */
 [data-luz="claro"] .nav,[data-luz="claro"] .tmx-dock,[data-luz="claro"] .gps-rodape{
   background:#fff;border-top-color:var(--line)}
-/* 🔴 TODA PEÇA DE VIDRO POR CIMA DE MAPA ENTRA NESTA LISTA — e as duas do mapa
-   2D nasceram FORA dela (medido 08/08: a barra saía #0b1322 sobre um mapa
-   claro, com o "12 paradas · 6 entregues" tinta escura em cima de fundo escuro,
-   ilegível). `--glass` existe só no tema de noite; no claro quem manda é esta
-   regra. Peça nova de vidro que não entrar aqui repete o mesmo defeito. */
+/* 🔴 ESTA LISTA DEIXOU DE SER A ÚNICA REDE (24/08). Ela nasceu em 08/08 pelo
+   mesmo defeito de sempre — peça de vidro saindo #0b1322 em cima de mapa claro
+   — e o aviso que ficou aqui ("peça nova de vidro que não entrar aqui repete o
+   mesmo defeito") descreveu com precisão o que aconteceu de novo em 17/08 com o
+   rodapé do 2D. Agora `--glass` TEM par claro (ver o bloco de tokens), então
+   quem esquecer a lista continua acertando; a lista fica porque ela ainda dá o
+   fio (`--line-2`) e a sombra que o token sozinho não carrega. */
 [data-luz="claro"] .gps-manobra,[data-luz="claro"] .next-card,
 [data-luz="claro"] .map-chip,[data-luz="claro"] .map-ctrl button,
 [data-luz="claro"] .gps-bussola,[data-luz="claro"] .gps-vel,
@@ -4105,7 +4131,18 @@ button,input{font:inherit;color:inherit}
   box-shadow:0 2px 10px rgba(15,23,38,.12)}
 [data-luz="claro"] .gps-manobra .seta{background:transparent;color:var(--ink)}
 [data-luz="claro"] .gps-manobra .baixo{background:#f4f7fb;border-top-color:var(--line)}
-[data-luz="claro"] .gps.dirigindo .gps-rodape{background:#fff;border-color:var(--line-2)}
+/* 🔴 OS DOIS SELETORES ANDAM JUNTOS, COMO LÁ EM CIMA (24/08). A regra base do
+   painel é `.gps.dirigindo .gps-rodape,.plano.com-rodape .gps-rodape` — dois
+   seletores sobre uma declaração, justamente pra ninguém consertar um modo e
+   esquecer o outro. Aqui só o 3D estava escrito, e o 2D (0-3-0) ganhava desta
+   linha (0-2-0 quando escrita sem `.gps.dirigindo`): rodapé preto no tema de
+   dia, o defeito da foto do dono.
+   A SOMBRA TAMBÉM É PELE: `rgba(0,0,0,.46)` é a do escuro, e sombra preta de
+   46% debaixo de uma barra branca é a "sujeira" que a Lei 2 do modo claro
+   proíbe. Vale a mesma da lista de vidro daqui de cima. */
+[data-luz="claro"] .gps.dirigindo .gps-rodape,
+[data-luz="claro"] .plano.com-rodape .gps-rodape{background:#fff;border-color:var(--line-2);
+  box-shadow:0 6px 20px rgba(15,23,38,.14)}
 /* A regra do tema claro seguiu a peça, não o nome: o botão que era vermelho
    virou o "Panorâmica", que não destrói nada. Ela some — o claro já herda a cor
    de tinta do `.gps-encerrar button`, e o único destaque desta faixa continua

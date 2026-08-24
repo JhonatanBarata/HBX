@@ -1,35 +1,14 @@
 /**
- * PR28072026 HÍBRIDO — CATÁLOGO COMERCIAL DOS 3 NÍVEIS DE ROTA (28/07).
+ * PR28072026 HÍBRIDO — CATÁLOGO COMERCIAL DOS NÍVEIS DE ROTA (28/07).
  *
- * Decisão do dono (28/07, depois do brainstorm de preço): o Gerenciador de Rota
- * é vendido como ESCADA de 3 planos com **modelo híbrido**, o padrão do mercado
- * SaaS do nicho água/gás:
+ * Decisão do dono (28/07): o Gerenciador de Rota é vendido como ESCADA de
+ * planos com mensalidade FIXA (o cliente sabe quanto paga) — receita de consumo
+ * é serrote; mensalidade é MRR previsível e preserva o degrau de upgrade.
  *
- *   mensalidade FIXA (o cliente sabe quanto paga)  +
- *   FRANQUIA de paradas inclusa no mês             +
- *   excedente consome CRÉDITO (o custo variável que já roda desde sempre)
- *
- * Por que a mensalidade NÃO virou "consumo em crédito" (a pergunta do dono):
- *  1. dono de distribuidora compra mensalidade fixa — é assim que SGA e Gestor
- *     Gás vendem; preço que oscila com a operação vira medo de estourar a conta;
- *  2. receita de consumo é serrote (cai em feriado, cai em janeiro) — mensalidade
- *     é MRR previsível;
- *  3. crédito puro MATA O DEGRAU: o cliente nunca sobe de nível, só recarrega no
- *     mesmo — e o degrau (R$ 100 entre níveis) é o retorno da escada;
- *  4. crédito mede CUSTO marginal (parada, rastreio, IA). Misturar preço e custo
- *     na mesma unidade destrói a régua "quanto custa servir × quanto ele paga".
- *
- * A FRANQUIA é o motor de upgrade: quando o cliente estoura, ele compara
- * "recarregar crédito" com "subir de plano" — e sobe sozinho.
- *
- * ── DEFAULTS calibrados com PRODUÇÃO (julho/2026), não com chute ─────────────
- * Bloco de cobrança = 5 paradas = 1 crédito; crédito custa R$ 0,75–0,97 conforme
- * o pacote (Starter 100/R$97 · Growth 300/R$247 · Scale 800/R$597).
- *   - cia 41 (piloto):   424 paradas/mês ≈  85 créditos ≈ R$ 70
- *   - cia 48:          1.104 paradas/mês ≈ 221 créditos ≈ R$ 181
- * As franquias abaixo deixam o valor-em-crédito incluso perto de METADE da
- * mensalidade (margem preservada) e caem naturalmente na régua real: a 41
- * estoura o Basic e cabe no Advanced; operação pesada cabe no Full.
+ * 24/08/2026 (decisão do dono) — a FRANQUIA de paradas saiu do catálogo: era
+ * vitrine morta desde ROTA v2 (10/08, plano com nível = rota ILIMITADA; o que
+ * limita é ASSENTO). Hoje os níveis diferem por Nº DE ASSENTOS — preço, título
+ * e slogan são material de vitrine.
  *
  * Preço é decisão do DONO (99/199/299 batidos em 28/07) e TUDO aqui é editável
  * no Master — a base em código é só o ponto de partida, mesmo contrato do
@@ -43,17 +22,10 @@ import type { LogisticaNivel } from './logistica-config.service';
 // iteram este array — CREDITO primeiro, é o degrau mais barato da escada.
 export const LOGISTICA_NIVEIS: LogisticaNivel[] = ['CREDITO', 'BASIC', 'ADVANCED', 'FULL'];
 
-/**
- * 28/07 (dono) — A UNIDADE DE COBRANÇA DA ROTA SIMPLES É A PARADA, não mais um
- * bloco de 5. O bloco existia porque a carteira só cobrava inteiros; hoje ela
- * cobra até 3 casas decimais, então o preço do bloco (2) virou preço da parada
- * (2/5 = 0,4) e a conta ficou igual pra 5 paradas — mas honesta pras outras.
- * Ordem literal: "não quero logística Simples diferente, isso gera confusão".
- *
- * Fica como constante (em vez de sumir) porque é ela que amarra franquia do
- * plano e billing na MESMA unidade: mudar aqui move os dois juntos.
- */
-export const PARADAS_POR_BLOCO = 1;
+// ⚰️ 24/08/2026 — `franquiaParadasMes`, `franquiaEmBlocos` e PARADAS_POR_BLOCO
+// MORRERAM: a franquia era vitrine morta desde ROTA v2 (10/08, plano com nível
+// virou rota ILIMITADA) e nenhum gate de cobrança lia esses números. Plano
+// difere SÓ por nº de assentos (+ preço/título/slogan de vitrine).
 
 export type LogisticaNivelDefinition = {
   nivel: LogisticaNivel;
@@ -62,8 +34,6 @@ export type LogisticaNivelDefinition = {
   slogan: string;
   /** Mensalidade em R$ (decisão do dono; editável no Master). */
   precoMensal: number;
-  /** Paradas inclusas por mês. 0 = sem franquia (tudo consome crédito). */
-  franquiaParadasMes: number;
   /**
    * ROTA v2 F2b (10/08) — quantos motoristas simultâneos o nível inclui SEM
    * pagar passe extra (ver `assertAssentoDoDia`, logistica-nivel-plano.service.ts
@@ -75,7 +45,7 @@ export type LogisticaNivelDefinition = {
 };
 
 const BASE: Record<LogisticaNivel, LogisticaNivelDefinition> = {
-  // ROTA v2 F2b (10/08) — o nível novo: sem mensalidade, sem franquia — só o
+  // ROTA v2 F2b (10/08) — o nível novo: sem mensalidade — só o
   // débito único "dia de rota" por empresa+data (logistica_dia_de_rota no
   // catálogo de crédito). É o berço de toda empresa nova (grandfathering
   // continua ADVANCED pra quem já tinha linha antes disto existir).
@@ -84,7 +54,6 @@ const BASE: Record<LogisticaNivel, LogisticaNivelDefinition> = {
     titulo: 'Rota Avulsa',
     slogan: 'Pague só o dia que rodar',
     precoMensal: 0,
-    franquiaParadasMes: 0,
     assentosInclusos: 1,
   },
   BASIC: {
@@ -92,7 +61,6 @@ const BASE: Record<LogisticaNivel, LogisticaNivelDefinition> = {
     titulo: 'Rota Basic',
     slogan: 'Anota o dia inteiro e te leva até a porta',
     precoMensal: 99,
-    franquiaParadasMes: 300,
     assentosInclusos: 1,
   },
   ADVANCED: {
@@ -100,7 +68,6 @@ const BASE: Record<LogisticaNivel, LogisticaNivelDefinition> = {
     titulo: 'Rota Advanced',
     slogan: 'O app cobra por você',
     precoMensal: 199,
-    franquiaParadasMes: 600,
     assentosInclusos: 2,
   },
   FULL: {
@@ -108,7 +75,6 @@ const BASE: Record<LogisticaNivel, LogisticaNivelDefinition> = {
     titulo: 'Rota Full',
     slogan: 'iFood da sua distribuidora',
     precoMensal: 299,
-    franquiaParadasMes: 1000,
     assentosInclusos: 3,
   },
 };
@@ -117,7 +83,6 @@ export type LogisticaNivelOverride = {
   titulo?: string;
   slogan?: string;
   precoMensal?: number;
-  franquiaParadasMes?: number;
   assentosInclusos?: number;
 };
 
@@ -130,8 +95,8 @@ export function normalizeLogisticaNivelKey(value: unknown): LogisticaNivel | nul
 
 /**
  * Sanitiza um override cru (banco/API) — o MESMO filtro nos dois caminhos, pra
- * não existir "valor que entra pelo banco mas a API recusaria". Preço e franquia
- * têm teto: número absurdo é erro de digitação do master, não intenção.
+ * não existir "valor que entra pelo banco mas a API recusaria". Preço tem teto:
+ * número absurdo é erro de digitação do master, não intenção.
  */
 export function sanitizeLogisticaNivelOverride(raw: unknown): LogisticaNivelOverride {
   const ov = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
@@ -140,10 +105,6 @@ export function sanitizeLogisticaNivelOverride(raw: unknown): LogisticaNivelOver
   if (typeof ov.slogan === 'string' && ov.slogan.trim()) clean.slogan = ov.slogan.trim().slice(0, 160);
   const preco = Number(ov.precoMensal);
   if (Number.isFinite(preco) && preco >= 0 && preco <= 99999) clean.precoMensal = Math.round(preco * 100) / 100;
-  const franquia = Number(ov.franquiaParadasMes);
-  if (Number.isFinite(franquia) && franquia >= 0 && franquia <= 1000000) {
-    clean.franquiaParadasMes = Math.trunc(franquia);
-  }
   // ROTA v2 F2b (10/08) — assentos inclusos do nível. 1–999: zero/negativo não
   // existe (motorista precisa de PELO MENOS 1 assento pra rodar) e 999 é teto
   // de digitação, não limite de produto real.
@@ -180,7 +141,6 @@ export function getLogisticaNivelDefinition(value: unknown): LogisticaNivelDefin
     ...(ov.titulo !== undefined ? { titulo: ov.titulo } : {}),
     ...(ov.slogan !== undefined ? { slogan: ov.slogan } : {}),
     ...(ov.precoMensal !== undefined ? { precoMensal: ov.precoMensal } : {}),
-    ...(ov.franquiaParadasMes !== undefined ? { franquiaParadasMes: ov.franquiaParadasMes } : {}),
     ...(ov.assentosInclusos !== undefined ? { assentosInclusos: ov.assentosInclusos } : {}),
   };
 }
@@ -196,14 +156,3 @@ export function listLogisticaNiveisCatalog(): LogisticaNivelDefinition[] {
   return LOGISTICA_NIVEIS.map((n) => getLogisticaNivelDefinition(n));
 }
 
-/**
- * Franquia convertida para a unidade que o billing da rota realmente debita.
- * Desde 28/07 essa unidade é a PARADA (PARADAS_POR_BLOCO = 1), então a conversão
- * é 1:1 e a franquia do plano ("300 paradas") passou a valer exatamente o que
- * está escrito na venda — antes, com bloco de 5, ela era arredondada pra baixo
- * em múltiplos de 5 e o cliente perdia o resto.
- */
-export function franquiaEmBlocos(franquiaParadasMes: number): number {
-  const paradas = Math.max(0, Math.trunc(Number(franquiaParadasMes) || 0));
-  return Math.floor(paradas / PARADAS_POR_BLOCO);
-}

@@ -631,20 +631,21 @@
          dela pro mapa não podia reencenar a cidade nascendo. Ela morreu —
          "Você chegou" agora é a peça `.chegou-wrap`, por cima do PRÓPRIO
          `T.mapa` — mas o cruzamento que esta exceção evita continua existindo,
-         só que por outra porta: "Registrar entrega" no cartão abre
-         'venda'/'folha' (ou 'folhanao', o desfecho sem entregar), e confirmar
+         só que por outra porta: "Registrar entrega" no cartão abre a
+         'folha' (ou 'folhanao', o desfecho sem entregar — a 'venda' morreu em
+         24/08 com a folha simples), e confirmar
          devolve o motorista pro 'mapa' de onde o cartão nasceu
          (`irDepoisDoDesfecho`, lendo `chegadaPalco`). Sem esta tradução, cada
          parada resolvida enquanto dirigindo reencenaria a cidade nascendo +
          1,8 s de descida de câmera, dezenas de vezes por dia, no meio da rua —
          era exatamente o defeito que a exceção original existia pra matar. */
       if (telaVistaAqui === 'mapa') {
-        if (veioDe === 'venda' || veioDe === 'folha' || veioDe === 'folhanao') { camFase = 'dirigindo'; pedirCamera(); }
+        if (veioDe === 'folha' || veioDe === 'folhanao') { camFase = 'dirigindo'; pedirCamera(); }
         /* 🔴 VOLTAR DA PANORÂMICA TAMBÉM NÃO É ENTRAR NA ROTA (16/08). Caía no
            `entrarNaDescida` — a coreografia de quem chega pela primeira vez:
            cena das ruas + 400 ms de vista de cima + 1,8 s de descida, MEDIDOS
            no g15 como 3 s de tela parada antes de a câmera se mexer. É a mesma
-           exceção de 'venda'/'folha' logo acima, pelo mesmo motivo (a cidade já
+           exceção da 'folha' logo acima, pelo mesmo motivo (a cidade já
            nasceu) — só que aqui a câmera TEM que voltar, porque ela subiu. A
            pose do 2D é guardada agora, antes de o mapa ser estacionado, e a
            descida acontece depois do transplante (§ `descerDoPlano`). */

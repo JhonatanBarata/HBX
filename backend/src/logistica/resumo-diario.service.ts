@@ -36,7 +36,8 @@ import { isResumoDiarioEnabled } from './resumo-diario.flags';
 //   depois desiste até amanhã. Sem loop.
 // · Conteúdo 100% read-only e de métodos que JÁ EXISTEM (resumoDia /
 //   saldosFinanceiro do LogisticaService + 1 count leve de rota) — nenhuma
-//   query pesada nova. Sem moduloFinanceiroAtivo, NENHUM valor vai na mensagem.
+//   query pesada nova. (24/08/2026: o gate moduloFinanceiroAtivo morreu —
+//   financeiro é sempre ligado, os valores sempre entram na mensagem.)
 // ===========================================================================
 
 const TICK_MS = Number(process.env.HBX_RESUMO_DIARIO_TICK_MS || '') || 10 * 60 * 1000; // 10min
@@ -57,7 +58,6 @@ interface ConfigAlvo {
   companyId: number;
   resumoDiarioHora: number;
   resumoDiarioUltimoEnvio: Date | null;
-  moduloFinanceiroAtivo: boolean;
 }
 
 /** Meia-noite LOCAL do dia de `ref` (mesma semântica do rangeDoDia do S2). */
@@ -158,7 +158,6 @@ export class ResumoDiarioService implements OnModuleInit, OnModuleDestroy {
           companyId: true,
           resumoDiarioHora: true,
           resumoDiarioUltimoEnvio: true,
-          moduloFinanceiroAtivo: true,
         },
         orderBy: { companyId: 'asc' },
         take: MAX_EMPRESAS_POR_TICK,
@@ -226,7 +225,7 @@ export class ResumoDiarioService implements OnModuleInit, OnModuleDestroy {
       return 'pulado';
     }
 
-    const body = await this.montarResumo(companyId, referencia, !!alvo.moduloFinanceiroAtivo);
+    const body = await this.montarResumo(companyId, referencia);
 
     // Daqui pra frente é TENTATIVA real: consome o teto ANTES do envio (falha
     // adiante também conta — 2 falhas no dia = silêncio até amanhã).
@@ -274,11 +273,12 @@ export class ResumoDiarioService implements OnModuleInit, OnModuleDestroy {
    *   · ontem         = resumoDia(companyId, ontem) do LogisticaService
    *     (entregues + recebido) — método EXISTENTE, zero query nova.
    *   · em aberto     = saldosFinanceiro(companyId) — fonte única do "quem me
-   *     deve" (já vem FAIL-CLOSED pelo moduloFinanceiroAtivo de lá).
-   * LEI DO VENDEDOR/M4: sem moduloFinanceiroAtivo NENHUM valor entra na mensagem
-   * (nem o "recebido ontem" — só contagens de entrega).
+   *     deve".
+   * 24/08/2026 — o gate moduloFinanceiroAtivo morreu (financeiro é sempre
+   * ligado): os valores sempre entram na mensagem. LEI DO VENDEDOR intacta —
+   * o destino é o DONO verificado, nunca o vendedor.
    */
-  private async montarResumo(companyId: number, referencia: Date, moduloFinanceiroAtivo: boolean): Promise<string> {
+  private async montarResumo(companyId: number, referencia: Date): Promise<string> {
     const { start, end } = rangeDoDia(referencia);
     const ontem = new Date(referencia);
     ontem.setDate(ontem.getDate() - 1);
@@ -299,19 +299,14 @@ export class ResumoDiarioService implements OnModuleInit, OnModuleDestroy {
       `${saudacaoPorHorario(referencia)}! Resumo de hoje: ${naRotaHoje} ${plural(naRotaHoje, 'entrega', 'entregas')} na rota.`,
     );
 
-    if (moduloFinanceiroAtivo) {
-      linhas.push(
-        `Ontem: ${resumoOntem.entregues} ${plural(resumoOntem.entregues, 'entregue', 'entregues')}, ${fmtValorBR(resumoOntem.recebidoHoje)} recebidos.`,
-      );
-      const saldos = await this.logistica.saldosFinanceiro(companyId);
-      const totalAberto = round2(saldos.clientes.reduce((s, c) => s + (Number(c.saldoAberto) || 0), 0));
-      const devedores = saldos.clientes.length;
-      if (devedores > 0) {
-        linhas.push(`Em aberto: ${fmtValorBR(totalAberto)} (${devedores} ${plural(devedores, 'cliente', 'clientes')}).`);
-      }
-    } else {
-      // Financeiro do tenant OFF → SÓ contagens, nenhum R$ (regra do M4).
-      linhas.push(`Ontem: ${resumoOntem.entregues} ${plural(resumoOntem.entregues, 'entregue', 'entregues')}.`);
+    linhas.push(
+      `Ontem: ${resumoOntem.entregues} ${plural(resumoOntem.entregues, 'entregue', 'entregues')}, ${fmtValorBR(resumoOntem.recebidoHoje)} recebidos.`,
+    );
+    const saldos = await this.logistica.saldosFinanceiro(companyId);
+    const totalAberto = round2(saldos.clientes.reduce((s, c) => s + (Number(c.saldoAberto) || 0), 0));
+    const devedores = saldos.clientes.length;
+    if (devedores > 0) {
+      linhas.push(`Em aberto: ${fmtValorBR(totalAberto)} (${devedores} ${plural(devedores, 'cliente', 'clientes')}).`);
     }
 
     return linhas.join('\n');

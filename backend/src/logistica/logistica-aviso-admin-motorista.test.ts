@@ -125,15 +125,18 @@ test('encerrar e limpar-dia: admin que dirige também vira recado', async () => 
 });
 
 // ── 2. O QUE O FIX NÃO PODE TER QUEBRADO ─────────────────────────────────────
-test('o cancelamento legado do admin fica preso ao próprio usuário', async () => {
+// 24/08/2026 — CONVIVÊNCIA admin+motorista: os TRÊS verbos escopam ao próprio
+// ator SEMPRE (antes descartar/encerrar do admin desciam `undefined` e o
+// serviço varria a empresa inteira — a rota do motorista na rua ia junto).
+test('descartar/encerrar/limpar-dia do admin ficam presos ao próprio usuário', async () => {
   const { controller, chamadas } = montarControllerComEspioes();
 
   await controller.descartarMontagem({ user: admin }, { date: DIA } as any);
   await controller.encerrarRota({ user: admin }, { date: DIA } as any);
   await controller.limparDia({ user: admin }, { date: DIA } as any);
 
-  assert.deepEqual(chamadas.descartarMontagem, [undefined]);
-  assert.deepEqual(chamadas.encerrarRota, [undefined]);
+  assert.deepEqual(chamadas.descartarMontagem, [DONO]);
+  assert.deepEqual(chamadas.encerrarRota, [DONO]);
   assert.deepEqual(chamadas.limparDia, [DONO]);
 });
 
@@ -146,11 +149,18 @@ test('motorista comum: identidade continua vindo do recorte do ator', async () =
   assert.deepEqual(chamadas.registrarSaida, [OUTRO]);
 });
 
-test('ator sem id (chamada interna/legada): sem identidade, nenhum aviso', async () => {
+// 24/08/2026 — sem id não existe mais "descartar da empresa": o fail-safe de
+// escopo (mesmo do limpar-dia) exige o ator identificado e recusa ANTES de
+// tocar em qualquer coisa. Continua sem aviso: nada rodou.
+test('ator sem id (chamada interna/legada): recusado antes de agir, nenhum aviso', async () => {
   const { controller, chamadas } = montarControllerComEspioes();
 
-  await controller.descartarMontagem({ user: { companyId: COMPANY, role: 'ADMIN' } }, { date: DIA } as any);
+  await assert.rejects(
+    () => controller.descartarMontagem({ user: { companyId: COMPANY, role: 'ADMIN' } }, { date: DIA } as any),
+    /Usuário não identificado/,
+  );
 
+  assert.deepEqual(chamadas.descartarMontagem, [], 'o serviço nunca chega a ser chamado');
   assert.deepEqual(chamadas.registrarSaida, []);
 });
 

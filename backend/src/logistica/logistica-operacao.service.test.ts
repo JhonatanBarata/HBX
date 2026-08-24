@@ -135,7 +135,10 @@ test('config do tenant persiste qualquer combinação de requisitos', async () =
   // S7 (PR22072026-APP-SOUNDS) — stub do CreditWalletService (só satisfaz o
   // construtor; este teste não exercita creditosEsgotados).
   const wallet: any = { getBalance: async () => 100 };
-  const service = new LogisticaConfigService(prisma, wallet);
+  // 24/08 — stub mínimo do UsersService (o carimbo do prospectorCiente tem
+  // teste próprio em logistica-config-prospector.test.ts).
+  const users: any = { findById: async () => ({}), getOnboardingEvents: () => ({}), stampOnboardingEvent: async () => ({ firstTime: true, events: {} }) };
+  const service = new LogisticaConfigService(prisma, wallet, users);
   const result = await service.updateConfig(7, {
     comprovanteFotoObrigatoria: true,
     comprovanteAssinaturaObrigatoria: false,

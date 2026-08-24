@@ -487,6 +487,16 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             // PROSPECTOR — A SEMANA (12/08): gravar/trocar/desligar a escolha
             // do tipo (par do GET acima; {tipo:null} desliga).
             listOf("logistica", "prospector", "semana"),
+            /* PROSPECTOR — O CIENTE (24/08). O Prospector deixou de ser recurso
+               de plano e abriu pra todo mundo, então o aviso de responsabilidade
+               ("envia mensagem em seu nome, pode custar crédito") virou portão
+               SEM ESCAPE antes de ligar. Este POST carimba o aceite por PESSOA
+               no servidor — nunca no aparelho, porque carimbo em `HBX.cache`
+               morre na reinstalação e este aviso é jurídico.
+               🔴 Esquecer esta linha foi a 5ª repetição do defeito da casa: o
+               portão abria, o "Ciente" gravava NADA (a chamada morria dentro do
+               aparelho) e o aviso voltava a cada toque, com o backend verde. */
+            listOf("logistica", "prospector", "ciente"),
             listOf("logistica", "recados", "puxar"),
             listOf("logistica", "recados", "pendentes"),
             listOf("logistica", "recados", "recebidos"),

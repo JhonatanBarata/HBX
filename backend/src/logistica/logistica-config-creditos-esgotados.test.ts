@@ -44,7 +44,10 @@ function setup(balance: number | (() => Promise<number>)) {
   const wallet: any = {
     getBalance: typeof balance === 'function' ? balance : async () => balance,
   };
-  return new LogisticaConfigService(prisma, wallet);
+  // 24/08 — stub mínimo do UsersService (o carimbo do prospectorCiente tem
+  // teste próprio em logistica-config-prospector.test.ts).
+  const users: any = { findById: async () => ({}), getOnboardingEvents: () => ({}), stampOnboardingEvent: async () => ({ firstTime: true, events: {} }) };
+  return new LogisticaConfigService(prisma, wallet, users);
 }
 
 test('creditosEsgotados: saldo <= 0 vira true, pra admin E motorista', async () => {

@@ -117,7 +117,7 @@ test('S4: flag OFF → GET clientes/:id/score responde 404 SEM tocar o serviço 
 
 test('S4: flag ON → endpoint repassa pro serviço e devolve o resultado', async () => {
   await comFlag('1', async () => {
-    const esperado = { clienteId: 'cliente-1', moduloFinanceiroAtivo: true, score: 91, motivo: null, insumos: null };
+    const esperado = { clienteId: 'cliente-1', score: 91, motivo: null, insumos: null };
     const serviceStub: any = { scoreFiadoCliente: async () => esperado };
     const controller = new LogisticaController(serviceStub, {} as any, {} as any, {} as any, {} as any);
     const res = await controller.scoreCliente(
@@ -142,16 +142,15 @@ test('S4: flag ON + cliente de outra empresa (null do serviço) → 404', async 
   });
 });
 
-// ── fail-closed M4: módulo financeiro do tenant OFF → sem valores, sem query ──
+// ── 24/08/2026 — o gate moduloFinanceiroAtivo MORREU (financeiro sempre ligado)
 
-test('S4: moduloFinanceiroAtivo OFF → score null (financeiro_off) SEM consultar charges', async () => {
-  const { prisma, chamadas } = buildPrisma({ moduloFinanceiroAtivo: false });
+test('S4: o score é computado direto, SEM consultar a config do tenant (o gate morreu)', async () => {
+  const { prisma, chamadas } = buildPrisma({ charges: [paga(0), paga(0), paga(0)] });
   const res = await buildService(prisma).scoreFiadoCliente(1, 'cliente-1');
-  assert.equal(res?.moduloFinanceiroAtivo, false);
-  assert.equal(res?.score, null);
-  assert.equal(res?.motivo, 'financeiro_off');
-  assert.equal(res?.insumos, null);
-  assert.equal(chamadas.includes('financeiroCharge.findMany'), false);
+  assert.equal(typeof res?.score, 'number');
+  assert.equal(res?.motivo, null);
+  assert.equal(chamadas.includes('logisticaConfig.findUnique'), false, 'a config nem é lida');
+  assert.equal(Object.prototype.hasOwnProperty.call(res, 'moduloFinanceiroAtivo'), false, 'o flag saiu do contrato');
 });
 
 // ── (2) histórico insuficiente (<3 fechadas) → null ───────────────────────────
