@@ -642,3 +642,76 @@
       setTimeout(() => { if (rapida && rapida.porta === 'endereco') abrirPainelDaBusca(); }, 0);
     }
   });
+
+  /* O Android já recebe geo:, VIEW do Google Maps e SEND text/plain. A fusão
+     preservou essa porta nativa, mas perdeu o ouvinte que trazia o destino para
+     a tela. Ele cai no fluxo existente de Direção: nada de tela ou gravação
+     paralela, e iniciar a rota continua sendo um gesto separado. */
+  async function receberDestinoExterno(bruto) {
+    let destino = null;
+    try { destino = typeof bruto === 'string' ? JSON.parse(bruto) : bruto; }
+    catch (_) { destino = null; }
+    if (!destino) return;
+
+    const veioDe = telaAtual();
+    if (veioDe === 'rapida') rapidaEmBranco('rota');
+    else window.ir('rapida');
+    const r = rapida;
+    if (!r) return;
+    r.porta = 'endereco';
+    abrirPainelDaBusca();
+    /* O reconciliador preserva o `.value` vivo de inputs para não apagar o que
+       o dedo está digitando. Aqui a origem não é o dedo: um destino novo não
+       pode herdar "bar do ze" (nem um cliente) da abertura anterior. */
+    const buscaViva = naCamada('[data-campo="rapida-busca"]');
+    if (buscaViva) buscaViva.value = '';
+    const clienteVivo = naCamada('[data-campo="rapida-cliente-busca"]');
+    if (clienteVivo) clienteVivo.value = '';
+    r.buscando = true; r.aviso = '';
+    publicarRapida();
+
+    let lat = Number(destino.lat);
+    let lng = Number(destino.lng);
+    let rotulo = String(destino.rotulo || '').trim().slice(0, 120);
+    const link = String(destino.link || '').trim();
+    try {
+      if (!pinoValido(lat, lng) && link) {
+        const lido = await window.API.get(`/logistica/geo/link?u=${encodeURIComponent(link)}`);
+        lat = Number(lido && lido.lat); lng = Number(lido && lido.lng);
+        if (!rotulo) rotulo = String((lido && lido.rotulo) || '').trim().slice(0, 120);
+      }
+      if (!pinoValido(lat, lng)) throw new Error('destino_invalido');
+      await rapidaFixarPonto(lat, lng, rotulo, 'ponto');
+      if (rapida !== r || !r.resolvido) return;
+      r.buscando = false;
+      publicarRapida();
+      await rapidaCheckarPorta();
+      if (rapida !== r || !r.resolvido) return;
+      const titulo = tituloDaPorta(r.resolvido, r.numero);
+      guardarRecenteDaBusca(titulo);
+      armarPeDaBusca('colado', -1, titulo, '', digitos(r.cep || r.resolvido.cep || ''));
+    } catch (_) {
+      if (rapida !== r) return;
+      r.buscando = false;
+      r.aviso = 'Não consegui ler essa localização. Tente o endereço escrito.';
+      publicarRapida();
+    }
+  }
+  const CHAVE_DESTINO_PENDENTE = '__hbxDestinoPendente';
+  async function consumirDestinoExterno(bruto) {
+    window[CHAVE_DESTINO_PENDENTE] = null;
+    /* Na abertura fria, `carregarRota()` ainda vai pintar a fotografia do dia.
+       Se o destino entrar antes, essa pintura restaura a tela anterior por
+       cima dele. `bootFalta:dado` é o marco já usado pela própria abertura;
+       o teto mantém o link útil também quando a primeira leitura emperra. */
+    const limite = Date.now() + ABERTURA_TETO_PONTE + 500;
+    while (bootFalta.has('dado') && Date.now() < limite) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    await receberDestinoExterno(bruto);
+  }
+  document.addEventListener('hbx:destino', (ev) => { void consumirDestinoExterno(ev.detail); });
+  /* A abertura fria pode revelar a WebView entre mock.js e ponte.js. Nesse
+     intervalo o Android já disparou o evento; o recibo acima impede que um
+     link correto vire apenas a tela normal de Rota. */
+  if (window[CHAVE_DESTINO_PENDENTE]) void consumirDestinoExterno(window[CHAVE_DESTINO_PENDENTE]);

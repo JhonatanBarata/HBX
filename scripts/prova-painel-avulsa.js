@@ -157,6 +157,15 @@ const PONTE = ({ hoje, atrasoPorTermo }) => {
       const dobra = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
       if (caminho.indexOf('/logistica/config') === 0) return R({ modoRotaPadrao: 'essencial', appModulosDesativados: '' });
+      if (caminho.indexOf('/logistica/geo/link') === 0) {
+        return R({ lat: -22.4107, lng: -47.5607, rotulo: 'Destino do Google Maps' });
+      }
+      if (caminho.indexOf('/logistica/geo/reverse') === 0) {
+        return R({
+          endereco: 'Rua da Rota', numero: '362', bairro: 'Centro',
+          cidade: 'Rio Claro', uf: 'SP', cep: '13500123',
+        });
+      }
 
       /* ---- A PORTA DA F1: os três grupos ---------------------------------
          `atrasoPorTermo` é o que faz a cena B existir: o termo curto responde
@@ -715,6 +724,49 @@ const nota = (t) => notas.push(t);
     eh('M6b · e a tela diz que ela já está na rota de hoje',
       /já está na rota/i.test(t.aviso), t.aviso);
   } catch (e) { falhou.push(`CENA M6 explodiu: ${e.message}`); }
+
+  // =========================================================================
+  // N · LINK COMPARTILHADO DO GOOGLE MAPS → PARADA DE DIREÇÃO SEM PRODUTO
+  // =========================================================================
+  try {
+    await p.goto(APP);
+    await p.waitForTimeout(400);
+    await p.evaluate(PONTE, { hoje: HOJE, atrasoPorTermo: {} });
+    await p.evaluate(() => { window.ir('rota'); window.ir('rapida'); });
+    await p.waitForTimeout(250);
+    await tocar('[data-acao="rapida-porta"][data-porta="endereco"]', 250);
+    await digitar('bar do ze', 20);
+    await p.waitForTimeout(600);
+    await p.evaluate(() => {
+      window.__chamadas = [];
+      document.dispatchEvent(new CustomEvent('hbx:destino', {
+        detail: JSON.stringify({ link: 'https://maps.app.goo.gl/hbx-rota-teste' }),
+      }));
+    });
+    await p.waitForTimeout(900);
+    const t = await espiar();
+    const chamadasLink = await p.evaluate(() => window.__chamadas
+      .filter((c) => c[1] === '/logistica/geo/link').map((c) => c[3]));
+    nota(`[N] link=${JSON.stringify(chamadasLink)} · pe="${t.peResumo}"`);
+    eh('N0 · o link novo não herda a busca anterior', t.campo === '', t.campo);
+    eh('N1 · o evento externo abre o link curto no resolvedor existente',
+      chamadasLink.length === 1, chamadasLink.join(','));
+    eh('N2 · o destino chega pronto no pé de Adicionar à rota',
+      /Rua da Rota, 362/.test(t.peResumo) && /Adicionar à rota/i.test(t.peBotao),
+      `${t.peResumo} · ${t.peBotao}`);
+    await tocar('[data-acao="rapida-confirmar"]', 1800);
+    const conta = (await postsDe('/nucleo/contas'))[0] || {};
+    const entrega = (await postsDe('/logistica/entregas'))[0] || {};
+    eh('N3 · o endereço compartilhado vira parada de direção, não cliente',
+      conta.isCliente === false, JSON.stringify(conta));
+    eh('N4 · a entrega nasce sem produto e sem valor comercial',
+      !Object.prototype.hasOwnProperty.call(entrega, 'productId')
+        && !Object.prototype.hasOwnProperty.call(entrega, 'produtoId')
+        && !Object.prototype.hasOwnProperty.call(entrega, 'valor'),
+      JSON.stringify(entrega));
+    eh('N5 · a parada continua exigindo o toque de confirmação',
+      entrega.paraMinhaRota === true, JSON.stringify(entrega));
+  } catch (e) { falhou.push(`CENA N explodiu: ${e.message}`); }
 
   const erros = await p.evaluate(() => window.__erros || []);
   await b.close();

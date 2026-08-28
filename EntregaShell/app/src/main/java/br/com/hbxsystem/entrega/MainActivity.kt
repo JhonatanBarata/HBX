@@ -716,7 +716,12 @@ class MainActivity : AppCompatActivity() {
             DestinoPendente.guardar(json)
             return
         }
-        val js = "document.dispatchEvent(new CustomEvent('hbx:destino',{detail:${JSONObject.quote(json)}}));"
+        // `appReady()` ainda pode chegar do mock.js um instante antes de
+        // ponte.js registrar o ouvinte. O evento continua sendo a entrega
+        // imediata; a variável é só o recibo pegajoso que a ponte drena se
+        // tiver nascido depois dele.
+        val seguro = JSONObject.quote(json)
+        val js = "window.__hbxDestinoPendente=$seguro;document.dispatchEvent(new CustomEvent('hbx:destino',{detail:$seguro}));"
         webView.evaluateJavascript(js, null)
     }
 
